@@ -296,9 +296,10 @@ impl Verifier {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, watchtower_winternitz_public_keys, xonly_pk), fields(verifier_idx = self.idx), level = "warn", ret)]
     pub async fn set_watchtower(
         &self,
-        id: u32,
+        watchtower_idx: u32,
         watchtower_winternitz_public_keys: Vec<winternitz::PublicKey>,
         xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
@@ -320,7 +321,7 @@ impl Verifier {
             )));
         }
 
-        tracing::info!("Verifier receives watchtower index: {:?}", id);
+        tracing::info!("Verifier receives watchtower index: {:?}", watchtower_idx);
         tracing::info!(
             "Verifier receives watchtower xonly public key: {:?}",
             xonly_pk
@@ -333,7 +334,7 @@ impl Verifier {
             self.db
                 .set_watchtower_winternitz_public_keys(
                     None,
-                    id,
+                    watchtower_idx,
                     operator_idx as u32,
                     watchtower_winternitz_public_keys[index
                         ..index
@@ -364,14 +365,16 @@ impl Verifier {
             self.db
                 .set_watchtower_challenge_addresses(
                     None,
-                    id,
+                    watchtower_idx,
                     operator_idx as u32,
                     watchtower_challenge_addresses,
                 )
                 .await?;
         }
 
-        self.db.set_watchtower_xonly_pk(None, id, &xonly_pk).await?;
+        self.db
+            .set_watchtower_xonly_pk(None, watchtower_idx, &xonly_pk)
+            .await?;
 
         Ok(())
     }
@@ -1452,7 +1455,7 @@ impl Verifier {
 // }
 
 // #[tokio::test]
-// #[serial_test::serial]
+//
 // async fn new_deposit_nonce_checks() {
 //     let config = create_test_config_with_thread_name!(None);
 //     let rpc = ExtendedRpc::connect(

@@ -71,16 +71,11 @@ fn get_nonces(
 }
 
 #[tokio::test]
-#[serial_test::serial]
+
 async fn key_spend() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .unwrap();
+    let regtest = create_regtest_rpc!(config);
+    let rpc = regtest.rpc().clone();
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -171,16 +166,11 @@ async fn key_spend() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
+
 async fn key_spend_with_script() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .unwrap();
+    let regtest = create_regtest_rpc!(config);
+    let rpc = regtest.rpc().clone();
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -281,16 +271,11 @@ async fn key_spend_with_script() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
+
 async fn script_spend() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .unwrap();
+    let regtest = create_regtest_rpc!(config);
+    let rpc = regtest.rpc().clone();
 
     let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -392,19 +377,14 @@ async fn script_spend() {
 /// - The script spend is valid
 /// - The key spend is valid with the tweaked aggregate public key
 #[tokio::test]
-#[serial_test::serial]
+
 async fn key_and_script_spend() {
     use bitcoin::{Network::*, *};
 
     // Arrange
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .unwrap();
+    let regtest = create_regtest_rpc!(config);
+    let rpc = regtest.rpc().clone();
 
     // -- Musig2 Setup --
     // Generate NofN keys

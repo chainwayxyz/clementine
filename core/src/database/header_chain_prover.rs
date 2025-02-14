@@ -250,6 +250,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     pub async fn get_latest_chain_proof_height() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
@@ -306,6 +307,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     pub async fn save_get_block_proof() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
@@ -350,6 +352,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     pub async fn get_non_proven_block() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();

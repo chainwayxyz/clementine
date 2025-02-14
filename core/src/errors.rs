@@ -243,6 +243,10 @@ pub enum BridgeError {
     SignatureNotFound(TransactionType),
     #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
     TxHandlerNotFound(TransactionType),
+    #[error("NofN sighash count does not match. Expected: {0} Found: {1}")]
+    NofNSighashMismatch(usize, usize),
+    #[error("Operator sighash count does not match. Expected: {0} Found: {1}")]
+    OperatorSighashMismatch(usize, usize),
 
     #[error("The length of full assert commit data does not match the number of steps")]
     InvalidCommitData,

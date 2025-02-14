@@ -326,8 +326,8 @@ pub enum NormalSignatureKind {
     /// Used for TxHandlers that verifiers don't care. These will have signatures created
     /// by the operator on the fly.
     NotStored = 1,
-    KickoffTimeout1 = 2,
-    KickoffTimeout2 = 3,
+    AssertTimeout1 = 2,
+    AssertTimeout2 = 3,
     Challenge = 4,
     WatchtowerChallengeKickoff = 5,
     StartHappyReimburse2 = 6,
@@ -339,6 +339,10 @@ pub enum NormalSignatureKind {
     AlreadyDisproved2 = 12,
     Disprove2 = 13,
     Reimburse1 = 14,
+    StartHappyReimburse3 = 15,
+    DisproveTimeout3 = 16,
+    KickoffNotFinalized1 = 17,
+    KickoffNotFinalized2 = 18,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -349,8 +353,8 @@ impl NormalSignatureKind {
         match self {
             Self::NormalSignatureUnknown => "NormalSignatureUnknown",
             Self::NotStored => "NotStored",
-            Self::KickoffTimeout1 => "KickoffTimeout1",
-            Self::KickoffTimeout2 => "KickoffTimeout2",
+            Self::AssertTimeout1 => "AssertTimeout1",
+            Self::AssertTimeout2 => "AssertTimeout2",
             Self::Challenge => "Challenge",
             Self::WatchtowerChallengeKickoff => "WatchtowerChallengeKickoff",
             Self::StartHappyReimburse2 => "StartHappyReimburse2",
@@ -362,6 +366,10 @@ impl NormalSignatureKind {
             Self::AlreadyDisproved2 => "AlreadyDisproved2",
             Self::Disprove2 => "Disprove2",
             Self::Reimburse1 => "Reimburse1",
+            Self::StartHappyReimburse3 => "StartHappyReimburse3",
+            Self::DisproveTimeout3 => "DisproveTimeout3",
+            Self::KickoffNotFinalized1 => "KickoffNotFinalized1",
+            Self::KickoffNotFinalized2 => "KickoffNotFinalized2",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -369,8 +377,8 @@ impl NormalSignatureKind {
         match value {
             "NormalSignatureUnknown" => Some(Self::NormalSignatureUnknown),
             "NotStored" => Some(Self::NotStored),
-            "KickoffTimeout1" => Some(Self::KickoffTimeout1),
-            "KickoffTimeout2" => Some(Self::KickoffTimeout2),
+            "AssertTimeout1" => Some(Self::AssertTimeout1),
+            "AssertTimeout2" => Some(Self::AssertTimeout2),
             "Challenge" => Some(Self::Challenge),
             "WatchtowerChallengeKickoff" => Some(Self::WatchtowerChallengeKickoff),
             "StartHappyReimburse2" => Some(Self::StartHappyReimburse2),
@@ -382,6 +390,10 @@ impl NormalSignatureKind {
             "AlreadyDisproved2" => Some(Self::AlreadyDisproved2),
             "Disprove2" => Some(Self::Disprove2),
             "Reimburse1" => Some(Self::Reimburse1),
+            "StartHappyReimburse3" => Some(Self::StartHappyReimburse3),
+            "DisproveTimeout3" => Some(Self::DisproveTimeout3),
+            "KickoffNotFinalized1" => Some(Self::KickoffNotFinalized1),
+            "KickoffNotFinalized2" => Some(Self::KickoffNotFinalized2),
             _ => None,
         }
     }
@@ -430,7 +442,7 @@ pub enum NormalTransactionId {
     MoveToVault = 4,
     Payout = 5,
     Challenge = 6,
-    KickoffTimeout = 7,
+    AssertTimeout = 7,
     KickoffUtxoTimeout = 8,
     WatchtowerChallengeKickoff = 9,
     StartHappyReimburse = 10,
@@ -444,6 +456,8 @@ pub enum NormalTransactionId {
     AllNeededForVerifierDeposit = 18,
     AllNeededForOperatorDeposit = 19,
     Dummy = 20,
+    ReadyToReimburse = 21,
+    KickoffNotFinalized = 22,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -459,7 +473,7 @@ impl NormalTransactionId {
             Self::MoveToVault => "MOVE_TO_VAULT",
             Self::Payout => "PAYOUT",
             Self::Challenge => "CHALLENGE",
-            Self::KickoffTimeout => "KICKOFF_TIMEOUT",
+            Self::AssertTimeout => "ASSERT_TIMEOUT",
             Self::KickoffUtxoTimeout => "KICKOFF_UTXO_TIMEOUT",
             Self::WatchtowerChallengeKickoff => "WATCHTOWER_CHALLENGE_KICKOFF",
             Self::StartHappyReimburse => "START_HAPPY_REIMBURSE",
@@ -473,6 +487,8 @@ impl NormalTransactionId {
             Self::AllNeededForVerifierDeposit => "ALL_NEEDED_FOR_VERIFIER_DEPOSIT",
             Self::AllNeededForOperatorDeposit => "ALL_NEEDED_FOR_OPERATOR_DEPOSIT",
             Self::Dummy => "DUMMY",
+            Self::ReadyToReimburse => "READY_TO_REIMBURSE",
+            Self::KickoffNotFinalized => "KICKOFF_NOT_FINALIZED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -485,7 +501,7 @@ impl NormalTransactionId {
             "MOVE_TO_VAULT" => Some(Self::MoveToVault),
             "PAYOUT" => Some(Self::Payout),
             "CHALLENGE" => Some(Self::Challenge),
-            "KICKOFF_TIMEOUT" => Some(Self::KickoffTimeout),
+            "ASSERT_TIMEOUT" => Some(Self::AssertTimeout),
             "KICKOFF_UTXO_TIMEOUT" => Some(Self::KickoffUtxoTimeout),
             "WATCHTOWER_CHALLENGE_KICKOFF" => Some(Self::WatchtowerChallengeKickoff),
             "START_HAPPY_REIMBURSE" => Some(Self::StartHappyReimburse),
@@ -499,6 +515,8 @@ impl NormalTransactionId {
             "ALL_NEEDED_FOR_VERIFIER_DEPOSIT" => Some(Self::AllNeededForVerifierDeposit),
             "ALL_NEEDED_FOR_OPERATOR_DEPOSIT" => Some(Self::AllNeededForOperatorDeposit),
             "DUMMY" => Some(Self::Dummy),
+            "READY_TO_REIMBURSE" => Some(Self::ReadyToReimburse),
+            "KICKOFF_NOT_FINALIZED" => Some(Self::KickoffNotFinalized),
             _ => None,
         }
     }
@@ -1393,6 +1411,10 @@ pub mod clementine_aggregator_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
+        /// Sets up the system of verifiers, watchtowers and operators by:
+        /// 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
+        /// 2. Collecting all operator configs, and distributing them to all verifiers
+        /// 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
         pub async fn setup(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -2805,6 +2827,10 @@ pub mod clementine_aggregator_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineAggregatorServer.
     #[async_trait]
     pub trait ClementineAggregator: std::marker::Send + std::marker::Sync + 'static {
+        /// Sets up the system of verifiers, watchtowers and operators by:
+        /// 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
+        /// 2. Collecting all operator configs, and distributing them to all verifiers
+        /// 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
         async fn setup(
             &self,
             request: tonic::Request<super::Empty>,

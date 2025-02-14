@@ -446,6 +446,7 @@ pub fn create_mini_asserts_and_assert_end_from_scripts(
 /// to be able to send `reimburse_tx` later.
 pub fn create_disprove_timeout_txhandler(
     assert_end_txhandler: &TxHandler,
+    kickoff_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
@@ -461,6 +462,12 @@ pub fn create_disprove_timeout_txhandler(
             assert_end_txhandler.get_spendable_output(1)?,
             builder::script::SpendPath::ScriptSpend(0),
             Sequence::from_height(BLOCKS_PER_WEEK),
+        )
+        .add_input(
+            NormalSignatureKind::DisproveTimeout3,
+            kickoff_txhandler.get_spendable_output(4)?,
+            builder::script::SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,

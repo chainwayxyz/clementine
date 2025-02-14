@@ -312,11 +312,11 @@ pub async fn start_bitcoin_syncer(
 #[cfg(test)]
 mod tests {
     use crate::builder::transaction::DEFAULT_SEQUENCE;
-    use crate::create_test_config_with_thread_name;
     use crate::extended_rpc::ExtendedRpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
+    use crate::{create_regtest_rpc, create_test_config_with_thread_name};
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
@@ -328,13 +328,8 @@ mod tests {
     #[serial_test::serial]
     async fn get_block_info_from_height() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         rpc.mine_blocks(1).await.unwrap();
         let height = rpc.client.get_block_count().await.unwrap();
@@ -364,13 +359,8 @@ mod tests {
     async fn save_get_transaction_spent_utxos() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
 
@@ -428,13 +418,8 @@ mod tests {
     async fn save_get_block() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
 
@@ -467,13 +452,8 @@ mod tests {
     async fn set_initial_block_info_if_not_exists() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
 
@@ -508,13 +488,8 @@ mod tests {
     async fn fetch_new_blocks_forward() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
 
@@ -549,13 +524,8 @@ mod tests {
     async fn fetch_new_blocks_backwards() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         // Prepare chain.
         rpc.mine_blocks(1).await.unwrap();
@@ -603,13 +573,8 @@ mod tests {
     async fn set_non_canonical_block_hashes() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let hashes = rpc.mine_blocks(4).await.unwrap();
         let height = rpc.client.get_block_count().await.unwrap();
@@ -654,13 +619,8 @@ mod tests {
     async fn start_bitcoin_syncer_new_block_mined() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         rpc.mine_blocks(1).await.unwrap();
         let height = rpc.client.get_block_count().await.unwrap();

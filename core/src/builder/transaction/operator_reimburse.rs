@@ -29,7 +29,7 @@ pub fn create_kickoff_txhandler(
     let mut builder = TxHandlerBuilder::new(TransactionType::Kickoff);
     builder = builder.add_input(
         NormalSignatureKind::NotStored,
-        sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
+        sequential_collateral_txhandler.get_spendable_output(1 + kickoff_idx)?,
         builder::script::SpendPath::ScriptSpend(0),
         DEFAULT_SEQUENCE,
     );
@@ -70,7 +70,14 @@ pub fn create_kickoff_txhandler(
         ))
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![nofn_script, nofn_3week],
+            vec![nofn_script.clone(), nofn_3week],
+            None,
+            network,
+        ))
+        .add_output(UnspentTxOut::from_scripts(
+            // kickoff finalizer
+            MIN_TAPROOT_AMOUNT,
+            vec![nofn_script],
             None,
             network,
         ));
@@ -91,6 +98,29 @@ pub fn create_kickoff_txhandler(
         .finalize())
 }
 
+pub fn create_kickoff_not_finalized_txhandler(
+    kickoff_txhandler: &TxHandler,
+    ready_to_reimburse_txhandler: &TxHandler,
+) -> Result<TxHandler, BridgeError> {
+    Ok(TxHandlerBuilder::new(TransactionType::KickoffNotFinalized)
+        .add_input(
+            NormalSignatureKind::KickoffNotFinalized1,
+            kickoff_txhandler.get_spendable_output(4)?,
+            builder::script::SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
+        .add_input(
+            NormalSignatureKind::KickoffNotFinalized2,
+            ready_to_reimburse_txhandler.get_spendable_output(0)?,
+            builder::script::SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize())
+}
+
 /// Creates a [`TxHandler`] for the `start_happy_reimburse_tx`. This transaction will be sent by the operator
 /// in case of no challenges, to be able to send `happy_reimburse_tx` later. Everyone is happy because the
 /// operator is honest and the system does not have to deal with any disputes.
@@ -100,18 +130,25 @@ pub fn create_start_happy_reimburse_txhandler(
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new(TransactionType::StartHappyReimburse);
-    builder = builder.add_input(
-        NormalSignatureKind::NotStored,
-        kickoff_txhandler.get_spendable_output(1)?,
-        builder::script::SpendPath::ScriptSpend(1),
-        Sequence::from_height(BLOCKS_PER_WEEK),
-    );
-    builder = builder.add_input(
-        NormalSignatureKind::StartHappyReimburse2,
-        kickoff_txhandler.get_spendable_output(3)?,
-        builder::script::SpendPath::ScriptSpend(0),
-        DEFAULT_SEQUENCE,
-    );
+    builder = builder
+        .add_input(
+            NormalSignatureKind::NotStored,
+            kickoff_txhandler.get_spendable_output(1)?,
+            builder::script::SpendPath::ScriptSpend(1),
+            Sequence::from_height(BLOCKS_PER_WEEK),
+        )
+        .add_input(
+            NormalSignatureKind::StartHappyReimburse2,
+            kickoff_txhandler.get_spendable_output(3)?,
+            builder::script::SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
+        .add_input(
+            NormalSignatureKind::StartHappyReimburse3,
+            kickoff_txhandler.get_spendable_output(4)?,
+            builder::script::SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        );
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(

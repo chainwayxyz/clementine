@@ -47,60 +47,76 @@ pub async fn create_txhandlers(
     )?;
     txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
 
-    let (sequential_collateral_txhandler, reimburse_generator_txhandler) =
-        match prev_reimburse_generator {
-            Some(prev_reimburse_generator) => {
-                let sequential_collateral_txhandler =
-                    builder::transaction::create_sequential_collateral_txhandler(
-                        operator_data.xonly_pk,
-                        *prev_reimburse_generator.get_txid(),
-                        prev_reimburse_generator
-                            .get_spendable_output(0)?
-                            .get_prevout()
-                            .value,
-                        config.timeout_block_count,
-                        config.max_withdrawal_time_block_count,
-                        config.num_kickoffs_per_sequential_collateral_tx,
-                        config.network,
-                    )?;
+    let (
+        sequential_collateral_txhandler,
+        ready_to_reimburse_txhandler,
+        reimburse_generator_txhandler,
+    ) = match prev_reimburse_generator {
+        Some(prev_reimburse_generator) => {
+            let sequential_collateral_txhandler =
+                builder::transaction::create_sequential_collateral_txhandler(
+                    operator_data.xonly_pk,
+                    *prev_reimburse_generator.get_txid(),
+                    prev_reimburse_generator
+                        .get_spendable_output(0)?
+                        .get_prevout()
+                        .value,
+                    config.timeout_block_count,
+                    config.num_kickoffs_per_sequential_collateral_tx,
+                    config.network,
+                )?;
 
-                // Create the reimburse_generator_tx handler.
-                let reimburse_generator_txhandler =
-                    builder::transaction::create_reimburse_generator_txhandler(
-                        &sequential_collateral_txhandler,
-                        operator_data.xonly_pk,
-                        config.num_kickoffs_per_sequential_collateral_tx,
-                        config.max_withdrawal_time_block_count,
-                        config.network,
-                    )?;
-                (
-                    sequential_collateral_txhandler,
-                    reimburse_generator_txhandler,
-                )
-            }
-            None => {
-                // create nth sequential collateral tx and reimburse generator tx for the operator
-                let (sequential_collateral_txhandler, reimburse_generator_txhandler) =
-                    builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
-                        operator_data.xonly_pk,
-                        operator_data.collateral_funding_txid,
-                        config.collateral_funding_amount,
-                        config.timeout_block_count,
-                        config.num_kickoffs_per_sequential_collateral_tx,
-                        config.max_withdrawal_time_block_count,
-                        config.network,
-                        kickoff_id.sequential_collateral_idx as usize,
-                    )?;
-                (
-                    sequential_collateral_txhandler,
-                    reimburse_generator_txhandler,
-                )
-            }
-        };
+            let ready_to_reimburse_txhandler =
+                builder::transaction::create_ready_to_reimburse_txhandler(
+                    &sequential_collateral_txhandler,
+                    operator_data.xonly_pk,
+                    config.network,
+                )?;
+
+            // Create the reimburse_generator_tx handler.
+            let reimburse_generator_txhandler =
+                builder::transaction::create_reimburse_generator_txhandler(
+                    &ready_to_reimburse_txhandler,
+                    operator_data.xonly_pk,
+                    config.num_kickoffs_per_sequential_collateral_tx,
+                    config.network,
+                )?;
+            (
+                sequential_collateral_txhandler,
+                ready_to_reimburse_txhandler,
+                reimburse_generator_txhandler,
+            )
+        }
+        None => {
+            // create nth sequential collateral tx and reimburse generator tx for the operator
+            let (
+                sequential_collateral_txhandler,
+                ready_to_reimburse_txhandler,
+                reimburse_generator_txhandler,
+            ) = builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
+                operator_data.xonly_pk,
+                operator_data.collateral_funding_txid,
+                config.collateral_funding_amount,
+                config.timeout_block_count,
+                config.num_kickoffs_per_sequential_collateral_tx,
+                config.network,
+                kickoff_id.sequential_collateral_idx as usize,
+            )?;
+            (
+                sequential_collateral_txhandler,
+                ready_to_reimburse_txhandler,
+                reimburse_generator_txhandler,
+            )
+        }
+    };
 
     txhandlers.insert(
         sequential_collateral_txhandler.get_transaction_type(),
         sequential_collateral_txhandler,
+    );
+    txhandlers.insert(
+        ready_to_reimburse_txhandler.get_transaction_type(),
+        ready_to_reimburse_txhandler,
     );
     txhandlers.insert(
         reimburse_generator_txhandler.get_transaction_type(),
@@ -129,7 +145,7 @@ pub async fn create_txhandlers(
     );
 
     // Creates the kickoff_timeout_tx handler.
-    let kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
+    let kickoff_timeout_txhandler = builder::transaction::create_assert_timeout_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
     )?;
@@ -139,11 +155,24 @@ pub async fn create_txhandlers(
     );
 
     // Creates the challenge_tx handler.
-    let challenge_tx = builder::transaction::create_challenge_txhandler(
+    let challenge_txhandler = builder::transaction::create_challenge_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         &operator_data.reimburse_addr,
     )?;
-    txhandlers.insert(challenge_tx.get_transaction_type(), challenge_tx);
+    txhandlers.insert(
+        challenge_txhandler.get_transaction_type(),
+        challenge_txhandler,
+    );
+
+    let kickoff_not_finalized_txhandler =
+        builder::transaction::create_kickoff_not_finalized_txhandler(
+            get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+            get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+        )?;
+    txhandlers.insert(
+        kickoff_not_finalized_txhandler.get_transaction_type(),
+        kickoff_not_finalized_txhandler,
+    );
 
     // Generate Happy reimburse txs conditionally
     if matches!(
@@ -452,6 +481,7 @@ pub async fn create_txhandlers(
     // Creates the disprove_timeout_tx handler.
     let disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
         get_txhandler(&txhandlers, TransactionType::AssertEnd)?,
+        get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         operator_data.xonly_pk,
         config.network,
     )?;
@@ -527,23 +557,25 @@ mod tests {
         EVMAddress,
     };
     use crate::{
-        create_actors,
+        create_actors, create_regtest_rpc,
         extended_rpc::ExtendedRpc,
+        get_available_port,
         rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
     };
     use bitcoin::Txid;
+    use futures::future::try_join_all;
 
     use crate::builder::transaction::TransactionType;
     use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
     use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
-    #[tokio::test]
-    #[serial_test::serial]
+    #[tokio::test(flavor = "multi_thread")]
+
     async fn test_deposit_and_sign_txs() {
         let config = create_test_config_with_thread_name!(None);
 
-        let (mut verifiers, mut operators, mut aggregator, mut watchtowers) =
+        let (mut verifiers, mut operators, mut aggregator, mut watchtowers, _regtest) =
             create_actors!(config);
 
         tracing::info!("Setting up aggregator");
@@ -585,10 +617,12 @@ mod tests {
 
         let mut txs_operator_can_sign = vec![
             TransactionType::SequentialCollateral,
+            TransactionType::ReadyToReimburse,
             TransactionType::ReimburseGenerator,
             TransactionType::Kickoff,
+            TransactionType::KickoffNotFinalized,
             TransactionType::Challenge,
-            TransactionType::KickoffTimeout,
+            TransactionType::AssertTimeout,
             TransactionType::KickoffUtxoTimeout,
             TransactionType::WatchtowerChallengeKickoff,
             TransactionType::StartHappyReimburse,
@@ -613,93 +647,117 @@ mod tests {
             .collect::<Vec<_>>();
 
         // try to sign everything for all operators
-        for (operator_idx, operator_rpc) in operators.iter_mut().enumerate() {
-            for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
-                for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                    let kickoff_id = KickoffId {
-                        operator_idx: operator_idx as u32,
-                        sequential_collateral_idx: sequential_collateral_idx as u32,
-                        kickoff_idx: kickoff_idx as u32,
-                    };
-                    for tx_type in &txs_operator_can_sign {
-                        let _raw_tx = operator_rpc
-                            .internal_create_signed_tx(TransactionRequest {
-                                deposit_params: deposit_params.clone().into(),
-                                transaction_type: Some((*tx_type).into()),
-                                kickoff_id: Some(kickoff_id),
-                                commit_data: if let TransactionType::MiniAssert(assert_idx) =
-                                    tx_type
-                                {
-                                    full_commit_data[*assert_idx].clone()
-                                } else {
-                                    vec![]
-                                },
-                            })
-                            .await
-                            .unwrap();
-                        tracing::info!("Operator Signed tx: {:?}", tx_type);
-                    }
-                    // TODO: run with release after bitvm optimization? all raw tx's don't fit 4mb (grpc limit) for now
-                    #[cfg(debug_assertions)]
-                    {
-                        let _raw_assert_txs = operator_rpc
-                            .internal_create_assert_commitment_txs(AssertRequest {
-                                deposit_params: deposit_params.clone().into(),
-                                kickoff_id: Some(kickoff_id),
-                                commit_data: full_commit_data.clone(),
-                            })
-                            .await
-                            .unwrap()
-                            .into_inner()
-                            .raw_txs;
-                        tracing::info!(
-                            "Operator Signed Assert txs of size: {}",
-                            _raw_assert_txs.len()
-                        );
+        let thread_handles: Vec<_> = operators
+            .iter_mut()
+            .enumerate()
+            .map(|(operator_idx, operator_rpc)| {
+                let txs_operator_can_sign = txs_operator_can_sign.clone();
+                let deposit_params = deposit_params.clone();
+                let full_commit_data = full_commit_data.clone();
+                let mut operator_rpc = operator_rpc.clone();
+                async move {
+                    for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
+                        for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                            let kickoff_id = KickoffId {
+                                operator_idx: operator_idx as u32,
+                                sequential_collateral_idx: sequential_collateral_idx as u32,
+                                kickoff_idx: kickoff_idx as u32,
+                            };
+                            for tx_type in &txs_operator_can_sign {
+                                let _raw_tx = operator_rpc
+                                    .internal_create_signed_tx(TransactionRequest {
+                                        deposit_params: deposit_params.clone().into(),
+                                        transaction_type: Some((*tx_type).into()),
+                                        kickoff_id: Some(kickoff_id),
+                                        commit_data: if let TransactionType::MiniAssert(
+                                            assert_idx,
+                                        ) = tx_type
+                                        {
+                                            full_commit_data[*assert_idx].clone()
+                                        } else {
+                                            vec![]
+                                        },
+                                    })
+                                    .await
+                                    .unwrap();
+                                tracing::info!("Operator Signed tx: {:?}", tx_type);
+                            }
+                            // TODO: run with release after bitvm optimization? all raw tx's don't fit 4mb (grpc limit) for now
+                            #[cfg(debug_assertions)]
+                            {
+                                let _raw_assert_txs = operator_rpc
+                                    .internal_create_assert_commitment_txs(AssertRequest {
+                                        deposit_params: deposit_params.clone().into(),
+                                        kickoff_id: Some(kickoff_id),
+                                        commit_data: full_commit_data.clone(),
+                                    })
+                                    .await
+                                    .unwrap()
+                                    .into_inner()
+                                    .raw_txs;
+                                tracing::info!(
+                                    "Operator Signed Assert txs of size: {}",
+                                    _raw_assert_txs.len()
+                                );
+                            }
+                        }
                     }
                 }
-            }
-        }
+            })
+            .map(tokio::task::spawn)
+            .collect();
 
         // try signing watchtower challenges for all watchtowers
-        for (watchtower_idx, watchtower_rpc) in watchtowers.iter_mut().enumerate() {
-            for operator_idx in 0..config.num_operators {
-                for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
-                    for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                        let kickoff_id = KickoffId {
-                            operator_idx: operator_idx as u32,
-                            sequential_collateral_idx: sequential_collateral_idx as u32,
-                            kickoff_idx: kickoff_idx as u32,
-                        };
-                        let _raw_tx = watchtower_rpc
-                            .internal_create_signed_tx(TransactionRequest {
-                                deposit_params: deposit_params.clone().into(),
-                                transaction_type: Some(
-                                    TransactionType::WatchtowerChallenge(watchtower_idx).into(),
-                                ),
-                                kickoff_id: Some(kickoff_id),
-                                commit_data: vec![
-                                    1u8;
-                                    WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize
-                                        * WINTERNITZ_LOG_D as usize
-                                        / 8
-                                ],
-                            })
-                            .await
-                            .unwrap();
-                        tracing::info!(
-                            "Watchtower Signed tx: {:?}",
-                            TransactionType::WatchtowerChallenge(watchtower_idx)
-                        );
+        let watchtower_thread_handles: Vec<_> = watchtowers
+            .iter_mut()
+            .enumerate()
+            .map(|(watchtower_idx, watchtower_rpc)| {
+                let deposit_params = deposit_params.clone();
+                let mut watchtower_rpc = watchtower_rpc.clone();
+                async move {
+                    for operator_idx in 0..config.num_operators {
+                        for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
+                            for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                                let kickoff_id = KickoffId {
+                                    operator_idx: operator_idx as u32,
+                                    sequential_collateral_idx: sequential_collateral_idx as u32,
+                                    kickoff_idx: kickoff_idx as u32,
+                                };
+                                let _raw_tx = watchtower_rpc
+                                    .internal_create_signed_tx(TransactionRequest {
+                                        deposit_params: deposit_params.clone().into(),
+                                        transaction_type: Some(
+                                            TransactionType::WatchtowerChallenge(watchtower_idx)
+                                                .into(),
+                                        ),
+                                        kickoff_id: Some(kickoff_id),
+                                        commit_data: vec![
+                                            1u8;
+                                            WATCHTOWER_CHALLENGE_MESSAGE_LENGTH
+                                                as usize
+                                                * WINTERNITZ_LOG_D as usize
+                                                / 8
+                                        ],
+                                    })
+                                    .await
+                                    .unwrap();
+                                tracing::info!(
+                                    "Watchtower Signed tx: {:?}",
+                                    TransactionType::WatchtowerChallenge(watchtower_idx)
+                                );
+                            }
+                        }
                     }
                 }
-            }
-        }
+            })
+            .map(tokio::task::spawn)
+            .collect();
 
         let mut txs_verifier_can_sign = vec![
             TransactionType::Challenge,
-            TransactionType::KickoffTimeout,
+            TransactionType::AssertTimeout,
             TransactionType::KickoffUtxoTimeout,
+            TransactionType::KickoffNotFinalized,
             TransactionType::WatchtowerChallengeKickoff,
             //TransactionType::Disprove,
             TransactionType::DisproveTimeout,
@@ -709,30 +767,44 @@ mod tests {
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
 
         // try to sign everything for all verifiers
-        for verifier_rpc in verifiers.iter_mut() {
-            for operator_idx in 0..config.num_operators {
-                for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
-                    for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                        let kickoff_id = KickoffId {
-                            operator_idx: operator_idx as u32,
-                            sequential_collateral_idx: sequential_collateral_idx as u32,
-                            kickoff_idx: kickoff_idx as u32,
-                        };
-                        for tx_type in &txs_verifier_can_sign {
-                            let _raw_tx = verifier_rpc
-                                .internal_create_signed_tx(TransactionRequest {
-                                    deposit_params: deposit_params.clone().into(),
-                                    transaction_type: Some((*tx_type).into()),
-                                    kickoff_id: Some(kickoff_id),
-                                    commit_data: vec![],
-                                })
-                                .await
-                                .unwrap();
-                            tracing::info!("Verifier Signed tx: {:?}", tx_type);
+        // try signing verifier transactions
+        let verifier_thread_handles: Vec<_> = verifiers
+            .iter_mut()
+            .map(|verifier_rpc| {
+                let txs_verifier_can_sign = txs_verifier_can_sign.clone();
+                let deposit_params = deposit_params.clone();
+                let mut verifier_rpc = verifier_rpc.clone();
+                async move {
+                    for operator_idx in 0..config.num_operators {
+                        for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
+                            for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                                let kickoff_id = KickoffId {
+                                    operator_idx: operator_idx as u32,
+                                    sequential_collateral_idx: sequential_collateral_idx as u32,
+                                    kickoff_idx: kickoff_idx as u32,
+                                };
+                                for tx_type in &txs_verifier_can_sign {
+                                    let _raw_tx = verifier_rpc
+                                        .internal_create_signed_tx(TransactionRequest {
+                                            deposit_params: deposit_params.clone().into(),
+                                            transaction_type: Some((*tx_type).into()),
+                                            kickoff_id: Some(kickoff_id),
+                                            commit_data: vec![],
+                                        })
+                                        .await
+                                        .unwrap();
+                                    tracing::info!("Verifier Signed tx: {:?}", tx_type);
+                                }
+                            }
                         }
                     }
                 }
-            }
-        }
+            })
+            .map(tokio::task::spawn)
+            .collect();
+
+        try_join_all(thread_handles).await.unwrap();
+        try_join_all(watchtower_thread_handles).await.unwrap();
+        try_join_all(verifier_thread_handles).await.unwrap();
     }
 }

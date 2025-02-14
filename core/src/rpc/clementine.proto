@@ -18,8 +18,8 @@ enum NormalSignatureKind {
   // Used for TxHandlers that verifiers don't care. These will have signatures created
   // by the operator on the fly.
   NotStored = 1;
-  KickoffTimeout1 = 2;
-  KickoffTimeout2 = 3;
+  AssertTimeout1 = 2;
+  AssertTimeout2 = 3;
   Challenge = 4;
   WatchtowerChallengeKickoff = 5;
   StartHappyReimburse2 = 6;
@@ -31,6 +31,10 @@ enum NormalSignatureKind {
   AlreadyDisproved2 = 12;
   Disprove2 = 13;
   Reimburse1 = 14;
+  StartHappyReimburse3 = 15;
+  DisproveTimeout3 = 16;
+  KickoffNotFinalized1 = 17;
+  KickoffNotFinalized2 = 18;
 }
 
 enum WatchtowerSignatureKind {
@@ -89,7 +93,7 @@ enum NormalTransactionId {
     MOVE_TO_VAULT = 4;
     PAYOUT = 5;
     CHALLENGE = 6;
-    KICKOFF_TIMEOUT = 7;
+    ASSERT_TIMEOUT = 7;
     KICKOFF_UTXO_TIMEOUT = 8;
     WATCHTOWER_CHALLENGE_KICKOFF = 9;
     START_HAPPY_REIMBURSE = 10;
@@ -103,6 +107,8 @@ enum NormalTransactionId {
     ALL_NEEDED_FOR_VERIFIER_DEPOSIT = 18;
     ALL_NEEDED_FOR_OPERATOR_DEPOSIT = 19;
     DUMMY = 20;
+    READY_TO_REIMBURSE = 21;
+    KICKOFF_NOT_FINALIZED = 22;
 }
 
 enum WatchtowerTransactionType {
@@ -402,6 +408,10 @@ message RawSignedTxs {
 }
 
 service ClementineAggregator {
+  // Sets up the system of verifiers, watchtowers and operators by:
+  // 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
+  // 2. Collecting all operator configs, and distributing them to all verifiers
+  // 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
   rpc Setup(Empty) returns (Empty) {}
   // This will call, DepositNonceGen for every verifier,
   // then it will aggregate one by one and then send it to DepositSign,

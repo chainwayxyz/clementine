@@ -68,7 +68,7 @@ pub enum TransactionType {
     MoveToVault,
     Payout,
     Challenge,
-    KickoffTimeout,
+    AssertTimeout,
     KickoffUtxoTimeout,
     WatchtowerChallengeKickoff,
     StartHappyReimburse,
@@ -86,6 +86,8 @@ pub enum TransactionType {
     AllNeededForVerifierDeposit, // this will include all tx's that is to be signed for a deposit for verifiers
     AllNeededForOperatorDeposit, // this will include all tx's that is to be signed for a deposit for operators
     Dummy,                       // for tests
+    ReadyToReimburse,
+    KickoffNotFinalized,
 }
 
 // converter from proto type to rust enum
@@ -106,7 +108,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::MoveToVault => Ok(Self::MoveToVault),
                     Normal::Payout => Ok(Self::Payout),
                     Normal::Challenge => Ok(Self::Challenge),
-                    Normal::KickoffTimeout => Ok(Self::KickoffTimeout),
+                    Normal::AssertTimeout => Ok(Self::AssertTimeout),
                     Normal::KickoffUtxoTimeout => Ok(Self::KickoffUtxoTimeout),
                     Normal::WatchtowerChallengeKickoff => Ok(Self::WatchtowerChallengeKickoff),
                     Normal::StartHappyReimburse => Ok(Self::StartHappyReimburse),
@@ -120,6 +122,8 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::AllNeededForVerifierDeposit => Ok(Self::AllNeededForVerifierDeposit),
                     Normal::AllNeededForOperatorDeposit => Ok(Self::AllNeededForOperatorDeposit),
                     Normal::Dummy => Ok(Self::Dummy),
+                    Normal::ReadyToReimburse => Ok(Self::ReadyToReimburse),
+                    Normal::KickoffNotFinalized => Ok(Self::KickoffNotFinalized),
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
                 }
             }
@@ -162,7 +166,7 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::MoveToVault => NormalTransaction(Normal::MoveToVault as i32),
                 TransactionType::Payout => NormalTransaction(Normal::Payout as i32),
                 TransactionType::Challenge => NormalTransaction(Normal::Challenge as i32),
-                TransactionType::KickoffTimeout => NormalTransaction(Normal::KickoffTimeout as i32),
+                TransactionType::AssertTimeout => NormalTransaction(Normal::AssertTimeout as i32),
                 TransactionType::KickoffUtxoTimeout => {
                     NormalTransaction(Normal::KickoffUtxoTimeout as i32)
                 }
@@ -190,6 +194,12 @@ impl From<TransactionType> for GrpcTransactionId {
                     NormalTransaction(Normal::AllNeededForOperatorDeposit as i32)
                 }
                 TransactionType::Dummy => NormalTransaction(Normal::Dummy as i32),
+                TransactionType::ReadyToReimburse => {
+                    NormalTransaction(Normal::ReadyToReimburse as i32)
+                }
+                TransactionType::KickoffNotFinalized => {
+                    NormalTransaction(Normal::KickoffNotFinalized as i32)
+                }
                 TransactionType::WatchtowerChallenge(index) => {
                     WatchtowerTransaction(WatchtowerTransactionId {
                         transaction_type: Watchtower::WatchtowerChallenge as i32,

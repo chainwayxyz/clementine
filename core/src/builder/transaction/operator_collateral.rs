@@ -20,7 +20,7 @@ use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
-use crate::constants::MIN_TAPROOT_AMOUNT;
+use crate::constants::{BLOCKS_PER_DAY, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
 use bitcoin::{Sequence, Txid};
@@ -43,7 +43,6 @@ pub fn create_sequential_collateral_txhandler(
     input_txid: Txid,
     input_amount: Amount,
     timeout_block_count: i64,
-    max_withdrawal_time_block_count: u16,
     num_kickoffs_per_sequential_collateral_tx: usize,
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
@@ -65,10 +64,6 @@ pub fn create_sequential_collateral_txhandler(
         SpendPath::KeySpend,
         DEFAULT_SEQUENCE,
     );
-    let max_withdrawal_time_locked_script = Arc::new(TimelockScript::new(
-        Some(operator_xonly_pk),
-        max_withdrawal_time_block_count,
-    ));
 
     let timeout_block_count_locked_script = Arc::new(TimelockScript::new(
         None,
@@ -76,19 +71,12 @@ pub fn create_sequential_collateral_txhandler(
             .map_err(|_| BridgeError::Error("Timeout value is not u16".to_string()))?,
     ));
 
-    builder = builder
-        .add_output(UnspentTxOut::from_scripts(
-            input_amount,
-            vec![],
-            Some(operator_xonly_pk),
-            network,
-        ))
-        .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
-            vec![max_withdrawal_time_locked_script],
-            None,
-            network,
-        ));
+    builder = builder.add_output(UnspentTxOut::from_scripts(
+        input_amount, // TODO: - num_kickoffs_per_sequential_collateral_tx * kickoff_sats,
+        vec![],
+        Some(operator_xonly_pk),
+        network,
+    ));
 
     // add kickoff utxos
     for _ in 0..num_kickoffs_per_sequential_collateral_tx {
@@ -117,32 +105,26 @@ pub fn create_sequential_collateral_txhandler(
 /// 2. Reimburse connector utxo(s): the utxo(s) will be used as the input(s) for the reimburse_tx(s)
 /// 3. P2Anchor: Anchor output for CPFP
 pub fn create_reimburse_generator_txhandler(
-    sequential_collateral_txhandler: &TxHandler,
+    ready_to_reimburse_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
     num_kickoffs_per_sequential_collateral_tx: usize,
-    max_withdrawal_time_block_count: u16,
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
+    let prevout = ready_to_reimburse_txhandler.get_spendable_output(0)?;
     let mut builder = TxHandlerBuilder::new(TransactionType::ReimburseGenerator)
         .add_input(
             NormalSignatureKind::NotStored,
-            sequential_collateral_txhandler.get_spendable_output(0)?,
+            prevout.clone(),
             SpendPath::KeySpend,
-            DEFAULT_SEQUENCE,
+            Sequence::from_height(BLOCKS_PER_DAY),
         )
-        .add_input(
-            NormalSignatureKind::NotStored,
-            sequential_collateral_txhandler.get_spendable_output(1)?,
-            SpendPath::ScriptSpend(0),
-            Sequence::from_height(max_withdrawal_time_block_count),
-        );
-
-    builder = builder.add_output(UnspentTxOut::from_scripts(
-        MIN_TAPROOT_AMOUNT,
-        vec![],
-        Some(operator_xonly_pk),
-        network,
-    ));
+        .add_output(UnspentTxOut::from_scripts(
+            prevout.get_prevout().value
+                - MIN_TAPROOT_AMOUNT * num_kickoffs_per_sequential_collateral_tx as u64, // - sats of reimburses
+            vec![],
+            Some(operator_xonly_pk),
+            network,
+        ));
 
     // add reimburse utxos
     for _ in 0..num_kickoffs_per_sequential_collateral_tx {
@@ -170,7 +152,7 @@ pub fn create_kickoff_utxo_timeout_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new(TransactionType::KickoffUtxoTimeout).add_input(
         NormalSignatureKind::NotStored,
-        sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
+        sequential_collateral_txhandler.get_spendable_output(1 + kickoff_idx)?,
         SpendPath::ScriptSpend(0),
         DEFAULT_SEQUENCE,
     );
@@ -186,19 +168,19 @@ pub fn create_kickoff_utxo_timeout_txhandler(
 /// Creates a [`TxHandler`] for the `kickoff_timeout_tx`. This transaction will be sent by anyone
 /// in case the operator does not respond to a challenge (did not manage to send `assert_end_tx`)
 /// in time, burning their burn connector.
-pub fn create_kickoff_timeout_txhandler(
+pub fn create_assert_timeout_txhandler(
     kickoff_tx_handler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
-    let builder = TxHandlerBuilder::new(TransactionType::KickoffTimeout)
+    let builder = TxHandlerBuilder::new(TransactionType::AssertTimeout)
         .add_input(
-            NormalSignatureKind::KickoffTimeout1,
+            NormalSignatureKind::AssertTimeout1,
             kickoff_tx_handler.get_spendable_output(3)?,
             SpendPath::ScriptSpend(1),
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            NormalSignatureKind::KickoffTimeout2,
+            NormalSignatureKind::AssertTimeout2,
             sequential_collateral_txhandler.get_spendable_output(0)?,
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
@@ -218,24 +200,23 @@ pub fn create_seq_collat_reimburse_gen_nth_txhandler(
     input_amount: Amount,
     timeout_block_count: i64,
     num_kickoffs_per_sequential_collateral_tx: usize,
-    max_withdrawal_time_block_count: u16,
     network: bitcoin::Network,
     index: usize,
-) -> Result<(TxHandler, TxHandler), BridgeError> {
+) -> Result<(TxHandler, TxHandler, TxHandler), BridgeError> {
     let mut seq_collat_txhandler = create_sequential_collateral_txhandler(
         operator_xonly_pk,
         input_txid,
         input_amount,
         timeout_block_count,
-        max_withdrawal_time_block_count,
         num_kickoffs_per_sequential_collateral_tx,
         network,
     )?;
+    let mut ready_to_reimburse_txhandler =
+        create_ready_to_reimburse_txhandler(&seq_collat_txhandler, operator_xonly_pk, network)?;
     let mut reimburse_gen_txhandler = create_reimburse_generator_txhandler(
-        &seq_collat_txhandler,
+        &ready_to_reimburse_txhandler,
         operator_xonly_pk,
         num_kickoffs_per_sequential_collateral_tx,
-        max_withdrawal_time_block_count,
         network,
     )?;
     for _ in 0..index {
@@ -247,17 +228,46 @@ pub fn create_seq_collat_reimburse_gen_nth_txhandler(
                 .get_prevout()
                 .value,
             timeout_block_count,
-            max_withdrawal_time_block_count,
             num_kickoffs_per_sequential_collateral_tx,
             network,
         )?;
+        ready_to_reimburse_txhandler =
+            create_ready_to_reimburse_txhandler(&seq_collat_txhandler, operator_xonly_pk, network)?;
         reimburse_gen_txhandler = create_reimburse_generator_txhandler(
-            &seq_collat_txhandler,
+            &ready_to_reimburse_txhandler,
             operator_xonly_pk,
             num_kickoffs_per_sequential_collateral_tx,
-            max_withdrawal_time_block_count,
             network,
         )?;
     }
-    Ok((seq_collat_txhandler, reimburse_gen_txhandler))
+    Ok((
+        seq_collat_txhandler,
+        ready_to_reimburse_txhandler,
+        reimburse_gen_txhandler,
+    ))
+}
+
+pub fn create_ready_to_reimburse_txhandler(
+    sequential_collateral_txhandler: &TxHandler,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> Result<TxHandler, BridgeError> {
+    let prevout = sequential_collateral_txhandler.get_spendable_output(0)?;
+    Ok(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
+        .add_input(
+            NormalSignatureKind::NotStored,
+            prevout.clone(),
+            SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_scripts(
+            prevout.get_prevout().value,
+            vec![],
+            Some(operator_xonly_pk),
+            network,
+        ))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize())
 }
