@@ -21,7 +21,7 @@ use sqlx::{Postgres, QueryBuilder};
 use std::str::FromStr;
 
 pub type RootHash = [u8; 32];
-pub type PublicInputWots = Vec<[u8; 20]>;
+//pub type PublicInputWots = Vec<[u8; 20]>;
 pub type AssertTxAddrs = Vec<ScriptBuf>;
 
 pub type BitvmSetup = (AssertTxAddrs, RootHash);
@@ -420,7 +420,7 @@ impl Database {
         )
         .bind(operator_idx)
         .bind(deposit_id)
-        .bind(&public_hashes);
+        .bind(public_hashes);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -612,7 +612,7 @@ impl Database {
         let query = sqlx::query_as(
             "INSERT INTO deposits (deposit_outpoint)
             VALUES ($1)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (deposit_outpoint) DO UPDATE SET deposit_outpoint = deposits.deposit_outpoint
             RETURNING deposit_id;",
         )
         .bind(OutPointDB(deposit_outpoint));
@@ -843,11 +843,7 @@ mod tests {
 
         // Retrieve and verify
         let result = database
-            .get_operators_challenge_ack_hashes(
-                None,
-                operator_idx,
-                deposit_outpoint
-            )
+            .get_operators_challenge_ack_hashes(None, operator_idx, deposit_outpoint)
             .await
             .unwrap();
 
@@ -855,11 +851,7 @@ mod tests {
 
         // Test non-existent entry
         let non_existent = database
-            .get_operators_challenge_ack_hashes(
-                None,
-                999,
-                deposit_outpoint
-            )
+            .get_operators_challenge_ack_hashes(None, 999, deposit_outpoint)
             .await
             .unwrap();
         assert!(non_existent.is_none());
@@ -1095,11 +1087,9 @@ mod tests {
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;
-        let sequential_collateral_tx_idx = 1;
-        let kickoff_idx = 2;
         let assert_tx_addrs = [vec![1u8; 34], vec![4u8; 34]];
         let root_hash = [42u8; 32];
-        let public_input_wots = vec![[1u8; 20], [2u8; 20]];
+        //let public_input_wots = vec![[1u8; 20], [2u8; 20]];
 
         let deposit_outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -1123,11 +1113,7 @@ mod tests {
 
         // Retrieve and verify
         let result = database
-            .get_bitvm_setup(
-                None,
-                operator_idx,
-                deposit_outpoint
-            )
+            .get_bitvm_setup(None, operator_idx, deposit_outpoint)
             .await
             .unwrap()
             .unwrap();
@@ -1142,11 +1128,7 @@ mod tests {
         assert_eq!(result.1, root_hash);
 
         let hash = database
-            .get_bitvm_root_hash(
-                None,
-                operator_idx,
-                deposit_outpoint
-            )
+            .get_bitvm_root_hash(None, operator_idx, deposit_outpoint)
             .await
             .unwrap()
             .unwrap();

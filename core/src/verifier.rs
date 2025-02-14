@@ -985,7 +985,11 @@ impl Verifier {
         let hashes: Vec<[u8; 20]> = keys
             .challenge_ack_digests
             .into_iter()
-            .map(|x| x.hash.try_into().map_err(|_| BridgeError::Error("Invalid hash length".to_string())))
+            .map(|x| {
+                x.hash
+                    .try_into()
+                    .map_err(|_| BridgeError::Error("Invalid hash length".to_string()))
+            })
             .collect::<Result<Vec<[u8; 20]>, BridgeError>>()?;
         if hashes.len() != self.config.num_watchtowers {
             return Err(BridgeError::Error(

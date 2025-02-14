@@ -214,15 +214,6 @@ impl Operator {
         Ok(sig_rx)
     }
 
-    pub async fn generate_winternitz_for_deposit(
-        &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-    ) -> Result<Vec<u8>, BridgeError> {
-        Err(BridgeError::Error("test".to_string()))
-    }
-
     // /// Public endpoint for every depositor to call.
     // ///
     // /// It will get signatures from all verifiers:
@@ -1054,16 +1045,15 @@ mod tests {
 
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
         let actual_wpks = operator
-            .get_winternitz_public_keys(Txid::all_zeros())
-            .unwrap();
-        let actual_hashes = operator
-            .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
+            .get_winternitz_public_keys_for_kickoff_utxo()
             .unwrap();
 
-        let (mut wpk_rx) = operator.get_params().await.unwrap();
-
-        for (i, wpk) in wpk_rx.recv().await.into_iter().enumerate() {
-            assert_eq!(actual_wpks[i], wpk);
+        let mut wpk_rx = operator.get_params().await.unwrap();
+        let mut idx = 0;
+        while let Some(wpk) = wpk_rx.recv().await {
+            assert_eq!(actual_wpks[idx], wpk);
+            idx += 1;
         }
+        assert_eq!(idx, actual_wpks.len());
     }
 }

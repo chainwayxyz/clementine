@@ -4,12 +4,11 @@
 //! addresses.
 
 use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript, WinternitzCommit};
-use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
+use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::errors::BridgeError;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{
     secp256k1::XOnlyPublicKey,
     taproot::{TaprootBuilder, TaprootSpendInfo},

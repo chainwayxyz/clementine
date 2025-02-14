@@ -2,7 +2,7 @@ use std::future::Future;
 
 use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
-    DepositParams, Empty, RawSignedTx, VerifierDepositFinalizeParams,
+    DepositParams, Empty, RawSignedTx, VerifierDepositFinalizeParams, VerifierOpDepositKeys,
 };
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{create_move_to_vault_txhandler, DepositId};
@@ -593,6 +593,43 @@ impl ClementineAggregator for Aggregator {
 
         let (deposit_outpoint, evm_address, recovery_taproot_address) =
             parser::parse_deposit_params(deposit_params.clone())?;
+
+        // get winternitz keys and hashes from all operators first
+        let verifiers_op_dep_keys = try_join_all(self.operator_clients.iter().enumerate().map(
+            |(idx, operator_client)| {
+                let mut operator_client = operator_client.clone();
+                let deposit_params = deposit_params.clone();
+                async move {
+                    let mut operator_keys = operator_client
+                        .get_deposit_keys(Request::new(deposit_params.clone()))
+                        .await?
+                        .into_inner();
+                    // operator indexes are the index of operator_client for now.....
+                    // set it here so that operators cannot send fake idx(?)
+                    operator_keys.operator_idx = idx as i32;
+                    Ok::<_, Status>(VerifierOpDepositKeys {
+                        deposit_params: Some(deposit_params),
+                        operator_deposit_keys: Some(operator_keys),
+                    })
+                }
+            },
+        ))
+        .await?;
+
+        // send operator's keys to each verifier before collecting signatures
+        try_join_all(self.verifier_clients.iter().map(|verifier| {
+            let all_op_deposit_keys = verifiers_op_dep_keys.clone();
+            let mut verifier = verifier.clone();
+            async move {
+                for verifier_op_dep_keys in all_op_deposit_keys {
+                    verifier
+                        .set_operator_keys(Request::new(verifier_op_dep_keys))
+                        .await?;
+                }
+                Ok::<_, Status>(())
+            }
+        }))
+        .await?;
 
         // Generate nonce streams for all verifiers.
         let num_required_sigs = calculate_num_required_nofn_sigs(&self.config);

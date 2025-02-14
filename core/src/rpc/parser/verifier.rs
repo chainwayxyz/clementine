@@ -3,9 +3,9 @@ use crate::builder::transaction::DepositId;
 use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
-    nonce_gen_response, verifier_deposit_sign_params, DepositParams, DepositSignSession,
-    NonceGenFirstResponse, OperatorDepositKeys, PartialSig, VerifierDepositSignParams,
-    VerifierOpDepositKeys, VerifierParams,
+    nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
+    OperatorDepositKeys, PartialSig, VerifierDepositSignParams, VerifierOpDepositKeys,
+    VerifierParams,
 };
 use crate::verifier::Verifier;
 use crate::{
@@ -234,7 +234,9 @@ pub fn parse_verifier_op_deposit_keys(
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
     let deposit_id = parse_deposit_params(deposit_params)?;
 
-    let op_keys = data.operator_deposit_keys.ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
+    let op_keys = data
+        .operator_deposit_keys
+        .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
 
     Ok((deposit_id, op_keys))
 }

@@ -2,7 +2,7 @@ use super::clementine::{
     clementine_operator_server::ClementineOperator, AssertRequest, ChallengeAckDigest,
     DepositParams, DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse,
     OperatorBurnSig, OperatorDepositKeys, OperatorParams, RawSignedTx, RawSignedTxs,
-    TransactionRequest, WinternitzPubkey, WithdrawalFinalizedParams,
+    TransactionRequest, WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};

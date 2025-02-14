@@ -14,7 +14,6 @@ use crate::{
     errors::BridgeError,
     fetch_next_message_from_stream,
     rpc::parser::{self},
-    utils::BITVM_CACHE,
     verifier::Verifier,
 };
 use bitcoin::secp256k1::PublicKey;

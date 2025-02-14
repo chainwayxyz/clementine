@@ -1,10 +1,10 @@
 use crate::{
     fetch_next_message_from_stream,
-    operator::{Operator, PublicHash},
+    operator::Operator,
     rpc::{
         clementine::{
-            self, operator_params, ChallengeAckDigest, DepositParams, DepositSignSession,
-            NewWithdrawalSigParams, OperatorParams,
+            self, operator_params, DepositParams, DepositSignSession, NewWithdrawalSigParams,
+            OperatorParams,
         },
         error::{self, expected_msg_got_none},
     },

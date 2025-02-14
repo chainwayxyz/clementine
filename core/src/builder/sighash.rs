@@ -348,33 +348,25 @@ mod tests {
         }
         let assert_len = BITVM_CACHE.intermediate_variables.len();
         for o in 0..config.num_operators {
-            for t in 0..config.num_sequential_collateral_txs {
-                for k in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                    db.set_bitvm_setup(
-                        None,
-                        o.try_into().unwrap(),
-                        deposit_outpoint,
-                        vec![ScriptBuf::default(); assert_len],
-                        &[0x45; 32],
-                    )
-                    .await
-                    .unwrap();
-                }
-            }
+            db.set_bitvm_setup(
+                None,
+                o.try_into().unwrap(),
+                deposit_outpoint,
+                vec![ScriptBuf::default(); assert_len],
+                &[0x45; 32],
+            )
+            .await
+            .unwrap();
         }
         for o in 0..config.num_operators {
-            for t in 0..config.num_sequential_collateral_txs {
-                for k in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                    db.set_operator_challenge_ack_hashes(
-                        None,
-                        o.try_into().unwrap(),
-                        deposit_outpoint,
-                        &vec![[0x45; 20]; config.num_watchtowers],
-                    )
-                    .await
-                    .unwrap();
-                }
-            }
+            db.set_operator_challenge_ack_hashes(
+                None,
+                o.try_into().unwrap(),
+                deposit_outpoint,
+                &vec![[0x45; 20]; config.num_watchtowers],
+            )
+            .await
+            .unwrap();
         }
 
         let mut nofn_stream = pin!(create_nofn_sighash_stream(
