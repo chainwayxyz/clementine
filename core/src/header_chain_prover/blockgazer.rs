@@ -201,6 +201,7 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
+    use crate::create_regtest_rpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
@@ -253,16 +254,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn check_for_new_blocks_uptodate() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
@@ -290,16 +286,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn check_for_new_blocks_fallen_behind_single() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
@@ -334,16 +325,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn check_for_new_blocks_fallen_behind_multiple() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
@@ -368,16 +354,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn check_for_new_blocks_fork_and_mine_new() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
@@ -403,16 +384,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn sync_blockchain_single_block() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
@@ -440,16 +416,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn sync_blockchain_multiple_blocks() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
@@ -477,16 +448,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn sync_blockchain_multiple_blocks_with_fork() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();

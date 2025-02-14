@@ -58,7 +58,7 @@ More information, use `--help` flag:
 
 1. **PostgreSQL Database**
 
-   Tests require a PostgreSQL database. You can quickly set one up using Docker:
+   Tests require a PostgreSQL database with a max connection limit of at least 200 due to parallelism. You can quickly set one up using Docker:
 
    ```bash
    docker run --name clementine-test-db \
@@ -67,7 +67,7 @@ More information, use `--help` flag:
      -e POSTGRES_DB=clementine \
      -p 5432:5432 \
      --restart always \
-     -d postgres:15
+     -d postgres:15  -c 'max_connections=200'
    ```
 
 2. **RISC Zero Toolchain**
@@ -95,7 +95,7 @@ Create a wallet for the operator:
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
 ```
 
-Mine some blocks to the wallet:
+Mine some blocks to the wallet: 
 
 ```sh
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)

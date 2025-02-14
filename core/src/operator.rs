@@ -916,7 +916,7 @@ impl Operator {
 
 #[cfg(test)]
 mod tests {
-
+    use crate::create_regtest_rpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
@@ -997,15 +997,10 @@ mod tests {
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc();
 
-        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
 
         let winternitz_public_key = operator.get_winternitz_public_keys().unwrap();
         assert_eq!(
@@ -1017,15 +1012,10 @@ mod tests {
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc();
 
-        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
 
         let preimages = operator
             .generate_challenge_ack_preimages_and_hashes()
@@ -1041,15 +1031,10 @@ mod tests {
     #[tokio::test]
     async fn operator_get_params() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc();
 
-        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
         let actual_wpks = operator.get_winternitz_public_keys().unwrap();
         let actual_hashes = operator
             .generate_challenge_ack_preimages_and_hashes()

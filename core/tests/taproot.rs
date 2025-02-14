@@ -15,16 +15,11 @@ use std::sync::Arc;
 mod common;
 
 #[tokio::test]
-#[serial_test::serial]
+
 async fn create_address_and_transaction_then_sign_transaction() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url,
-        config.bitcoin_rpc_user,
-        config.bitcoin_rpc_password,
-    )
-    .await
-    .unwrap();
+    let regtest = create_regtest_rpc!(config);
+    let rpc = regtest.rpc().clone();
 
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
 

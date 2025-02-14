@@ -1405,6 +1405,10 @@ pub mod clementine_aggregator_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
+        /// Sets up the system of verifiers, watchtowers and operators by:
+        /// 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
+        /// 2. Collecting all operator configs, and distributing them to all verifiers
+        /// 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
         pub async fn setup(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -2817,6 +2821,10 @@ pub mod clementine_aggregator_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineAggregatorServer.
     #[async_trait]
     pub trait ClementineAggregator: std::marker::Send + std::marker::Sync + 'static {
+        /// Sets up the system of verifiers, watchtowers and operators by:
+        /// 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
+        /// 2. Collecting all operator configs, and distributing them to all verifiers
+        /// 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
         async fn setup(
             &self,
             request: tonic::Request<super::Empty>,
