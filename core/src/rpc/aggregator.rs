@@ -1021,7 +1021,6 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    #[ignore = "movetx not on chain"]
     async fn aggregator_deposit_movetx_lands_onchain() {
         let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::connect(
@@ -1062,7 +1061,11 @@ mod tests {
 
         let start = std::time::Instant::now();
         loop {
+            if start.elapsed() > std::time::Duration::from_secs(10) {
+                panic!("MoveTx did not land onchain within 10 seconds");
+            }
             rpc.mine_blocks(1).await.unwrap();
+
             let tx_result = rpc.client.get_transaction(&movetx_txid, None).await;
 
             let tx_result = match tx_result {
@@ -1074,13 +1077,7 @@ mod tests {
                 }
             };
 
-            if tx_result.info.confirmations > 0 {
-                break;
-            }
-
-            if start.elapsed() > std::time::Duration::from_secs(60) {
-                panic!("MoveTx did not land onchain within 60 seconds");
-            }
+            assert!(tx_result.info.confirmations > 0);
         }
     }
 }

@@ -475,18 +475,15 @@ impl TxSender {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::bitcoin_syncer;
     use crate::builder::transaction::TransactionType;
-    // Imports required for create_test_config_with_thread_name macro.
     use crate::config::BridgeConfig;
     use crate::utils::initialize_logger;
     use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
-
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
     use secp256k1::rand;
-
-    use super::*;
 
     async fn create_test_tx_sender() -> (TxSender, ExtendedRpc, Database, Actor, bitcoin::Network) {
         let sk = SecretKey::new(&mut rand::thread_rng());
@@ -560,6 +557,7 @@ mod tests {
         let tx = builder.get_cached_tx().clone();
         Ok(tx)
     }
+
     #[tokio::test]
     #[serial_test::serial]
     async fn create_fee_payer_utxo() {
