@@ -769,7 +769,7 @@ mod tests {
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
-    use crate::{create_test_config_with_thread_name, UTXO};
+    use crate::{create_regtest_rpc, create_test_config_with_thread_name, UTXO};
     use std::str::FromStr;
 
     #[tokio::test]
@@ -1164,13 +1164,8 @@ mod tests {
     async fn set_get_operator_winternitz_public_keys() {
         let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let operator = Operator::new(config, rpc).await.unwrap();
         let operator_idx = 0x45;

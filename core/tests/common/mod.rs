@@ -4,7 +4,7 @@
 mod test_utils;
 
 use crate::initialize_database;
-use crate::{create_actors, get_deposit_address};
+use crate::{create_actors, create_regtest_rpc, get_available_port, get_deposit_address};
 use bitcoin::OutPoint;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
@@ -259,17 +259,13 @@ pub async fn run_single_deposit(
     ),
     BridgeError,
 > {
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await?;
+    let regtest = create_regtest_rpc!(config);
+    let rpc = regtest.rpc().clone();
 
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address!(config, evm_address)?;
 
-    let (verifiers, operators, mut aggregator, watchtowers) = create_actors!(config);
+    let (verifiers, operators, mut aggregator, watchtowers, _regtest) = create_actors!(config);
 
     aggregator.setup(Request::new(Empty {})).await?;
 
@@ -311,7 +307,7 @@ mod tests {
     use clementine_core::{config::BridgeConfig, utils::initialize_logger};
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn test_deposit() {
         let config = create_test_config_with_thread_name!(None);
         run_single_deposit(config).await.unwrap();

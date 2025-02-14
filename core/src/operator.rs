@@ -1,4 +1,7 @@
+use std::time::Duration;
+
 use crate::actor::{Actor, WinternitzDerivationPath};
+use crate::bitcoin_syncer::{self};
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::builder::transaction::DepositId;
 use crate::config::BridgeConfig;
@@ -7,6 +10,7 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
+use crate::tx_sender::TxSender;
 use crate::utils::SECP;
 use crate::{builder, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -30,13 +34,14 @@ pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe 
 pub struct Operator {
     pub rpc: ExtendedRpc,
     pub db: Database,
-    pub(crate) signer: Actor,
-    pub(crate) config: BridgeConfig,
-    pub(crate) nofn_xonly_pk: XOnlyPublicKey,
-    pub(crate) collateral_funding_txid: Txid,
-    pub(crate) idx: usize,
+    pub signer: Actor,
+    pub config: BridgeConfig,
+    pub nofn_xonly_pk: XOnlyPublicKey,
+    pub collateral_funding_txid: Txid,
+    pub idx: usize,
     pub(crate) reimburse_addr: Address,
-    citrea_client: Option<jsonrpsee::http_client::HttpClient>,
+    pub tx_sender: TxSender,
+    pub citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
 
 impl Operator {
@@ -49,6 +54,16 @@ impl Operator {
         );
 
         let db = Database::new(&config).await?;
+
+        bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc).await?;
+        // Store sender in a variable to keep it alive
+        let _handle =
+            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
+                .await?;
+
+        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
+
+        let _operator_handle = tx_sender.run("operator", Duration::from_secs(1)).await?; // TODO: Make this a unique handle
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
@@ -122,6 +137,7 @@ impl Operator {
             nofn_xonly_pk,
             idx,
             collateral_funding_txid,
+            tx_sender,
             citrea_client,
             reimburse_addr,
         })
@@ -919,6 +935,7 @@ impl Operator {
 
 #[cfg(test)]
 mod tests {
+    use crate::create_regtest_rpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
@@ -1001,15 +1018,10 @@ mod tests {
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc();
 
-        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
 
         let winternitz_public_key = operator
             .get_winternitz_public_keys(Txid::all_zeros())
@@ -1023,15 +1035,10 @@ mod tests {
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc();
 
-        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
 
         let preimages = operator
             .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
@@ -1042,15 +1049,10 @@ mod tests {
     #[tokio::test]
     async fn operator_get_params() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc();
 
-        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
         let actual_wpks = operator
             .get_winternitz_public_keys(Txid::all_zeros())
             .unwrap();

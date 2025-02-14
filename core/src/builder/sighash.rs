@@ -271,7 +271,7 @@ mod tests {
     use crate::operator::Operator;
     use crate::utils::BITVM_CACHE;
     use crate::watchtower::Watchtower;
-    use crate::{builder, create_test_config_with_thread_name};
+    use crate::{builder, create_regtest_rpc, create_test_config_with_thread_name};
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
@@ -285,13 +285,8 @@ mod tests {
     async fn calculate_num_required_nofn_sigs() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
         let watchtower = Watchtower::new(config.clone()).await.unwrap();

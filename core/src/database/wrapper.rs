@@ -6,10 +6,10 @@ use crate::{errors::BridgeError, EVMAddress};
 use bitcoin::{
     address::NetworkUnchecked,
     block,
-    consensus::{Decodable, Encodable},
+    consensus::{deserialize, serialize, Decodable, Encodable},
     hex::DisplayHex,
     secp256k1::{schnorr, Message, PublicKey},
-    Address, OutPoint, TxOut, Txid, XOnlyPublicKey,
+    Address, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
 };
 use prost::Message as _;
 use secp256k1::musig;
@@ -220,6 +220,13 @@ impl_bytea_wrapper_custom!(
     |x: &[u8]| -> Result<DepositSignatures, BoxDynError> {
         DepositSignatures::decode(x).map_err(Into::into)
     }
+);
+
+impl_bytea_wrapper_custom!(
+    ScriptBufDB,
+    ScriptBuf,
+    |script: &ScriptBuf| serialize(script),
+    |x: &[u8]| -> Result<ScriptBuf, BoxDynError> { deserialize(x).map_err(Into::into) }
 );
 
 impl_text_wrapper_custom!(
