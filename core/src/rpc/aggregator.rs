@@ -1027,17 +1027,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn aggregator_deposit_movetx_lands_onchain() {
         let mut config = create_test_config_with_thread_name!(None);
-        let mut aggregator = create_actors!(config).2;
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
+            create_actors!(config);
+        let rpc = regtest.1.clone();
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))

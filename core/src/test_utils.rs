@@ -5,6 +5,8 @@
 //! Please check comments of each for more information.
 
 /// Creates a Bitcoin regtest node for testing, waits for it to start and returns an RPC.
+/// **Beware**: **Do not drop** returned value until the end of the test
+/// otherwise ExtendedRpc will fail to connect Bitcoind.
 ///
 /// Requires an import of `ExtendedRpc` and `BridgeConfig`.
 ///
