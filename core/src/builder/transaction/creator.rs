@@ -675,7 +675,6 @@ mod tests {
             .map(tokio::task::spawn)
             .collect();
 
-
         // try signing watchtower challenges for all watchtowers
         let watchtower_thread_handles: Vec<_> = watchtowers
             .iter_mut()
@@ -721,7 +720,6 @@ mod tests {
             })
             .map(tokio::task::spawn)
             .collect();
-
 
         let mut txs_verifier_can_sign = vec![
             TransactionType::Challenge,
