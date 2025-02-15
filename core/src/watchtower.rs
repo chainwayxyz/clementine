@@ -8,7 +8,7 @@ use crate::{
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
-use bitcoin::{ScriptBuf, XOnlyPublicKey};
+use bitcoin::{ScriptBuf, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]
@@ -48,45 +48,45 @@ impl Watchtower {
         })
     }
 
-    /// Generates Winternitz public keys for every operator and sequential_collateral_tx pair and
-    /// returns them.
+    /// Generates Winternitz public keys for watchtower challenges for every operator
+    /// for a single deposit.
     ///
     /// # Returns
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public key for
-    ///   `operator index` row and `sequential_collateral_tx index` column.
-    pub async fn get_watchtower_winternitz_public_keys(
+    ///   `operator index`.
+    pub fn get_watchtower_winternitz_public_keys(
         &self,
+        deposit_txid: Txid,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();
 
         for operator in 0..self.config.num_operators as u32 {
-            for sequential_collateral_tx in 0..self.config.num_sequential_collateral_txs as u32 {
-                for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
-                    let path = WinternitzDerivationPath {
-                        message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
-                        log_d: WINTERNITZ_LOG_D,
-                        tx_type: crate::actor::TxType::WatchtowerChallenge,
-                        operator_idx: Some(operator),
-                        watchtower_idx: None,
-                        sequential_collateral_tx_idx: Some(sequential_collateral_tx),
-                        kickoff_idx: Some(kickoff_idx),
-                        intermediate_step_name: None,
-                        deposit_txid: None,
-                    };
+            let path = WinternitzDerivationPath {
+                message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
+                log_d: WINTERNITZ_LOG_D,
+                tx_type: crate::actor::TxType::WatchtowerChallenge,
+                operator_idx: Some(operator),
+                watchtower_idx: None,
+                sequential_collateral_tx_idx: None,
+                kickoff_idx: None,
+                intermediate_step_name: None,
+                deposit_txid: Some(deposit_txid),
+            };
 
-                    winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
-                }
-            }
+            winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
         }
 
         Ok(winternitz_pubkeys)
     }
 
-    pub async fn get_watchtower_challenge_addresses(&self) -> Result<Vec<ScriptBuf>, BridgeError> {
+    pub async fn get_watchtower_challenge_addresses(
+        &self,
+        deposit_txid: Txid,
+    ) -> Result<Vec<ScriptBuf>, BridgeError> {
         let mut challenge_addresses = Vec::new();
 
-        let winternitz_pubkeys = self.get_watchtower_winternitz_public_keys().await?;
+        let winternitz_pubkeys = self.get_watchtower_winternitz_public_keys(deposit_txid)?;
         tracing::info!(
             "get_watchtower_challenge_addresses watchtower xonly public key: {:?}",
             self.signer.xonly_public_key
@@ -99,6 +99,7 @@ impl Watchtower {
             let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
                 &self.signer.xonly_public_key,
                 &winternitz_pubkey,
+                WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
                 self.config.network,
             );
             challenge_addresses.push(challenge_address.script_pubkey());
@@ -115,14 +116,11 @@ impl Watchtower {
     /// - [`mpsc::Receiver`]: Winternitz public keys of the watchtower, in a
     ///   [`tokio`] channel
     /// - [`XOnlyPublicKey`]: X-only public key of the current watchtower
-    pub async fn get_params(
-        &self,
-    ) -> Result<(u32, Vec<winternitz::PublicKey>, XOnlyPublicKey), BridgeError> {
+    pub async fn get_params(&self) -> Result<(u32, XOnlyPublicKey), BridgeError> {
         let watchtower_id = self.config.index;
-        let winternitz_public_keys = self.get_watchtower_winternitz_public_keys().await?;
         let xonly_pk = self.signer.xonly_public_key;
 
-        Ok((watchtower_id, winternitz_public_keys, xonly_pk))
+        Ok((watchtower_id, xonly_pk))
     }
 }
 
@@ -132,6 +130,8 @@ mod tests {
     use crate::utils::initialize_logger;
     use crate::watchtower::Watchtower;
     use crate::{config::BridgeConfig, database::Database, initialize_database};
+    use bitcoin::hashes::Hash;
+    use bitcoin::Txid;
 
     #[tokio::test]
     async fn new_watchtower() {
@@ -146,15 +146,12 @@ mod tests {
 
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
         let watchtower_winternitz_public_keys = watchtower
-            .get_watchtower_winternitz_public_keys()
-            .await
+            .get_watchtower_winternitz_public_keys(Txid::all_zeros())
             .unwrap();
 
         assert_eq!(
             watchtower_winternitz_public_keys.len(),
             config.num_operators
-                * config.num_sequential_collateral_txs
-                * config.num_kickoffs_per_sequential_collateral_tx
         );
     }
 
@@ -163,17 +160,9 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
 
-        let (watchtower_id, winternitz_public_keys, xonly_pk) =
-            watchtower.get_params().await.unwrap();
+        let (watchtower_id, xonly_pk) = watchtower.get_params().await.unwrap();
 
         assert_eq!(watchtower_id, watchtower.config.index);
         assert_eq!(xonly_pk, watchtower.signer.xonly_public_key);
-        assert_eq!(
-            winternitz_public_keys,
-            watchtower
-                .get_watchtower_winternitz_public_keys()
-                .await
-                .unwrap()
-        );
     }
 }

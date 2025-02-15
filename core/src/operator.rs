@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitcoin_syncer::{self};
 use crate::builder::sighash::create_operator_sighash_stream;
-use crate::builder::transaction::DepositId;
+use crate::builder::transaction::DepositData;
 use crate::config::BridgeConfig;
 use crate::constants::{KICKOFF_BLOCKHASH_COMMIT_LENGTH, WINTERNITZ_LOG_D};
 use crate::database::Database;
@@ -12,8 +12,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::tx_sender::TxSender;
 use crate::utils::SECP;
-use crate::{builder, EVMAddress, UTXO};
-use bitcoin::address::NetworkUnchecked;
+use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message};
@@ -164,9 +163,7 @@ impl Operator {
 
     pub async fn deposit_sign(
         &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: Address<NetworkUnchecked>,
+        deposit_id: DepositData,
     ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
         let (sig_tx, sig_rx) = mpsc::channel(1280);
 
@@ -177,11 +174,7 @@ impl Operator {
             self.reimburse_addr.clone(),
             self.signer.xonly_public_key,
             self.config.clone(),
-            DepositId {
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
-            },
+            deposit_id,
             self.nofn_xonly_pk,
         ));
 

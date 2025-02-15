@@ -1,7 +1,8 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, PartialSig, RawSignedTx, TransactionRequest, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerKeysWithDeposit,
+    WatchtowerParams,
 };
 use super::error;
 use crate::builder::sighash::{
@@ -90,19 +91,9 @@ impl ClementineVerifier for Verifier {
 
         let watchtower_id = parser::watchtower::parse_id(&mut in_stream).await?;
 
-        let mut watchtower_winternitz_public_keys = Vec::new();
-        for _ in 0..self.config.num_operators
-            * self.config.num_sequential_collateral_txs
-            * self.config.num_kickoffs_per_sequential_collateral_tx
-        {
-            watchtower_winternitz_public_keys
-                .push(parser::watchtower::parse_winternitz_public_key(&mut in_stream).await?);
-        }
-
         let xonly_pk = parser::watchtower::parse_xonly_pk(&mut in_stream).await?;
 
-        self.set_watchtower(watchtower_id, watchtower_winternitz_public_keys, xonly_pk)
-            .await?;
+        self.set_watchtower(watchtower_id, xonly_pk).await?;
 
         Ok(Response::new(Empty {}))
     }
@@ -375,11 +366,22 @@ impl ClementineVerifier for Verifier {
 
     async fn set_operator_keys(
         &self,
-        request: tonic::Request<super::VerifierOpDepositKeys>,
+        request: tonic::Request<super::OperatorKeysWithDeposit>,
     ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
         let data = request.into_inner();
         let (deposit_params, op_keys) = parser::verifier::parse_verifier_op_deposit_keys(data)?;
         self.set_operator_keys(deposit_params, op_keys).await?;
+        Ok(Response::new(Empty {}))
+    }
+
+    async fn set_watchtower_keys(
+        &self,
+        request: Request<WatchtowerKeysWithDeposit>,
+    ) -> Result<Response<Empty>, Status> {
+        let data = request.into_inner();
+        let (deposit_params, wt_keys) = parser::verifier::parse_wt_keys_with_deposit(data)?;
+
+        self.set_watchtower_keys(deposit_params, wt_keys).await?;
         Ok(Response::new(Empty {}))
     }
 }

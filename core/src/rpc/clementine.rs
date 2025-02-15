@@ -155,14 +155,21 @@ pub mod operator_params {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct VerifierOpDepositKeys {
+pub struct OperatorKeysWithDeposit {
     #[prost(message, optional, tag = "1")]
-    pub operator_deposit_keys: ::core::option::Option<OperatorDepositKeys>,
+    pub operator_keys: ::core::option::Option<OperatorKeys>,
     #[prost(message, optional, tag = "2")]
     pub deposit_params: ::core::option::Option<DepositParams>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OperatorDepositKeys {
+pub struct WatchtowerKeysWithDeposit {
+    #[prost(message, optional, tag = "1")]
+    pub watchtower_keys: ::core::option::Option<WatchtowerKeys>,
+    #[prost(message, optional, tag = "2")]
+    pub deposit_params: ::core::option::Option<DepositParams>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OperatorKeys {
     /// Winternitz pubkeys for each bitvm assert tx.
     #[prost(message, repeated, tag = "1")]
     pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
@@ -296,7 +303,7 @@ pub struct VerifierPublicKeys {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WatchtowerParams {
-    #[prost(oneof = "watchtower_params::Response", tags = "1, 2, 3")]
+    #[prost(oneof = "watchtower_params::Response", tags = "1, 2")]
     pub response: ::core::option::Option<watchtower_params::Response>,
 }
 /// Nested message and enum types in `WatchtowerParams`.
@@ -305,14 +312,17 @@ pub mod watchtower_params {
     pub enum Response {
         #[prost(uint32, tag = "1")]
         WatchtowerId(u32),
-        /// Flattened list of Winternitz pubkeys for each operator's sequential
-        /// collateral txs.
-        #[prost(message, tag = "2")]
-        WinternitzPubkeys(super::WinternitzPubkey),
         /// xonly public key serialized to bytes
-        #[prost(bytes, tag = "3")]
+        #[prost(bytes, tag = "2")]
         XonlyPk(::prost::alloc::vec::Vec<u8>),
     }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WatchtowerKeys {
+    #[prost(message, repeated, tag = "1")]
+    pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
+    #[prost(uint32, tag = "2")]
+    pub watchtower_id: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedTx {
@@ -665,10 +675,7 @@ pub mod clementine_operator_client {
         pub async fn get_deposit_keys(
             &mut self,
             request: impl tonic::IntoRequest<super::DepositParams>,
-        ) -> std::result::Result<
-            tonic::Response<super::OperatorDepositKeys>,
-            tonic::Status,
-        > {
+        ) -> std::result::Result<tonic::Response<super::OperatorKeys>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -983,10 +990,34 @@ pub mod clementine_verifier_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
+        /// Sets the watchtower's winternitz keys for each operator for a single deposit.
+        pub async fn set_watchtower_keys(
+            &mut self,
+            request: impl tonic::IntoRequest<super::WatchtowerKeysWithDeposit>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/SetWatchtowerKeys",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineVerifier", "SetWatchtowerKeys"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
         pub async fn set_operator_keys(
             &mut self,
-            request: impl tonic::IntoRequest<super::VerifierOpDepositKeys>,
+            request: impl tonic::IntoRequest<super::OperatorKeysWithDeposit>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
             self.inner
                 .ready()
@@ -1314,6 +1345,33 @@ pub mod clementine_watchtower_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
+        /// Returns watchtower's challenge winternitz keys for each operator for a deposit.
+        pub async fn get_challenge_keys(
+            &mut self,
+            request: impl tonic::IntoRequest<super::DepositParams>,
+        ) -> std::result::Result<tonic::Response<super::WatchtowerKeys>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineWatchtower/GetChallengeKeys",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineWatchtower",
+                        "GetChallengeKeys",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
         /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
         ///
@@ -1542,10 +1600,7 @@ pub mod clementine_operator_server {
         async fn get_deposit_keys(
             &self,
             request: tonic::Request<super::DepositParams>,
-        ) -> std::result::Result<
-            tonic::Response<super::OperatorDepositKeys>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::OperatorKeys>, tonic::Status>;
         /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
         /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
         ///
@@ -1726,7 +1781,7 @@ pub mod clementine_operator_server {
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::DepositParams>
                     for GetDepositKeysSvc<T> {
-                        type Response = super::OperatorDepositKeys;
+                        type Response = super::OperatorKeys;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2107,10 +2162,15 @@ pub mod clementine_verifier_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineVerifierServer.
     #[async_trait]
     pub trait ClementineVerifier: std::marker::Send + std::marker::Sync + 'static {
+        /// Sets the watchtower's winternitz keys for each operator for a single deposit.
+        async fn set_watchtower_keys(
+            &self,
+            request: tonic::Request<super::WatchtowerKeysWithDeposit>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
         async fn set_operator_keys(
             &self,
-            request: tonic::Request<super::VerifierOpDepositKeys>,
+            request: tonic::Request<super::OperatorKeysWithDeposit>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
         /// It will create the transaction and sign it with saved nofn signatures.
@@ -2260,12 +2320,61 @@ pub mod clementine_verifier_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
+                "/clementine.ClementineVerifier/SetWatchtowerKeys" => {
+                    #[allow(non_camel_case_types)]
+                    struct SetWatchtowerKeysSvc<T: ClementineVerifier>(pub Arc<T>);
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::UnaryService<super::WatchtowerKeysWithDeposit>
+                    for SetWatchtowerKeysSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::WatchtowerKeysWithDeposit>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineVerifier>::set_watchtower_keys(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = SetWatchtowerKeysSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/clementine.ClementineVerifier/SetOperatorKeys" => {
                     #[allow(non_camel_case_types)]
                     struct SetOperatorKeysSvc<T: ClementineVerifier>(pub Arc<T>);
                     impl<
                         T: ClementineVerifier,
-                    > tonic::server::UnaryService<super::VerifierOpDepositKeys>
+                    > tonic::server::UnaryService<super::OperatorKeysWithDeposit>
                     for SetOperatorKeysSvc<T> {
                         type Response = super::Empty;
                         type Future = BoxFuture<
@@ -2274,7 +2383,7 @@ pub mod clementine_verifier_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::VerifierOpDepositKeys>,
+                            request: tonic::Request<super::OperatorKeysWithDeposit>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -2738,6 +2847,11 @@ pub mod clementine_watchtower_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineWatchtowerServer.
     #[async_trait]
     pub trait ClementineWatchtower: std::marker::Send + std::marker::Sync + 'static {
+        /// Returns watchtower's challenge winternitz keys for each operator for a deposit.
+        async fn get_challenge_keys(
+            &self,
+            request: tonic::Request<super::DepositParams>,
+        ) -> std::result::Result<tonic::Response<super::WatchtowerKeys>, tonic::Status>;
         /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
         /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
         ///
@@ -2844,6 +2958,55 @@ pub mod clementine_watchtower_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
+                "/clementine.ClementineWatchtower/GetChallengeKeys" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetChallengeKeysSvc<T: ClementineWatchtower>(pub Arc<T>);
+                    impl<
+                        T: ClementineWatchtower,
+                    > tonic::server::UnaryService<super::DepositParams>
+                    for GetChallengeKeysSvc<T> {
+                        type Response = super::WatchtowerKeys;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::DepositParams>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineWatchtower>::get_challenge_keys(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetChallengeKeysSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/clementine.ClementineWatchtower/InternalCreateSignedTx" => {
                     #[allow(non_camel_case_types)]
                     struct InternalCreateSignedTxSvc<T: ClementineWatchtower>(

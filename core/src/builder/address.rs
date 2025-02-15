@@ -4,7 +4,6 @@
 //! addresses.
 
 use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript, WinternitzCommit};
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::errors::BridgeError;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
@@ -164,13 +163,10 @@ pub fn create_checksig_address(
 pub fn derive_challenge_address_from_xonlypk_and_wpk(
     xonly_pk: &XOnlyPublicKey,
     winternitz_pk: &winternitz::PublicKey,
+    message_length: u32,
     network: Network,
 ) -> Address {
-    let winternitz_commit = WinternitzCommit::new(
-        winternitz_pk.clone(),
-        *xonly_pk,
-        WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
-    );
+    let winternitz_commit = WinternitzCommit::new(winternitz_pk.clone(), *xonly_pk, message_length);
     let (address, _) = create_taproot_address(&[winternitz_commit.to_script_buf()], None, network);
     address
 }

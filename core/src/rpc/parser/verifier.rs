@@ -1,11 +1,11 @@
-use super::convert_int_to_another;
-use crate::builder::transaction::DepositId;
+use super::{convert_int_to_another, parse_deposit_params};
+use crate::builder::transaction::DepositData;
 use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
     nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
-    OperatorDepositKeys, PartialSig, VerifierDepositSignParams, VerifierOpDepositKeys,
-    VerifierParams,
+    OperatorKeys, OperatorKeysWithDeposit, PartialSig, VerifierDepositSignParams, VerifierParams,
+    WatchtowerKeys, WatchtowerKeysWithDeposit,
 };
 use crate::verifier::Verifier;
 use crate::{
@@ -144,31 +144,6 @@ impl From<MusigPartialSignature> for PartialSig {
     }
 }
 
-pub fn parse_deposit_params(
-    deposit_params: clementine::DepositParams,
-) -> Result<DepositId, Status> {
-    let deposit_outpoint: bitcoin::OutPoint = deposit_params
-        .deposit_outpoint
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
-        .try_into()?;
-    let evm_address: EVMAddress = deposit_params.evm_address.try_into().map_err(|e| {
-        Status::invalid_argument(format!(
-            "Failed to convert evm_address to EVMAddress: {}",
-            e
-        ))
-    })?;
-    let recovery_taproot_address = deposit_params
-        .recovery_taproot_address
-        .parse::<bitcoin::Address<_>>()
-        .map_err(|e| Status::internal(e.to_string()))?;
-
-    Ok(DepositId {
-        deposit_outpoint,
-        evm_address,
-        recovery_taproot_address,
-    })
-}
-
 pub fn parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
     verifier_idx: usize,
@@ -227,15 +202,15 @@ pub fn parse_partial_sigs(
 }
 
 pub fn parse_verifier_op_deposit_keys(
-    data: VerifierOpDepositKeys,
-) -> Result<(DepositId, OperatorDepositKeys), Status> {
+    data: OperatorKeysWithDeposit,
+) -> Result<(DepositData, OperatorKeys), Status> {
     let deposit_params = data
         .deposit_params
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
     let deposit_id = parse_deposit_params(deposit_params)?;
 
     let op_keys = data
-        .operator_deposit_keys
+        .operator_keys
         .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
 
     Ok((deposit_id, op_keys))
@@ -286,4 +261,19 @@ pub async fn parse_nonce_gen_first_response(
     } else {
         Err(Status::invalid_argument("Expected first_response"))
     }
+}
+
+pub fn parse_wt_keys_with_deposit(
+    data: WatchtowerKeysWithDeposit,
+) -> Result<(DepositData, WatchtowerKeys), Status> {
+    let deposit_params = data
+        .deposit_params
+        .ok_or(Status::invalid_argument("deposit_params is empty"))?;
+    let deposit_id = parse_deposit_params(deposit_params)?;
+
+    let watchtower_keys = data
+        .watchtower_keys
+        .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
+
+    Ok((deposit_id, watchtower_keys))
 }

@@ -1,5 +1,6 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
-use crate::builder::transaction::{DepositId, TransactionType};
+use crate::builder::transaction::creator::TxHandlerDbData;
+use crate::builder::transaction::{DepositData, TransactionType};
 use crate::config::BridgeConfig;
 use crate::constants::{
     KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
@@ -10,15 +11,16 @@ use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
 use crate::{builder, utils};
 use bitcoin::XOnlyPublicKey;
 use tonic::Status;
+
 pub struct TransactionRequestData {
-    pub deposit_id: DepositId,
+    pub deposit_data: DepositData,
     pub transaction_type: TransactionType,
     pub kickoff_id: KickoffId,
     pub commit_data: Vec<u8>,
 }
 
 pub struct AssertRequestData {
-    pub deposit_id: DepositId,
+    pub deposit_data: DepositData,
     pub kickoff_id: KickoffId,
     pub commit_data: Vec<Vec<u8>>,
 }
@@ -31,33 +33,6 @@ pub async fn create_and_sign_tx(
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_data: TransactionRequestData,
 ) -> Result<RawSignedTx, BridgeError> {
-    // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
-    // Optimize: Make this only return for a specific kickoff, but its only 40mb (33bytes * 60000 (kickoff per op?) * 20 (watchtower count)
-    let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
-        .map(|i| {
-            db.get_watchtower_challenge_addresses(
-                None,
-                i as u32,
-                transaction_data.kickoff_id.operator_idx,
-            )
-        })
-        .collect::<Vec<_>>();
-    let watchtower_all_challenge_addresses =
-        futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
-
-    // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
-    let watchtower_challenge_addresses = (0..config.num_watchtowers)
-        .map(|i| {
-            watchtower_all_challenge_addresses[i][transaction_data
-                .kickoff_id
-                .sequential_collateral_idx
-                as usize
-                * config.num_kickoffs_per_sequential_collateral_tx
-                + transaction_data.kickoff_id.kickoff_idx as usize]
-                .clone()
-        })
-        .collect::<Vec<_>>();
-
     // get operator data
     let operator_data = db
         .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
@@ -66,29 +41,23 @@ pub async fn create_and_sign_tx(
             transaction_data.kickoff_id.operator_idx,
         ))?;
 
-    // get kickoff winternitz keys for this operator
-    let kickoff_winternitz_pubkeys = db
-        .get_operator_kickoff_winternitz_public_keys(None, transaction_data.kickoff_id.operator_idx)
-        .await?;
-
     let mut txhandlers = builder::transaction::create_txhandlers(
         db.clone(),
         config.clone(),
-        transaction_data.deposit_id.clone(),
+        transaction_data.deposit_data.clone(),
         nofn_xonly_pk,
         transaction_data.transaction_type,
         transaction_data.kickoff_id,
         operator_data,
-        Some(&watchtower_challenge_addresses),
         None,
-        &kickoff_winternitz_pubkeys,
+        &TxHandlerDbData::default(),
     )
     .await?;
 
     let sig_query = db
         .get_deposit_signatures(
             None,
-            transaction_data.deposit_id.deposit_outpoint,
+            transaction_data.deposit_data.deposit_outpoint,
             transaction_data.kickoff_id.operator_idx as usize,
             transaction_data.kickoff_id.sequential_collateral_idx as usize,
             transaction_data.kickoff_id.kickoff_idx as usize,
@@ -115,7 +84,7 @@ pub async fn create_and_sign_tx(
             sequential_collateral_tx_idx: None,
             kickoff_idx: None,
             intermediate_step_name: None,
-            deposit_txid: Some(transaction_data.deposit_id.deposit_outpoint.txid),
+            deposit_txid: Some(transaction_data.deposit_data.deposit_outpoint.txid),
         };
         let preimage = signer.generate_preimage_from_path(path)?;
         signer.tx_sign_preimage(&mut requested_txhandler, preimage)?;
@@ -143,7 +112,7 @@ pub async fn create_and_sign_tx(
                     .ok_or_else(|| Status::invalid_argument("Mini Assert Index is too big"))?
                     .0,
             ),
-            deposit_txid: Some(transaction_data.deposit_id.deposit_outpoint.txid),
+            deposit_txid: Some(transaction_data.deposit_data.deposit_outpoint.txid),
         };
         signer.tx_sign_winternitz(
             &mut requested_txhandler,
@@ -218,22 +187,16 @@ pub async fn create_assert_commitment_txs(
         return Err(BridgeError::InvalidCommitData);
     }
 
-    // get kickoff winternitz keys for this operator
-    let kickoff_winternitz_pubkeys = db
-        .get_operator_kickoff_winternitz_public_keys(None, assert_data.kickoff_id.operator_idx)
-        .await?;
-
     let mut txhandlers = builder::transaction::create_txhandlers(
         db.clone(),
         config.clone(),
-        assert_data.deposit_id.clone(),
+        assert_data.deposit_data.clone(),
         nofn_xonly_pk,
         TransactionType::AssertEnd,
         assert_data.kickoff_id,
         operator_data,
         None,
-        None,
-        &kickoff_winternitz_pubkeys,
+        &TxHandlerDbData::default(),
     )
     .await?;
 
@@ -242,7 +205,7 @@ pub async fn create_assert_commitment_txs(
     let sig_query = db
         .get_deposit_signatures(
             None,
-            assert_data.deposit_id.deposit_outpoint,
+            assert_data.deposit_data.deposit_outpoint,
             assert_data.kickoff_id.operator_idx as usize,
             assert_data.kickoff_id.sequential_collateral_idx as usize,
             assert_data.kickoff_id.kickoff_idx as usize,
@@ -276,7 +239,7 @@ pub async fn create_assert_commitment_txs(
             sequential_collateral_tx_idx: None,
             kickoff_idx: None,
             intermediate_step_name: Some(step_name),
-            deposit_txid: Some(assert_data.deposit_id.deposit_outpoint.txid),
+            deposit_txid: Some(assert_data.deposit_data.deposit_outpoint.txid),
         };
         let mut mini_assert_txhandler =
             txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(

@@ -125,16 +125,18 @@ create table if not exists watchtower_xonly_public_keys (
 create table if not exists watchtower_winternitz_public_keys (
     watchtower_id int not null,
     operator_id int not null,
-    winternitz_public_keys bytea not null,
-    primary key (watchtower_id, operator_id)
+    deposit_id int not null,
+    winternitz_public_key bytea not null,
+    primary key (watchtower_id, operator_id, deposit_id)
 );
 
 -- Verifier table of watchtower challenge addresses for every operator, sequential_collateral_tx_idx, and kickoff_idx
 create table if not exists watchtower_challenge_addresses (
     watchtower_id int not null,
     operator_id int not null,
-    challenge_addresses bytea[] not null,
-    primary key (watchtower_id, operator_id)
+    deposit_id int not null,
+    challenge_address bytea not null,
+    primary key (watchtower_id, operator_id, deposit_id)
 );
 
 -- Verifier table of operators Winternitz public keys for every sequential collateral tx

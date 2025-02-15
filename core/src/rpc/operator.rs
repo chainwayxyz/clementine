@@ -1,8 +1,8 @@
 use super::clementine::{
     clementine_operator_server::ClementineOperator, AssertRequest, ChallengeAckDigest,
     DepositParams, DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse,
-    OperatorBurnSig, OperatorDepositKeys, OperatorParams, RawSignedTx, RawSignedTxs,
-    TransactionRequest, WithdrawalFinalizedParams,
+    OperatorBurnSig, OperatorKeys, OperatorParams, RawSignedTx, RawSignedTxs, TransactionRequest,
+    WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};
@@ -58,12 +58,9 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         let deposit_sign_session = request.into_inner();
 
-        let (deposit_outpoint, evm_address, recovery_taproot_address) =
-            parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
+        let deposit_data = parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
 
-        let mut deposit_signatures_rx = self
-            .deposit_sign(deposit_outpoint, evm_address, recovery_taproot_address)
-            .await?;
+        let mut deposit_signatures_rx = self.deposit_sign(deposit_data).await?;
 
         while let Some(sig) = deposit_signatures_rx.recv().await {
             let operator_burn_sig = OperatorBurnSig {
@@ -170,14 +167,16 @@ impl ClementineOperator for Operator {
     async fn get_deposit_keys(
         &self,
         request: Request<DepositParams>,
-    ) -> Result<Response<OperatorDepositKeys>, Status> {
+    ) -> Result<Response<OperatorKeys>, Status> {
         let deposit_req = request.into_inner();
-        let (deposit_outpoint, _, _) = parse_deposit_params(deposit_req)?;
+        let deposit_data = parse_deposit_params(deposit_req)?;
 
-        let winternitz_keys = self.get_winternitz_public_keys(deposit_outpoint.txid)?;
-        let hashes = self.generate_challenge_ack_preimages_and_hashes(deposit_outpoint.txid)?;
+        let winternitz_keys =
+            self.get_winternitz_public_keys(deposit_data.deposit_outpoint.txid)?;
+        let hashes =
+            self.generate_challenge_ack_preimages_and_hashes(deposit_data.deposit_outpoint.txid)?;
 
-        Ok(Response::new(OperatorDepositKeys {
+        Ok(Response::new(OperatorKeys {
             winternitz_pubkeys: winternitz_keys
                 .into_iter()
                 .map(|pubkey| pubkey.into())

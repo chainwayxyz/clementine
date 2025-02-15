@@ -169,12 +169,17 @@ message OperatorParams {
   }
 }
 
-message VerifierOpDepositKeys {
-  OperatorDepositKeys operator_deposit_keys = 1;
+message OperatorKeysWithDeposit {
+  OperatorKeys operator_keys = 1;
   DepositParams deposit_params = 2;
 }
 
-message OperatorDepositKeys {
+message WatchtowerKeysWithDeposit {
+  WatchtowerKeys watchtower_keys = 1;
+  DepositParams deposit_params = 2;
+}
+
+message OperatorKeys {
   // Winternitz pubkeys for each bitvm assert tx.
   repeated WinternitzPubkey winternitz_pubkeys = 1;
   // Hashes of preimages that will be used to ACK watchtower challenges.
@@ -214,7 +219,7 @@ message WithdrawalFinalizedParams {
 service ClementineOperator {
   // Returns an operator's deposit keys.
   // Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
-  rpc GetDepositKeys(DepositParams) returns (OperatorDepositKeys) {}
+  rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
   // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
   // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
   //
@@ -330,8 +335,10 @@ message VerifierPublicKeys {
 }
 
 service ClementineVerifier {
+  // Sets the watchtower's winternitz keys for each operator for a single deposit.
+  rpc SetWatchtowerKeys(WatchtowerKeysWithDeposit) returns (Empty) {}
   // Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
-  rpc SetOperatorKeys(VerifierOpDepositKeys)  returns (Empty) {}
+  rpc SetOperatorKeys(OperatorKeysWithDeposit)  returns (Empty) {}
   // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
   // It will create the transaction and sign it with saved nofn signatures.
   //
@@ -377,18 +384,22 @@ service ClementineVerifier {
 message WatchtowerParams {
   oneof response {
     uint32 watchtower_id = 1;
-    // Flattened list of Winternitz pubkeys for each operator's sequential
-    // collateral txs.
-    WinternitzPubkey winternitz_pubkeys = 2;
     // xonly public key serialized to bytes
-    bytes xonly_pk = 3;
+    bytes xonly_pk = 2;
   }
+}
+
+message WatchtowerKeys {
+  repeated WinternitzPubkey winternitz_pubkeys = 1;
+  uint32 watchtower_id = 2;
 }
 
 // Watchtowers are responsible for challenging the operator's kickoff txs.
 // Each watchtower also runs a verifier server connected to the same db. Thus,
 // they will have the operator's winternitz pubkeys.
 service ClementineWatchtower {
+  // Returns watchtower's challenge winternitz keys for each operator for a deposit.
+  rpc GetChallengeKeys(DepositParams) returns (WatchtowerKeys) {}
   // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
   // It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
   //

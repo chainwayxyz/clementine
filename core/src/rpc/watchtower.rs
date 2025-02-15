@@ -1,9 +1,9 @@
 use super::clementine::{
-    clementine_watchtower_server::ClementineWatchtower, watchtower_params, Empty, RawSignedTx,
-    TransactionRequest, WatchtowerParams,
+    clementine_watchtower_server::ClementineWatchtower, watchtower_params, DepositParams, Empty,
+    RawSignedTx, TransactionRequest, WatchtowerKeys, WatchtowerParams,
 };
 use crate::builder::transaction::sign::create_and_sign_tx;
-use crate::rpc::parser::parse_transaction_request;
+use crate::rpc::parser::{parse_deposit_params, parse_transaction_request};
 use crate::watchtower::Watchtower;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
@@ -18,9 +18,9 @@ impl ClementineWatchtower for Watchtower {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
-        let (watchtower_id, winternitz_public_keys, xonly_pk) = self.get_params().await?;
+        let (watchtower_id, xonly_pk) = self.get_params().await?;
 
-        let (tx, rx) = mpsc::channel(winternitz_public_keys.len() + 2);
+        let (tx, rx) = mpsc::channel(3);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
         tracing::info!(
@@ -34,11 +34,6 @@ impl ClementineWatchtower for Watchtower {
                 response: Some(watchtower_params::Response::WatchtowerId(watchtower_id)),
             }))
             .await?;
-
-            for wpk in winternitz_public_keys {
-                let wpk: WatchtowerParams = wpk.into();
-                tx.send(Ok(wpk)).await?;
-            }
 
             let xonly_pk: WatchtowerParams = xonly_pk.into();
             tx.send(Ok(xonly_pk)).await?;
@@ -67,5 +62,24 @@ impl ClementineWatchtower for Watchtower {
         .await?;
 
         Ok(Response::new(raw_tx))
+    }
+
+    async fn get_challenge_keys(
+        &self,
+        request: Request<DepositParams>,
+    ) -> Result<Response<WatchtowerKeys>, Status> {
+        let deposit_req = request.into_inner();
+        let deposit_data = parse_deposit_params(deposit_req)?;
+
+        let winternitz_keys =
+            self.get_watchtower_winternitz_public_keys(deposit_data.deposit_outpoint.txid)?;
+
+        Ok(Response::new(WatchtowerKeys {
+            winternitz_pubkeys: winternitz_keys
+                .into_iter()
+                .map(|pubkey| pubkey.into())
+                .collect(),
+            watchtower_id: self.config.index,
+        }))
     }
 }
