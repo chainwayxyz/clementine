@@ -144,7 +144,6 @@ impl Aggregator {
             try_join_all(verifiers.iter_mut().zip(operator_rx_handles).map(
                 |(verifier, mut rx)| async move {
                     while let Ok(operator_keys) = rx.recv().await {
-                        let operator_keys = operator_keys.clone();
                         verifier
                             .set_operator_keys(Request::new(operator_keys))
                             .await?;
@@ -200,7 +199,6 @@ impl Aggregator {
             try_join_all(verifiers.iter_mut().zip(watchtower_rx_handles).map(
                 |(verifier, mut rx)| async move {
                     while let Ok(watchtower_keys) = rx.recv().await {
-                        let watchtower_keys = watchtower_keys.clone();
                         verifier
                             .set_watchtower_keys(Request::new(watchtower_keys))
                             .await?;
