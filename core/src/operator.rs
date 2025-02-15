@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::builder::transaction::DepositId;
@@ -23,6 +21,7 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 

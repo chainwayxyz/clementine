@@ -162,7 +162,10 @@ impl TxSender {
     }
 
     /// Gets the current fee rate.
-    /// If the fee rate is not estimable, it will return a fee rate of 1 sat/vb for regtest.
+    ///
+    /// If the fee rate is not estimable, it will return a fee rate of 1 sat/vb,
+    /// **only for regtest**.
+    ///
     /// TODO: Use more sophisticated fee estimation, like the on in mempool.space
     async fn get_fee_rate(&self) -> Result<FeeRate, BridgeError> {
         let fee_rate = self
@@ -196,28 +199,25 @@ impl TxSender {
         }
     }
 
-    /// https://bitcoin.stackexchange.com/a/116959
-    /// Each additional p2tr input adds 230 WU and each additional p2tr output adds 172 WU to the transaction.
-    fn calculate_child_tx_size(num_fee_payer_utxos: usize) -> Weight {
-        Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172)
-    }
-
     /// Calculates the required total fee of a CPFP child tx.
     fn calculate_required_fee(
-        parent_tx_size: Weight,
+        parent_tx_weight: Weight,
         num_fee_payer_utxos: usize,
         fee_rate: FeeRate,
     ) -> Result<Amount, BridgeError> {
-        let child_tx_size = Self::calculate_child_tx_size(num_fee_payer_utxos);
+        // Each additional p2tr input adds 230 WU and each additional p2tr
+        // output adds 172 WU to the transaction:
+        // https://bitcoin.stackexchange.com/a/116959
+        let child_tx_weight = Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172);
+
         // When effective fee rate is calculated, it calculates vBytes of the tx not the total weight.
         let total_weight = Weight::from_vb_unchecked(
-            child_tx_size.to_vbytes_ceil() + parent_tx_size.to_vbytes_ceil(),
+            child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
         );
 
-        let required_fee = fee_rate
+        fee_rate
             .checked_mul_by_weight(total_weight)
-            .ok_or(BridgeError::Overflow)?;
-        Ok(required_fee)
+            .ok_or(BridgeError::Overflow)
     }
 
     /// We want to allocate more than the required amount to be able to bump fees.
@@ -227,8 +227,8 @@ impl TxSender {
         fee_rate: FeeRate,
     ) -> Result<Amount, BridgeError> {
         let required_fee = Self::calculate_required_fee(parent_tx_size, 1, fee_rate)?;
-        let required_amount = required_fee * 3 + MIN_TAPROOT_AMOUNT;
-        Ok(required_amount)
+
+        Ok(required_fee * 3 + MIN_TAPROOT_AMOUNT)
     }
 
     /// Creates a child tx that spends the p2a anchor using the fee payer utxos.
@@ -666,17 +666,12 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
 
-        assert!(rpc
-            .client
-            .send_raw_transaction(will_fail_handler.get_cached_tx())
-            .await
-            .is_err());
+        let will_fail_tx = will_fail_handler.get_cached_tx();
+        assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
 
         // Calculate and send with fee.
         let fee_rate = tx_sender.get_fee_rate().await.unwrap();
-        let fee = fee_rate
-            .checked_mul_by_weight(will_fail_handler.get_cached_tx().weight())
-            .unwrap();
+        let fee = TxSender::calculate_required_fee(will_fail_tx.weight(), 1, fee_rate).unwrap();
         println!("Fee rate: {:?}, fee: {}", fee_rate, fee);
 
         let mut will_successful_handler = builder

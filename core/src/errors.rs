@@ -282,7 +282,7 @@ pub enum BridgeError {
     #[error("Bitcoin RPC signing error: {0:?}")]
     BitcoinRPCSigningError(Vec<String>),
 
-    #[error("Fee estimation error: {0:?}")]
+    #[error("Can't estimate fees: {0:?}")]
     FeeEstimationError(Vec<String>),
 
     #[error("Fee payer transaction not found")]
