@@ -477,9 +477,10 @@ impl TxSender {
 mod tests {
     use super::*;
     use crate::bitcoin_syncer;
+    use crate::builder::script::{CheckSig, SpendableScript};
     use crate::builder::transaction::TransactionType;
     use crate::config::BridgeConfig;
-    use crate::utils::initialize_logger;
+    use crate::utils::{initialize_logger, SECP};
     use crate::{
         create_regtest_rpc, create_test_config_with_thread_name, database::Database,
         initialize_database,
@@ -487,6 +488,7 @@ mod tests {
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
     use secp256k1::rand;
+    use std::sync::Arc;
 
     async fn create_test_tx_sender(
         rpc: ExtendedRpc,
@@ -557,7 +559,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn test_create_fee_payer_tx() {
         let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
@@ -601,5 +602,102 @@ mod tests {
             "Get raw transaction result: {:?}",
             get_raw_transaction_result
         );
+    }
+
+    #[tokio::test]
+    async fn get_fee_rate() {
+        let mut config = create_test_config_with_thread_name!(None);
+        let regtest = create_regtest_rpc!(config);
+        let rpc: ExtendedRpc = regtest.rpc().clone();
+        let db = Database::new(&config).await.unwrap();
+
+        let amount = Amount::from_sat(100_000);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.network,
+        );
+        let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
+
+        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db, config.network);
+
+        let scripts: Vec<Arc<dyn SpendableScript>> =
+            vec![Arc::new(CheckSig::new(xonly_pk)).clone()];
+        let (taproot_address, taproot_spend_info) = builder::address::create_taproot_address(
+            &scripts
+                .iter()
+                .map(|s| s.to_script_buf())
+                .collect::<Vec<_>>(),
+            None,
+            config.network,
+        );
+
+        let input_utxo = rpc.send_to_address(&taproot_address, amount).await.unwrap();
+
+        let builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
+            NormalSignatureKind::NotStored,
+            SpendableTxIn::new(
+                input_utxo,
+                TxOut {
+                    value: amount,
+                    script_pubkey: taproot_address.script_pubkey(),
+                },
+                scripts.clone(),
+                Some(taproot_spend_info.clone()),
+            ),
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        );
+
+        let mut will_fail_handler = builder
+            .clone()
+            .add_output(UnspentTxOut::new(
+                TxOut {
+                    value: amount,
+                    script_pubkey: taproot_address.script_pubkey(),
+                },
+                scripts.clone(),
+                Some(taproot_spend_info.clone()),
+            ))
+            .finalize();
+        signer
+            .tx_sign_and_fill_sigs(&mut will_fail_handler, &[])
+            .unwrap();
+
+        rpc.mine_blocks(1).await.unwrap();
+
+        assert!(rpc
+            .client
+            .send_raw_transaction(will_fail_handler.get_cached_tx())
+            .await
+            .is_err());
+
+        // Calculate and send with fee.
+        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        let fee = fee_rate
+            .checked_mul_by_weight(will_fail_handler.get_cached_tx().weight())
+            .unwrap();
+        println!("Fee rate: {:?}, fee: {}", fee_rate, fee);
+
+        let mut will_successful_handler = builder
+            .add_output(UnspentTxOut::new(
+                TxOut {
+                    value: amount - fee,
+                    script_pubkey: taproot_address.script_pubkey(),
+                },
+                scripts,
+                Some(taproot_spend_info),
+            ))
+            .finalize();
+        signer
+            .tx_sign_and_fill_sigs(&mut will_successful_handler, &[])
+            .unwrap();
+
+        rpc.mine_blocks(1).await.unwrap();
+
+        rpc.client
+            .send_raw_transaction(will_successful_handler.get_cached_tx())
+            .await
+            .unwrap();
     }
 }
