@@ -1,3 +1,4 @@
+use crate::rpc::clementine::Outpoint;
 use crate::{
     fetch_next_message_from_stream,
     operator::Operator,
@@ -10,7 +11,7 @@ use crate::{
     },
 };
 use bitcoin::{
-    hashes::Hash, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf, Txid,
+    hashes::Hash, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf,
     XOnlyPublicKey,
 };
 use bitvm::signatures::winternitz;
@@ -21,7 +22,14 @@ impl From<Operator> for OperatorParams {
     fn from(operator: Operator) -> Self {
         let operator_config = clementine::OperatorConfig {
             operator_idx: operator.idx as u32,
-            collateral_funding_txid: operator.collateral_funding_txid.to_byte_array().to_vec(),
+            collateral_funding_outpoint: Some(Outpoint {
+                txid: operator
+                    .collateral_funding_outpoint
+                    .txid
+                    .to_byte_array()
+                    .to_vec(),
+                vout: operator.collateral_funding_outpoint.vout,
+            }),
             xonly_pk: operator.signer.xonly_public_key.to_string(),
             wallet_reimburse_address: operator.reimburse_addr.to_string(),
         };
@@ -65,7 +73,7 @@ impl TryFrom<DepositSignSession> for DepositParams {
 /// - Wallet reimburse address
 pub async fn parse_details(
     stream: &mut tonic::Streaming<OperatorParams>,
-) -> Result<(u32, Txid, XOnlyPublicKey, Address), Status> {
+) -> Result<(u32, OutPoint, XOnlyPublicKey, Address), Status> {
     let operator_param = fetch_next_message_from_stream!(stream, response)?;
 
     let operator_config =
@@ -78,17 +86,12 @@ pub async fn parse_details(
     let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_config.xonly_pk)
         .map_err(|_| Status::invalid_argument("Invalid operator xonly public key".to_string()))?;
 
-    let collateral_funding_txid = Txid::from_byte_array(
-        operator_config
-            .collateral_funding_txid
-            .try_into()
-            .map_err(|e| {
-                Status::invalid_argument(format!(
-                    "Failed to convert collateral funding txid to Txid: {:?}",
-                    e
-                ))
-            })?,
-    );
+    let collateral_funding_outpoint = operator_config
+        .collateral_funding_outpoint
+        .ok_or(Status::invalid_argument(
+            "Collateral funding outpoint not provided".to_string(),
+        ))?
+        .try_into()?;
 
     let wallet_reimburse_address = Address::from_str(&operator_config.wallet_reimburse_address)
         .map_err(|e| {
@@ -98,7 +101,7 @@ pub async fn parse_details(
 
     Ok((
         operator_config.operator_idx,
-        collateral_funding_txid,
+        collateral_funding_outpoint,
         operator_xonly_pk,
         wallet_reimburse_address,
     ))

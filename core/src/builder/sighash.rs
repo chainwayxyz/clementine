@@ -15,7 +15,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::KickoffId;
 use async_stream::try_stream;
-use bitcoin::{Address, TapSighash, Txid, XOnlyPublicKey};
+use bitcoin::{Address, OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
 /// Returns the number of required signatures for N-of-N signing session.
@@ -116,13 +116,13 @@ pub fn create_nofn_sighash_stream(
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
-        let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
+        let operators: Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)> =
             db.get_operators(None).await?;
         if operators.len() < config.num_operators {
             Err(BridgeError::NotEnoughOperators)?;
         }
 
-        for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid)) in
+        for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_outpoint)) in
             operators.iter().enumerate()
         {
             // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
@@ -136,7 +136,7 @@ pub fn create_nofn_sighash_stream(
             let operator_data = OperatorData {
                 xonly_pk: *operator_xonly_pk,
                 reimburse_addr: operator_reimburse_address.clone(),
-                collateral_funding_txid: *collateral_funding_txid,
+                collateral_funding_outpoint: *collateral_funding_outpoint,
             };
 
             // get kickoff winternitz keys for this operator
@@ -204,7 +204,7 @@ pub fn create_nofn_sighash_stream(
 pub fn create_operator_sighash_stream(
     db: Database,
     operator_idx: usize,
-    collateral_funding_txid: Txid,
+    collateral_funding_outpoint: OutPoint,
     operator_reimburse_addr: Address,
     operator_xonly_pk: XOnlyPublicKey,
     config: BridgeConfig,
@@ -215,7 +215,7 @@ pub fn create_operator_sighash_stream(
         let operator_data = OperatorData {
             xonly_pk: operator_xonly_pk,
             reimburse_addr: operator_reimburse_addr,
-            collateral_funding_txid,
+            collateral_funding_outpoint,
         };
 
         // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
@@ -320,7 +320,10 @@ mod tests {
                 i.try_into().unwrap(),
                 operator_xonly_pk,
                 recovery_taproot_address.to_string(),
-                Txid::all_zeros(),
+                OutPoint {
+                    vout: 0x45,
+                    txid: Txid::all_zeros(),
+                },
             )
             .await
             .unwrap();

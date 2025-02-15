@@ -155,7 +155,7 @@ message DepositSignSession {
 
 message OperatorConfig {
   uint32 operator_idx = 1;
-  bytes collateral_funding_txid = 2;
+  Outpoint collateral_funding_outpoint = 2;
   string xonly_pk = 3;
   string wallet_reimburse_address = 4;
 }

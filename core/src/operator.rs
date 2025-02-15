@@ -37,7 +37,7 @@ pub struct Operator {
     pub signer: Actor,
     pub config: BridgeConfig,
     pub nofn_xonly_pk: XOnlyPublicKey,
-    pub collateral_funding_txid: Txid,
+    pub collateral_funding_outpoint: OutPoint,
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSender,
@@ -85,37 +85,25 @@ impl Operator {
             .clone()
             .assume_checked();
 
-        // let mut tx = db.begin_transaction().await?;
-        // // check if funding utxo is already set
-        // if db.get_funding_utxo(Some(&mut tx)).await?.is_none() {
-        //     let outpoint = rpc.send_to_address(&signer.address, Amount::from_sat(200_000_000))?; // TODO: Is this OK to be a fixed value
-        //     let funding_utxo = UTXO {
-        //         outpoint,
-        //         txout: TxOut {
-        //             value: bitcoin::Amount::from_sat(200_000_000),
-        //             script_pubkey: signer.address.script_pubkey(),
-        //         },
-        //     };
-        //     db.set_funding_utxo(Some(&mut tx), funding_utxo).await?;
-        // }
-        // tx.commit().await?;
-
-        let mut tx = db.begin_transaction().await?;
-        // check if there is any sequential collateral tx from the current operator
-        let sequential_collateral_txs = db
-            .get_sequential_collateral_txs(Some(&mut tx), idx as i32)
-            .await?;
-        let collateral_funding_txid = if sequential_collateral_txs.is_empty() {
-            let outpoint = rpc
-                .send_to_address(&signer.address, Amount::from_sat(200_000_000))
-                .await?; // TODO: Is this OK to be a fixed value
-            db.set_sequential_collateral_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
+        // check if we store our collateral outpoint already in db
+        let op_data = db.get_operator(None, idx as i32).await?;
+        let collateral_funding_outpoint = match op_data {
+            Some(op_data) => op_data.collateral_funding_outpoint,
+            None => {
+                let outpoint = rpc
+                    .send_to_address(&signer.address, config.collateral_funding_amount)
+                    .await?;
+                db.set_operator(
+                    None,
+                    idx as i32,
+                    signer.xonly_public_key,
+                    reimburse_addr.to_string(),
+                    outpoint,
+                )
                 .await?;
-            outpoint.txid
-        } else {
-            sequential_collateral_txs[0].1
+                outpoint
+            }
         };
-        tx.commit().await?;
 
         let citrea_client = if !config.citrea_rpc_url.is_empty() {
             Some(HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?)
@@ -136,7 +124,7 @@ impl Operator {
             config,
             nofn_xonly_pk,
             idx,
-            collateral_funding_txid,
+            collateral_funding_outpoint,
             tx_sender,
             citrea_client,
             reimburse_addr,
@@ -185,7 +173,7 @@ impl Operator {
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
             self.db.clone(),
             self.idx,
-            self.collateral_funding_txid,
+            self.collateral_funding_outpoint,
             self.reimburse_addr.clone(),
             self.signer.xonly_public_key,
             self.config.clone(),

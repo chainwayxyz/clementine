@@ -22,8 +22,8 @@ use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_DAY, KICKOFF_BLOCKHASH_COMMIT_LENGTH, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
+use bitcoin::Sequence;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
-use bitcoin::{Sequence, Txid};
 use std::sync::Arc;
 
 /// Creates a [`TxHandler`] for `sequential_collateral_tx`. It will always use the first
@@ -40,7 +40,7 @@ use std::sync::Arc;
 /// 4. P2Anchor: Anchor output for CPFP
 pub fn create_sequential_collateral_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
-    input_txid: Txid,
+    input_outpoint: OutPoint,
     input_amount: Amount,
     timeout_block_count: i64,
     num_kickoffs_per_sequential_collateral_tx: usize,
@@ -51,10 +51,7 @@ pub fn create_sequential_collateral_txhandler(
     let mut builder = TxHandlerBuilder::new(TransactionType::SequentialCollateral).add_input(
         NormalSignatureKind::NotStored,
         SpendableTxIn::new(
-            OutPoint {
-                txid: input_txid,
-                vout: 0,
-            },
+            input_outpoint,
             TxOut {
                 value: input_amount,
                 script_pubkey: op_address.script_pubkey(),
@@ -205,7 +202,7 @@ pub fn create_assert_timeout_txhandler(
 /// for a sspecific operator.
 pub fn create_seq_collat_reimburse_gen_nth_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
-    input_txid: Txid,
+    input_outpoint: OutPoint,
     input_amount: Amount,
     timeout_block_count: i64,
     num_kickoffs_per_sequential_collateral_tx: usize,
@@ -215,7 +212,7 @@ pub fn create_seq_collat_reimburse_gen_nth_txhandler(
 ) -> Result<(TxHandler, TxHandler, TxHandler), BridgeError> {
     let mut seq_collat_txhandler = create_sequential_collateral_txhandler(
         operator_xonly_pk,
-        input_txid,
+        input_outpoint,
         input_amount,
         timeout_block_count,
         num_kickoffs_per_sequential_collateral_tx,
@@ -233,7 +230,9 @@ pub fn create_seq_collat_reimburse_gen_nth_txhandler(
     for idx in 1..index + 1 {
         seq_collat_txhandler = create_sequential_collateral_txhandler(
             operator_xonly_pk,
-            *reimburse_gen_txhandler.get_txid(),
+            *reimburse_gen_txhandler
+                .get_spendable_output(0)?
+                .get_prev_outpoint(),
             reimburse_gen_txhandler
                 .get_spendable_output(0)?
                 .get_prevout()

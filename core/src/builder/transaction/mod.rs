@@ -26,7 +26,7 @@ use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
-use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -55,7 +55,7 @@ pub struct DepositId {
 pub struct OperatorData {
     pub xonly_pk: XOnlyPublicKey,
     pub reimburse_addr: Address,
-    pub collateral_funding_txid: Txid,
+    pub collateral_funding_outpoint: OutPoint,
 }
 
 /// Types of all transactions that can be created. Some transactions have an (usize) to as they are created

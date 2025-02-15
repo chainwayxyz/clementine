@@ -61,7 +61,10 @@ pub async fn create_and_sign_tx(
     // get operator data
     let operator_data = db
         .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
-        .await?;
+        .await?
+        .ok_or(BridgeError::OperatorNotFound(
+            transaction_data.kickoff_id.operator_idx,
+        ))?;
 
     // get kickoff winternitz keys for this operator
     let kickoff_winternitz_pubkeys = db
@@ -206,7 +209,10 @@ pub async fn create_assert_commitment_txs(
     // get operator data
     let operator_data = db
         .get_operator(None, assert_data.kickoff_id.operator_idx as i32)
-        .await?;
+        .await?
+        .ok_or(BridgeError::OperatorNotFound(
+            assert_data.kickoff_id.operator_idx,
+        ))?;
 
     if assert_data.commit_data.len() != utils::BITVM_CACHE.intermediate_variables.len() {
         return Err(BridgeError::InvalidCommitData);

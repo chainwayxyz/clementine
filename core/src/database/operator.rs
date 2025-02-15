@@ -78,15 +78,16 @@ impl Database {
         operator_idx: i32,
         xonly_pubkey: XOnlyPublicKey,
         wallet_address: String,
-        collateral_funding_txid: Txid,
+        collateral_funding_outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO operators (operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid) VALUES ($1, $2, $3, $4);",
+            "INSERT INTO operators (operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) VALUES ($1, $2, $3, $4)
+                    ON CONFLICT DO NOTHING;",
         )
         .bind(operator_idx)
         .bind(XOnlyPublicKeyDB(xonly_pubkey))
         .bind(wallet_address)
-        .bind(TxidDB(collateral_funding_txid));
+        .bind(OutPointDB(collateral_funding_outpoint));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -96,12 +97,12 @@ impl Database {
     pub async fn get_operators(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Vec<(XOnlyPublicKey, bitcoin::Address, Txid)>, BridgeError> {
+    ) -> Result<Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid FROM operators ORDER BY operator_idx;"
+            "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_outpoint FROM operators ORDER BY operator_idx;"
         );
 
-        let operators: Vec<(i32, String, String, TxidDB)> =
+        let operators: Vec<(i32, String, String, OutPointDB)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         // Check for missing indices
@@ -117,14 +118,14 @@ impl Database {
         // Convert the result to the desired format
         let data = operators
             .into_iter()
-            .map(|(_, pk, addr, txid_db)| {
+            .map(|(_, pk, addr, outpoint_db)| {
                 let xonly_pk = XOnlyPublicKey::from_str(&pk)
                     .map_err(|e| BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e)))?;
                 let addr = bitcoin::Address::from_str(&addr)
                     .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
                     .assume_checked();
-                let txid = txid_db.0; // Extract the Txid from TxidDB
-                Ok((xonly_pk, addr, txid))
+                let outpoint = outpoint_db.0; // Extract the Txid from TxidDB
+                Ok((xonly_pk, addr, outpoint))
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
         Ok(data)
@@ -134,26 +135,31 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
-    ) -> Result<OperatorData, BridgeError> {
+    ) -> Result<Option<OperatorData>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid FROM operators WHERE operator_idx = $1;"
+            "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_outpoint FROM operators WHERE operator_idx = $1;"
         ).bind(operator_idx);
 
-        let (_, pk, addr, txid_db): (i32, String, String, TxidDB) =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        let result: Option<(i32, String, String, OutPointDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        // Convert the result to the desired format
-        let xonly_pk = XOnlyPublicKey::from_str(&pk)
-            .map_err(|e| BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e)))?;
-        let addr = bitcoin::Address::from_str(&addr)
-            .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
-            .assume_checked();
-        let txid = txid_db.0; // Extract the Txid from TxidDB
-        Ok(OperatorData {
-            xonly_pk,
-            reimburse_addr: addr,
-            collateral_funding_txid: txid,
-        })
+        match result {
+            None => Ok(None),
+            Some((_, pk, addr, outpoint_db)) => {
+                // Convert the result to the desired format
+                let xonly_pk = XOnlyPublicKey::from_str(&pk)
+                    .map_err(|e| BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e)))?;
+                let addr = bitcoin::Address::from_str(&addr)
+                    .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
+                    .assume_checked();
+                let outpoint = outpoint_db.0; // Extract the Txid from TxidDB
+                Ok(Some(OperatorData {
+                    xonly_pk,
+                    reimburse_addr: addr,
+                    collateral_funding_outpoint: outpoint,
+                }))
+            }
+        }
     }
 
     pub async fn lock_operators_kickoff_utxo_table(
@@ -787,7 +793,7 @@ mod tests {
                 i,
                 config.operators_xonly_pks[i],
                 config.operator_wallet_addresses[i].clone(),
-                txid,
+                OutPoint { txid, vout: 0 },
             ));
         }
         // add to db
@@ -811,10 +817,10 @@ mod tests {
             assert_eq!(res[i].2, ops[i].3);
         }
 
-        let res_single = database.get_operator(None, 1).await.unwrap();
+        let res_single = database.get_operator(None, 1).await.unwrap().unwrap();
         assert_eq!(res_single.xonly_pk, ops[1].1);
         assert_eq!(res_single.reimburse_addr, ops[1].2.clone().assume_checked());
-        assert_eq!(res_single.collateral_funding_txid, ops[1].3);
+        assert_eq!(res_single.collateral_funding_outpoint, ops[1].3);
     }
 
     #[tokio::test]

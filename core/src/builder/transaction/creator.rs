@@ -57,7 +57,9 @@ pub async fn create_txhandlers(
             let sequential_collateral_txhandler =
                 builder::transaction::create_sequential_collateral_txhandler(
                     operator_data.xonly_pk,
-                    *prev_reimburse_generator.get_txid(),
+                    *prev_reimburse_generator
+                        .get_spendable_output(0)?
+                        .get_prev_outpoint(),
                     prev_reimburse_generator
                         .get_spendable_output(0)?
                         .get_prevout()
@@ -100,7 +102,7 @@ pub async fn create_txhandlers(
                 reimburse_generator_txhandler,
             ) = builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
                 operator_data.xonly_pk,
-                operator_data.collateral_funding_txid,
+                operator_data.collateral_funding_outpoint,
                 config.collateral_funding_amount,
                 config.timeout_block_count,
                 config.num_kickoffs_per_sequential_collateral_tx,

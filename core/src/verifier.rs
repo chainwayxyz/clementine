@@ -23,7 +23,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
-use bitcoin::{Address, ScriptBuf, TapTweakHash, Txid, XOnlyPublicKey};
+use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::HashMap;
@@ -161,7 +161,7 @@ impl Verifier {
     pub async fn set_operator(
         &self,
         operator_index: u32,
-        collateral_funding_txid: Txid,
+        collateral_funding_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
         wallet_reimburse_address: Address,
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
@@ -173,7 +173,7 @@ impl Verifier {
                 operator_index as i32,
                 operator_xonly_pk,
                 wallet_reimburse_address.to_string(),
-                collateral_funding_txid,
+                collateral_funding_outpoint,
             )
             .await?;
 
@@ -522,11 +522,11 @@ impl Verifier {
         let mut total_op_sig_count = 0;
 
         // get operator data
-        let operators_data: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
+        let operators_data: Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)> =
             self.db.get_operators(None).await?;
 
         // get signatures of operators and verify them
-        for (operator_idx, (op_xonly_pk, reimburse_addr, collateral_txid)) in
+        for (operator_idx, (op_xonly_pk, reimburse_addr, collateral_outpoint)) in
             operators_data.iter().enumerate()
         {
             let mut op_sig_count = 0;
@@ -542,7 +542,7 @@ impl Verifier {
             let mut sighash_stream = pin!(create_operator_sighash_stream(
                 self.db.clone(),
                 operator_idx,
-                *collateral_txid,
+                *collateral_outpoint,
                 reimburse_addr.clone(),
                 *op_xonly_pk,
                 self.config.clone(),
@@ -898,7 +898,11 @@ impl Verifier {
             ));
         }
         let operator_idx = keys.operator_idx;
-        let operator_data = self.db.get_operator(None, operator_idx).await?;
+        let operator_data = self
+            .db
+            .get_operator(None, operator_idx)
+            .await?
+            .ok_or(BridgeError::OperatorNotFound(keys.operator_idx as u32))?;
 
         self.db
             .set_operator_challenge_ack_hashes(

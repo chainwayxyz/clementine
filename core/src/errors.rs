@@ -154,6 +154,8 @@ pub enum BridgeError {
     /// InvalidKickoffUtxo is returned when the kickoff utxo is invalid
     #[error("InvalidKickoffUtxo")]
     InvalidKickoffUtxo,
+    #[error("Operator idx {0} was not found in the DB")]
+    OperatorNotFound(u32),
 
     #[error("Error while generating musig nonces: {0}")]
     MusigNonceGenFailed(#[from] musig::MusigNonceGenError),

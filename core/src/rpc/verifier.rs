@@ -54,8 +54,12 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Empty>, Status> {
         let mut in_stream = req.into_inner();
 
-        let (operator_index, collateral_funding_txid, operator_xonly_pk, wallet_reimburse_address) =
-            parser::operator::parse_details(&mut in_stream).await?;
+        let (
+            operator_index,
+            collateral_funding_outpoint,
+            operator_xonly_pk,
+            wallet_reimburse_address,
+        ) = parser::operator::parse_details(&mut in_stream).await?;
 
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_kickoffs_per_sequential_collateral_tx
@@ -67,7 +71,7 @@ impl ClementineVerifier for Verifier {
 
         self.set_operator(
             operator_index,
-            collateral_funding_txid,
+            collateral_funding_outpoint,
             operator_xonly_pk,
             wallet_reimburse_address,
             operator_kickoff_winternitz_public_keys,
