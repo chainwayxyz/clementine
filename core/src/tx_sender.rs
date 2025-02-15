@@ -92,30 +92,37 @@ impl TxSender {
         Ok(handle)
     }
 
-    /// - Creates a fee payer UTXO for a parent tx.
-    /// - Returns the outpoint of the fee payer UTXO.
-    /// - This function should be called before the parent tx is sent to the network.
-    /// - This is to make sure the client has enough funds to bump fees.
-    /// - The fee payer UTXO is used to bump fees of the parent tx.
-    /// - The fee payer UTXO should be confirmed before the parent tx is sent to the network.
+    /// Creates a fee payer UTXO for a parent transaction. This function should
+    /// be called before the parent tx is sent to the network.
+    ///
+    /// This is to make sure the client has enough funds to bump fees. The fee
+    /// payer UTXO is used to bump fees of the parent tx.
+    ///
+    /// The fee payer UTXO **must be confirmed** before the parent tx is sent to
+    /// the network.
+    ///
+    /// # Returns
+    ///
+    /// - [`OutPoint`]: Outpoint of the fee payer UTXO.
     pub async fn create_fee_payer_utxo(
         &self,
         parent_txid: Txid,
-        parent_tx_size: Weight,
+        parent_tx_weight: Weight,
     ) -> Result<OutPoint, BridgeError> {
         let fee_rate = self.get_fee_rate().await?;
-        tracing::info!("Fee rate: {}", fee_rate);
         let required_amount =
-            Self::calculate_required_amount_for_fee_payer_utxo(parent_tx_size, fee_rate)?;
-
-        tracing::info!("Required amount: {}", required_amount);
+            Self::calculate_required_amount_for_fee_payer_utxo(parent_tx_weight, fee_rate)?;
+        tracing::info!(
+            "Creating fee payer UTXO with amount {} ({} sat/vb)",
+            required_amount,
+            fee_rate
+        );
 
         let outpoint = self
             .rpc
             .send_to_address(&self.signer.address, required_amount)
             .await?;
 
-        // save the db
         self.db
             .save_fee_payer_tx(
                 None,
@@ -128,37 +135,25 @@ impl TxSender {
             )
             .await?;
 
-        tracing::info!(
-            "Fee payer tx saved to db with parent txid: {} and script pubkey: {}",
-            parent_txid,
-            self.signer.address.script_pubkey()
-        );
-
         Ok(outpoint)
     }
 
-    /// This will save the tx to the db.
-    /// It will also check if the tx has a fee payer UTXO already in the db.
+    /// Save a transaction to database while checking if it has a fee payer
+    /// UTXO.
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_tx(&self, tx: &Transaction) -> Result<(), BridgeError> {
-        let bumped_txid = tx.compute_txid();
-        tracing::info!(
-            "Bumped txid: {} and script pubkey: {}",
-            bumped_txid,
-            self.signer.address.script_pubkey()
-        );
-        let fee_payer_txs: Vec<(Txid, u32, Amount, bool)> = self
-            .db
-            .get_fee_payer_tx(None, bumped_txid, self.signer.address.script_pubkey())
-            .await?;
+        let txid = tx.compute_txid();
 
-        if fee_payer_txs.is_empty() {
+        if self
+            .db
+            .get_fee_payer_tx(None, txid, self.signer.address.script_pubkey())
+            .await?
+            .is_empty()
+        {
             return Err(BridgeError::FeePayerTxNotFound);
         }
 
-        // Persist the tx to the db
-        self.db.save_tx(None, bumped_txid, tx.clone()).await?;
-
-        Ok(())
+        self.db.save_tx(None, txid, tx.clone()).await
     }
 
     /// Gets the current fee rate.

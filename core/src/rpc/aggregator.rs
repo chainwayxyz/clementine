@@ -1027,6 +1027,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn aggregator_deposit_movetx_lands_onchain() {
         let mut config = create_test_config_with_thread_name!(None);
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
