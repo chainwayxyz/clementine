@@ -166,36 +166,29 @@ impl TxSender {
     /// If the fee rate is not estimable, it will return a fee rate of 1 sat/vb,
     /// **only for regtest**.
     ///
-    /// TODO: Use more sophisticated fee estimation, like the on in mempool.space
+    /// TODO: Use more sophisticated fee estimation, like the one in mempool.space
     async fn get_fee_rate(&self) -> Result<FeeRate, BridgeError> {
         let fee_rate = self
             .rpc
             .client
             .estimate_smart_fee(1, Some(EstimateMode::Conservative))
-            .await;
+            .await?;
 
-        if fee_rate.is_err() {
-            return Ok(FeeRate::from_sat_per_vb_unchecked(1));
-        }
+        match fee_rate.fee_rate {
+            Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
+            None => {
+                if self.network == bitcoin::Network::Regtest {
+                    // TODO: Looks like this check never occurs.
+                    tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
+                    return Ok(FeeRate::from_sat_per_vb_unchecked(1));
+                }
 
-        let fee_rate = fee_rate?;
-        if fee_rate.errors.is_some() {
-            if self.network == bitcoin::Network::Regtest {
-                Ok(FeeRate::from_sat_per_vb_unchecked(1))
-            } else {
                 Err(BridgeError::FeeEstimationError(
                     fee_rate
                         .errors
                         .expect("Fee estimation errors should be present"),
                 ))
             }
-        } else {
-            Ok(FeeRate::from_sat_per_kwu(
-                fee_rate
-                    .fee_rate
-                    .expect("Fee rate should be present when no errors")
-                    .to_sat(),
-            ))
         }
     }
 
