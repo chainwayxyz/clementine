@@ -2,6 +2,7 @@
 //!
 //! This module provides helpful functions for Bitcoin RPC.
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::builder;
@@ -197,14 +198,23 @@ impl ExtendedRpc {
         match bump_fee_result {
             Ok(bump_fee_result) => Ok(bump_fee_result.txid.expect("Bump fee txid is None")),
             Err(e) => match e {
-                bitcoincore_rpc::Error::JsonRpc(json_rpc_error) => {
-                    let error_message = json_rpc_error.to_string();
-                    if error_message.contains(" is already spent") {
-                        Err(BridgeError::BumpFeeUTXOSpent)
-                    } else {
-                        Err(BridgeError::Error(json_rpc_error.to_string()))
+                bitcoincore_rpc::Error::JsonRpc(json_rpc_error) => match json_rpc_error {
+                    bitcoincore_rpc::RpcError::Rpc(rpc_error) => {
+                        if rpc_error.message.ends_with(" is already spent") {
+                            let outpoint_str = rpc_error
+                                .message
+                                .split(" is already spent")
+                                .next()
+                                .expect("RPC error message should contain ' is already spent'");
+                            let outpoint = OutPoint::from_str(outpoint_str)
+                                .expect("RPC error message should contain a valid outpoint");
+                            Err(BridgeError::BumpFeeUTXOSpent(outpoint))
+                        } else {
+                            Err(BridgeError::Error(rpc_error.message))
+                        }
                     }
-                }
+                    _ => Err(BridgeError::Error(json_rpc_error.to_string())),
+                },
                 _ => Err(BridgeError::Error(e.to_string())),
             },
         }

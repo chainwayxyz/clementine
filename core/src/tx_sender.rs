@@ -440,8 +440,8 @@ impl TxSender {
                         .await?;
                 }
                 Err(e) => match e {
-                    BridgeError::BumpFeeUTXOSpent => {
-                        tracing::error!("Fee payer UTXO is spent, skipping");
+                    BridgeError::BumpFeeUTXOSpent(outpoint) => {
+                        tracing::error!("Fee payer UTXO is spent, skipping : {:?}", outpoint);
                         continue;
                     }
                     _ => return Err(e),
