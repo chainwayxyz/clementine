@@ -23,6 +23,35 @@ fn get_txhandler(
 }
 
 #[derive(Debug, Clone)]
+/// Helper struct to get specific kickoff winternitz keys for a sequential collateral tx
+pub struct KickoffWinternitzKeys {
+    keys: Vec<bitvm::signatures::winternitz::PublicKey>,
+    num_kickoffs_per_seq: usize,
+}
+
+impl KickoffWinternitzKeys {
+    pub fn new(
+        keys: Vec<bitvm::signatures::winternitz::PublicKey>,
+        num_kickoffs_per_seq: usize,
+    ) -> Self {
+        Self {
+            keys,
+            num_kickoffs_per_seq,
+        }
+    }
+
+    /// Get the winternitz keys for a specific sequential collateral tx
+    pub fn get_keys_for_seq_col(
+        &self,
+        seq_col_idx: usize,
+    ) -> &[bitvm::signatures::winternitz::PublicKey] {
+        &self.keys
+            [seq_col_idx * self.num_kickoffs_per_seq..(seq_col_idx + 1) * self.num_kickoffs_per_seq]
+    }
+}
+
+/// Struct to retrieve and store DB data for creating TxHandlers on demand
+#[derive(Debug, Clone)]
 pub struct TxHandlerDbData {
     db: Database,
     operator_idx: u32,
@@ -31,7 +60,7 @@ pub struct TxHandlerDbData {
     /// watchtower challenge addresses
     watchtower_challenge_addr: Option<Vec<ScriptBuf>>,
     /// winternitz keys to sign the kickoff tx with the blockhash
-    kickoff_winternitz_keys: Option<Vec<bitvm::signatures::winternitz::PublicKey>>,
+    kickoff_winternitz_keys: Option<KickoffWinternitzKeys>,
     /// bitvm assert scripts for each assert utxo
     bitvm_assert_addr: Option<Vec<ScriptBuf>>,
     /// bitvm disprove scripts taproot merkle tree root hash
@@ -86,15 +115,16 @@ impl TxHandlerDbData {
 
     pub async fn get_kickoff_winternitz_keys(
         &mut self,
-    ) -> Result<&[bitvm::signatures::winternitz::PublicKey], BridgeError> {
+    ) -> Result<&KickoffWinternitzKeys, BridgeError> {
         match self.kickoff_winternitz_keys {
             Some(ref keys) => Ok(keys),
             None => {
-                self.kickoff_winternitz_keys = Some(
+                self.kickoff_winternitz_keys = Some(KickoffWinternitzKeys::new(
                     self.db
                         .get_operator_kickoff_winternitz_public_keys(None, self.operator_idx)
                         .await?,
-                );
+                    self.config.num_kickoffs_per_sequential_collateral_tx,
+                ));
                 Ok(self
                     .kickoff_winternitz_keys
                     .as_ref()
@@ -220,10 +250,8 @@ pub async fn create_txhandlers(
                     config.timeout_block_count,
                     config.num_kickoffs_per_sequential_collateral_tx,
                     config.network,
-                    &kickoff_winternitz_keys[kickoff_id.sequential_collateral_idx as usize
-                        * config.num_kickoffs_per_sequential_collateral_tx
-                        ..(kickoff_id.sequential_collateral_idx + 1) as usize
-                            * config.num_kickoffs_per_sequential_collateral_tx],
+                    kickoff_winternitz_keys
+                        .get_keys_for_seq_col(kickoff_id.sequential_collateral_idx as usize),
                 )?;
 
             let ready_to_reimburse_txhandler =
