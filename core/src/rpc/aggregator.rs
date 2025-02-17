@@ -445,6 +445,9 @@ impl ClementineAggregator for Aggregator {
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
             tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
+        let operator_params_rx_handles = (0..self.config.num_verifiers)
+            .map(|_| operator_params_rx.resubscribe())
+            .collect::<Vec<_>>();
 
         let operators = self.operator_clients.clone();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
@@ -471,21 +474,22 @@ impl ClementineAggregator for Aggregator {
         let verifiers = self.verifier_clients.clone();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers of existing operators...");
-            try_join_all(verifiers.iter().map(|verifier| {
-                let verifier = verifier.clone();
-                let mut rx = operator_params_rx.resubscribe();
-                async move {
-                    collect_and_call(&mut rx, |params| {
-                        let mut verifier = verifier.clone();
-                        async move {
-                            verifier.set_operator(futures::stream::iter(params)).await?;
-                            Ok::<_, Status>(())
-                        }
-                    })
-                    .await?;
-                    Ok::<_, Status>(())
-                }
-            }))
+            try_join_all(verifiers.iter().zip(operator_params_rx_handles).map(
+                |(verifier, mut rx)| {
+                    let verifier = verifier.clone();
+                    async move {
+                        collect_and_call(&mut rx, |params| {
+                            let mut verifier = verifier.clone();
+                            async move {
+                                verifier.set_operator(futures::stream::iter(params)).await?;
+                                Ok::<_, Status>(())
+                            }
+                        })
+                        .await?;
+                        Ok::<_, Status>(())
+                    }
+                },
+            ))
             .await?;
             Ok::<_, Status>(())
         });
@@ -494,6 +498,9 @@ impl ClementineAggregator for Aggregator {
 
         let (watchtower_params_tx, watchtower_params_rx) =
             tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
+        let watchtower_params_rx_handles = (0..self.config.num_verifiers)
+            .map(|_| watchtower_params_rx.resubscribe())
+            .collect::<Vec<_>>();
 
         let get_watchtower_params_chunked_handle = tokio::spawn({
             let watchtowers = self.watchtower_clients.clone();
@@ -523,27 +530,24 @@ impl ClementineAggregator for Aggregator {
             let verifiers = self.verifier_clients.clone();
             async move {
                 tracing::info!("Sending Winternitz public keys to verifiers...");
-                try_join_all(
-                    verifiers
-                        .iter()
-                        .map(|v| (v, watchtower_params_rx.resubscribe()))
-                        .map(|(verifier, mut rx)| {
-                            let verifier = verifier.clone();
-                            async move {
-                                collect_and_call(&mut rx, |params| {
-                                    let mut verifier = verifier.clone();
-                                    async move {
-                                        verifier
-                                            .set_watchtower(futures::stream::iter(params))
-                                            .await?;
-                                        Ok::<_, Status>(())
-                                    }
-                                })
-                                .await?;
-                                Ok::<_, Status>(())
-                            }
-                        }),
-                )
+                try_join_all(verifiers.iter().zip(watchtower_params_rx_handles).map(
+                    |(verifier, mut rx)| {
+                        let verifier = verifier.clone();
+                        async move {
+                            collect_and_call(&mut rx, |params| {
+                                let mut verifier = verifier.clone();
+                                async move {
+                                    verifier
+                                        .set_watchtower(futures::stream::iter(params))
+                                        .await?;
+                                    Ok::<_, Status>(())
+                                }
+                            })
+                            .await?;
+                            Ok::<_, Status>(())
+                        }
+                    },
+                ))
                 .await?;
                 Ok::<_, Status>(())
             }
