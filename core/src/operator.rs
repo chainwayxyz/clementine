@@ -5,7 +5,6 @@ use crate::bitcoin_syncer::{self};
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::builder::transaction::DepositData;
 use crate::config::BridgeConfig;
-use crate::constants::{KICKOFF_BLOCKHASH_COMMIT_LENGTH, WINTERNITZ_LOG_D};
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -828,19 +827,11 @@ impl Operator {
         for (intermediate_step, intermediate_step_size) in
             crate::utils::BITVM_CACHE.intermediate_variables.iter()
         {
-            let step_name = intermediate_step.as_str();
-            let path = WinternitzDerivationPath {
-                message_length: *intermediate_step_size as u32 * 2,
-                log_d: WINTERNITZ_LOG_D,
-                tx_type: crate::actor::TxType::BitVM,
-                operator_idx: Some(self.idx as u32),
-                watchtower_idx: None,
-                sequential_collateral_tx_idx: None,
-                kickoff_idx: None,
-                intermediate_step_name: Some(step_name),
-                deposit_txid: Some(deposit_txid),
-            };
-
+            let path = WinternitzDerivationPath::BitvmAssert(
+                *intermediate_step_size as u32 * 2,
+                intermediate_step.to_owned(),
+                deposit_txid,
+            );
             winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
         }
 
@@ -860,18 +851,10 @@ impl Operator {
 
         for sequential_collateral_idx in 0..self.config.num_sequential_collateral_txs {
             for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
-                let path = WinternitzDerivationPath {
-                    message_length: KICKOFF_BLOCKHASH_COMMIT_LENGTH,
-                    log_d: WINTERNITZ_LOG_D,
-                    tx_type: crate::actor::TxType::BitVM,
-                    operator_idx: Some(self.idx as u32),
-                    watchtower_idx: None,
-                    sequential_collateral_tx_idx: Some(sequential_collateral_idx as u32),
-                    kickoff_idx: Some(kickoff_idx as u32),
-                    intermediate_step_name: None,
-                    deposit_txid: None,
-                };
-
+                let path = WinternitzDerivationPath::Kickoff(
+                    sequential_collateral_idx as u32,
+                    kickoff_idx as u32,
+                );
                 winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
             }
         }
@@ -886,19 +869,10 @@ impl Operator {
         let mut hashes = Vec::new();
 
         for watchtower_idx in 0..self.config.num_watchtowers {
-            let path = WinternitzDerivationPath {
-                message_length: 1,
-                log_d: 1,
-                tx_type: crate::actor::TxType::OperatorChallengeACK,
-                operator_idx: Some(self.idx as u32), // TODO: Handle casting better
-                watchtower_idx: Some(watchtower_idx as u32), // TODO: Handle casting better
-                sequential_collateral_tx_idx: None,
-                kickoff_idx: None,
-                intermediate_step_name: None,
-                deposit_txid: Some(deposit_txid),
-            };
+            let path =
+                WinternitzDerivationPath::ChallengeAckHash(watchtower_idx as u32, deposit_txid);
             let hash = self.signer.generate_public_hash_from_path(path)?;
-            hashes.push(hash); // Subject to change
+            hashes.push(hash);
         }
         tracing::info!("Public hashes len: {:?}", hashes.len());
         Ok(hashes)

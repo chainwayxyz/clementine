@@ -2,9 +2,6 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::transaction::creator::TxHandlerDbData;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::config::BridgeConfig;
-use crate::constants::{
-    KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
-};
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
@@ -77,47 +74,25 @@ pub async fn create_and_sign_tx(
 
     signer.tx_sign_and_fill_sigs(&mut requested_txhandler, &signatures)?;
 
-    if let TransactionType::OperatorChallengeAck(watchtower_idx) = transaction_data.transaction_type
-    {
-        let path = WinternitzDerivationPath {
-            message_length: 1,
-            log_d: 1,
-            tx_type: crate::actor::TxType::OperatorChallengeACK,
-            operator_idx: Some(transaction_data.kickoff_id.operator_idx),
-            watchtower_idx: Some(watchtower_idx as u32),
-            sequential_collateral_tx_idx: None,
-            kickoff_idx: None,
-            intermediate_step_name: None,
-            deposit_txid: Some(transaction_data.deposit_data.deposit_outpoint.txid),
-        };
+    if let TransactionType::OperatorChallengeAck(watchtower_idx) = transaction_data.transaction_type {
+        let path = WinternitzDerivationPath::ChallengeAckHash(
+            watchtower_idx as u32,
+            transaction_data.deposit_data.deposit_outpoint.txid,
+        );
         let preimage = signer.generate_preimage_from_path(path)?;
         signer.tx_sign_preimage(&mut requested_txhandler, preimage)?;
     }
     if let TransactionType::MiniAssert(assert_idx) = transaction_data.transaction_type {
-        let path = WinternitzDerivationPath {
-            message_length: *utils::BITVM_CACHE
-                .intermediate_variables
-                .iter()
-                .nth(assert_idx)
-                .ok_or_else(|| Status::invalid_argument("Mini Assert Index is too big"))?
-                .1 as u32
-                * 2,
-            log_d: WINTERNITZ_LOG_D,
-            tx_type: crate::actor::TxType::BitVM,
-            operator_idx: Some(transaction_data.kickoff_id.operator_idx),
-            watchtower_idx: None,
-            sequential_collateral_tx_idx: None,
-            kickoff_idx: None,
-            intermediate_step_name: Some(
-                utils::BITVM_CACHE
-                    .intermediate_variables
-                    .iter()
-                    .nth(assert_idx)
-                    .ok_or_else(|| Status::invalid_argument("Mini Assert Index is too big"))?
-                    .0,
-            ),
-            deposit_txid: Some(transaction_data.deposit_data.deposit_outpoint.txid),
-        };
+        let (step_name, step_size) = utils::BITVM_CACHE
+            .intermediate_variables
+            .iter()
+            .nth(assert_idx)
+            .ok_or_else(|| Status::invalid_argument("Mini Assert Index is too big"))?;
+        let path = WinternitzDerivationPath::BitvmAssert(
+            *step_size as u32,
+            step_name.to_owned(),
+            transaction_data.deposit_data.deposit_outpoint.txid,
+        );
         signer.tx_sign_winternitz(
             &mut requested_txhandler,
             &transaction_data.commit_data,
@@ -125,20 +100,10 @@ pub async fn create_and_sign_tx(
         )?;
     }
     if let TransactionType::WatchtowerChallenge(_) = transaction_data.transaction_type {
-        // same path as get_watchtower_winternitz_public_keys()
-        let path = WinternitzDerivationPath {
-            message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
-            log_d: WINTERNITZ_LOG_D,
-            tx_type: crate::actor::TxType::WatchtowerChallenge,
-            operator_idx: Some(transaction_data.kickoff_id.operator_idx),
-            watchtower_idx: None,
-            sequential_collateral_tx_idx: Some(
-                transaction_data.kickoff_id.sequential_collateral_idx,
-            ),
-            kickoff_idx: Some(transaction_data.kickoff_id.kickoff_idx),
-            intermediate_step_name: None,
-            deposit_txid: None,
-        };
+        let path = WinternitzDerivationPath::WatchtowerChallenge(
+            transaction_data.kickoff_id.operator_idx,
+            transaction_data.deposit_data.deposit_outpoint.txid,
+        );
         signer.tx_sign_winternitz(
             &mut requested_txhandler,
             &transaction_data.commit_data,
@@ -147,19 +112,10 @@ pub async fn create_and_sign_tx(
     }
     if let TransactionType::Kickoff = transaction_data.transaction_type {
         // need to commit blockhash to start kickoff
-        let path = WinternitzDerivationPath {
-            message_length: KICKOFF_BLOCKHASH_COMMIT_LENGTH,
-            log_d: WINTERNITZ_LOG_D,
-            tx_type: crate::actor::TxType::BitVM,
-            operator_idx: Some(transaction_data.kickoff_id.operator_idx),
-            watchtower_idx: None,
-            sequential_collateral_tx_idx: Some(
-                transaction_data.kickoff_id.sequential_collateral_idx,
-            ),
-            kickoff_idx: Some(transaction_data.kickoff_id.kickoff_idx),
-            intermediate_step_name: None,
-            deposit_txid: None,
-        };
+        let path = WinternitzDerivationPath::Kickoff(
+            transaction_data.kickoff_id.sequential_collateral_idx,
+            transaction_data.kickoff_id.kickoff_idx,
+        );
         signer.tx_sign_winternitz(
             &mut requested_txhandler,
             &transaction_data.commit_data,
@@ -238,17 +194,11 @@ pub async fn create_assert_commitment_txs(
             ));
         }
 
-        let path = WinternitzDerivationPath {
-            message_length: step_size as u32 * 2,
-            log_d: WINTERNITZ_LOG_D,
-            tx_type: crate::actor::TxType::BitVM,
-            operator_idx: Some(assert_data.kickoff_id.operator_idx),
-            watchtower_idx: None,
-            sequential_collateral_tx_idx: None,
-            kickoff_idx: None,
-            intermediate_step_name: Some(step_name),
-            deposit_txid: Some(assert_data.deposit_data.deposit_outpoint.txid),
-        };
+        let path = WinternitzDerivationPath::BitvmAssert(
+            step_size as u32 * 2,
+            step_name.to_owned(),
+            assert_data.deposit_data.deposit_outpoint.txid,
+        );
         let mut mini_assert_txhandler =
             txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
                 BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),

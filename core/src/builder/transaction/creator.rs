@@ -1,8 +1,9 @@
+use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
 use crate::config::BridgeConfig;
-use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
+use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::PublicHash;
@@ -459,17 +460,9 @@ pub async fn create_txhandlers(
                 )?
             } else {
                 // generate with actual scripts if we want to specifically create a watchtower challenge tx
-                let path = WinternitzDerivationPath {
-                    message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
-                    log_d: WINTERNITZ_LOG_D,
-                    tx_type: crate::actor::TxType::WatchtowerChallenge,
-                    operator_idx: Some(kickoff_id.operator_idx),
-                    watchtower_idx: None,
-                    sequential_collateral_tx_idx: Some(kickoff_id.sequential_collateral_idx),
-                    kickoff_idx: Some(kickoff_id.kickoff_idx),
-                    intermediate_step_name: None,
-                    deposit_txid: None,
-                };
+                let path =
+                    WatchtowerChallenge(kickoff_id.operator_idx, deposit.deposit_outpoint.txid);
+
                 let actor = Actor::new(
                     config.secret_key,
                     config.winternitz_secret_key,
@@ -552,22 +545,16 @@ pub async fn create_txhandlers(
         for (intermediate_step, intermediate_step_size) in
             utils::BITVM_CACHE.intermediate_variables.iter()
         {
-            let path = WinternitzDerivationPath {
-                message_length: *intermediate_step_size as u32 * 2,
-                log_d: WINTERNITZ_LOG_D,
-                tx_type: crate::actor::TxType::BitVM,
-                operator_idx: Some(kickoff_id.operator_idx),
-                watchtower_idx: None,
-                sequential_collateral_tx_idx: None,
-                kickoff_idx: None,
-                intermediate_step_name: Some(intermediate_step),
-                deposit_txid: Some(deposit.deposit_outpoint.txid),
-            };
+            let path = WinternitzDerivationPath::BitvmAssert(
+                *intermediate_step_size as u32 * 2,
+                intermediate_step.to_string(),
+                deposit.deposit_outpoint.txid,
+            );
             let pk = actor.derive_winternitz_pk(path)?;
             assert_scripts.push(Arc::new(WinternitzCommit::new(
                 pk,
                 operator_data.xonly_pk,
-                path.message_length,
+                *intermediate_step_size as u32 * 2,
             )));
         }
         // Creates the assert_begin_tx handler.

@@ -1,4 +1,4 @@
-use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
+use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
@@ -62,18 +62,7 @@ impl Watchtower {
         let mut winternitz_pubkeys = Vec::new();
 
         for operator in 0..self.config.num_operators as u32 {
-            let path = WinternitzDerivationPath {
-                message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
-                log_d: WINTERNITZ_LOG_D,
-                tx_type: crate::actor::TxType::WatchtowerChallenge,
-                operator_idx: Some(operator),
-                watchtower_idx: None,
-                sequential_collateral_tx_idx: None,
-                kickoff_idx: None,
-                intermediate_step_name: None,
-                deposit_txid: Some(deposit_txid),
-            };
-
+            let path = WinternitzDerivationPath::WatchtowerChallenge(operator, deposit_txid);
             winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
         }
 
