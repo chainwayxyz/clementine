@@ -79,7 +79,6 @@ impl ClementineWatchtower for Watchtower {
                 .into_iter()
                 .map(|pubkey| pubkey.into())
                 .collect(),
-            watchtower_id: self.config.index,
         }))
     }
 }

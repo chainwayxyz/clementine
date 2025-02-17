@@ -160,6 +160,8 @@ pub struct OperatorKeysWithDeposit {
     pub operator_keys: ::core::option::Option<OperatorKeys>,
     #[prost(message, optional, tag = "2")]
     pub deposit_params: ::core::option::Option<DepositParams>,
+    #[prost(uint32, tag = "3")]
+    pub operator_idx: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WatchtowerKeysWithDeposit {
@@ -167,6 +169,8 @@ pub struct WatchtowerKeysWithDeposit {
     pub watchtower_keys: ::core::option::Option<WatchtowerKeys>,
     #[prost(message, optional, tag = "2")]
     pub deposit_params: ::core::option::Option<DepositParams>,
+    #[prost(uint32, tag = "3")]
+    pub watchtower_idx: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorKeys {
@@ -176,8 +180,6 @@ pub struct OperatorKeys {
     /// Hashes of preimages that will be used to ACK watchtower challenges.
     #[prost(message, repeated, tag = "2")]
     pub challenge_ack_digests: ::prost::alloc::vec::Vec<ChallengeAckDigest>,
-    #[prost(int32, tag = "3")]
-    pub operator_idx: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorBurnSig {
@@ -321,8 +323,6 @@ pub mod watchtower_params {
 pub struct WatchtowerKeys {
     #[prost(message, repeated, tag = "1")]
     pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
-    #[prost(uint32, tag = "2")]
-    pub watchtower_id: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedTx {

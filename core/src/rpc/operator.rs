@@ -185,7 +185,6 @@ impl ClementineOperator for Operator {
                 .into_iter()
                 .map(|hash| ChallengeAckDigest { hash: hash.into() })
                 .collect(),
-            operator_idx: self.idx as i32,
         }))
     }
 }

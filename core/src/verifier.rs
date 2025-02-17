@@ -815,6 +815,7 @@ impl Verifier {
         &self,
         deposit_id: DepositData,
         keys: OperatorKeys,
+        operator_idx: u32,
     ) -> Result<(), BridgeError> {
         let hashes: Vec<[u8; 20]> = keys
             .challenge_ack_digests
@@ -830,17 +831,17 @@ impl Verifier {
                 "Invalid number of challenge ack hashes".to_string(),
             ));
         }
-        let operator_idx = keys.operator_idx;
+
         let operator_data = self
             .db
-            .get_operator(None, operator_idx)
+            .get_operator(None, operator_idx as i32)
             .await?
-            .ok_or(BridgeError::OperatorNotFound(keys.operator_idx as u32))?;
+            .ok_or(BridgeError::OperatorNotFound(operator_idx))?;
 
         self.db
             .set_operator_challenge_ack_hashes(
                 None,
-                operator_idx,
+                operator_idx as i32,
                 deposit_id.deposit_outpoint,
                 &hashes,
             )
@@ -888,7 +889,7 @@ impl Verifier {
         self.db
             .set_bitvm_setup(
                 None,
-                operator_idx,
+                operator_idx as i32,
                 deposit_id.deposit_outpoint,
                 assert_tx_addrs,
                 &root_hash_bytes,
@@ -902,10 +903,12 @@ impl Verifier {
         &self,
         deposit_id: DepositData,
         keys: WatchtowerKeys,
+        watchtower_idx: u32,
     ) -> Result<(), BridgeError> {
-        let watchtower_id = keys.watchtower_id;
-
-        let watchtower_xonly_pk = self.db.get_watchtower_xonly_pk(None, watchtower_id).await?;
+        let watchtower_xonly_pk = self
+            .db
+            .get_watchtower_xonly_pk(None, watchtower_idx)
+            .await?;
 
         let winternitz_keys: Vec<winternitz::PublicKey> = keys
             .winternitz_pubkeys
@@ -917,7 +920,7 @@ impl Verifier {
             self.db
                 .set_watchtower_winternitz_public_keys(
                     None,
-                    watchtower_id,
+                    watchtower_idx,
                     operator_id as u32,
                     deposit_id.deposit_outpoint,
                     winternitz_key,
@@ -933,7 +936,7 @@ impl Verifier {
             self.db
                 .set_watchtower_challenge_address(
                     None,
-                    watchtower_id,
+                    watchtower_idx,
                     operator_id as u32,
                     &challenge_addr,
                     deposit_id.deposit_outpoint,

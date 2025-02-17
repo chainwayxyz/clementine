@@ -369,8 +369,10 @@ impl ClementineVerifier for Verifier {
         request: tonic::Request<super::OperatorKeysWithDeposit>,
     ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
         let data = request.into_inner();
-        let (deposit_params, op_keys) = parser::verifier::parse_verifier_op_deposit_keys(data)?;
-        self.set_operator_keys(deposit_params, op_keys).await?;
+        let (deposit_params, op_keys, operator_idx) =
+            parser::verifier::parse_op_keys_with_deposit(data)?;
+        self.set_operator_keys(deposit_params, op_keys, operator_idx)
+            .await?;
         Ok(Response::new(Empty {}))
     }
 
@@ -379,9 +381,11 @@ impl ClementineVerifier for Verifier {
         request: Request<WatchtowerKeysWithDeposit>,
     ) -> Result<Response<Empty>, Status> {
         let data = request.into_inner();
-        let (deposit_params, wt_keys) = parser::verifier::parse_wt_keys_with_deposit(data)?;
+        let (deposit_params, wt_keys, watchtower_idx) =
+            parser::verifier::parse_wt_keys_with_deposit(data)?;
 
-        self.set_watchtower_keys(deposit_params, wt_keys).await?;
+        self.set_watchtower_keys(deposit_params, wt_keys, watchtower_idx)
+            .await?;
         Ok(Response::new(Empty {}))
     }
 }

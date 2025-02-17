@@ -24,7 +24,7 @@ use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
-use tonic::{Request, Status};
+use tonic::Status;
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
@@ -120,16 +120,16 @@ impl Aggregator {
                         let deposit_params = deposit.clone();
                         let tx = operator_keys_tx.clone();
                         async move {
-                            let mut operator_keys = operator_client
-                                .get_deposit_keys(Request::new(deposit_params.clone()))
+                            let operator_keys = operator_client
+                                .get_deposit_keys(deposit_params.clone())
                                 .await?
                                 .into_inner();
                             // operator indexes are the index of operator_client for now.....
                             // set it here so that operators cannot send fake idx(?)
-                            operator_keys.operator_idx = idx as i32;
                             tx.send(OperatorKeysWithDeposit {
                                 deposit_params: Some(deposit_params),
                                 operator_keys: Some(operator_keys),
+                                operator_idx: idx as u32,
                             })
                             .map_err(|_| Status::internal("Failed to send operator keys"))
                         }
@@ -144,9 +144,7 @@ impl Aggregator {
             try_join_all(verifiers.iter_mut().zip(operator_rx_handles).map(
                 |(verifier, mut rx)| async move {
                     while let Ok(operator_keys) = rx.recv().await {
-                        verifier
-                            .set_operator_keys(Request::new(operator_keys))
-                            .await?;
+                        verifier.set_operator_keys(operator_keys).await?;
                     }
                     Ok::<_, Status>(())
                 },
@@ -175,16 +173,16 @@ impl Aggregator {
                         let deposit_params = deposit.clone();
                         let tx = watchtower_keys_tx.clone();
                         async move {
-                            let mut watchtower_keys = watchtower_client
-                                .get_challenge_keys(Request::new(deposit_params.clone()))
+                            let watchtower_keys = watchtower_client
+                                .get_challenge_keys(deposit_params.clone())
                                 .await?
                                 .into_inner();
                             // watchtower indexes are the index of watchtower_clients for now.....
                             // set it here so that watchtowers cannot send fake idx(?)
-                            watchtower_keys.watchtower_id = idx as u32;
                             tx.send(WatchtowerKeysWithDeposit {
                                 deposit_params: Some(deposit_params),
                                 watchtower_keys: Some(watchtower_keys),
+                                watchtower_idx: idx as u32,
                             })
                             .map_err(|_| Status::internal("Failed to send watchtower keys"))
                         }
@@ -199,9 +197,7 @@ impl Aggregator {
             try_join_all(verifiers.iter_mut().zip(watchtower_rx_handles).map(
                 |(verifier, mut rx)| async move {
                     while let Ok(watchtower_keys) = rx.recv().await {
-                        verifier
-                            .set_watchtower_keys(Request::new(watchtower_keys))
-                            .await?;
+                        verifier.set_watchtower_keys(watchtower_keys).await?;
                     }
                     Ok::<_, Status>(())
                 },

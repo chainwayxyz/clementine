@@ -201,9 +201,9 @@ pub fn parse_partial_sigs(
         .collect::<Result<Vec<_>, _>>()
 }
 
-pub fn parse_verifier_op_deposit_keys(
+pub fn parse_op_keys_with_deposit(
     data: OperatorKeysWithDeposit,
-) -> Result<(DepositData, OperatorKeys), Status> {
+) -> Result<(DepositData, OperatorKeys, u32), Status> {
     let deposit_params = data
         .deposit_params
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
@@ -213,7 +213,7 @@ pub fn parse_verifier_op_deposit_keys(
         .operator_keys
         .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
 
-    Ok((deposit_id, op_keys))
+    Ok((deposit_id, op_keys, data.operator_idx))
 }
 
 pub async fn parse_next_deposit_finalize_param_schnorr_sig(
@@ -265,7 +265,7 @@ pub async fn parse_nonce_gen_first_response(
 
 pub fn parse_wt_keys_with_deposit(
     data: WatchtowerKeysWithDeposit,
-) -> Result<(DepositData, WatchtowerKeys), Status> {
+) -> Result<(DepositData, WatchtowerKeys, u32), Status> {
     let deposit_params = data
         .deposit_params
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
@@ -275,5 +275,5 @@ pub fn parse_wt_keys_with_deposit(
         .watchtower_keys
         .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
 
-    Ok((deposit_id, watchtower_keys))
+    Ok((deposit_id, watchtower_keys, data.watchtower_idx))
 }

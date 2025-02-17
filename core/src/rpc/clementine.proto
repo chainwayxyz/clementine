@@ -172,11 +172,13 @@ message OperatorParams {
 message OperatorKeysWithDeposit {
   OperatorKeys operator_keys = 1;
   DepositParams deposit_params = 2;
+  uint32 operator_idx = 3;
 }
 
 message WatchtowerKeysWithDeposit {
   WatchtowerKeys watchtower_keys = 1;
   DepositParams deposit_params = 2;
+  uint32 watchtower_idx = 3;
 }
 
 message OperatorKeys {
@@ -184,7 +186,6 @@ message OperatorKeys {
   repeated WinternitzPubkey winternitz_pubkeys = 1;
   // Hashes of preimages that will be used to ACK watchtower challenges.
   repeated ChallengeACKDigest challenge_ack_digests = 2;
-  int32 operator_idx = 3;
 }
 
 message OperatorBurnSig {
@@ -391,7 +392,6 @@ message WatchtowerParams {
 
 message WatchtowerKeys {
   repeated WinternitzPubkey winternitz_pubkeys = 1;
-  uint32 watchtower_id = 2;
 }
 
 // Watchtowers are responsible for challenging the operator's kickoff txs.
