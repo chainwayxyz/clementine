@@ -359,6 +359,7 @@ fn get_script_from_arr<T: SpendableScript>(
 mod tests {
     use crate::actor::{Actor, WinternitzDerivationPath};
     use crate::extended_rpc::ExtendedRpc;
+    use crate::test_utils::BITCOIN_STARTUP_MUTEX;
     use crate::{create_regtest_rpc, create_test_config_with_thread_name, utils};
     use std::sync::Arc;
 

@@ -1,8 +1,9 @@
 //! # Common Utilities for Integration Tests
 
 #[path = "../../src/test_utils.rs"]
-mod test_utils;
+pub mod test_utils;
 
+use crate::common::test_utils::BITCOIN_STARTUP_MUTEX;
 use crate::initialize_database;
 use crate::{create_actors, create_regtest_rpc, get_available_port, get_deposit_address};
 use bitcoin::OutPoint;

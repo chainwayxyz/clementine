@@ -1,3 +1,4 @@
+use crate::common::test_utils::BITCOIN_STARTUP_MUTEX;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{hashes::Hash, script, Amount, TapSighashType};

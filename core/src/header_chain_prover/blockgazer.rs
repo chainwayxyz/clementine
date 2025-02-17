@@ -202,6 +202,7 @@ impl HeaderChainProver {
 #[cfg(test)]
 mod tests {
     use crate::create_regtest_rpc;
+    use crate::test_utils::BITCOIN_STARTUP_MUTEX;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };

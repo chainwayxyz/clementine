@@ -762,6 +762,7 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::BITCOIN_STARTUP_MUTEX;
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::secp256k1::schnorr;

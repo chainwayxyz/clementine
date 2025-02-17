@@ -785,6 +785,7 @@ mod tests {
     use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
     use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+    use crate::test_utils::BITCOIN_STARTUP_MUTEX;
     use crate::{
         config::BridgeConfig,
         create_test_config_with_thread_name,

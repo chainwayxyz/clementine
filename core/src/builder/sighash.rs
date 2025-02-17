@@ -250,6 +250,7 @@ mod tests {
     use crate::builder::transaction::DepositData;
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::Operator;
+    use crate::test_utils::BITCOIN_STARTUP_MUTEX;
     use crate::utils::BITVM_CACHE;
     use crate::watchtower::Watchtower;
     use crate::{builder, create_regtest_rpc, create_test_config_with_thread_name};

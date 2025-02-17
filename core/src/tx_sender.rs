@@ -477,6 +477,7 @@ impl TxSender {
 mod tests {
     use crate::bitcoin_syncer;
     use crate::builder::transaction::TransactionType;
+    use crate::test_utils::BITCOIN_STARTUP_MUTEX;
     // Imports required for create_test_config_with_thread_name macro.
     use crate::config::BridgeConfig;
     use crate::utils::initialize_logger;
