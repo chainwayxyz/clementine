@@ -21,7 +21,7 @@ use bitcoincore_rpc::RpcApi;
 
 #[derive(Debug, Clone)]
 pub struct ExtendedRpc {
-    url: String,
+    pub url: String,
     auth: Auth,
     pub client: Arc<Client>,
 }

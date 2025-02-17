@@ -369,7 +369,7 @@ impl Aggregator {
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
-        let move_txhandler = create_move_to_vault_txhandler(
+        let mut move_txhandler = create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
@@ -385,7 +385,7 @@ impl Aggregator {
         )?;
 
         // aggregate partial signatures
-        let _final_sig = crate::musig2::aggregate_partial_signatures(
+        let final_sig = crate::musig2::aggregate_partial_signatures(
             &self.config.verifiers_public_keys,
             None,
             movetx_agg_nonce,
@@ -394,6 +394,8 @@ impl Aggregator {
         )
         .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
 
+        // Put the signature in the tx
+        move_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 0, 0)?;
         // Add fee bumper.
         let move_tx = move_txhandler.get_cached_tx();
         let _fee_payer_utxo = self
@@ -843,6 +845,8 @@ mod tests {
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
             create_actors!(config.clone());
 
+        let rpc = regtest.rpc();
+
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
@@ -852,9 +856,8 @@ mod tests {
             .get_watchtower_winternitz_public_keys()
             .await
             .unwrap();
-        let rpc = regtest.rpc().clone();
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
-        let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
+        let verifier = Verifier::new(rpc.clone(), config.clone()).await.unwrap();
         let verifier_wpks = verifier
             .db
             .get_watchtower_winternitz_public_keys(None, 0, 0) // TODO: Change this, this index should not be 0 for the watchtower.
@@ -888,6 +891,8 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
             create_actors!(config.clone());
+
+        let rpc = regtest.rpc();
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
@@ -902,11 +907,10 @@ mod tests {
             .get_watchtower_challenge_addresses()
             .await
             .unwrap();
-        let rpc = regtest.rpc().clone();
         let verifier0 = {
             let mut config = config.clone();
             config.db_name += "0"; // This modification is done by the create_actors_grpc function.
-            Verifier::new(rpc, config).await.unwrap()
+            Verifier::new(rpc.clone(), config).await.unwrap()
         };
 
         tracing::info!("verifier config: {:#?}", verifier0.config);
@@ -1034,7 +1038,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name!(None);
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
             create_actors!(config);
-        let rpc = regtest.1.clone();
+        let rpc = regtest.rpc();
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(
@@ -1080,7 +1084,7 @@ mod tests {
             .new_deposit(DepositParams {
                 deposit_outpoint: Some(deposit_outpoint.into()),
                 evm_address: evm_address.0.to_vec(),
-                recovery_taproot_address: recovery_taproot_address.to_string(),
+                recovery_taproot_address: signer.address.to_string(),
             })
             .await
             .unwrap()

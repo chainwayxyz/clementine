@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
+    consensus::serialize, transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction,
+    TxOut, Txid, Weight,
 };
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use tokio::task::JoinHandle;
@@ -357,6 +358,23 @@ impl TxSender {
             fee_rate,
             self.signer.address.clone(),
         )?;
+
+        tracing::error!(
+            "Sending package: '[\"{}\", \"{}\"']",
+            hex::encode(serialize(&tx)),
+            hex::encode(serialize(&child_tx))
+        );
+
+        let test_mempool_accept_result = self
+            .rpc
+            .client
+            .test_mempool_accept(&[&tx, &child_tx])
+            .await?;
+
+        tracing::error!(
+            "Test mempool accept result: {:?}",
+            test_mempool_accept_result
+        );
 
         let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
 

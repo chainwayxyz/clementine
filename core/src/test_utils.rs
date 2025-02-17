@@ -110,6 +110,10 @@ macro_rules! create_regtest_rpc {
             panic!("Bitcoin node failed to start in {} seconds", retry_count);
         }
 
+        // Get and print bitcoind version
+        let network_info = client.client.get_network_info().await.unwrap();
+        tracing::info!("Using bitcoind version: {}", network_info.version);
+
         // Create wallet
         client
             .client
@@ -303,6 +307,11 @@ macro_rules! create_actors {
     ($config:expr) => {{
         let regtest = create_regtest_rpc!($config);
         let rpc = regtest.rpc();
+
+        // replace config with new rpc
+        let mut config = $config.clone();
+        config.bitcoin_rpc_url = rpc.url.clone();
+
         let all_verifiers_secret_keys =
             $config
                 .all_verifiers_secret_keys
@@ -323,20 +332,16 @@ macro_rules! create_actors {
                 let port = get_available_port!();
                 // println!("Port: {}", port);
                 let i = i.to_string();
-                let rpc = rpc.clone();
-                let mut config_with_new_db = $config.clone();
+                let mut config_with_new_db = config.clone();
                 async move {
                     config_with_new_db.db_name += &i;
                     initialize_database!(&config_with_new_db);
 
-                    let verifier = create_verifier_grpc_server(
-                        BridgeConfig {
-                            secret_key: *sk,
-                            port,
-                            ..config_with_new_db.clone()
-                        },
-                        rpc,
-                    )
+                    let verifier = create_verifier_grpc_server(BridgeConfig {
+                        secret_key: *sk,
+                        port,
+                        ..config_with_new_db.clone()
+                    })
                     .await?;
                     Ok::<((std::net::SocketAddr,), BridgeConfig), BridgeError>((
                         verifier,
@@ -368,17 +373,13 @@ macro_rules! create_actors {
             .enumerate()
             .map(|(i, sk)| {
                 let port = get_available_port!();
-                let rpc = rpc.clone();
                 let verifier_config = verifier_configs[i].clone();
                 async move {
-                    let socket_addr = create_operator_grpc_server(
-                        BridgeConfig {
-                            secret_key: *sk,
-                            port,
-                            ..verifier_config
-                        },
-                        rpc,
-                    )
+                    let socket_addr = create_operator_grpc_server(BridgeConfig {
+                        secret_key: *sk,
+                        port,
+                        ..verifier_config
+                    })
                     .await?;
                     Ok::<(std::net::SocketAddr,), BridgeError>(socket_addr)
                 }
