@@ -313,7 +313,7 @@ pub fn create_move_to_vault_txhandler(
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
-            bridge_amount_sats,
+            bridge_amount_sats - ANCHOR_AMOUNT,
             vec![nofn_script],
             None,
             network,

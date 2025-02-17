@@ -11,9 +11,11 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::BlockHash;
+use bitcoin::FeeRate;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::TxOut;
+use bitcoin::Txid;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
@@ -21,7 +23,7 @@ use bitcoincore_rpc::RpcApi;
 
 #[derive(Debug, Clone)]
 pub struct ExtendedRpc {
-    url: String,
+    pub url: String,
     auth: Auth,
     pub client: Arc<Client>,
 }
@@ -169,6 +171,43 @@ impl ExtendedRpc {
         }
 
         Ok(())
+    }
+
+    /// Bumps the fee of a transaction with a given fee rate.
+    /// Returns the txid of the bumped transaction.
+    pub async fn bump_fee_with_fee_rate(
+        &self,
+        txid: Txid,
+        fee_rate: FeeRate,
+    ) -> Result<Txid, BridgeError> {
+        let bump_fee_result = self
+            .client
+            .bump_fee(
+                &txid,
+                Some(&bitcoincore_rpc::json::BumpFeeOptions {
+                    fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
+                        fee_rate.to_sat_per_vb_ceil(),
+                    ))),
+                    replaceable: Some(true),
+                    ..Default::default()
+                }),
+            )
+            .await;
+
+        match bump_fee_result {
+            Ok(bump_fee_result) => Ok(bump_fee_result.txid.expect("Bump fee txid is None")),
+            Err(e) => match e {
+                bitcoincore_rpc::Error::JsonRpc(json_rpc_error) => {
+                    let error_message = json_rpc_error.to_string();
+                    if error_message.contains(" is already spent") {
+                        Err(BridgeError::BumpFeeUTXOSpent)
+                    } else {
+                        Err(BridgeError::Error(json_rpc_error.to_string()))
+                    }
+                }
+                _ => Err(BridgeError::Error(e.to_string())),
+            },
+        }
     }
 
     pub async fn clone_inner(&self) -> Result<Self, bitcoincore_rpc::Error> {

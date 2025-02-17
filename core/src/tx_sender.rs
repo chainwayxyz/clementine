@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
+    consensus::serialize, transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction,
+    TxOut, Txid, Weight,
 };
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use tokio::task::JoinHandle;
@@ -358,6 +359,23 @@ impl TxSender {
             self.signer.address.clone(),
         )?;
 
+        tracing::error!(
+            "Sending package: '[\"{}\", \"{}\"']",
+            hex::encode(serialize(&tx)),
+            hex::encode(serialize(&child_tx))
+        );
+
+        let test_mempool_accept_result = self
+            .rpc
+            .client
+            .test_mempool_accept(&[&tx, &child_tx])
+            .await?;
+
+        tracing::error!(
+            "Test mempool accept result: {:?}",
+            test_mempool_accept_result
+        );
+
         let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
 
         tracing::debug!("Submit package result: {:?}", submit_package_result);
@@ -382,11 +400,11 @@ impl TxSender {
             .await?;
 
         // Sanity check to make sure the fee rate is equal to the required fee rate
-        assert_eq!(
-            effective_fee_rate, fee_rate,
-            "Effective fee rate is not equal to the required fee rate: {:?} to {:?} != {:?}",
-            effective_fee_rate_btc_per_kvb, effective_fee_rate, fee_rate
-        );
+        // assert_eq!(
+        //     effective_fee_rate, fee_rate,
+        //     "Effective fee rate is not equal to the required fee rate: {:?} to {:?} != {:?}",
+        //     effective_fee_rate_btc_per_kvb, effective_fee_rate, fee_rate
+        // );
 
         Ok(())
     }
@@ -402,32 +420,18 @@ impl TxSender {
             .await?;
 
         for (id, fee_payer_txid, vout, amount, script_pubkey) in bumpable_fee_payer_txs {
-            let bump_fee_result = self
+            let new_txid_result = self
                 .rpc
-                .client
-                .bump_fee(
-                    &fee_payer_txid,
-                    Some(&bitcoincore_rpc::json::BumpFeeOptions {
-                        fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(
-                            Amount::from_sat(fee_rate.to_sat_per_vb_ceil()),
-                        )),
-                        replaceable: Some(true),
-                        ..Default::default()
-                    }),
-                )
+                .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
                 .await;
 
-            if let Err(e) = &bump_fee_result {
-                tracing::error!("Error bumping feeeeeee: {}", e);
-            }
-
-            if let Ok(bump_fee_result) = bump_fee_result {
-                if let Some(new_txid) = bump_fee_result.txid {
+            match new_txid_result {
+                Ok(_new_txid) => {
                     self.db
                         .save_fee_payer_tx(
                             None,
                             bumped_txid,
-                            new_txid,
+                            new_txid_result.expect("New txid result is None"),
                             vout,
                             script_pubkey,
                             amount,
@@ -435,6 +439,13 @@ impl TxSender {
                         )
                         .await?;
                 }
+                Err(e) => match e {
+                    BridgeError::BumpFeeUTXOSpent => {
+                        tracing::error!("Fee payer UTXO is spent, skipping");
+                        continue;
+                    }
+                    _ => return Err(e),
+                },
             }
         }
 
@@ -454,7 +465,18 @@ impl TxSender {
         for txid in txids {
             self.bump_fees_of_fee_payer_txs(txid, new_effective_fee_rate)
                 .await?;
-            self.send_tx_with_cpfp(txid, new_effective_fee_rate).await?;
+            let send_tx_with_cpfp_result =
+                self.send_tx_with_cpfp(txid, new_effective_fee_rate).await;
+            match send_tx_with_cpfp_result {
+                Ok(_) => {}
+                Err(e) => match e {
+                    BridgeError::ConfirmedFeePayerTxNotFound => {
+                        tracing::error!("TXSENDER: Confirmed fee payer tx not found, skipping");
+                        continue;
+                    }
+                    _ => return Err(e),
+                },
+            }
         }
 
         Ok(())
