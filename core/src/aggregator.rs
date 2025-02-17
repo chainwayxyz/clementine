@@ -1,12 +1,22 @@
 use crate::{
-    actor::Actor, bitcoin_syncer, builder::{self}, config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc, musig2::{aggregate_partial_signatures, AggregateFromPublicKeys}, rpc::{
+    actor::Actor,
+    bitcoin_syncer,
+    builder::{self},
+    config::BridgeConfig,
+    database::Database,
+    errors::BridgeError,
+    extended_rpc::ExtendedRpc,
+    musig2::{aggregate_partial_signatures, AggregateFromPublicKeys},
+    rpc::{
         self,
         clementine::{
             clementine_operator_client::ClementineOperatorClient,
             clementine_verifier_client::ClementineVerifierClient,
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
-    }, tx_sender::TxSender, EVMAddress
+    },
+    tx_sender::TxSender,
+    EVMAddress,
 };
 use bitcoin::{
     address::NetworkUnchecked,
@@ -44,7 +54,8 @@ impl Aggregator {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        ).await?;
+        )
+        .await?;
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
@@ -80,7 +91,8 @@ impl Aggregator {
         let watchtower_clients =
             rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::connect).await?;
 
-        let _btc_syncer_handle = bitcoin_syncer::start_bitcoin_syncer(db.clone(), erpc, Duration::from_secs(1)).await?;
+        let _btc_syncer_handle =
+            bitcoin_syncer::start_bitcoin_syncer(db.clone(), erpc, Duration::from_secs(1)).await?;
 
         let signer = Actor::new(config.secret_key, None, config.network);
         let rpc = ExtendedRpc::connect(

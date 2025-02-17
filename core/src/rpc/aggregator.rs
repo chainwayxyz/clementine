@@ -820,9 +820,9 @@ mod tests {
     };
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
-    use tokio::time::sleep;
     use std::str::FromStr;
     use std::time::Duration;
+    use tokio::time::sleep;
 
     #[tokio::test]
     async fn aggregator_double_setup_fail() {
@@ -1097,7 +1097,12 @@ mod tests {
                 panic!("MoveTx did not land onchain within {timeout} seconds");
             }
 
-            if rpc.client.get_raw_transaction(&movetx_txid, None).await.is_err() {
+            if rpc
+                .client
+                .get_raw_transaction(&movetx_txid, None)
+                .await
+                .is_err()
+            {
                 tracing::error!("Transaction is not on-chain");
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 continue;
