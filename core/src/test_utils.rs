@@ -53,11 +53,43 @@ macro_rules! create_regtest_rpc {
             "-txindex=1".to_string(),
             "-fallbackfee=0.00001".to_string(),
             "-rpcallowip=0.0.0.0/0".to_string(),
+            "-minrelaytxfee=0".to_string(), // TODO: remove for authentic fee testing
+            "-debug=mempool".to_string(),
+            "-debug=net".to_string(),
         ];
 
         // Create log file in temp directory
         let log_file = data_dir.join("debug.log");
         let log_file_path = log_file.to_str().unwrap();
+        // Check bitcoind version
+        let version_output = std::process::Command::new("bitcoind")
+            .arg("--version")
+            .output()
+            .expect("Failed to check bitcoind version");
+
+        let version_str = String::from_utf8_lossy(&version_output.stdout);
+        let first_line = version_str.lines().next().unwrap_or_default();
+
+        // Extract major version number
+
+        if let Some(version) = first_line
+            .trim_start_matches("Bitcoin Core version v")
+            .split('.')
+            .next()
+            .and_then(|v| v.parse::<u32>().ok())
+        {
+            if version < 28 {
+                panic!(
+                    "Bitcoin Core version >= 28.0 is required, found: {}",
+                    first_line
+                );
+            }
+        } else {
+            tracing::error!(
+                "Could not determine Bitcoin Core version in version string {}",
+                first_line
+            );
+        }
 
         // Start bitcoind process with log redirection
         let process = std::process::Command::new("bitcoind")
@@ -68,8 +100,10 @@ macro_rules! create_regtest_rpc {
             .spawn()
             .expect("Failed to start bitcoind");
 
+        #[allow(dead_code)]
         struct WithProcessCleanup(pub std::process::Child, ExtendedRpc, std::path::PathBuf);
         impl WithProcessCleanup {
+            #[allow(dead_code)]
             pub fn rpc(&self) -> &ExtendedRpc {
                 &self.1
             }
@@ -307,19 +341,14 @@ macro_rules! create_actors {
     ($config:expr) => {{
         let regtest = create_regtest_rpc!($config);
         let rpc = regtest.rpc();
-
-        // replace config with new rpc
         let mut config = $config.clone();
-        config.bitcoin_rpc_url = rpc.url.clone();
+        config.bitcoin_rpc_url = rpc.url().to_string();
 
         let all_verifiers_secret_keys =
-            $config
-                .all_verifiers_secret_keys
-                .clone()
-                .unwrap_or_else(|| {
-                    panic!("All secret keys of the verifiers are required for testing");
-                });
-        let all_watchtowers_secret_keys = $config
+            config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
+                panic!("All secret keys of the verifiers are required for testing");
+            });
+        let all_watchtowers_secret_keys = config
             .all_watchtowers_secret_keys
             .clone()
             .unwrap_or_else(|| {
@@ -360,12 +389,9 @@ macro_rules! create_actors {
             .collect::<Vec<_>>();
 
         let all_operators_secret_keys =
-            $config
-                .all_operators_secret_keys
-                .clone()
-                .unwrap_or_else(|| {
-                    panic!("All secret keys of the operators are required for testing");
-                });
+            config.all_operators_secret_keys.clone().unwrap_or_else(|| {
+                panic!("All secret keys of the operators are required for testing");
+            });
 
         // Create futures for operator gRPC servers
         let operator_futures = all_operators_secret_keys

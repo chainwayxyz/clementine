@@ -52,7 +52,7 @@ services:
       /scripts/docker/docker_config.toml
       --verifier-server
     environment:
-      - RUST_LOG=trace
+      - RUST_LOG=info
     ports:
       - "8080:8080"
     volumes:

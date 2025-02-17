@@ -193,26 +193,27 @@ pub struct OperatorBurnSig {
     pub schnorr_sig: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NewWithdrawalSigParams {
+pub struct WithdrawParams {
+    /// The ID of the withdrawal in Citrea
     #[prost(uint32, tag = "1")]
     pub withdrawal_id: u32,
     /// User's \[`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`\]
     /// signature
     #[prost(bytes = "vec", tag = "2")]
-    pub user_sig: ::prost::alloc::vec::Vec<u8>,
+    pub input_signature: ::prost::alloc::vec::Vec<u8>,
+    /// User's UTXO to claim the deposit
     #[prost(message, optional, tag = "3")]
-    pub users_intent_outpoint: ::core::option::Option<Outpoint>,
+    pub input_outpoint: ::core::option::Option<Outpoint>,
+    /// The withdrawal output's script_pubkey (user's signature is only valid for this pubkey)
     #[prost(bytes = "vec", tag = "4")]
-    pub users_intent_script_pubkey: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "5")]
-    pub users_intent_amount: u64,
-    #[prost(bytes = "vec", tag = "6")]
     pub output_script_pubkey: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "7")]
+    /// The withdrawal output's amount (user's signature is only valid for this amount)
+    #[prost(uint64, tag = "5")]
     pub output_amount: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NewWithdrawalSigResponse {
+pub struct WithdrawResponse {
+    /// The withdrawal transaction's txid
     #[prost(bytes = "vec", tag = "1")]
     pub txid: ::prost::alloc::vec::Vec<u8>,
 }
@@ -428,6 +429,7 @@ pub enum WatchtowerSignatureKind {
     WatchtowerNotStored = 1,
     OperatorChallengeNack1 = 2,
     OperatorChallengeNack2 = 3,
+    OperatorChallengeAck = 4,
 }
 impl WatchtowerSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -440,6 +442,7 @@ impl WatchtowerSignatureKind {
             Self::WatchtowerNotStored => "WatchtowerNotStored",
             Self::OperatorChallengeNack1 => "OperatorChallengeNack1",
             Self::OperatorChallengeNack2 => "OperatorChallengeNack2",
+            Self::OperatorChallengeAck => "OperatorChallengeAck",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -449,6 +452,7 @@ impl WatchtowerSignatureKind {
             "WatchtowerNotStored" => Some(Self::WatchtowerNotStored),
             "OperatorChallengeNack1" => Some(Self::OperatorChallengeNack1),
             "OperatorChallengeNack2" => Some(Self::OperatorChallengeNack2),
+            "OperatorChallengeAck" => Some(Self::OperatorChallengeAck),
             _ => None,
         }
     }
@@ -839,11 +843,11 @@ pub mod clementine_operator_client {
         }
         /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
         /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
-        pub async fn new_withdrawal_sig(
+        pub async fn withdraw(
             &mut self,
-            request: impl tonic::IntoRequest<super::NewWithdrawalSigParams>,
+            request: impl tonic::IntoRequest<super::WithdrawParams>,
         ) -> std::result::Result<
-            tonic::Response<super::NewWithdrawalSigResponse>,
+            tonic::Response<super::WithdrawResponse>,
             tonic::Status,
         > {
             self.inner
@@ -856,13 +860,11 @@ pub mod clementine_operator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineOperator/NewWithdrawalSig",
+                "/clementine.ClementineOperator/Withdraw",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("clementine.ClementineOperator", "NewWithdrawalSig"),
-                );
+                .insert(GrpcMethod::new("clementine.ClementineOperator", "Withdraw"));
             self.inner.unary(req, path, codec).await
         }
         /// Checks if a withdrawal is finalized.
@@ -1676,11 +1678,11 @@ pub mod clementine_operator_server {
         >;
         /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
         /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
-        async fn new_withdrawal_sig(
+        async fn withdraw(
             &self,
-            request: tonic::Request<super::NewWithdrawalSigParams>,
+            request: tonic::Request<super::WithdrawParams>,
         ) -> std::result::Result<
-            tonic::Response<super::NewWithdrawalSigResponse>,
+            tonic::Response<super::WithdrawResponse>,
             tonic::Status,
         >;
         /// Checks if a withdrawal is finalized.
@@ -2019,29 +2021,25 @@ pub mod clementine_operator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineOperator/NewWithdrawalSig" => {
+                "/clementine.ClementineOperator/Withdraw" => {
                     #[allow(non_camel_case_types)]
-                    struct NewWithdrawalSigSvc<T: ClementineOperator>(pub Arc<T>);
+                    struct WithdrawSvc<T: ClementineOperator>(pub Arc<T>);
                     impl<
                         T: ClementineOperator,
-                    > tonic::server::UnaryService<super::NewWithdrawalSigParams>
-                    for NewWithdrawalSigSvc<T> {
-                        type Response = super::NewWithdrawalSigResponse;
+                    > tonic::server::UnaryService<super::WithdrawParams>
+                    for WithdrawSvc<T> {
+                        type Response = super::WithdrawResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::NewWithdrawalSigParams>,
+                            request: tonic::Request<super::WithdrawParams>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineOperator>::new_withdrawal_sig(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
+                                <T as ClementineOperator>::withdraw(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -2052,7 +2050,7 @@ pub mod clementine_operator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = NewWithdrawalSigSvc(inner);
+                        let method = WithdrawSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

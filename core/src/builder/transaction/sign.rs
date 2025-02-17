@@ -72,6 +72,8 @@ pub async fn create_and_sign_tx(
             transaction_data.transaction_type,
         ))?;
 
+    tracing::debug!(txhandler = ?requested_txhandler, "txhandler");
+
     signer.tx_sign_and_fill_sigs(&mut requested_txhandler, &signatures)?;
 
     if let TransactionType::OperatorChallengeAck(watchtower_idx) = transaction_data.transaction_type
@@ -90,7 +92,7 @@ pub async fn create_and_sign_tx(
             .nth(assert_idx)
             .ok_or_else(|| Status::invalid_argument("Mini Assert Index is too big"))?;
         let path = WinternitzDerivationPath::BitvmAssert(
-            *step_size as u32,
+            *step_size as u32 * 2,
             step_name.to_owned(),
             transaction_data.deposit_data.deposit_outpoint.txid,
         );

@@ -1,10 +1,12 @@
+use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
-    clementine_operator_server::ClementineOperator, AssertRequest, ChallengeAckDigest,
-    DepositParams, DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse,
-    OperatorBurnSig, OperatorKeys, OperatorParams, RawSignedTx, RawSignedTxs, TransactionRequest,
-    WithdrawalFinalizedParams,
+    AssertRequest, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, OperatorBurnSig,
+    OperatorParams, RawSignedTx, RawSignedTxs, TransactionRequest, WithdrawalFinalizedParams,
 };
-use super::error::*;
+use super::{
+    clementine::{OperatorKeys, WithdrawParams, WithdrawResponse},
+    error::*,
+};
 use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};
 use crate::rpc::parser;
 use crate::rpc::parser::{parse_assert_request, parse_deposit_params, parse_transaction_request};
@@ -76,29 +78,24 @@ impl ClementineOperator for Operator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn new_withdrawal_sig(
+    async fn withdraw(
         &self,
-        request: Request<NewWithdrawalSigParams>,
-    ) -> Result<Response<NewWithdrawalSigResponse>, Status> {
-        let (
-            withdrawal_id,
-            user_sig,
-            users_intent_outpoint,
-            users_intent_script_pubkey,
-            users_intent_amount,
-        ) = parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
+        request: Request<WithdrawParams>,
+    ) -> Result<Response<WithdrawResponse>, Status> {
+        let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
+            parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
 
         let withdrawal_txid = self
-            .new_withdrawal_sig(
+            .withdraw(
                 withdrawal_id,
-                user_sig,
-                users_intent_outpoint,
-                users_intent_script_pubkey,
-                users_intent_amount,
+                input_signature,
+                input_outpoint,
+                output_script_pubkey,
+                output_amount,
             )
             .await?;
 
-        Ok(Response::new(NewWithdrawalSigResponse {
+        Ok(Response::new(WithdrawResponse {
             txid: withdrawal_txid.as_raw_hash().to_byte_array().to_vec(),
         }))
     }
@@ -123,7 +120,7 @@ impl ClementineOperator for Operator {
         Ok(Response::new(Empty {}))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = "error"), ret(level = "trace"), fields(request = ?request.get_ref()))]
     async fn internal_create_signed_tx(
         &self,
         request: Request<TransactionRequest>,

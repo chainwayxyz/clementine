@@ -588,14 +588,14 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "WITH deposit AS (
-            INSERT INTO deposits (deposit_outpoint) 
-            VALUES ($1) 
-            ON CONFLICT DO NOTHING 
+            INSERT INTO deposits (deposit_outpoint)
+            VALUES ($1)
+            ON CONFLICT DO NOTHING
             RETURNING deposit_id
             )
             INSERT INTO deposit_signatures (deposit_id, operator_idx, sequential_collateral_idx, kickoff_idx, signatures)
             VALUES (
-            (SELECT deposit_id FROM deposit UNION SELECT deposit_id FROM deposits WHERE deposit_outpoint = $1), 
+            (SELECT deposit_id FROM deposit UNION SELECT deposit_id FROM deposits WHERE deposit_outpoint = $1),
             $2, $3, $4, $5
             );"
         )
@@ -1152,10 +1152,9 @@ mod tests {
     async fn set_get_operator_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
-        let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc().clone();
+        let _regtest = create_regtest_rpc!(config);
 
-        let operator = Operator::new(config, rpc).await.unwrap();
+        let operator = Operator::new(config).await.unwrap();
         let operator_idx = 0x45;
         let wpks = operator
             .generate_assert_winternitz_pubkeys(Txid::all_zeros())

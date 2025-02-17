@@ -7,16 +7,16 @@
 
 use crate::constants::WINTERNITZ_LOG_D;
 use crate::{utils, EVMAddress};
+use bitcoin::hashes::{hash160, Hash};
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::schnorr;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
     ScriptBuf, XOnlyPublicKey,
 };
-use bitcoin::{Amount, Witness};
-use bitvm::signatures::winternitz::SecretKey;
+use bitcoin::{taproot, Amount, Witness};
+use bitvm::signatures::winternitz::{self, SecretKey};
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
@@ -109,7 +109,7 @@ impl SpendableScript for CheckSig {
 }
 
 impl CheckSig {
-    pub fn generate_script_inputs(&self, signature: &schnorr::Signature) -> Witness {
+    pub fn generate_script_inputs(&self, signature: &taproot::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
 
@@ -157,10 +157,18 @@ impl WinternitzCommit {
         &self,
         commit_data: &Vec<u8>,
         secret_key: &SecretKey,
-        signature: &schnorr::Signature,
+        signature: &taproot::Signature,
     ) -> Witness {
         let mut witness = Witness::new();
         witness.push(signature.serialize());
+
+        #[cfg(debug_assertions)]
+        {
+            let pk = winternitz::generate_public_key(&self.get_params(), secret_key);
+            if pk != self.0 {
+                tracing::error!("Winternitz public key mismatch");
+            }
+        }
         bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
             .sign(&self.get_params(), secret_key, commit_data)
             .into_iter()
@@ -214,7 +222,7 @@ impl SpendableScript for TimelockScript {
 }
 
 impl TimelockScript {
-    pub fn generate_script_inputs(&self, signature: Option<&schnorr::Signature>) -> Witness {
+    pub fn generate_script_inputs(&self, signature: Option<&taproot::Signature>) -> Witness {
         match signature {
             Some(sig) => Witness::from_slice(&[sig.serialize()]),
             None => Witness::default(),
@@ -253,9 +261,16 @@ impl PreimageRevealScript {
     pub fn generate_script_inputs(
         &self,
         preimage: impl AsRef<[u8]>,
-        signature: &schnorr::Signature,
+        signature: &taproot::Signature,
     ) -> Witness {
         let mut witness = Witness::new();
+        #[cfg(debug_assertions)]
+        assert_eq!(
+            hash160::Hash::hash(preimage.as_ref()),
+            hash160::Hash::from_byte_array(self.1),
+            "Preimage does not match"
+        );
+
         witness.push(signature.serialize());
         witness.push(preimage.as_ref());
         witness
@@ -296,7 +311,7 @@ impl SpendableScript for DepositScript {
 }
 
 impl DepositScript {
-    pub fn generate_script_inputs(&self, signature: &schnorr::Signature) -> Witness {
+    pub fn generate_script_inputs(&self, signature: &taproot::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
 

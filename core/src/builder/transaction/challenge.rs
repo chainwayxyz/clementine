@@ -3,7 +3,7 @@ use crate::builder::script::{PreimageRevealScript, SpendPath, TimelockScript, Wi
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
-use crate::constants::{BLOCKS_PER_WEEK, OPERATOR_CHALLENGE_AMOUNT};
+use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, WatchtowerSignatureKind};
 use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
@@ -26,7 +26,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     for i in 0..num_watchtowers {
         builder = builder.add_output(UnspentTxOut::new(
             TxOut {
-                value: Amount::from_sat(2000), // TODO: Hand calculate this
+                value: MIN_TAPROOT_AMOUNT * 2, // TODO: Hand calculate this
                 script_pubkey: watchtower_challenge_addresses[i as usize].clone(),
             },
             vec![],
@@ -93,7 +93,7 @@ pub fn create_watchtower_challenge_txhandler(
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
-            Amount::from_sat(1000), // TODO: Hand calculate this
+            MIN_TAPROOT_AMOUNT, // TODO: Hand calculate this
             vec![operator_with_preimage, nofn_halfweek],
             None,
             network,
@@ -152,7 +152,7 @@ pub fn create_operator_challenge_ack_txhandler(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
             .add_input(
                 (
-                    WatchtowerSignatureKind::WatchtowerNotStored,
+                    WatchtowerSignatureKind::OperatorChallengeAck,
                     watchtower_idx as i32,
                 ),
                 watchtower_challenge_txhandler.get_spendable_output(0)?,
@@ -233,8 +233,9 @@ pub fn create_challenge_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
-            value: OPERATOR_CHALLENGE_AMOUNT,
+            value: Amount::from_int_btc(2),
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
+        .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
         .finalize())
 }

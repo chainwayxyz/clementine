@@ -41,7 +41,7 @@ pub struct Operator {
 
 impl Operator {
     /// Creates a new `Operator`.
-    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
@@ -49,6 +49,12 @@ impl Operator {
         );
 
         let db = Database::new(&config).await?;
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
 
         let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
 
@@ -442,36 +448,33 @@ impl Operator {
     /// # Parameters
     ///
     /// - `withdrawal_idx`: Citrea withdrawal UTXO index
-    /// - `user_sig`: User's signature that is going to be used for signing
+    /// - `in_signature`: User's signature that is going to be used for signing
     ///   withdrawal transaction input
-    /// - `users_intent_outpoint`: User's input for the payout transaction
-    /// - `users_intent_script_pubkey`: User's script pubkey which will be used
+    /// - `in_outpoint`: User's input for the payout transaction
+    /// - `out_script_pubkey`: User's script pubkey which will be used
     ///   in the payout transaction's output
-    /// - `users_intent_amount`: Payout transaction output's value
+    /// - `out_amount`: Payout transaction output's value
     ///
     /// # Returns
     ///
     /// - [`Txid`]: Payout transaction's txid
-    pub async fn new_withdrawal_sig(
+    pub async fn withdraw(
         &self,
         withdrawal_index: u32,
-        user_signature: schnorr::Signature,
-        users_intent_outpoint: OutPoint,
-        users_intent_script_pubkey: ScriptBuf,
-        users_intent_amount: Amount,
+        in_signature: schnorr::Signature,
+        in_outpoint: OutPoint,
+        out_script_pubkey: ScriptBuf,
+        out_amount: Amount,
     ) -> Result<Txid, BridgeError> {
         // Prepare input and output of the payout transaction.
-        let input_prevout = self
-            .rpc
-            .get_txout_from_outpoint(&users_intent_outpoint)
-            .await?;
+        let input_prevout = self.rpc.get_txout_from_outpoint(&in_outpoint).await?;
         let input_utxo = UTXO {
-            outpoint: users_intent_outpoint,
+            outpoint: in_outpoint,
             txout: input_prevout,
         };
         let output_txout = TxOut {
-            value: users_intent_amount,
-            script_pubkey: users_intent_script_pubkey,
+            value: out_amount,
+            script_pubkey: out_script_pubkey,
         };
 
         // Check Citrea for the withdrawal state.
@@ -524,17 +527,15 @@ impl Operator {
             input_utxo,
             output_txout,
             self.idx,
-            user_signature,
+            in_signature,
             self.config.network,
         )?;
 
-        let sighash = payout_txhandler.calculate_pubkey_spend_sighash(
-            0,
-            bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-        )?;
+        let sighash = payout_txhandler
+            .calculate_sighash_txin(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)?;
 
         SECP.verify_schnorr(
-            &user_signature,
+            &in_signature,
             &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,
         )?;
@@ -953,10 +954,9 @@ mod tests {
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc();
+        let _regtest = create_regtest_rpc!(config);
 
-        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
+        let operator = Operator::new(config.clone()).await.unwrap();
 
         let winternitz_public_key = operator
             .generate_assert_winternitz_pubkeys(Txid::all_zeros())
@@ -969,11 +969,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc();
+        let config = create_test_config_with_thread_name!(None);
+        let _regtest = create_regtest_rpc!(config);
 
-        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
+        let operator = Operator::new(config.clone()).await.unwrap();
 
         let preimages = operator
             .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
@@ -983,11 +982,10 @@ mod tests {
 
     #[tokio::test]
     async fn operator_get_params() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc();
+        let config = create_test_config_with_thread_name!(None);
+        let _regtest = create_regtest_rpc!(config);
 
-        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
+        let operator = Operator::new(config.clone()).await.unwrap();
         let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
 
         let mut wpk_rx = operator.get_params().await.unwrap();

@@ -41,6 +41,8 @@ pub struct Unsigned;
 // impl State for PartialInputs {}
 impl State for Unsigned {}
 impl State for Signed {}
+pub type SighashCalculator<'a> =
+    Box<dyn FnOnce(TapSighashType) -> Result<TapSighash, BridgeError> + 'a>;
 
 impl<T: State> TxHandler<T> {
     pub fn get_spendable_output(&self, idx: usize) -> Result<SpendableTxIn, BridgeError> {
@@ -76,17 +78,13 @@ impl<T: State> TxHandler<T> {
     fn get_sighash_calculator(
         &self,
         idx: usize,
-    ) -> impl FnOnce() -> Result<TapSighash, BridgeError> + '_ {
-        move || -> Result<TapSighash, BridgeError> {
+    ) -> impl FnOnce(TapSighashType) -> Result<TapSighash, BridgeError> + '_ {
+        move |sighash_type: TapSighashType| -> Result<TapSighash, BridgeError> {
             match self.txins[idx].get_spend_path() {
-                SpendPath::KeySpend => {
-                    self.calculate_pubkey_spend_sighash(idx, TapSighashType::Default)
+                SpendPath::KeySpend => self.calculate_pubkey_spend_sighash(idx, sighash_type),
+                SpendPath::ScriptSpend(script_idx) => {
+                    self.calculate_script_spend_sighash_indexed(idx, script_idx, sighash_type)
                 }
-                SpendPath::ScriptSpend(script_idx) => self.calculate_script_spend_sighash_indexed(
-                    idx,
-                    script_idx,
-                    TapSighashType::Default,
-                ),
                 SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
             }
         }
@@ -108,7 +106,7 @@ impl<T: State> TxHandler<T> {
         mut signer: impl for<'a> FnMut(
             usize,
             &'a SpentTxIn,
-            Box<dyn FnOnce() -> Result<TapSighash, BridgeError> + 'a>,
+            SighashCalculator<'a>,
         ) -> Result<Option<Witness>, BridgeError>,
     ) -> Result<(), BridgeError> {
         for idx in 0..self.txins.len() {

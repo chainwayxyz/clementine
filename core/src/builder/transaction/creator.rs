@@ -205,6 +205,7 @@ impl TxHandlerDbData {
     }
 }
 
+#[tracing::instrument(skip_all, err, fields(?deposit, txtype = ?transaction_type, ?kickoff_id))]
 pub async fn create_txhandlers(
     config: BridgeConfig,
     deposit: DepositData,
@@ -705,7 +706,6 @@ mod tests {
     };
     use bitcoin::Txid;
     use futures::future::try_join_all;
-    use std::panic;
 
     use crate::builder::transaction::TransactionType;
     use crate::constants::{
@@ -715,7 +715,6 @@ mod tests {
     use std::str::FromStr;
 
     #[tokio::test(flavor = "multi_thread")]
-
     async fn test_deposit_and_sign_txs() {
         let mut config = create_test_config_with_thread_name!(None);
 
