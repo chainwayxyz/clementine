@@ -17,13 +17,12 @@ use crate::{
     tx_sender::TxSender,
     EVMAddress,
 };
+use bitcoin::hashes::Hash;
 use bitcoin::{
     address::NetworkUnchecked,
     secp256k1::{schnorr, Message},
     Address, OutPoint, XOnlyPublicKey,
 };
-use bitcoin::{hashes::Hash, Txid};
-use bitcoincore_rpc::RawTx;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::time::Duration;
 
@@ -47,7 +46,6 @@ pub struct Aggregator {
 }
 
 impl Aggregator {
-    // #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let db = Database::new(&config).await?;
 
@@ -93,7 +91,7 @@ impl Aggregator {
         )
         .await?;
         let tx_sender = TxSender::new(signer, rpc, db.clone(), config.network);
-        let _handle = tx_sender.run("aggregator", Duration::from_secs(1)).await?;
+        let _tx_sender_handle = tx_sender.run("aggregator", Duration::from_secs(1)).await?;
 
         Ok(Aggregator {
             db,

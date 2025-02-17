@@ -426,7 +426,7 @@ impl TxSender {
                 .await;
 
             match new_txid_result {
-                Ok(new_txid) => {
+                Ok(_new_txid) => {
                     self.db
                         .save_fee_payer_tx(
                             None,

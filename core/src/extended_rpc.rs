@@ -200,12 +200,12 @@ impl ExtendedRpc {
                 bitcoincore_rpc::Error::JsonRpc(json_rpc_error) => {
                     let error_message = json_rpc_error.to_string();
                     if error_message.contains(" is already spent") {
-                        return Err(BridgeError::BumpFeeUTXOSpent);
+                        Err(BridgeError::BumpFeeUTXOSpent)
                     } else {
-                        return Err(BridgeError::Error(json_rpc_error.to_string()));
+                        Err(BridgeError::Error(json_rpc_error.to_string()))
                     }
                 }
-                _ => return Err(BridgeError::Error(e.to_string())),
+                _ => Err(BridgeError::Error(e.to_string())),
             },
         }
     }
