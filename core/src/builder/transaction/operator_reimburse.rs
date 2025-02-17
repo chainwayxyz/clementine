@@ -15,8 +15,8 @@ use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{Network, Sequence, TxOut, Txid};
 use bitcoin::XOnlyPublicKey;
+use bitcoin::{Network, Sequence, TxOut, Txid};
 use std::sync::Arc;
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator

@@ -7,9 +7,7 @@ use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
 use crate::rpc::clementine::clementine_watchtower_server::ClementineWatchtowerServer;
 use crate::watchtower::Watchtower;
-use crate::{
-    config::BridgeConfig, errors, operator, verifier::Verifier,
-};
+use crate::{config::BridgeConfig, errors, operator, verifier::Verifier};
 use errors::BridgeError;
 use operator::Operator;
 use std::thread;

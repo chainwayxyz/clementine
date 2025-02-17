@@ -565,7 +565,6 @@ mod tests {
     };
     use bitcoin::Txid;
     use futures::future::try_join_all;
-    
 
     use crate::builder::transaction::TransactionType;
     use crate::constants::{

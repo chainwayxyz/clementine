@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitcoin_syncer::{self};
 use crate::builder::sighash::create_operator_sighash_stream;
@@ -24,6 +22,7 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -63,13 +62,13 @@ impl Operator {
 
         bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc).await?;
         // Store sender in a variable to keep it alive
-        let _handle =
-            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
-                .await?;
+        // let _handle =
+        //     bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
+        //         .await?;
 
         let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
 
-        let _operator_handle = tx_sender.run("operator", Duration::from_secs(1)).await?; // TODO: Make this a unique handle
+        // let _operator_handle = tx_sender.run("operator", Duration::from_secs(1)).await?; // TODO: Make this a unique handle
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;

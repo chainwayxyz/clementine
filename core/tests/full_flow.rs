@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bitcoin::consensus::Decodable as _;
 use bitcoin::hashes::Hash;
 use bitcoin::{Address, Amount, Transaction, Txid};
@@ -12,7 +14,7 @@ use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAg
 use clementine_core::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use clementine_core::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use clementine_core::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-use clementine_core::rpc::clementine::NormalSignatureKind;
+use clementine_core::rpc::clementine::{self, NormalSignatureKind};
 use clementine_core::rpc::clementine::{
     DepositParams, Empty, KickoffId, TransactionRequest, WithdrawParams,
 };
@@ -27,6 +29,7 @@ use clementine_core::UTXO;
 use clementine_core::{actor::Actor, builder, musig2::AggregateFromPublicKeys};
 use eyre::Result;
 use secp256k1::rand::rngs::ThreadRng;
+use tokio::time::sleep;
 use tonic::Request;
 
 mod common;
@@ -86,15 +89,31 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     };
 
     tracing::info!("Creating move transaction");
-    let move_tx_response = aggregator
+    let _move_tx_response = aggregator
         .new_deposit(dep_params.clone())
         .await?
         .into_inner();
 
-    let move_tx: Transaction =
-        Transaction::consensus_decode(&mut move_tx_response.raw_tx.as_slice())?;
-    rpc.client.send_raw_transaction(&move_tx).await?;
-    tracing::info!("Move transaction sent: {}", move_tx.compute_txid());
+    let start = std::time::Instant::now();
+    loop {
+        let timeout = 2;
+        if start.elapsed() > std::time::Duration::from_secs(timeout) {
+            panic!("MoveTx did not land onchain within {timeout} seconds");
+        }
+
+        let tx_result = rpc
+            .client
+            .get_raw_transaction(&Txid::from_slice(&_move_tx_response.txid).unwrap(), None)
+            .await;
+        tracing::error!("sss {:?}", tx_result);
+
+        if tx_result.is_ok() {
+            break;
+        }
+        rpc.mine_blocks(1).await?;
+
+        sleep(Duration::from_secs(1)).await;
+    }
 
     // 4. Make Withdrawal
     tracing::info!("Starting withdrawal process");
@@ -191,5 +210,84 @@ mod tests {
     async fn test_happy_path() {
         let config = create_test_config_with_thread_name!(None);
         run_happy_path(config).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn aggregator_deposit_movetx_lands_onchain() {
+    let config = create_test_config_with_thread_name!(None);
+    let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) = create_actors!(config);
+    let rpc = regtest.1.clone();
+
+    let evm_address = EVMAddress([1u8; 20]);
+    let signer = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.network,
+    );
+
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+            .unwrap();
+
+    let deposit_address = builder::address::generate_deposit_address(
+        nofn_xonly_pk,
+        signer.address.as_unchecked(),
+        evm_address,
+        config.bridge_amount_sats,
+        config.network,
+        config.user_takes_after,
+    )
+    .unwrap()
+    .0;
+
+    let recovery_taproot_address = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.network,
+    )
+    .address;
+
+    let deposit_outpoint = rpc
+        .send_to_address(&deposit_address, config.bridge_amount_sats)
+        .await
+        .unwrap();
+    rpc.mine_blocks(18).await.unwrap();
+
+    aggregator
+        .setup(tonic::Request::new(clementine::Empty {}))
+        .await
+        .unwrap();
+
+    let movetx_txid: Txid = aggregator
+        .new_deposit(DepositParams {
+            deposit_outpoint: Some(deposit_outpoint.into()),
+            evm_address: evm_address.0.to_vec(),
+            recovery_taproot_address: recovery_taproot_address.to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .try_into()
+        .unwrap();
+
+    let start = std::time::Instant::now();
+    loop {
+        let timeout = 2;
+        if start.elapsed() > std::time::Duration::from_secs(timeout) {
+            panic!("MoveTx did not land onchain within {timeout} seconds");
+        }
+        rpc.mine_blocks(1).await.unwrap();
+
+        let tx_result = rpc.client.get_raw_transaction(&movetx_txid, None).await;
+
+        match tx_result {
+            Ok(_tx) => break,
+            Err(e) => {
+                tracing::error!("Error getting transaction: {:?}", e);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
+        };
     }
 }
