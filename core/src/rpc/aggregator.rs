@@ -820,7 +820,9 @@ mod tests {
     };
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
+    use tokio::time::sleep;
     use std::str::FromStr;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn aggregator_double_setup_fail() {
@@ -1062,13 +1064,6 @@ mod tests {
         .unwrap()
         .0;
 
-        let recovery_taproot_address = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.network,
-        )
-        .address;
-
         let deposit_outpoint = rpc
             .send_to_address(&deposit_address, config.bridge_amount_sats)
             .await
@@ -1079,6 +1074,7 @@ mod tests {
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
+        sleep(Duration::from_secs(3)).await;
 
         let movetx_txid: Txid = aggregator
             .new_deposit(DepositParams {
@@ -1091,27 +1087,23 @@ mod tests {
             .into_inner()
             .try_into()
             .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3)).await;
 
         let start = std::time::Instant::now();
         loop {
-            let timeout = 10;
+            let timeout = 20;
             if start.elapsed() > std::time::Duration::from_secs(timeout) {
                 panic!("MoveTx did not land onchain within {timeout} seconds");
             }
-            rpc.mine_blocks(1).await.unwrap();
 
-            let tx_result = rpc.client.get_raw_transaction(&movetx_txid, None).await;
-
-            let _tx_result = match tx_result {
-                Ok(tx) => tx,
-                Err(e) => {
-                    tracing::error!("Error getting transaction: {:?}", e);
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    continue;
-                }
+            if rpc.client.get_raw_transaction(&movetx_txid, None).await.is_err() {
+                tracing::error!("Transaction is not on-chain");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
             };
 
-            // assert!(tx_result.info.confirmations > 0);
+            break;
         }
     }
 }
