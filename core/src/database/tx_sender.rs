@@ -3,10 +3,14 @@
 //! This module includes database functions which are mainly used by the transaction sender.
 
 use super::{
-    wrapper::{ScriptBufDB, TxidDB},
+    wrapper::{OutPointDB, ScriptBufDB, TxidDB},
     Database, DatabaseTransaction,
 };
-use crate::{errors::BridgeError, execute_query_with_tx};
+use crate::{
+    errors::BridgeError,
+    execute_query_with_tx,
+    tx_sender::{FeePayingType, PrerequisiteTx},
+};
 use bitcoin::{
     consensus::{deserialize, serialize},
     Amount, FeeRate, ScriptBuf, Transaction, Txid,
@@ -25,21 +29,19 @@ impl Database {
     pub async fn save_fee_payer_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        bumped_txid: Txid,
+        bumped_id: i32,
         fee_payer_txid: Txid,
         vout: u32,
-        script_pubkey: ScriptBuf,
         amount: Amount,
         replacement_of_id: Option<i32>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_fee_payer_utxos (bumped_txid, fee_payer_txid, vout, script_pubkey, amount, replacement_of_id) 
-             VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO tx_sender_fee_payer_utxos (bumped_tx_id, fee_payer_txid, vout, amount, replacement_of_id) 
+             VALUES ($1, $2, $3, $4, $5)",
         )
-        .bind(TxidDB(bumped_txid))
+        .bind(bumped_id)
         .bind(TxidDB(fee_payer_txid))
         .bind(vout as i32)
-        .bind(ScriptBufDB(script_pubkey))
         .bind(amount.to_sat() as i64)
         .bind(replacement_of_id);
 
@@ -91,11 +93,11 @@ impl Database {
     pub async fn get_bumpable_fee_payer_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        bumped_txid: Txid,
-    ) -> Result<Vec<(i32, Txid, u32, Amount, ScriptBuf)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, TxidDB, i32, i64, ScriptBufDB)>(
+        bumped_id: i32,
+    ) -> Result<Vec<(i32, Txid, u32, Amount)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, i32, i64)>(
             "
-            SELECT fpu.id, fpu.fee_payer_txid, fpu.vout, fpu.amount, fpu.script_pubkey
+            SELECT fpu.id, fpu.fee_payer_txid, fpu.vout, fpu.amount
             FROM tx_sender_fee_payer_utxos fpu
             WHERE fpu.bumped_txid = $1
               AND fpu.is_confirmed = false
@@ -106,20 +108,19 @@ impl Database {
               )
             ",
         )
-        .bind(super::wrapper::TxidDB(bumped_txid));
+        .bind(bumped_id);
 
-        let results: Vec<(i32, TxidDB, i32, i64, ScriptBufDB)> =
+        let results: Vec<(i32, TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         Ok(results
             .iter()
-            .map(|(id, fee_payer_txid, vout, amount, script_pubkey)| {
+            .map(|(id, fee_payer_txid, vout, amount)| {
                 (
                     *id,
                     fee_payer_txid.0,
                     *vout as u32,
                     Amount::from_sat(*amount as u64),
-                    script_pubkey.0.clone(),
                 )
             })
             .collect())
@@ -137,16 +138,14 @@ impl Database {
     pub async fn get_fee_payer_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        bumped_txid: Txid,
-        script_pubkey: ScriptBuf,
+        bumped_id: i32,
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT fee_payer_txid, vout, amount, is_confirmed 
              FROM tx_sender_fee_payer_utxos 
-             WHERE bumped_txid = $1 AND script_pubkey = $2",
+             WHERE bumped_tx_id = $1",
         )
-        .bind(super::wrapper::TxidDB(bumped_txid))
-        .bind(ScriptBufDB(script_pubkey));
+        .bind(bumped_id);
 
         let results: Vec<(String, i32, i64, bool)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
@@ -167,72 +166,199 @@ impl Database {
     pub async fn get_confirmed_fee_payer_utxos(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        bumped_txid: Txid,
-    ) -> Result<Vec<(Txid, u32, Amount, ScriptBuf)>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB, i32, i64, ScriptBufDB)>(
-            "SELECT fee_payer_txid, vout, amount, script_pubkey 
+        id: i32,
+    ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
+            "SELECT fee_payer_txid, vout, amount 
              FROM tx_sender_fee_payer_utxos fpu
              WHERE fpu.bumped_txid = $1 AND fpu.is_confirmed = true",
         )
-        .bind(super::wrapper::TxidDB(bumped_txid));
+        .bind(id);
 
-        let results: Vec<(TxidDB, i32, i64, ScriptBufDB)> =
+        let results: Vec<(TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         Ok(results
             .iter()
-            .map(|(fee_payer_txid, vout, amount, script_pubkey)| {
+            .map(|(fee_payer_txid, vout, amount)| {
                 (
                     fee_payer_txid.0,
                     *vout as u32,
                     Amount::from_sat(*amount as u64),
-                    script_pubkey.0.clone(),
                 )
             })
             .collect())
     }
 
-    /// Gets txids of txs that are unconfirmed and have a lower effective fee rate than the given fee rate.
-    pub async fn get_unconfirmed_bumpable_txs(
+    pub async fn get_unconfirmed_fee_payer_utxos(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        new_effective_fee_rate: FeeRate,
-    ) -> Result<Vec<Txid>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB,)>(
-            "SELECT txid 
-             FROM tx_sender_txs 
-             WHERE is_confirmed = false AND (effective_fee_rate IS NULL OR effective_fee_rate < $1)",
+        id: i32,
+    ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
+            "SELECT fee_payer_txid, vout, amount 
+             FROM tx_sender_fee_payer_utxos fpu
+             WHERE fpu.bumped_txid = $1 AND fpu.is_confirmed = false",
         )
-        .bind(new_effective_fee_rate.to_sat_per_vb_ceil() as i64);
+        .bind(id);
 
-        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-        Ok(results.into_iter().map(|(txid,)| txid.0).collect())
+        let results: Vec<(TxidDB, i32, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        Ok(results
+            .iter()
+            .map(|(fee_payer_txid, vout, amount)| {
+                (
+                    fee_payer_txid.0,
+                    *vout as u32,
+                    Amount::from_sat(*amount as u64),
+                )
+            })
+            .collect())
     }
+
+    // /// Gets txids of txs that are unconfirmed and have a lower effective fee rate than the given fee rate.
+    // pub async fn get_unconfirmed_bumpable_txs(
+    //     &self,
+    //     tx: Option<DatabaseTransaction<'_, '_>>,
+    //     new_effective_fee_rate: FeeRate,
+    // ) -> Result<Vec<Txid>, BridgeError> {
+    //     let query = sqlx::query_as::<_, (TxidDB,)>(
+    //         "SELECT txid
+    //          FROM tx_sender_txs
+    //          WHERE is_confirmed = false AND (effective_fee_rate IS NULL OR effective_fee_rate < $1)",
+    //     )
+    //     .bind(new_effective_fee_rate.to_sat_per_vb_ceil() as i64);
+
+    //     let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+    //     Ok(results.into_iter().map(|(txid,)| txid.0).collect())
+    // }
 
     pub async fn save_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        txid: Txid,
-        raw_tx: Transaction,
+        raw_tx: &Transaction,
+        fee_paying_type: FeePayingType,
+    ) -> Result<i32, BridgeError> {
+        let query = sqlx::query_scalar(
+            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type) VALUES ($1, $2) RETURNING id"
+        )
+        .bind(serialize(raw_tx))
+        .bind(fee_paying_type.to_string());
+
+        let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        Ok(id)
+    }
+
+    pub async fn save_cancelled_outpoint(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        cancelled_id: i32,
+        outpoint: bitcoin::OutPoint,
     ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO tx_sender_txs (txid, raw_tx) VALUES ($1, $2)")
-            .bind(TxidDB(txid))
-            .bind(serialize(&raw_tx));
+        let query = sqlx::query(
+            "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, outpoint) VALUES ($1, $2)"
+        )
+        .bind(cancelled_id)
+        .bind(OutPointDB(outpoint));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
-
         Ok(())
+    }
+
+    pub async fn save_cancelled_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        cancelled_id: i32,
+        txid: bitcoin::Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO tx_sender_cancel_try_to_send_txids (cancelled_id, txid) VALUES ($1, $2)",
+        )
+        .bind(cancelled_id)
+        .bind(TxidDB(txid));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn save_activated_prerequisite_tx(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        activated_id: i32,
+        prerequisite_tx: &PrerequisiteTx,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO tx_sender_activate_prerequisite_txs (activated_id, txid, timelock) VALUES ($1, $2, $3)"
+        )
+        .bind(activated_id)
+        .bind(TxidDB(prerequisite_tx.txid))
+        .bind(prerequisite_tx.timelock.0 as i64);
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn get_sendable_txs(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        fee_rate: FeeRate,
+        current_tip_height: u64,
+    ) -> Result<Vec<(i32, FeePayingType)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, String)>(
+            "WITH valid_activated_txs AS (
+                SELECT activated_id
+                FROM tx_sender_activate_prerequisite_txs AS activate
+                JOIN bitcoin_syncer AS syncer ON activate.seen_block_id = syncer.id
+                WHERE (syncer.height + activate.timelock) < $2
+            ),
+            valid_cancel_outpoints AS (
+                SELECT cancelled_id
+                FROM tx_sender_cancel_try_to_send_outpoints
+                WHERE seen_block_id IS NOT NULL
+            ),
+            valid_cancel_txids AS (
+                SELECT cancelled_id
+                FROM tx_sender_cancel_try_to_send_txids
+                WHERE seen_block_id IS NOT NULL
+            )
+            SELECT txs.id, txs.fee_paying_type::text
+            FROM tx_sender_try_to_send_txs AS txs
+            WHERE txs.id IN (SELECT activated_id FROM valid_activated_txs)
+                AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
+                AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
+                AND txs.is_confirmed = false
+                AND txs.effective_fee_rate < $1",
+        )
+        .bind(fee_rate.to_sat_per_vb_ceil() as i64)
+        .bind(current_tip_height as i64);
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        let txs = results
+            .into_iter()
+            .map(|(id, fee_paying_type)| {
+                Ok((
+                    id,
+                    FeePayingType::from_str(&fee_paying_type).expect("Invalid fee paying type"),
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()?;
+
+        Ok(txs)
     }
 
     pub async fn update_effective_fee_rate(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        txid: Txid,
+        id: i32,
         effective_fee_rate: FeeRate,
     ) -> Result<(), BridgeError> {
-        let query = sqlx::query("UPDATE tx_sender_txs SET effective_fee_rate = $1 WHERE txid = $2")
-            .bind(effective_fee_rate.to_sat_per_vb_ceil() as i64)
-            .bind(TxidDB(txid));
+        let query = sqlx::query(
+            "UPDATE tx_sender_try_to_send_txs SET effective_fee_rate = $1 WHERE id = $2",
+        )
+        .bind(effective_fee_rate.to_sat_per_vb_ceil() as i64)
+        .bind(id);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -242,14 +368,14 @@ impl Database {
     pub async fn get_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        txid: Txid,
+        id: i32,
     ) -> Result<Transaction, BridgeError> {
         let query = sqlx::query_as::<_, (Vec<u8>,)>(
             "SELECT raw_tx 
-             FROM tx_sender_txs 
-             WHERE txid = $1 LIMIT 1",
+             FROM tx_sender_try_to_send_txs 
+             WHERE id = $1 LIMIT 1",
         )
-        .bind(TxidDB(txid));
+        .bind(id);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok(deserialize(&result.0).expect("Failed to deserialize tx"))
@@ -271,19 +397,17 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
-        let bumped_txid = Txid::hash(&[1u8; 32]);
+        let bumped_id = 1;
         let fee_payer_txid = Txid::hash(&[2u8; 32]);
         let vout = 1;
-        let script_pubkey = ScriptBuf::from_bytes(vec![0x51]); // OP_TRUE
         let amount = 50000;
 
         // Save fee payer tx
         db.save_fee_payer_tx(
             None,
-            bumped_txid,
+            bumped_id,
             fee_payer_txid,
             vout,
-            script_pubkey.clone(),
             Amount::from_sat(amount),
             None,
         )
@@ -292,10 +416,7 @@ mod tests {
 
         // get
 
-        let fee_payer_txs = db
-            .get_fee_payer_tx(None, bumped_txid, script_pubkey)
-            .await
-            .unwrap();
+        let fee_payer_txs = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
         assert_eq!(fee_payer_txs.len(), 1);
         assert_eq!(fee_payer_txs[0].0, fee_payer_txid);
         assert_eq!(fee_payer_txs[0].1, vout);
@@ -326,19 +447,17 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
-        let bumped_txid = Txid::hash(&[1u8; 32]);
+        let bumped_id = 1;
         let fee_payer_txid = Txid::hash(&[2u8; 32]);
         let vout = 1;
-        let script_pubkey = ScriptBuf::from_bytes(vec![0x51]); // OP_TRUE
         let amount = 50000;
 
         // Save fee payer tx
         db.save_fee_payer_tx(
             None,
-            bumped_txid,
+            bumped_id,
             fee_payer_txid,
             vout,
-            script_pubkey.clone(),
             Amount::from_sat(amount),
             None,
         )
@@ -346,10 +465,7 @@ mod tests {
         .unwrap();
 
         // Get and verify the fee payer tx details
-        let result = db
-            .get_fee_payer_tx(None, bumped_txid, script_pubkey.clone())
-            .await
-            .unwrap();
+        let result = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
 
         assert_eq!(result.len(), 1);
         let (result_txid, result_vout, result_amount, is_confirmed) = result[0];
@@ -365,18 +481,14 @@ mod tests {
             .unwrap();
 
         // Check confirmed transaction
-        let result = db
-            .get_fee_payer_tx(None, bumped_txid, script_pubkey.clone())
-            .await
-            .unwrap();
+        let result = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
         assert_eq!(result.len(), 1);
         let (_, _, _, is_confirmed) = result[0];
         assert!(is_confirmed);
 
         // Test non-existent tx
-        let non_existent = Txid::hash(&[0xff; 32]);
         assert!(db
-            .get_fee_payer_tx(None, non_existent, script_pubkey)
+            .get_fee_payer_tx(None, bumped_id + 1)
             .await
             .unwrap()
             .is_empty());

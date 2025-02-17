@@ -33,6 +33,39 @@ pub struct TxSender {
     pub network: bitcoin::Network,
 }
 
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub enum FeePayingType {
+    CPFP,
+    RBF,
+}
+
+impl std::fmt::Display for FeePayingType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl std::str::FromStr for FeePayingType {
+    type Err = BridgeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "CPFP" => Ok(FeePayingType::CPFP),
+            "RBF" => Ok(FeePayingType::RBF),
+            _ => Err(BridgeError::Error(format!(
+                "Invalid fee paying type: {}",
+                s
+            ))),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct PrerequisiteTx {
+    pub txid: Txid,
+    pub timelock: bitcoin::Sequence,
+}
+
 impl TxSender {
     pub fn new(signer: Actor, rpc: ExtendedRpc, db: Database, network: bitcoin::Network) -> Self {
         Self {
@@ -67,16 +100,23 @@ impl TxSender {
                         match event {
                             BitcoinSyncerEvent::NewBlock(block_hash) => {
                                 db.confirm_transactions(&mut dbtx, &block_hash).await?;
+                                dbtx.commit().await?;
+                                let current_tip_header =
+                                    this.rpc.client.get_block_header_info(&block_hash).await?; // TODO: Fix this to db
+                                let current_tip_height = current_tip_header.height;
+                                let fee_rate = this.get_fee_rate().await?;
+                                this.try_to_send_unconfirmed_txs(
+                                    fee_rate,
+                                    current_tip_height as u64,
+                                )
+                                .await?;
                             }
                             BitcoinSyncerEvent::ReorgedBlock(block_hash) => {
                                 db.unconfirm_transactions(&mut dbtx, &block_hash).await?;
+                                dbtx.commit().await?;
                             }
                         }
                     }
-                    dbtx.commit().await?;
-
-                    let fee_rate = this.get_fee_rate().await?;
-                    this.try_to_send_unconfirmed_txs(fee_rate).await?;
 
                     Ok(())
                 }
@@ -107,12 +147,13 @@ impl TxSender {
     /// - [`OutPoint`]: Outpoint of the fee payer UTXO.
     pub async fn create_fee_payer_utxo(
         &self,
-        parent_txid: Txid,
-        parent_tx_weight: Weight,
+        bumped_id: i32,
+        tx_weight: Weight,
+        _fee_paying_type: FeePayingType,
     ) -> Result<OutPoint, BridgeError> {
         let fee_rate = self.get_fee_rate().await?;
         let required_amount =
-            Self::calculate_required_amount_for_fee_payer_utxo(parent_tx_weight, fee_rate)?;
+            Self::calculate_required_amount_for_fee_payer_utxo(tx_weight, fee_rate)?;
         tracing::info!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
             required_amount,
@@ -127,10 +168,9 @@ impl TxSender {
         self.db
             .save_fee_payer_tx(
                 None,
-                parent_txid,
+                bumped_id,
                 outpoint.txid,
                 outpoint.vout,
-                self.signer.address.script_pubkey(),
                 required_amount,
                 None,
             )
@@ -139,22 +179,52 @@ impl TxSender {
         Ok(outpoint)
     }
 
-    /// Save a transaction to database while checking if it has a fee payer
-    /// UTXO.
+    /// Tries to send a tx. If all conditions are met, it will save the tx to the database.
+    /// It will also save the cancelled outpoints, cancelled txids and activated prerequisite txs to the database.
+    /// It will automatically saves inputs as cancelled outpoints.
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn save_tx(&self, tx: &Transaction) -> Result<(), BridgeError> {
-        let txid = tx.compute_txid();
+    pub async fn try_to_send(
+        &self,
+        signed_tx: &Transaction,
+        fee_paying_type: FeePayingType,
+        cancel_outpoints: &[OutPoint],
+        cancel_txids: &[Txid],
+        activate_prerequisite_txs: &[PrerequisiteTx],
+    ) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
 
-        if self
+        let try_to_send_id = self
             .db
-            .get_fee_payer_tx(None, txid, self.signer.address.script_pubkey())
-            .await?
-            .is_empty()
-        {
-            return Err(BridgeError::FeePayerTxNotFound);
+            .save_tx(Some(&mut dbtx), signed_tx, fee_paying_type)
+            .await?;
+
+        for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
+            self.db
+                .save_cancelled_outpoint(Some(&mut dbtx), try_to_send_id, input_outpoint)
+                .await?;
         }
 
-        self.db.save_tx(None, txid, tx.clone()).await
+        for outpoint in cancel_outpoints {
+            self.db
+                .save_cancelled_outpoint(Some(&mut dbtx), try_to_send_id, *outpoint)
+                .await?;
+        }
+
+        for txid in cancel_txids {
+            self.db
+                .save_cancelled_txid(Some(&mut dbtx), try_to_send_id, *txid)
+                .await?;
+        }
+
+        for prerequisite_tx in activate_prerequisite_txs {
+            self.db
+                .save_activated_prerequisite_tx(Some(&mut dbtx), try_to_send_id, prerequisite_tx)
+                .await?;
+        }
+
+        dbtx.commit().await?;
+
+        Ok(())
     }
 
     /// Gets the current fee rate.
@@ -308,22 +378,116 @@ impl TxSender {
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
 
+    fn add_fee_payer_utxos_to_tx(
+        &self,
+        tx: Transaction,
+        fee_payer_utxos: Vec<SpendableTxIn>,
+        fee_rate: FeeRate,
+    ) -> Result<Transaction, BridgeError> {
+        // Each additional p2tr input adds 230 WU and each additional p2tr
+        // output adds 172 WU to the transaction:
+        let tx_size = tx.weight() + Weight::from_wu_usize(fee_payer_utxos.len() * 230 + 172);
+        let required_fee = fee_rate
+            .checked_mul_by_weight(tx_size)
+            .ok_or(BridgeError::Overflow)?;
+
+        let input_amount = Amount::from_sat(0); // TODO: Fix this
+        let output_amount = tx.output.iter().map(|output| output.value).sum::<Amount>();
+
+        if input_amount < output_amount + required_fee {
+            return Err(BridgeError::InsufficientFeePayerAmount);
+        }
+
+        let change_amount = input_amount - output_amount - required_fee;
+
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy).with_version(tx.version);
+
+        for input in tx.input {
+            builder = builder.add_input_with_witness(
+                SpendableTxIn::new_partial(input.previous_output, TxOut::NULL),
+                input.sequence,
+                input.witness,
+            );
+        }
+
+        for fee_payer_utxo in fee_payer_utxos {
+            builder = builder.add_input(
+                NormalSignatureKind::NotStored,
+                fee_payer_utxo,
+                SpendPath::KeySpend,
+                DEFAULT_SEQUENCE,
+            );
+        }
+
+        for output in tx.output {
+            builder = builder.add_output(UnspentTxOut::from_partial(output));
+        }
+
+        builder = builder.add_output(UnspentTxOut::from_partial(TxOut {
+            value: change_amount,
+            script_pubkey: self.signer.address.script_pubkey(),
+        }));
+
+        let mut tx_handler = builder.finalize();
+
+        self.signer.tx_sign_and_fill_sigs(&mut tx_handler, &[])?;
+
+        Ok(tx_handler.get_cached_tx().clone())
+    }
+
+    fn create_package(
+        &self,
+        tx: Transaction,
+        fee_rate: FeeRate,
+        fee_payer_utxos: Vec<SpendableTxIn>,
+        fee_paying_type: FeePayingType,
+    ) -> Result<Vec<Transaction>, BridgeError> {
+        match fee_paying_type {
+            FeePayingType::CPFP => {
+                let p2a_vout = self.find_p2a_vout(&tx)?;
+                let txid = tx.compute_txid();
+
+                let child_tx = self.create_child_tx(
+                    OutPoint {
+                        txid,
+                        vout: p2a_vout as u32,
+                    },
+                    fee_payer_utxos,
+                    tx.weight(),
+                    fee_rate,
+                    self.signer.address.clone(),
+                )?;
+
+                Ok(vec![tx, child_tx])
+            }
+            FeePayingType::RBF => {
+                let tx = self.add_fee_payer_utxos_to_tx(tx, fee_payer_utxos, fee_rate)?;
+
+                Ok(vec![tx])
+            }
+        }
+    }
+
     /// Sends a tx with CPFP.
     /// Returns the effective fee rate of the tx.
     /// If the effective fee rate is lower than the required fee rate, it will return an error.
-    /// If the tx is not confirmed, it will return an error.
-    async fn send_tx_with_cpfp(&self, txid: Txid, fee_rate: FeeRate) -> Result<(), BridgeError> {
-        let tx = self.db.get_tx(None, txid).await?;
-
-        let fee_payer_utxos = self.db.get_confirmed_fee_payer_utxos(None, txid).await?;
-
-        if fee_payer_utxos.is_empty() {
-            return Err(BridgeError::ConfirmedFeePayerTxNotFound);
+    /// If the fee payer tx is not confirmed, it will return an error.
+    async fn send_tx_with_cpfp(
+        &self,
+        id: i32,
+        fee_paying_type: FeePayingType,
+        fee_rate: FeeRate,
+    ) -> Result<(), BridgeError> {
+        let unconfirmed_fee_payer_utxos = self.db.get_unconfirmed_fee_payer_utxos(None, id).await?;
+        if !unconfirmed_fee_payer_utxos.is_empty() {
+            return Err(BridgeError::UnconfirmedFeePayerUTXOsLeft);
         }
+
+        let fee_payer_utxos = self.db.get_confirmed_fee_payer_utxos(None, id).await?;
 
         let fee_payer_utxos: Vec<SpendableTxIn> = fee_payer_utxos
             .iter()
-            .map(|(txid, vout, amount, script_pubkey)| {
+            .map(|(txid, vout, amount)| {
                 SpendableTxIn::new(
                     OutPoint {
                         txid: *txid,
@@ -331,7 +495,7 @@ impl TxSender {
                     },
                     TxOut {
                         value: *amount,
-                        script_pubkey: script_pubkey.clone(),
+                        script_pubkey: self.signer.address.script_pubkey(),
                     },
                     vec![],
                     Some(
@@ -346,37 +510,11 @@ impl TxSender {
             })
             .collect();
 
-        let p2a_vout = self.find_p2a_vout(&tx)?;
+        let tx = self.db.get_tx(None, id).await?;
 
-        let child_tx = self.create_child_tx(
-            OutPoint {
-                txid,
-                vout: p2a_vout as u32,
-            },
-            fee_payer_utxos,
-            tx.weight(),
-            fee_rate,
-            self.signer.address.clone(),
-        )?;
-
-        tracing::error!(
-            "Sending package: '[\"{}\", \"{}\"']",
-            hex::encode(serialize(&tx)),
-            hex::encode(serialize(&child_tx))
-        );
-
-        let test_mempool_accept_result = self
-            .rpc
-            .client
-            .test_mempool_accept(&[&tx, &child_tx])
-            .await?;
-
-        tracing::error!(
-            "Test mempool accept result: {:?}",
-            test_mempool_accept_result
-        );
-
-        let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
+        let package = self.create_package(tx, fee_rate, fee_payer_utxos, fee_paying_type)?;
+        let package_refs: Vec<&Transaction> = package.iter().collect();
+        let submit_package_result = self.rpc.client.submit_package(&package_refs[..]).await?;
 
         tracing::debug!("Submit package result: {:?}", submit_package_result);
 
@@ -396,30 +534,27 @@ impl TxSender {
         let effective_fee_rate = Self::btc_per_kvb_to_fee_rate(effective_fee_rate_btc_per_kvb);
         // Save the effective fee rate to the db
         self.db
-            .update_effective_fee_rate(None, txid, effective_fee_rate)
+            .update_effective_fee_rate(None, id, effective_fee_rate)
             .await?;
 
         // Sanity check to make sure the fee rate is equal to the required fee rate
-        // assert_eq!(
-        //     effective_fee_rate, fee_rate,
-        //     "Effective fee rate is not equal to the required fee rate: {:?} to {:?} != {:?}",
-        //     effective_fee_rate_btc_per_kvb, effective_fee_rate, fee_rate
-        // );
+        assert_eq!(
+            effective_fee_rate, fee_rate,
+            "Effective fee rate is not equal to the required fee rate: {:?} to {:?} != {:?}",
+            effective_fee_rate_btc_per_kvb, effective_fee_rate, fee_rate
+        );
 
         Ok(())
     }
 
     async fn bump_fees_of_fee_payer_txs(
         &self,
-        bumped_txid: Txid,
+        bumped_id: i32,
         fee_rate: FeeRate,
     ) -> Result<(), BridgeError> {
-        let bumpable_fee_payer_txs = self
-            .db
-            .get_bumpable_fee_payer_txs(None, bumped_txid)
-            .await?;
+        let bumpable_fee_payer_txs = self.db.get_bumpable_fee_payer_txs(None, bumped_id).await?;
 
-        for (id, fee_payer_txid, vout, amount, script_pubkey) in bumpable_fee_payer_txs {
+        for (id, fee_payer_txid, vout, amount) in bumpable_fee_payer_txs {
             let new_txid_result = self
                 .rpc
                 .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
@@ -430,10 +565,9 @@ impl TxSender {
                     self.db
                         .save_fee_payer_tx(
                             None,
-                            bumped_txid,
+                            bumped_id,
                             new_txid_result.expect("New txid result is None"),
                             vout,
-                            script_pubkey,
                             amount,
                             Some(id),
                         )
@@ -456,26 +590,34 @@ impl TxSender {
     /// Tries to bump fees of fee payer UTXOs with RBF
     async fn try_to_send_unconfirmed_txs(
         &self,
-        new_effective_fee_rate: FeeRate,
+        new_fee_rate: FeeRate,
+        current_tip_height: u64,
     ) -> Result<(), BridgeError> {
         let txids = self
             .db
-            .get_unconfirmed_bumpable_txs(None, new_effective_fee_rate)
+            .get_sendable_txs(None, new_fee_rate, current_tip_height)
             .await?;
-        for txid in txids {
-            self.bump_fees_of_fee_payer_txs(txid, new_effective_fee_rate)
-                .await?;
-            let send_tx_with_cpfp_result =
-                self.send_tx_with_cpfp(txid, new_effective_fee_rate).await;
+
+        for (id, fee_paying_type) in txids {
+            self.bump_fees_of_fee_payer_txs(id, new_fee_rate).await?;
+            let send_tx_with_cpfp_result = self
+                .send_tx_with_cpfp(id, fee_paying_type, new_fee_rate)
+                .await;
             match send_tx_with_cpfp_result {
                 Ok(_) => {}
-                Err(e) => match e {
-                    BridgeError::ConfirmedFeePayerTxNotFound => {
-                        tracing::error!("TXSENDER: Confirmed fee payer tx not found, skipping");
-                        continue;
+                Err(e) => {
+                    match e {
+                        BridgeError::InsufficientFeePayerAmount => {
+                            tracing::error!("TXSENDER: Insufficient fee payer amount, creating new fee payer UTXO");
+                            let tx = self.db.get_tx(None, id).await?;
+                            let _fee_payer_utxo = self
+                                .create_fee_payer_utxo(id, tx.weight(), FeePayingType::CPFP)
+                                .await?;
+                            continue;
+                        }
+                        _ => return Err(e),
                     }
-                    _ => return Err(e),
-                },
+                }
             }
         }
 
@@ -573,6 +715,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
+        let rpc = regtest.rpc().clone();
         rpc.mine_blocks(1).await.unwrap();
 
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender(rpc).await;
@@ -592,10 +735,13 @@ mod tests {
         let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
         let _outpoint = tx_sender
-            .create_fee_payer_utxo(tx.compute_txid(), tx.weight())
+            .create_fee_payer_utxo(1, tx.weight(), FeePayingType::CPFP)
             .await
             .unwrap();
-        tx_sender.save_tx(&tx).await.unwrap();
+        tx_sender
+            .try_to_send(&tx, FeePayingType::CPFP, &[], &[], &[])
+            .await
+            .unwrap();
 
         // Mine a block and wait for confirmation
         rpc.mine_blocks(1).await.unwrap();

@@ -45,6 +45,9 @@ pub enum BridgeError {
     /// Returned when it fails to find the txid in the block
     #[error("TxidNotFound")]
     TxidNotFound,
+    /// Returned when there are unconfirmed fee payer UTXOs left
+    #[error("UnconfirmedFeePayerUTXOsLeft")]
+    UnconfirmedFeePayerUTXOsLeft,
     /// Returned in RPC error
     #[error("BitcoinCoreRPCError: {0}")]
     BitcoinRpcError(#[from] bitcoincore_rpc::Error),

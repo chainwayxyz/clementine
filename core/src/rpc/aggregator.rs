@@ -10,6 +10,7 @@ use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::error::output_stream_ended_prematurely;
 use crate::rpc::parser;
+use crate::tx_sender::FeePayingType;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::{
@@ -398,11 +399,10 @@ impl Aggregator {
         move_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
         // Add fee bumper.
         let move_tx = move_txhandler.get_cached_tx();
-        let _fee_payer_utxo = self
-            .tx_sender
-            .create_fee_payer_utxo(*move_txhandler.get_txid(), move_tx.weight())
+
+        self.tx_sender
+            .try_to_send(move_tx, FeePayingType::CPFP, &[], &[], &[])
             .await?;
-        self.tx_sender.save_tx(move_tx).await?;
 
         // everything is fine, return the signed move tx
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
