@@ -395,7 +395,7 @@ impl Aggregator {
         .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
 
         // Put the signature in the tx
-        move_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 0, 0)?;
+        move_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
         // Add fee bumper.
         let move_tx = move_txhandler.get_cached_tx();
         let _fee_payer_utxo = self
@@ -846,7 +846,6 @@ mod tests {
         let mut config = create_test_config_with_thread_name!(None);
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
             create_actors!(config.clone());
-
         let rpc = regtest.rpc();
 
         aggregator
@@ -893,8 +892,8 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
             create_actors!(config.clone());
-
         let rpc = regtest.rpc();
+
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
@@ -1042,6 +1041,14 @@ mod tests {
             create_actors!(config);
         let rpc = regtest.rpc();
 
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(
             config.secret_key,
@@ -1091,24 +1098,33 @@ mod tests {
         sleep(Duration::from_secs(3)).await;
 
         let start = std::time::Instant::now();
-        loop {
-            let timeout = 20;
+        let timeout = 10;
+        let tx = loop {
             if start.elapsed() > std::time::Duration::from_secs(timeout) {
                 panic!("MoveTx did not land onchain within {timeout} seconds");
             }
+            rpc.mine_blocks(1).await.unwrap();
 
-            if rpc
+            let tx_result = rpc
                 .client
-                .get_raw_transaction(&movetx_txid, None)
-                .await
-                .is_err()
-            {
-                tracing::error!("Transaction is not on-chain");
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                continue;
-            };
+                .get_raw_transaction_info(&movetx_txid, None)
+                .await;
 
-            break;
-        }
+            tracing::info!("AAAA tx_result: {:?}", tx_result);
+
+            let tx_result = match tx_result {
+                Ok(tx) => {
+                    tracing::info!("AAAA tx: {:?}", tx);
+                    tx
+                }
+                Err(e) => {
+                    tracing::error!("Error getting transaction: {:?}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+            break tx_result;
+        };
+        assert!(tx.confirmations.unwrap() > 0);
     }
 }

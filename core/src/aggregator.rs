@@ -353,36 +353,36 @@ impl Aggregator {
     //     Ok(operator_take_sigs)
     // }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn aggregate_move_tx_sigs(
-        &self,
-        deposit_outpoint: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-        agg_nonce: MusigAggNonce,
-        partial_sigs: Vec<MusigPartialSignature>,
-    ) -> Result<(String, Txid), BridgeError> {
-        let move_tx_sig = self.aggregate_move_partial_sigs(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            &agg_nonce,
-            partial_sigs,
-        )?;
+    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    // pub async fn aggregate_move_tx_sigs(
+    //     &self,
+    //     deposit_outpoint: OutPoint,
+    //     recovery_taproot_address: Address<NetworkUnchecked>,
+    //     evm_address: EVMAddress,
+    //     agg_nonce: MusigAggNonce,
+    //     partial_sigs: Vec<MusigPartialSignature>,
+    // ) -> Result<(String, Txid), BridgeError> {
+    //     let move_tx_sig = self.aggregate_move_partial_sigs(
+    //         deposit_outpoint,
+    //         evm_address,
+    //         &recovery_taproot_address,
+    //         &agg_nonce,
+    //         partial_sigs,
+    //     )?;
 
-        let mut move_tx_handler = builder::transaction::create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            self.nofn_xonly_pk,
-            self.config.user_takes_after,
-            self.config.bridge_amount_sats,
-            self.config.network,
-        )?;
-        let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
-        move_tx_handler.set_p2tr_script_spend_witness(&move_tx_witness_elements, 0, 0)?;
+    //     let mut move_tx_handler = builder::transaction::create_move_to_vault_txhandler(
+    //         deposit_outpoint,
+    //         evm_address,
+    //         &recovery_taproot_address,
+    //         self.nofn_xonly_pk,
+    //         self.config.user_takes_after,
+    //         self.config.bridge_amount_sats,
+    //         self.config.network,
+    //     )?;
+    //     let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
+    //     move_tx_handler.set_p2tr_script_spend_witness(&move_tx_witness_elements, 0, 0)?;
 
-        let txid = *move_tx_handler.get_txid();
-        Ok((move_tx_handler.get_cached_tx().raw_hex(), txid))
-    }
+    //     let txid = *move_tx_handler.get_txid();
+    //     Ok((move_tx_handler.get_cached_tx().raw_hex(), txid))
+    // }
 }
