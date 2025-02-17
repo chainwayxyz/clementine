@@ -74,7 +74,8 @@ pub async fn create_and_sign_tx(
 
     signer.tx_sign_and_fill_sigs(&mut requested_txhandler, &signatures)?;
 
-    if let TransactionType::OperatorChallengeAck(watchtower_idx) = transaction_data.transaction_type {
+    if let TransactionType::OperatorChallengeAck(watchtower_idx) = transaction_data.transaction_type
+    {
         let path = WinternitzDerivationPath::ChallengeAckHash(
             watchtower_idx as u32,
             transaction_data.deposit_data.deposit_outpoint.txid,
