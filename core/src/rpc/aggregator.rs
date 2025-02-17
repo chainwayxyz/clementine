@@ -1039,14 +1039,6 @@ mod tests {
             create_actors!(config);
         let rpc = regtest.rpc();
 
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
-
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(
             config.secret_key,
