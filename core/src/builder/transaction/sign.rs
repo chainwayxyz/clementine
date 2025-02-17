@@ -42,7 +42,6 @@ pub async fn create_and_sign_tx(
         ))?;
 
     let mut txhandlers = builder::transaction::create_txhandlers(
-        db.clone(),
         config.clone(),
         transaction_data.deposit_data.clone(),
         nofn_xonly_pk,
@@ -50,7 +49,12 @@ pub async fn create_and_sign_tx(
         transaction_data.kickoff_id,
         operator_data,
         None,
-        &TxHandlerDbData::default(),
+        &mut TxHandlerDbData::new(
+            db.clone(),
+            transaction_data.kickoff_id.operator_idx,
+            transaction_data.deposit_data.clone(),
+            config.clone(),
+        ),
     )
     .await?;
 
@@ -188,7 +192,6 @@ pub async fn create_assert_commitment_txs(
     }
 
     let mut txhandlers = builder::transaction::create_txhandlers(
-        db.clone(),
         config.clone(),
         assert_data.deposit_data.clone(),
         nofn_xonly_pk,
@@ -196,7 +199,12 @@ pub async fn create_assert_commitment_txs(
         assert_data.kickoff_id,
         operator_data,
         None,
-        &TxHandlerDbData::default(),
+        &mut TxHandlerDbData::new(
+            db.clone(),
+            assert_data.kickoff_id.operator_idx,
+            assert_data.deposit_data.clone(),
+            config.clone(),
+        ),
     )
     .await?;
 

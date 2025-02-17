@@ -143,7 +143,7 @@ impl Operator {
     ///   count
     ///
     pub async fn get_params(&self) -> Result<mpsc::Receiver<winternitz::PublicKey>, BridgeError> {
-        let wpks = self.get_winternitz_public_keys_for_kickoff_utxo()?;
+        let wpks = self.generate_kickoff_winternitz_pubkeys()?;
         let wpk_channel = mpsc::channel(wpks.len());
 
         tokio::spawn(async move {
@@ -818,7 +818,7 @@ impl Operator {
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public keys for
     ///   `watchtower index` row and `BitVM assert tx index` column.
-    pub fn get_winternitz_public_keys(
+    pub fn generate_assert_winternitz_pubkeys(
         &self,
         deposit_txid: Txid,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
@@ -853,7 +853,7 @@ impl Operator {
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public keys for
     ///   `sequential_collateral_index` row and `kickoff_idx` column.
-    pub fn get_winternitz_public_keys_for_kickoff_utxo(
+    pub fn generate_kickoff_winternitz_pubkeys(
         &self,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();
@@ -996,7 +996,7 @@ mod tests {
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
 
         let winternitz_public_key = operator
-            .get_winternitz_public_keys(Txid::all_zeros())
+            .generate_assert_winternitz_pubkeys(Txid::all_zeros())
             .unwrap();
         assert_eq!(
             winternitz_public_key.len(),
@@ -1025,9 +1025,7 @@ mod tests {
         let rpc = regtest.rpc();
 
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
-        let actual_wpks = operator
-            .get_winternitz_public_keys_for_kickoff_utxo()
-            .unwrap();
+        let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
 
         let mut wpk_rx = operator.get_params().await.unwrap();
         let mut idx = 0;

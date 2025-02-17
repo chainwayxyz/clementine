@@ -1158,7 +1158,7 @@ mod tests {
         let operator = Operator::new(config, rpc).await.unwrap();
         let operator_idx = 0x45;
         let wpks = operator
-            .get_winternitz_public_keys(Txid::all_zeros())
+            .generate_assert_winternitz_pubkeys(Txid::all_zeros())
             .unwrap();
 
         database

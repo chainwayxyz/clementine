@@ -172,7 +172,7 @@ impl ClementineOperator for Operator {
         let deposit_data = parse_deposit_params(deposit_req)?;
 
         let winternitz_keys =
-            self.get_winternitz_public_keys(deposit_data.deposit_outpoint.txid)?;
+            self.generate_assert_winternitz_pubkeys(deposit_data.deposit_outpoint.txid)?;
         let hashes =
             self.generate_challenge_ack_preimages_and_hashes(deposit_data.deposit_outpoint.txid)?;
 
