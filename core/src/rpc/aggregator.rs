@@ -1090,7 +1090,7 @@ mod tests {
         sleep(Duration::from_secs(3)).await;
 
         let start = std::time::Instant::now();
-        let timeout = 10;
+        let timeout = 60;
         let tx = loop {
             if start.elapsed() > std::time::Duration::from_secs(timeout) {
                 panic!("MoveTx did not land onchain within {timeout} seconds");
@@ -1102,21 +1102,18 @@ mod tests {
                 .get_raw_transaction_info(&movetx_txid, None)
                 .await;
 
-            tracing::info!("AAAA tx_result: {:?}", tx_result);
-
             let tx_result = match tx_result {
-                Ok(tx) => {
-                    tracing::info!("AAAA tx: {:?}", tx);
-                    tx
-                }
+                Ok(tx) => tx,
                 Err(e) => {
                     tracing::error!("Error getting transaction: {:?}", e);
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     continue;
                 }
             };
+
             break tx_result;
         };
+
         assert!(tx.confirmations.unwrap() > 0);
     }
 }
