@@ -129,7 +129,7 @@ impl Verifier {
 
         bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc).await?;
         let _handle =
-            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
+            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1), format!("verifier{}", idx))
                 .await?;
 
         Ok(Verifier {

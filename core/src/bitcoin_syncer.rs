@@ -266,6 +266,7 @@ pub async fn start_bitcoin_syncer(
     db: Database,
     rpc: ExtendedRpc,
     poll_delay: Duration,
+    handle: String,
 ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
     set_initial_block_info_if_not_exists(&db, &rpc).await?;
 
@@ -276,6 +277,7 @@ pub async fn start_bitcoin_syncer(
 
     let handle = tokio::spawn(async move {
         loop {
+            tracing::error!("running for {}", handle);
             // Try to fetch new blocks (if any) from the RPC.
             let maybe_new_blocks = fetch_new_blocks(&db, &rpc, current_height).await?;
 
@@ -626,7 +628,7 @@ mod tests {
         let height = rpc.client.get_block_count().await.unwrap();
         let hash = rpc.client.get_block_hash(height).await.unwrap();
 
-        super::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(0))
+        super::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(0), format!("test"))
             .await
             .unwrap();
 
