@@ -221,7 +221,7 @@ create table if not exists bitcoin_syncer_events (
 
 create table if not exists bitcoin_syncer_event_handlers (
     consumer_handle text not null,
-    last_processed_event_id int not null references bitcoin_syncer_events (id),
+    last_processed_event_id int not null,
     created_at timestamp not null default now(),
     primary key (consumer_handle)
 );

@@ -338,10 +338,25 @@ pub fn usize_to_var_len_bytes(x: usize) -> Vec<u8> {
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emmitted and will return `Ok(())`.
 pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
-    // Standard layer that will output human readable logs.
-    let layer = fmt::layer().with_test_writer();
-    // JSON layer that will output JSON formatted logs.
-    let json_layer = fmt::layer::<Registry>().with_test_writer().json();
+    // Configure JSON formatting with additional fields
+    let json_layer = fmt::layer::<Registry>()
+        .with_test_writer()
+        // .with_timer(time::UtcTime::rfc_3339())
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_target(true)
+        // .with_current_span(true)
+        // .with_span_list(true)
+        .json();
+
+    // Standard human-readable layer for non-JSON output
+    let standard_layer = fmt::layer()
+        .with_test_writer()
+        // .with_timer(time::UtcTime::rfc_3339())
+        .with_target(true)
+        .with_thread_ids(true);
 
     let filter = match level {
         Some(level) => EnvFilter::builder()
@@ -350,14 +365,16 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         None => EnvFilter::from_default_env(),
     };
 
-    // Try to initialize tracing, depending on the `JSON_LOGS` env var,
+    // Try to initialize tracing, depending on the `JSON_LOGS` env var
     let res = if std::env::var("JSON_LOGS").is_ok() {
         tracing_subscriber::util::SubscriberInitExt::try_init(
             tracing_subscriber::registry().with(json_layer).with(filter),
         )
     } else {
         tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry().with(layer).with(filter),
+            tracing_subscriber::registry()
+                .with(standard_layer)
+                .with(filter),
         )
     };
 

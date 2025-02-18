@@ -20,9 +20,8 @@ impl Database {
         tx: DatabaseTransaction<'_, '_>,
         block_id: i32,
     ) -> Result<(), BridgeError> {
-        // Update tx_sender_fee_payer_utxos
-        sqlx::query(
-            r#"
+        // Common CTEs for reuse
+        let common_ctes = r#"
             WITH relevant_txs AS (
                 SELECT txid
                 FROM bitcoin_syncer_txs
@@ -33,32 +32,56 @@ impl Database {
                 FROM bitcoin_syncer_spent_utxos
                 WHERE block_id = $1
             )
+        "#;
 
-            -- Update tx_sender_activate_prerequisite_txs
+        // Update tx_sender_activate_prerequisite_txs
+        sqlx::query(&format!(
+            "{} 
             UPDATE tx_sender_activate_prerequisite_txs AS tap
             SET seen_block_id = $1
             WHERE tap.txid IN (SELECT txid FROM relevant_txs)
-            AND tap.seen_block_id IS NULL;
+            AND tap.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
 
-            -- Update tx_sender_cancel_try_to_send_txids
+        // Update tx_sender_cancel_try_to_send_txids
+        sqlx::query(&format!(
+            "{} 
             UPDATE tx_sender_cancel_try_to_send_txids AS ctt
             SET seen_block_id = $1
             WHERE ctt.txid IN (SELECT txid FROM relevant_txs)
-            AND ctt.seen_block_id IS NULL;
+            AND ctt.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
 
-            -- Update tx_sender_cancel_try_to_send_outpoints
+        // Update tx_sender_cancel_try_to_send_outpoints
+        sqlx::query(&format!(
+            "{} 
             UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
             SET seen_block_id = $1
             WHERE (cto.txid, cto.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
-            AND cto.seen_block_id IS NULL;
+            AND cto.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
 
-            -- Update tx_sender_fee_payer_utxos
+        // Update tx_sender_fee_payer_utxos
+        sqlx::query(&format!(
+            "{} 
             UPDATE tx_sender_fee_payer_utxos AS fpu
             SET confirmed_block_id = $1
             WHERE fpu.fee_payer_txid IN (SELECT txid FROM relevant_txs)
-            AND fpu.confirmed_block_id IS NULL;
-            "#,
-        )
+            AND fpu.confirmed_block_id IS NULL",
+            common_ctes
+        ))
         .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
@@ -353,7 +376,17 @@ impl Database {
         fee_rate: FeeRate,
         current_tip_height: u64,
     ) -> Result<Vec<(i32, FeePayingType)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, String)>(
+        // // First, update the latest_active_at timestamps
+        // let update_query = sqlx::query(
+        //     "UPDATE tx_sender_try_to_send_txs
+        //      SET latest_active_at = NOW()
+        //      WHERE latest_active_at IS NULL"
+        // );
+
+        // execute_query_with_tx!(self.connection, tx.as_ref(), update_query, execute)?;
+
+        // Then perform the main selection query
+        let select_query = sqlx::query_as::<_, (i32, String)>(
             "WITH valid_activated_txs AS (
                 SELECT activated_id
                 FROM tx_sender_activate_prerequisite_txs AS activate
@@ -370,21 +403,17 @@ impl Database {
                 FROM tx_sender_cancel_try_to_send_txids
                 WHERE seen_block_id IS NOT NULL
             )
-            UPDATE tx_sender_try_to_send_txs
-            SET latest_active_at = NOW()
-            WHERE latest_active_at IS NULL;
-            
             SELECT txs.id, txs.fee_paying_type
             FROM tx_sender_try_to_send_txs AS txs
             WHERE txs.id IN (SELECT activated_id FROM valid_activated_txs)
                 AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
                 AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
-                AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1);",
+                AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1)",
         )
         .bind(fee_rate.to_sat_per_vb_ceil() as i64)
         .bind(current_tip_height as i64);
 
-        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        let results = execute_query_with_tx!(self.connection, tx, select_query, fetch_all)?;
 
         let txs = results
             .into_iter()

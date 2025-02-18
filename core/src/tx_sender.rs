@@ -90,45 +90,73 @@ impl TxSender {
         let consumer_handle = consumer_handle.to_string();
         let this = self.clone();
 
+        tracing::info!(
+            "TXSENDER: Starting tx sender with handle {}",
+            consumer_handle
+        );
+
         let handle = tokio::spawn(async move {
             let mut current_tip_height = 0;
             loop {
-                let mut dbtx = db.begin_transaction().await?;
+                let result: Result<(), BridgeError> = async {
+                    let mut dbtx = db.begin_transaction().await?;
 
-                let is_reorg = async {
-                    let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
-                    Ok::<bool, BridgeError>(match event {
-                        Some(event) => match event {
-                            BitcoinSyncerEvent::NewBlock(block_id) => {
-                                db.confirm_transactions(&mut dbtx, block_id as i32).await?;
-                                current_tip_height = db
-                                    .get_block_info_from_id(Some(&mut dbtx), block_id)
-                                    .await?
-                                    .ok_or(BridgeError::Error("Block not found".to_string()))?
-                                    .1;
-                                dbtx.commit().await?;
-                                false
-                            }
-                            BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                                db.unconfirm_transactions(&mut dbtx, block_id as i32)
-                                    .await?;
-                                dbtx.commit().await?;
-                                true
-                            }
-                        },
-                        None => true,
-                    })
-                }
-                .await?;
+                    let is_reorg = async {
+                        let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
+                        Ok::<bool, BridgeError>(match event {
+                            Some(event) => match event {
+                                BitcoinSyncerEvent::NewBlock(block_id) => {
+                                    db.confirm_transactions(&mut dbtx, block_id as i32).await?;
+                                    current_tip_height = db
+                                        .get_block_info_from_id(Some(&mut dbtx), block_id)
+                                        .await?
+                                        .ok_or(BridgeError::Error("Block not found".to_string()))?
+                                        .1;
 
-                if is_reorg {
-                    // Don't wait in reorg, simply get the next event, there has to be a new event.
-                    continue;
-                }
-
-                let fee_rate = this.get_fee_rate().await?;
-                this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height as u64)
+                                    tracing::info!(
+                                        "TXSENDER: Confirmed transactions for block {}",
+                                        block_id
+                                    );
+                                    dbtx.commit().await?;
+                                    false
+                                }
+                                BitcoinSyncerEvent::ReorgedBlock(block_id) => {
+                                    tracing::info!(
+                                        "TXSENDER: Unconfirming transactions for block {}",
+                                        block_id
+                                    );
+                                    db.unconfirm_transactions(&mut dbtx, block_id as i32)
+                                        .await?;
+                                    dbtx.commit().await?;
+                                    true
+                                }
+                            },
+                            None => false,
+                        })
+                    }
                     .await?;
+
+                    if is_reorg {
+                        // Don't wait in reorg, simply get the next event, there has to be a new event.
+                        return Ok(());
+                    }
+
+                    tracing::info!("TXSENDER: Getting fee rate");
+                    let fee_rate = this.get_fee_rate().await?;
+                    tracing::info!("TXSENDER: Trying to send unconfirmed txs");
+                    this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height as u64)
+                        .await?;
+
+                    Ok(())
+                }
+                .await;
+
+                match result {
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!("TXSENDER: Error sending txs: {:?}", e);
+                    }
+                }
 
                 tokio::time::sleep(poll_delay).await;
             }
@@ -601,6 +629,8 @@ impl TxSender {
             .db
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
             .await?;
+        tracing::info!("TXSENDER: Found {} sendable txs", txids.len());
+        tracing::info!("TXSENDER: Bumping fees of fee payer UTXOs");
 
         for (id, fee_paying_type) in txids {
             self.bump_fees_of_fee_payer_txs(id, new_fee_rate).await?;
