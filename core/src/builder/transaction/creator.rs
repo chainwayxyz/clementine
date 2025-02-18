@@ -717,7 +717,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
 
     async fn test_deposit_and_sign_txs() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
 
         let (mut verifiers, mut operators, mut aggregator, mut watchtowers, _regtest) =
             create_actors!(config);

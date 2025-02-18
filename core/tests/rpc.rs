@@ -18,7 +18,7 @@ mod common;
 #[ignore = "Design changes in progress"]
 #[tokio::test]
 async fn honest_operator_takes_refund() {
-    let config = create_test_config_with_thread_name!(None);
+    let mut config = create_test_config_with_thread_name!(None);
     let regtest = create_regtest_rpc!(config);
     let rpc = regtest.rpc().clone();
 

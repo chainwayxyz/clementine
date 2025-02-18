@@ -1,11 +1,9 @@
-use std::future::Future;
-
 use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
-    DepositParams, Empty, RawSignedTx, VerifierDepositFinalizeParams,
+    DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::create_move_to_vault_txhandler;
+use crate::builder::transaction::{create_move_to_vault_txhandler, TxHandler};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -32,6 +30,7 @@ use futures::{
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
@@ -359,17 +358,17 @@ impl Aggregator {
         Ok(operator_sigs)
     }
 
-    fn create_movetx_check_sig(
+    async fn create_movetx_check_sig(
         &self,
         partial_sigs: Vec<Vec<u8>>,
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
-    ) -> Result<RawSignedTx, Status> {
+    ) -> Result<TxHandler, Status> {
         let deposit_data = parser::parse_deposit_params(deposit_params)?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
-        let move_txhandler = create_move_to_vault_txhandler(
+        let mut move_txhandler = create_move_to_vault_txhandler(
             deposit_data.deposit_outpoint,
             deposit_data.evm_address,
             &deposit_data.recovery_taproot_address,
@@ -385,7 +384,7 @@ impl Aggregator {
         )?;
 
         // aggregate partial signatures
-        let _final_sig = crate::musig2::aggregate_partial_signatures(
+        let final_sig = crate::musig2::aggregate_partial_signatures(
             &self.config.verifiers_public_keys,
             None,
             movetx_agg_nonce,
@@ -394,10 +393,19 @@ impl Aggregator {
         )
         .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
 
+        // Put the signature in the tx
+        move_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
+        // Add fee bumper.
+        let move_tx = move_txhandler.get_cached_tx();
+        let _fee_payer_utxo = self
+            .tx_sender
+            .create_fee_payer_utxo(*move_txhandler.get_txid(), move_tx.weight())
+            .await?;
+        self.tx_sender.save_tx(move_tx).await?;
+
         // everything is fine, return the signed move tx
-        let _move_tx = move_txhandler.get_cached_tx();
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
-        Ok(RawSignedTx { raw_tx: vec![1, 2] })
+        Ok(move_txhandler)
     }
 }
 
@@ -591,7 +599,7 @@ impl ClementineAggregator for Aggregator {
     async fn new_deposit(
         &self,
         request: Request<DepositParams>,
-    ) -> Result<Response<RawSignedTx>, Status> {
+    ) -> Result<Response<clementine::Txid>, Status> {
         let deposit_params = request.into_inner();
 
         // Collect and distribute keys needed keys from operators and watchtowers to verifiers
@@ -773,18 +781,23 @@ impl ClementineAggregator for Aggregator {
 
         // Create the final move transaction and check the signatures
         let movetx_agg_nonce = nonce_agg_handle.await?;
-        let raw_signed_movetx =
-            self.create_movetx_check_sig(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)?;
+        let signed_movetx_handler = self
+            .create_movetx_check_sig(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
+            .await?;
+        let txid = *signed_movetx_handler.get_txid();
 
-        Ok(Response::new(raw_signed_movetx))
+        Ok(Response::new(txid.into()))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::actor::Actor;
+    use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
     use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+    use crate::{builder, EVMAddress};
     use crate::{
         config::BridgeConfig,
         create_test_config_with_thread_name,
@@ -805,11 +818,14 @@ mod tests {
         rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
     };
     use bitcoin::Txid;
+    use bitcoincore_rpc::RpcApi;
     use std::str::FromStr;
+    use std::time::Duration;
+    use tokio::time::sleep;
 
     #[tokio::test]
     async fn aggregator_double_setup_fail() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
 
         let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
 
@@ -827,7 +843,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "This test is also done during the deposit phase of test_deposit_and_sign_txs test"]
     async fn aggregator_setup_and_deposit() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
 
         let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
 
@@ -861,5 +877,88 @@ mod tests {
             .await
             .unwrap();
         tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
+    }
+
+    #[tokio::test]
+    async fn aggregator_deposit_movetx_lands_onchain() {
+        let mut config = create_test_config_with_thread_name!(None);
+        let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
+            create_actors!(config);
+        let rpc = regtest.rpc();
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.network,
+        );
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+                .unwrap();
+
+        let deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.bridge_amount_sats,
+            config.network,
+            config.user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.bridge_amount_sats)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let movetx_txid: Txid = aggregator
+            .new_deposit(DepositParams {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                evm_address: evm_address.0.to_vec(),
+                recovery_taproot_address: signer.address.to_string(),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let start = std::time::Instant::now();
+        let timeout = 60;
+        let tx = loop {
+            if start.elapsed() > std::time::Duration::from_secs(timeout) {
+                panic!("MoveTx did not land onchain within {timeout} seconds");
+            }
+            rpc.mine_blocks(1).await.unwrap();
+
+            let tx_result = rpc
+                .client
+                .get_raw_transaction_info(&movetx_txid, None)
+                .await;
+
+            let tx_result = match tx_result {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!("Error getting transaction: {:?}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+
+            break tx_result;
+        };
+
+        assert!(tx.confirmations.unwrap() > 0);
     }
 }

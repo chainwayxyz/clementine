@@ -26,6 +26,7 @@ use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
+use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 pub use txhandler::Unsigned;
 
@@ -295,22 +296,24 @@ pub fn create_move_to_vault_txhandler(
         user_takes_after,
     ));
 
-    let builder = TxHandlerBuilder::new(TransactionType::MoveToVault).add_input(
-        NormalSignatureKind::NotStored,
-        SpendableTxIn::from_scripts(
-            deposit_outpoint,
-            bridge_amount_sats,
-            vec![deposit_script, script_timelock],
-            None,
-            network,
-        ),
-        SpendPath::ScriptSpend(0),
-        DEFAULT_SEQUENCE,
-    );
+    let builder = TxHandlerBuilder::new(TransactionType::MoveToVault)
+        .with_version(Version::non_standard(3))
+        .add_input(
+            NormalSignatureKind::NotStored,
+            SpendableTxIn::from_scripts(
+                deposit_outpoint,
+                bridge_amount_sats,
+                vec![deposit_script, script_timelock],
+                None,
+                network,
+            ),
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        );
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
-            bridge_amount_sats,
+            bridge_amount_sats - ANCHOR_AMOUNT,
             vec![nofn_script],
             None,
             network,
