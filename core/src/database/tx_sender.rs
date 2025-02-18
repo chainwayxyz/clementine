@@ -321,42 +321,39 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         fee_rate: FeeRate,
         current_tip_height: u64,
-    ) -> Result<Vec<(i32, FeePayingType)>, BridgeError> {
-        // // First, update the latest_active_at timestamps
-        // let update_query = sqlx::query(
-        //     "UPDATE tx_sender_try_to_send_txs
-        //      SET latest_active_at = NOW()
-        //      WHERE latest_active_at IS NULL"
-        // );
-
-        // execute_query_with_tx!(self.connection, tx.as_ref(), update_query, execute)?;
-
-        // Then perform the main selection query
-        let select_query = sqlx::query_as::<_, (i32, FeePayingType)>(
+    ) -> Result<Vec<i32>, BridgeError> {
+        let select_query = sqlx::query_as::<_, (i32,)>(
             "WITH valid_activated_txs AS (
-                SELECT activated_id
-                FROM tx_sender_activate_prerequisite_txs AS activate
-                JOIN bitcoin_syncer AS syncer ON activate.seen_block_id = syncer.id
-                WHERE (syncer.height + activate.timelock) <= $2
-            ),
-            valid_cancel_outpoints AS (
-                SELECT cancelled_id
-                FROM tx_sender_cancel_try_to_send_outpoints
-                WHERE seen_block_id IS NOT NULL
-            ),
-            valid_cancel_txids AS (
-                SELECT cancelled_id
-                FROM tx_sender_cancel_try_to_send_txids
-                WHERE seen_block_id IS NOT NULL
-            )
-            SELECT txs.id, txs.fee_paying_type::fee_paying_type
-            FROM tx_sender_try_to_send_txs AS txs
-            WHERE
-                -- txs.id IN (SELECT activated_id FROM valid_activated_txs)
-                -- AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
-                -- AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
-                -- AND
-                (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1)",
+                    -- Select all tx_sender_try_to_send_txs IDs
+                    SELECT txs.id AS activated_id
+                    FROM tx_sender_try_to_send_txs AS txs
+                    LEFT JOIN tx_sender_activate_prerequisite_txs AS activate
+                        ON txs.id = activate.activated_id
+                    LEFT JOIN bitcoin_syncer AS syncer
+                        ON activate.seen_block_id = syncer.id
+                    GROUP BY txs.id
+                    HAVING 
+                        -- If the transaction has prerequisites, ensure all are activated
+                        COUNT(activate.txid) = 0 
+                        OR COUNT(activate.txid) = COUNT(CASE WHEN (syncer.height + activate.timelock) <= $2 THEN 1 END)
+                ),
+                valid_cancel_outpoints AS (
+                    SELECT cancelled_id
+                    FROM tx_sender_cancel_try_to_send_outpoints
+                    WHERE seen_block_id IS NOT NULL
+                ),
+                valid_cancel_txids AS (
+                    SELECT cancelled_id
+                    FROM tx_sender_cancel_try_to_send_txids
+                    WHERE seen_block_id IS NOT NULL
+                )
+                SELECT txs.id
+                FROM tx_sender_try_to_send_txs AS txs
+                WHERE
+                    txs.id IN (SELECT activated_id FROM valid_activated_txs)
+                    AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
+                    AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
+                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1);",
         )
         .bind(fee_rate.to_sat_per_vb_ceil() as i64)
         .bind(current_tip_height as i64);
@@ -365,7 +362,7 @@ impl Database {
 
         let txs = results
             .into_iter()
-            .map(|(id, fee_paying_type)| Ok((id, fee_paying_type)))
+            .map(|(id,)| Ok(id))
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         Ok(txs)
@@ -392,16 +389,19 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: i32,
-    ) -> Result<Transaction, BridgeError> {
-        let query = sqlx::query_as::<_, (Vec<u8>,)>(
-            "SELECT raw_tx 
+    ) -> Result<(Transaction, FeePayingType), BridgeError> {
+        let query = sqlx::query_as::<_, (Vec<u8>, FeePayingType)>(
+            "SELECT raw_tx, fee_paying_type::fee_paying_type
              FROM tx_sender_try_to_send_txs 
              WHERE id = $1 LIMIT 1",
         )
         .bind(id);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        Ok(deserialize(&result.0).expect("Failed to deserialize tx"))
+        Ok((
+            deserialize(&result.0).expect("Failed to deserialize tx"),
+            result.1,
+        ))
     }
 }
 

@@ -39,27 +39,6 @@ pub enum FeePayingType {
     RBF,
 }
 
-impl std::fmt::Display for FeePayingType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
-impl std::str::FromStr for FeePayingType {
-    type Err = BridgeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "CPFP" => Ok(FeePayingType::CPFP),
-            "RBF" => Ok(FeePayingType::RBF),
-            _ => Err(BridgeError::Error(format!(
-                "Invalid fee paying type: {}",
-                s
-            ))),
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct PrerequisiteTx {
     pub txid: Txid,
@@ -211,27 +190,45 @@ impl TxSender {
         Ok(())
     }
 
-    /// Creates a fee payer UTXO for a parent transaction. This function should
-    /// be called before the parent tx is sent to the network.
-    ///
-    /// This is to make sure the client has enough funds to bump fees. The fee
-    /// payer UTXO is used to bump fees of the parent tx.
-    ///
-    /// The fee payer UTXO **must be confirmed** before the parent tx is sent to
-    /// the network.
-    ///
-    /// # Returns
-    ///
-    /// - [`OutPoint`]: Outpoint of the fee payer UTXO.
-    pub async fn create_fee_payer_utxo(
+    /// Creates a fee payer UTXO for a transaction.
+    /// The fee paying type can be either CPFP or RBF.
+    async fn create_fee_payer_utxo(
         &self,
         bumped_id: i32,
-        tx_weight: Weight,
-        _fee_paying_type: FeePayingType,
-    ) -> Result<OutPoint, BridgeError> {
-        let fee_rate = self.get_fee_rate().await?;
-        let required_amount =
-            Self::calculate_required_amount_for_fee_payer_utxo(tx_weight, fee_rate)?;
+        tx: &Transaction,
+        fee_rate: FeeRate,
+        fee_paying_type: FeePayingType,
+        total_fee_payer_amount: Amount,
+        fee_payer_utxos_len: usize,
+    ) -> Result<(), BridgeError> {
+        let required_fee = Self::calculate_required_fee(
+            tx.weight(),
+            fee_payer_utxos_len + 1,
+            fee_rate,
+            fee_paying_type,
+        )?;
+
+        // calculate additional if the tx is bumpable by RBF
+        // This will only be non-zero for the Challenge Tx
+        let additional_amount = if fee_paying_type == FeePayingType::RBF {
+            // We assume the input amount is always the minimum amount.
+            tx.output.iter().map(|output| output.value).sum::<Amount>() - MIN_TAPROOT_AMOUNT
+        } else {
+            Amount::from_sat(0)
+        };
+
+        let required_amount = if additional_amount > total_fee_payer_amount {
+            // This means we haven't added the additional amount for the Challenge Tx
+            assert!(total_fee_payer_amount == Amount::from_sat(0));
+            additional_amount + required_fee + required_fee + required_fee + MIN_TAPROOT_AMOUNT
+        } else {
+            (additional_amount + required_fee - total_fee_payer_amount)
+                + required_fee
+                + required_fee
+                + required_fee
+                + MIN_TAPROOT_AMOUNT
+        };
+
         tracing::info!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
             required_amount,
@@ -254,7 +251,7 @@ impl TxSender {
             )
             .await?;
 
-        Ok(outpoint)
+        Ok(())
     }
 
     /// Gets the current fee rate.
@@ -293,31 +290,27 @@ impl TxSender {
         parent_tx_weight: Weight,
         num_fee_payer_utxos: usize,
         fee_rate: FeeRate,
+        fee_paying_type: FeePayingType,
     ) -> Result<Amount, BridgeError> {
         // Each additional p2tr input adds 230 WU and each additional p2tr
         // output adds 172 WU to the transaction:
         // https://bitcoin.stackexchange.com/a/116959
-        let child_tx_weight = Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172);
+        let child_tx_weight = match fee_paying_type {
+            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172),
+            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172),
+        };
 
         // When effective fee rate is calculated, it calculates vBytes of the tx not the total weight.
-        let total_weight = Weight::from_vb_unchecked(
-            child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
-        );
+        let total_weight = match fee_paying_type {
+            FeePayingType::CPFP => Weight::from_vb_unchecked(
+                child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
+            ),
+            FeePayingType::RBF => child_tx_weight + parent_tx_weight,
+        };
 
         fee_rate
             .checked_mul_by_weight(total_weight)
             .ok_or(BridgeError::Overflow)
-    }
-
-    /// We want to allocate more than the required amount to be able to bump fees.
-    /// This assumes the child tx has 1 p2a anchor input, 1 fee payer utxo input and 1 change output.
-    fn calculate_required_amount_for_fee_payer_utxo(
-        parent_tx_size: Weight,
-        fee_rate: FeeRate,
-    ) -> Result<Amount, BridgeError> {
-        let required_fee = Self::calculate_required_fee(parent_tx_size, 1, fee_rate)?;
-
-        Ok(required_fee * 3 + MIN_TAPROOT_AMOUNT)
     }
 
     /// Creates a child tx that spends the p2a anchor using the fee payer utxos.
@@ -331,8 +324,12 @@ impl TxSender {
         fee_rate: FeeRate,
         change_address: Address,
     ) -> Result<Transaction, BridgeError> {
-        let required_fee =
-            Self::calculate_required_fee(parent_tx_size, fee_payer_utxos.len(), fee_rate)?;
+        let required_fee = Self::calculate_required_fee(
+            parent_tx_size,
+            fee_payer_utxos.len(),
+            fee_rate,
+            FeePayingType::CPFP,
+        )?;
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
@@ -408,20 +405,21 @@ impl TxSender {
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
 
+    /// Adds fee payer utxos to a tx that is bumpable by RBF.
     fn add_fee_payer_utxos_to_tx(
         &self,
         tx: Transaction,
         fee_payer_utxos: Vec<SpendableTxIn>,
         fee_rate: FeeRate,
     ) -> Result<Transaction, BridgeError> {
-        // Each additional p2tr input adds 230 WU and each additional p2tr
-        // output adds 172 WU to the transaction:
-        let tx_size = tx.weight() + Weight::from_wu_usize(fee_payer_utxos.len() * 230 + 172);
-        let required_fee = fee_rate
-            .checked_mul_by_weight(tx_size)
-            .ok_or(BridgeError::Overflow)?;
+        let required_fee = Self::calculate_required_fee(
+            tx.weight(),
+            fee_payer_utxos.len(),
+            fee_rate,
+            FeePayingType::RBF,
+        )?;
 
-        let input_amount = Amount::from_sat(0); // TODO: Fix this
+        let input_amount = MIN_TAPROOT_AMOUNT; // We assume the input amount is always the minimum amount.
         let output_amount = tx.output.iter().map(|output| output.value).sum::<Amount>();
 
         if input_amount < output_amount + required_fee {
@@ -458,13 +456,16 @@ impl TxSender {
             script_pubkey: self.signer.address.script_pubkey(),
         }));
 
-        let mut tx_handler = builder.finalize();
+        let mut tx_handler: builder::transaction::TxHandler = builder.finalize();
 
         self.signer.tx_sign_and_fill_sigs(&mut tx_handler, &[])?;
 
         Ok(tx_handler.get_cached_tx().clone())
     }
 
+    /// Creates a package of txs that will be submitted to the network.
+    /// The package will be a CPFP package if fee_paying_type is CPFP,
+    /// otherwise it will be a single tx with fee payer utxos.
     fn create_package(
         &self,
         tx: Transaction,
@@ -498,16 +499,8 @@ impl TxSender {
         }
     }
 
-    /// Sends a tx with CPFP.
-    /// Returns the effective fee rate of the tx.
-    /// If the effective fee rate is lower than the required fee rate, it will return an error.
-    /// If the fee payer tx is not confirmed, it will return an error.
-    async fn send_tx_with_cpfp(
-        &self,
-        id: i32,
-        fee_paying_type: FeePayingType,
-        fee_rate: FeeRate,
-    ) -> Result<(), BridgeError> {
+    /// Sends the tx with the given fee_rate.
+    async fn send_tx(&self, id: i32, fee_rate: FeeRate) -> Result<(), BridgeError> {
         let unconfirmed_fee_payer_utxos = self.db.get_unconfirmed_fee_payer_utxos(None, id).await?;
         if !unconfirmed_fee_payer_utxos.is_empty() {
             return Err(BridgeError::UnconfirmedFeePayerUTXOsLeft);
@@ -540,7 +533,7 @@ impl TxSender {
             })
             .collect();
 
-        let tx = self.db.get_tx(None, id).await?;
+        let (tx, fee_paying_type) = self.db.get_tx(None, id).await?;
 
         let package = self.create_package(tx, fee_rate, fee_payer_utxos, fee_paying_type)?;
         let package_refs: Vec<&Transaction> = package.iter().collect();
@@ -577,6 +570,7 @@ impl TxSender {
         Ok(())
     }
 
+    /// Tries to bump fees of fee payer txs with the given fee_rate.
     async fn bump_fees_of_fee_payer_txs(
         &self,
         bumped_id: i32,
@@ -623,28 +617,43 @@ impl TxSender {
         new_fee_rate: FeeRate,
         current_tip_height: u64,
     ) -> Result<(), BridgeError> {
-        let txids = self
+        let txs = self
             .db
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
             .await?;
-        tracing::info!("TXSENDER: Found {} sendable txs", txids.len());
-        tracing::info!("TXSENDER: Bumping fees of fee payer UTXOs");
 
-        for (id, fee_paying_type) in txids {
+        tracing::info!("TXSENDER: Trying to send {} txs", txs.len());
+
+        for id in txs {
             self.bump_fees_of_fee_payer_txs(id, new_fee_rate).await?;
-            let send_tx_with_cpfp_result = self
-                .send_tx_with_cpfp(id, fee_paying_type, new_fee_rate)
-                .await;
-            match send_tx_with_cpfp_result {
+            let send_tx_result = self.send_tx(id, new_fee_rate).await;
+            match send_tx_result {
                 Ok(_) => {}
                 Err(e) => {
                     match e {
+                        BridgeError::UnconfirmedFeePayerUTXOsLeft => {
+                            tracing::info!("TXSENDER: Unconfirmed fee payer UTXOs left, skipping");
+                            continue;
+                        }
                         BridgeError::InsufficientFeePayerAmount => {
-                            tracing::error!("TXSENDER: Insufficient fee payer amount, creating new fee payer UTXO");
-                            let tx = self.db.get_tx(None, id).await?;
-                            let _fee_payer_utxo = self
-                                .create_fee_payer_utxo(id, tx.weight(), fee_paying_type)
-                                .await?;
+                            tracing::info!("TXSENDER: Insufficient fee payer amount, creating new fee payer UTXO");
+                            let (tx, fee_paying_type) = self.db.get_tx(None, id).await?;
+                            let fee_payer_utxos =
+                                self.db.get_confirmed_fee_payer_utxos(None, id).await?;
+                            let total_fee_payer_amount = fee_payer_utxos
+                                .iter()
+                                .map(|(_, _, amount)| *amount)
+                                .sum::<Amount>();
+                            let fee_payer_utxos_len = fee_payer_utxos.len();
+                            self.create_fee_payer_utxo(
+                                id,
+                                &tx,
+                                new_fee_rate,
+                                fee_paying_type,
+                                total_fee_payer_amount,
+                                fee_payer_utxos_len,
+                            )
+                            .await?;
                             continue;
                         }
                         _ => {
@@ -900,7 +909,13 @@ mod tests {
 
         // Calculate and send with fee.
         let fee_rate = tx_sender.get_fee_rate().await.unwrap();
-        let fee = TxSender::calculate_required_fee(will_fail_tx.weight(), 1, fee_rate).unwrap();
+        let fee = TxSender::calculate_required_fee(
+            will_fail_tx.weight(),
+            1,
+            fee_rate,
+            FeePayingType::CPFP,
+        )
+        .unwrap();
         println!("Fee rate: {:?}, fee: {}", fee_rate, fee);
 
         let mut will_successful_handler = builder

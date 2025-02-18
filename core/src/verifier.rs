@@ -19,6 +19,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
+use crate::tx_sender::TxSender;
 use crate::utils::{self, BITVM_CACHE, SECP};
 use crate::{bitcoin_syncer, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -85,6 +86,7 @@ pub struct Verifier {
     _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
+    pub tx_sender: TxSender,
 }
 
 impl Verifier {
@@ -105,6 +107,14 @@ impl Verifier {
             .ok_or(BridgeError::PublicKeyNotFound)?;
 
         let db = Database::new(&config).await?;
+
+        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
+        let _tx_sender_handle = tx_sender
+            .run(
+                &format!("verifier_{}", idx).to_string(),
+                Duration::from_secs(1),
+            )
+            .await?;
 
         let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
@@ -143,6 +153,7 @@ impl Verifier {
             _operator_xonly_pks: operator_xonly_pks,
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
+            tx_sender,
         })
     }
 
