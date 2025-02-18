@@ -399,9 +399,11 @@ impl Aggregator {
         // Add fee bumper.
         let move_tx = move_txhandler.get_cached_tx();
 
+        let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(move_tx, FeePayingType::CPFP, &[], &[], &[])
+            .try_to_send(&mut dbtx, move_tx, FeePayingType::CPFP, &[], &[], &[])
             .await?;
+        dbtx.commit().await.expect("Failed to commit transaction");
 
         // everything is fine, return the signed move tx
         // TODO: Sign the transaction correctly after we create taproot witness generation functions

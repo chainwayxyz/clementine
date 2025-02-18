@@ -18,7 +18,7 @@ use crate::{
         },
     },
     constants::MIN_TAPROOT_AMOUNT,
-    database::Database,
+    database::{Database, DatabaseTransaction},
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
     rpc::clementine::NormalSignatureKind,
@@ -172,44 +172,41 @@ impl TxSender {
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn try_to_send(
         &self,
+        dbtx: DatabaseTransaction<'_, '_>,
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
         cancel_outpoints: &[OutPoint],
         cancel_txids: &[Txid],
         activate_prerequisite_txs: &[PrerequisiteTx],
     ) -> Result<(), BridgeError> {
-        let mut dbtx = self.db.begin_transaction().await?;
-
         let try_to_send_id = self
             .db
-            .save_tx(Some(&mut dbtx), signed_tx, fee_paying_type)
+            .save_tx(Some(dbtx), signed_tx, fee_paying_type)
             .await?;
 
         for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
             self.db
-                .save_cancelled_outpoint(Some(&mut dbtx), try_to_send_id, input_outpoint)
+                .save_cancelled_outpoint(Some(dbtx), try_to_send_id, input_outpoint)
                 .await?;
         }
 
         for outpoint in cancel_outpoints {
             self.db
-                .save_cancelled_outpoint(Some(&mut dbtx), try_to_send_id, *outpoint)
+                .save_cancelled_outpoint(Some(dbtx), try_to_send_id, *outpoint)
                 .await?;
         }
 
         for txid in cancel_txids {
             self.db
-                .save_cancelled_txid(Some(&mut dbtx), try_to_send_id, *txid)
+                .save_cancelled_txid(Some(dbtx), try_to_send_id, *txid)
                 .await?;
         }
 
         for prerequisite_tx in activate_prerequisite_txs {
             self.db
-                .save_activated_prerequisite_tx(Some(&mut dbtx), try_to_send_id, prerequisite_tx)
+                .save_activated_prerequisite_tx(Some(dbtx), try_to_send_id, prerequisite_tx)
                 .await?;
         }
-
-        dbtx.commit().await?;
 
         Ok(())
     }
@@ -763,12 +760,13 @@ mod tests {
         let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
+
         rpc.mine_blocks(1).await.unwrap();
 
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender(rpc).await;
 
         let _bitcoin_syncer_handle =
-            bitcoin_syncer::start_bitcoin_syncer(db, rpc.clone(), Duration::from_secs(1))
+            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
                 .await
                 .unwrap();
 
@@ -781,10 +779,12 @@ mod tests {
             .await
             .unwrap();
 
+        let mut dbtx = db.begin_transaction().await.unwrap();
         tx_sender
-            .try_to_send(&tx, FeePayingType::CPFP, &[], &[], &[])
+            .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[])
             .await
             .unwrap();
+        dbtx.commit().await.unwrap();
 
         for _ in 0..30 {
             rpc.mine_blocks(1).await.unwrap();
@@ -804,10 +804,13 @@ mod tests {
         let tx2 = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::RBF)
             .await
             .unwrap();
+
+        let mut dbtx = db.begin_transaction().await.unwrap();
         tx_sender
-            .try_to_send(&tx2, FeePayingType::RBF, &[], &[], &[])
+            .try_to_send(&mut dbtx, &tx2, FeePayingType::RBF, &[], &[], &[])
             .await
             .unwrap();
+        dbtx.commit().await.unwrap();
 
         for _ in 0..30 {
             rpc.mine_blocks(1).await.unwrap();
