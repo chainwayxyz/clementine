@@ -57,16 +57,16 @@ macro_rules! encode_btc_params {
 pub async fn deposit(
     client: HttpClient,
     transaction: Transaction,
+    flag: u16,
+    merkle_proof: Vec<u8>, // intermediate_nodes
     block_height: u32,
     index: u32,
 ) -> Result<(), BridgeError> {
     let version: u32 = transaction.version.0 as u32;
-    let flag: u16 = 0;
     let vin: Vec<u8> = encode_btc_params!(transaction.input);
     let vout: Vec<u8> = encode_btc_params!(transaction.output);
     let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);
     let locktime: u32 = transaction.lock_time.to_consensus_u32();
-    let intermediate_nodes: Vec<u8> = vec![];
 
     let message = {
         let mut message = Vec::new();
@@ -79,7 +79,7 @@ pub async fn deposit(
         message.extend_from_slice(&witness.len().to_be_bytes());
         message.extend_from_slice(&witness);
         message.extend_from_slice(&locktime.to_be_bytes());
-        message.extend_from_slice(&intermediate_nodes);
+        message.extend_from_slice(&merkle_proof);
         message.extend_from_slice(&[0u8; 28]); // First 28 bytes of block height
         message.extend_from_slice(&block_height.to_be_bytes());
         message.extend_from_slice(&[0u8; 28]); // First 28 bytes of index
