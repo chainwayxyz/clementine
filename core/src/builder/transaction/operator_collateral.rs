@@ -68,7 +68,8 @@ pub fn create_sequential_collateral_txhandler(
 
     // This 1 block is to enforce that operator has to put a sequence number in the input
     // so this spending path can't be used to send kickoff tx
-    let timeout_block_count_locked_script = Arc::new(TimelockScript::new(None, 1u16));
+    let timeout_block_count_locked_script =
+        Arc::new(TimelockScript::new(Some(operator_xonly_pk), 1u16));
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
         input_amount, // TODO: - num_kickoffs_per_sequential_collateral_tx * kickoff_sats,

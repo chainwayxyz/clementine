@@ -355,7 +355,10 @@ pub async fn create_txhandlers(
         )?;
 
         // Create and insert mini_asserts into return Vec
-        let mini_asserts = create_mini_asserts(&kickoff_txhandler, utils::BITVM_CACHE.num_asserts)?;
+        let mini_asserts = create_mini_asserts(
+            &kickoff_txhandler,
+            utils::BITVM_CACHE.intermediate_variables.len(),
+        )?;
 
         for mini_assert in mini_asserts.into_iter() {
             txhandlers.insert(mini_assert.get_transaction_type(), mini_assert);
