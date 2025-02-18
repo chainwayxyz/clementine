@@ -100,7 +100,7 @@ lazy_static::lazy_static! {
         };
 
         #[cfg(not(debug_assertions))]
-        let bitvm_cache = {
+        let mut bitvm_cache = {
             let cache_path = "bitvm_cache.bin";
             match BitvmCache::load_from_file(cache_path) {
                 Ok(cache) => {
