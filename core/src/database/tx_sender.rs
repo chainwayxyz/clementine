@@ -31,6 +31,12 @@ impl Database {
                 SELECT txid, vout
                 FROM bitcoin_syncer_spent_utxos
                 WHERE block_id = $1
+            ),
+            confirmed_rbf_ids AS (
+                SELECT rbf.id
+                FROM tx_sender_rbf_txids AS rbf
+                JOIN bitcoin_syncer_txs AS syncer ON rbf.txid = syncer.txid
+                WHERE syncer.block_id = $1
             )
         "#;
 
@@ -86,6 +92,32 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
+        // Update tx_sender_try_to_send_txs for CPFP txid confirmation
+        sqlx::query(&format!(
+            "{} 
+            UPDATE tx_sender_try_to_send_txs AS txs
+            SET seen_block_id = $1
+            WHERE txs.txid IN (SELECT txid FROM relevant_txs)
+            AND txs.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
+
+        // Update tx_sender_try_to_send_txs for RBF txid confirmation
+        sqlx::query(&format!(
+            "{} 
+            UPDATE tx_sender_try_to_send_txs AS txs
+            SET seen_block_id = $1
+            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
+            AND txs.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
+
         Ok(())
     }
 
@@ -116,6 +148,11 @@ impl Database {
             UPDATE tx_sender_fee_payer_utxos AS fpu
             SET seen_block_id = NULL
             WHERE fpu.seen_block_id = $1;
+
+            -- Update tx_sender_try_to_send_txs
+            UPDATE tx_sender_try_to_send_txs AS txs
+            SET seen_block_id = NULL
+            WHERE txs.seen_block_id = $1;
             "#,
         )
         .bind(block_id)
@@ -264,6 +301,20 @@ impl Database {
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok(id)
+    }
+
+    pub async fn save_rbf_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        id: i32,
+        txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("INSERT INTO tx_sender_rbf_txids (id, txid) VALUES ($1, $2)")
+            .bind(id)
+            .bind(TxidDB(txid));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
     }
 
     pub async fn save_cancelled_outpoint(

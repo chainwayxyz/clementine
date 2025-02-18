@@ -238,9 +238,17 @@ create table if not exists tx_sender_try_to_send_txs (
     raw_tx bytea not null,
     fee_paying_type fee_paying_type not null,
     effective_fee_rate bigint,
+    txid text check (txid ~ '^[a-fA-F0-9]{64}'), -- txid of the tx if it is CPFP
     seen_block_id int references bitcoin_syncer(id),
     latest_active_at timestamp,
     created_at timestamp not null default now()
+);
+
+create table if not exists tx_sender_rbf_txids (
+    id int not null references tx_sender_try_to_send_txs(id),
+    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    created_at timestamp not null default now(),
+    primary key (id, txid)
 );
 
 -- Table to store fee payer UTXOs

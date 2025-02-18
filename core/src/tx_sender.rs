@@ -157,7 +157,7 @@ impl TxSender {
         cancel_outpoints: &[OutPoint],
         cancel_txids: &[Txid],
         activate_prerequisite_txs: &[PrerequisiteTx],
-    ) -> Result<(), BridgeError> {
+    ) -> Result<i32, BridgeError> {
         let try_to_send_id = self
             .db
             .save_tx(Some(dbtx), signed_tx, fee_paying_type)
@@ -187,7 +187,7 @@ impl TxSender {
                 .await?;
         }
 
-        Ok(())
+        Ok(try_to_send_id)
     }
 
     /// Creates a fee payer UTXO for a transaction.
@@ -537,6 +537,13 @@ impl TxSender {
 
         let package = self.create_package(tx, fee_rate, fee_payer_utxos, fee_paying_type)?;
         let package_refs: Vec<&Transaction> = package.iter().collect();
+
+        // If the tx is RBF, we should note the txid of the package.
+        if fee_paying_type == FeePayingType::RBF {
+            self.db
+                .save_rbf_txid(None, id, package[0].compute_txid())
+                .await?;
+        }
         let submit_package_result = self.rpc.client.submit_package(&package_refs[..]).await?;
 
         tracing::debug!("Submit package result: {:?}", submit_package_result);
@@ -789,11 +796,11 @@ mod tests {
             .unwrap();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
-        tx_sender
+        let tx_id = tx_sender
             .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[])
             .await
             .unwrap();
-        tx_sender
+        let tx_id2 = tx_sender
             .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[])
             .await
             .unwrap(); // It is ok to call this twice
