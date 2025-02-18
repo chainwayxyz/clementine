@@ -15,6 +15,8 @@ use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 
+const CITREA_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
+
 macro_rules! encode_btc_params {
     ($params:expr) => {
         $params
@@ -87,7 +89,7 @@ pub async fn deposit(
 
     let params = rpc_params![
         json!({
-            "to": "0x3100000000000000000000000000000000000002",
+            "to": CITREA_ADDRESS,
             "data": format!("0xdd95c7c6{}",
             hex::encode(message)),
         }),
@@ -109,7 +111,7 @@ pub async fn withdrawal_utxos(
 ) -> Result<Txid, BridgeError> {
     let params = rpc_params![
         json!({
-            "to": "0x3100000000000000000000000000000000000002",
+            "to": CITREA_ADDRESS,
             "data": format!("0x471ba1e300000000000000000000000000000000000000000000000000000000{}",
             hex::encode(withdrawal_index.to_be_bytes())),
         }),
