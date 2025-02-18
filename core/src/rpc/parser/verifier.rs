@@ -1,9 +1,11 @@
-use super::convert_int_to_another;
+use super::{convert_int_to_another, parse_deposit_params};
+use crate::builder::transaction::DepositData;
 use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
     nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
-    PartialSig, VerifierDepositSignParams, VerifierParams,
+    OperatorKeys, OperatorKeysWithDeposit, PartialSig, VerifierDepositSignParams, VerifierParams,
+    WatchtowerKeys, WatchtowerKeysWithDeposit,
 };
 use crate::verifier::Verifier;
 use crate::{
@@ -142,7 +144,7 @@ impl From<MusigPartialSignature> for PartialSig {
     }
 }
 
-pub fn parse_deposit_params(
+pub fn parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
     verifier_idx: usize,
 ) -> Result<
@@ -199,6 +201,21 @@ pub fn parse_partial_sigs(
         .collect::<Result<Vec<_>, _>>()
 }
 
+pub fn parse_op_keys_with_deposit(
+    data: OperatorKeysWithDeposit,
+) -> Result<(DepositData, OperatorKeys, u32), Status> {
+    let deposit_params = data
+        .deposit_params
+        .ok_or(Status::invalid_argument("deposit_params is empty"))?;
+    let deposit_id = parse_deposit_params(deposit_params)?;
+
+    let op_keys = data
+        .operator_keys
+        .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
+
+    Ok((deposit_id, op_keys, data.operator_idx))
+}
+
 pub async fn parse_next_deposit_finalize_param_schnorr_sig(
     stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
 ) -> Result<Option<schnorr::Signature>, Status> {
@@ -244,4 +261,19 @@ pub async fn parse_nonce_gen_first_response(
     } else {
         Err(Status::invalid_argument("Expected first_response"))
     }
+}
+
+pub fn parse_wt_keys_with_deposit(
+    data: WatchtowerKeysWithDeposit,
+) -> Result<(DepositData, WatchtowerKeys, u32), Status> {
+    let deposit_params = data
+        .deposit_params
+        .ok_or(Status::invalid_argument("deposit_params is empty"))?;
+    let deposit_id = parse_deposit_params(deposit_params)?;
+
+    let watchtower_keys = data
+        .watchtower_keys
+        .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
+
+    Ok((deposit_id, watchtower_keys, data.watchtower_idx))
 }

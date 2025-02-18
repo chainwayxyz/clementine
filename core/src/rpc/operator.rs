@@ -1,12 +1,13 @@
 use super::clementine::{
-    clementine_operator_server::ClementineOperator, AssertRequest, DepositSignSession, Empty,
-    NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams, RawSignedTx,
-    RawSignedTxs, TransactionRequest, WithdrawalFinalizedParams,
+    clementine_operator_server::ClementineOperator, AssertRequest, ChallengeAckDigest,
+    DepositParams, DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse,
+    OperatorBurnSig, OperatorKeys, OperatorParams, RawSignedTx, RawSignedTxs, TransactionRequest,
+    WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};
 use crate::rpc::parser;
-use crate::rpc::parser::{parse_assert_request, parse_transaction_request};
+use crate::rpc::parser::{parse_assert_request, parse_deposit_params, parse_transaction_request};
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::hashes::Hash;
 use bitcoin::OutPoint;
@@ -28,7 +29,7 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
-        let (mut wpk_receiver, mut hash_receiver) = operator.get_params().await?;
+        let mut wpk_receiver = operator.get_params().await?;
 
         tokio::spawn(async move {
             let operator_config: OperatorParams = operator.clone().into();
@@ -39,13 +40,6 @@ impl ClementineOperator for Operator {
             while let Some(winternitz_public_key) = wpk_receiver.recv().await {
                 let operator_winternitz_pubkey: OperatorParams = winternitz_public_key.into();
                 tx.send(Ok(operator_winternitz_pubkey))
-                    .await
-                    .map_err(output_stream_ended_prematurely)?;
-            }
-
-            while let Some(hash) = hash_receiver.recv().await {
-                let hash: OperatorParams = hash.into();
-                tx.send(Ok(hash))
                     .await
                     .map_err(output_stream_ended_prematurely)?;
             }
@@ -64,12 +58,9 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         let deposit_sign_session = request.into_inner();
 
-        let (deposit_outpoint, evm_address, recovery_taproot_address) =
-            parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
+        let deposit_data = parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
 
-        let mut deposit_signatures_rx = self
-            .deposit_sign(deposit_outpoint, evm_address, recovery_taproot_address)
-            .await?;
+        let mut deposit_signatures_rx = self.deposit_sign(deposit_data).await?;
 
         while let Some(sig) = deposit_signatures_rx.recv().await {
             let operator_burn_sig = OperatorBurnSig {
@@ -170,5 +161,30 @@ impl ClementineOperator for Operator {
         .await?;
 
         Ok(Response::new(raw_txs))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn get_deposit_keys(
+        &self,
+        request: Request<DepositParams>,
+    ) -> Result<Response<OperatorKeys>, Status> {
+        let deposit_req = request.into_inner();
+        let deposit_data = parse_deposit_params(deposit_req)?;
+
+        let winternitz_keys =
+            self.generate_assert_winternitz_pubkeys(deposit_data.deposit_outpoint.txid)?;
+        let hashes =
+            self.generate_challenge_ack_preimages_and_hashes(deposit_data.deposit_outpoint.txid)?;
+
+        Ok(Response::new(OperatorKeys {
+            winternitz_pubkeys: winternitz_keys
+                .into_iter()
+                .map(|pubkey| pubkey.into())
+                .collect(),
+            challenge_ack_digests: hashes
+                .into_iter()
+                .map(|hash| ChallengeAckDigest { hash: hash.into() })
+                .collect(),
+        }))
     }
 }

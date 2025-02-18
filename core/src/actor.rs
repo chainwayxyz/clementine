@@ -1,6 +1,9 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::TxHandler;
+use crate::constants::{
+    KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
+};
 use crate::errors::BridgeError;
 use crate::errors::BridgeError::NotOwnKeyPath;
 use crate::operator::PublicHash;
@@ -13,91 +16,84 @@ use bitcoin::taproot::{LeafVersion, TaprootSpendInfo};
 use bitcoin::{
     hashes::Hash,
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
-    Address, ScriptBuf, TapSighash, TapTweakHash,
+    Address, ScriptBuf, TapSighash, TapTweakHash, Txid,
 };
 use bitcoin::{TapNodeHash, Witness};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
 };
 
-/// Available transaction types for [`WinternitzDerivationPath`].
-#[derive(Clone, Copy, Debug)]
-pub enum TxType {
-    SequentialCollateralTx,
-    KickoffTx,
-    BitVM,
-    OperatorLongestChain,
-    WatchtowerChallenge,
-    OperatorChallengeACK,
+#[derive(Debug, Clone)]
+pub enum WinternitzDerivationPath {
+    /// sequential_collateral_tx_idx, kickoff_idx
+    /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
+    Kickoff(u32, u32),
+    /// operator_idx, deposit_txid
+    /// Message length is fixed WATCHTOWER_CHALLENGE_MESSAGE_LENGTH
+    WatchtowerChallenge(u32, Txid),
+    /// message_length, intermediate_step_name, deposit_txid
+    BitvmAssert(u32, String, Txid),
+    /// watchtower_idx, deposit_txid
+    /// message length is fixed to 1 (because its for one hash)
+    ChallengeAckHash(u32, Txid),
 }
 
-/// Derivation path specification for Winternitz one time public key generation.
-#[derive(Debug, Clone, Copy)]
-pub struct WinternitzDerivationPath<'a> {
-    pub message_length: u32,
-    pub log_d: u32,
-    pub tx_type: TxType,
-    pub index: Option<u32>,
-    pub operator_idx: Option<u32>,
-    pub watchtower_idx: Option<u32>,
-    pub sequential_collateral_tx_idx: Option<u32>,
-    pub kickoff_idx: Option<u32>,
-    pub intermediate_step_name: Option<&'a str>,
-}
-impl WinternitzDerivationPath<'_> {
-    fn to_vec(self) -> Vec<u8> {
-        let index = match self.index {
-            None => 0,
-            Some(i) => i + 1,
-        };
-        let operator_idx = match self.operator_idx {
-            None => 0,
-            Some(i) => i + 1,
-        };
-        let watchtower_idx = match self.watchtower_idx {
-            None => 0,
-            Some(i) => i + 1,
-        };
-        let sequential_collateral_tx_idx = match self.sequential_collateral_tx_idx {
-            None => 0,
-            Some(i) => i + 1,
-        };
-        let kickoff_idx = match self.kickoff_idx {
-            None => 0,
-            Some(i) => i + 1,
-        };
-        let intermediate_step_name = match self.intermediate_step_name {
-            None => vec![],
-            Some(name) => name.as_bytes().to_vec(),
-        };
-
-        [
-            vec![self.tx_type as u8],
-            [
-                index.to_be_bytes(),
-                operator_idx.to_be_bytes(),
-                watchtower_idx.to_be_bytes(),
-                sequential_collateral_tx_idx.to_be_bytes(),
-                kickoff_idx.to_be_bytes(),
-            ]
-            .concat(),
-            intermediate_step_name,
-        ]
-        .concat()
+impl WinternitzDerivationPath {
+    fn get_type_id(&self) -> u8 {
+        match self {
+            WinternitzDerivationPath::Kickoff(..) => 0u8,
+            WinternitzDerivationPath::WatchtowerChallenge(..) => 1u8,
+            WinternitzDerivationPath::BitvmAssert(..) => 2u8,
+            WinternitzDerivationPath::ChallengeAckHash(..) => 3u8,
+        }
     }
-}
-impl Default for WinternitzDerivationPath<'_> {
-    fn default() -> Self {
-        Self {
-            message_length: Default::default(),
-            log_d: 4,
-            index: Default::default(),
-            tx_type: TxType::SequentialCollateralTx,
-            operator_idx: Default::default(),
-            watchtower_idx: Default::default(),
-            sequential_collateral_tx_idx: Default::default(),
-            kickoff_idx: Default::default(),
-            intermediate_step_name: Default::default(),
+
+    fn to_bytes(&self) -> Vec<u8> {
+        let type_id = self.get_type_id();
+        let mut bytes = vec![type_id];
+
+        match self {
+            WinternitzDerivationPath::Kickoff(seq_collat_idx, kickoff_idx) => {
+                bytes.extend_from_slice(&seq_collat_idx.to_be_bytes());
+                bytes.extend_from_slice(&kickoff_idx.to_be_bytes());
+            }
+            WinternitzDerivationPath::WatchtowerChallenge(operator_idx, deposit_txid) => {
+                bytes.extend_from_slice(&operator_idx.to_be_bytes());
+                bytes.extend_from_slice(&deposit_txid.to_byte_array());
+            }
+            WinternitzDerivationPath::BitvmAssert(
+                message_length,
+                intermediate_step_name,
+                deposit_txid,
+            ) => {
+                bytes.extend_from_slice(&message_length.to_be_bytes());
+                bytes.extend_from_slice(intermediate_step_name.as_bytes());
+                bytes.extend_from_slice(&deposit_txid.to_byte_array());
+            }
+            WinternitzDerivationPath::ChallengeAckHash(watchtower_idx, deposit_txid) => {
+                bytes.extend_from_slice(&watchtower_idx.to_be_bytes());
+                bytes.extend_from_slice(&deposit_txid.to_byte_array());
+            }
+        }
+
+        bytes
+    }
+
+    /// Returns the parameters for the Winternitz signature.
+    pub fn get_params(&self) -> winternitz::Parameters {
+        match self {
+            WinternitzDerivationPath::Kickoff(_, _) => {
+                winternitz::Parameters::new(KICKOFF_BLOCKHASH_COMMIT_LENGTH, WINTERNITZ_LOG_D)
+            }
+            WinternitzDerivationPath::WatchtowerChallenge(_, _) => {
+                winternitz::Parameters::new(WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D)
+            }
+            WinternitzDerivationPath::BitvmAssert(message_length, _, _) => {
+                winternitz::Parameters::new(*message_length, WINTERNITZ_LOG_D)
+            }
+            WinternitzDerivationPath::ChallengeAckHash(_, _) => {
+                winternitz::Parameters::new(1, WINTERNITZ_LOG_D)
+            }
         }
     }
 }
@@ -159,20 +155,20 @@ impl Actor {
     /// Returns derivied Winternitz secret key from given path.
     fn get_derived_winternitz_sk(
         &self,
-        path: WinternitzDerivationPath<'_>,
+        path: WinternitzDerivationPath,
     ) -> Result<winternitz::SecretKey, BridgeError> {
         let wsk = self
             .winternitz_secret_key
             .ok_or(BridgeError::NoWinternitzSecretKey)?;
-        Ok([wsk.as_ref().to_vec(), path.to_vec()].concat())
+        Ok([wsk.as_ref().to_vec(), path.to_bytes()].concat())
     }
 
     /// Generates a Winternitz public key for the given path.
     pub fn derive_winternitz_pk(
         &self,
-        path: WinternitzDerivationPath<'_>,
+        path: WinternitzDerivationPath,
     ) -> Result<winternitz::PublicKey, BridgeError> {
-        let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
+        let winternitz_params = path.get_params();
 
         let altered_secret_key = self.get_derived_winternitz_sk(path)?;
         let public_key = winternitz::generate_public_key(&winternitz_params, &altered_secret_key);
@@ -183,11 +179,12 @@ impl Actor {
     /// Signs given data with Winternitz signature.
     pub fn sign_winternitz_signature(
         &self,
-        path: WinternitzDerivationPath<'_>,
+        path: WinternitzDerivationPath,
         data: Vec<u8>,
     ) -> Result<Witness, BridgeError> {
         let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
-        let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
+
+        let winternitz_params = path.get_params();
 
         let altered_secret_key = self.get_derived_winternitz_sk(path)?;
 
@@ -198,7 +195,7 @@ impl Actor {
 
     pub fn generate_preimage_from_path(
         &self,
-        path: WinternitzDerivationPath<'_>,
+        path: WinternitzDerivationPath,
     ) -> Result<PublicHash, BridgeError> {
         let first_preimage = self.get_derived_winternitz_sk(path)?;
         let second_preimage = hash160::Hash::hash(&first_preimage);
@@ -209,7 +206,7 @@ impl Actor {
     /// the Winternitz derivation path and the secret key.
     pub fn generate_public_hash_from_path(
         &self,
-        path: WinternitzDerivationPath<'_>,
+        path: WinternitzDerivationPath,
     ) -> Result<PublicHash, BridgeError> {
         let preimage = self.generate_preimage_from_path(path)?;
         let hash = hash160::Hash::hash(&preimage);
@@ -343,7 +340,7 @@ impl Actor {
                                 }
                                 script.generate_script_inputs(
                                     data,
-                                    &self.get_derived_winternitz_sk(path)?,
+                                    &self.get_derived_winternitz_sk(path.clone())?,
                                     &self.sign(calc_sighash()?),
                                 )
                             }
@@ -739,108 +736,6 @@ mod tests {
         actor.sign_with_tweak(x, None).unwrap();
     }
 
-    #[test]
-    fn winternitz_derivation_path_to_vec() {
-        let mut params = WinternitzDerivationPath::default();
-        assert_eq!(
-            params.to_vec(),
-            [
-                vec![0],
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
-            ]
-            .concat()
-        );
-
-        params.index = Some(0);
-        assert_eq!(
-            params.to_vec(),
-            [
-                vec![0],
-                1u32.to_be_bytes().to_vec(),
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
-            ]
-            .concat()
-        );
-
-        params.operator_idx = Some(1);
-        assert_eq!(
-            params.to_vec(),
-            [
-                vec![0],
-                1u32.to_be_bytes().to_vec(),
-                2u32.to_be_bytes().to_vec(),
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
-            ]
-            .concat()
-        );
-
-        params.watchtower_idx = Some(2);
-        assert_eq!(
-            params.to_vec(),
-            [
-                vec![0],
-                1u32.to_be_bytes().to_vec(),
-                2u32.to_be_bytes().to_vec(),
-                3u32.to_be_bytes().to_vec(),
-                vec![0; 4],
-                vec![0; 4],
-            ]
-            .concat()
-        );
-
-        params.sequential_collateral_tx_idx = Some(3);
-        assert_eq!(
-            params.to_vec(),
-            [
-                vec![0],
-                1u32.to_be_bytes().to_vec(),
-                2u32.to_be_bytes().to_vec(),
-                3u32.to_be_bytes().to_vec(),
-                4u32.to_be_bytes().to_vec(),
-                vec![0; 4],
-            ]
-            .concat()
-        );
-
-        params.kickoff_idx = Some(4);
-        assert_eq!(
-            params.to_vec(),
-            [
-                vec![0],
-                1u32.to_be_bytes().to_vec(),
-                2u32.to_be_bytes().to_vec(),
-                3u32.to_be_bytes().to_vec(),
-                4u32.to_be_bytes().to_vec(),
-                5u32.to_be_bytes().to_vec(),
-            ]
-            .concat()
-        );
-
-        params.intermediate_step_name = Some("step5");
-        assert_eq!(
-            params.to_vec(),
-            [
-                vec![0],
-                1u32.to_be_bytes().to_vec(),
-                2u32.to_be_bytes().to_vec(),
-                3u32.to_be_bytes().to_vec(),
-                4u32.to_be_bytes().to_vec(),
-                5u32.to_be_bytes().to_vec(),
-                "step5".as_bytes().to_vec()
-            ]
-            .concat()
-        );
-    }
-
     #[tokio::test]
     async fn derive_winternitz_pk_uniqueness() {
         let config = create_test_config_with_thread_name!(None);
@@ -850,12 +745,12 @@ mod tests {
             Network::Regtest,
         );
 
-        let mut params = WinternitzDerivationPath::default();
-        let pk0 = actor.derive_winternitz_pk(params).unwrap();
+        let mut params = WinternitzDerivationPath::Kickoff(0, 0);
+        let pk0 = actor.derive_winternitz_pk(params.clone()).unwrap();
         let pk1 = actor.derive_winternitz_pk(params).unwrap();
         assert_eq!(pk0, pk1);
 
-        params.message_length += 1;
+        params = WinternitzDerivationPath::Kickoff(0, 1);
         let pk2 = actor.derive_winternitz_pk(params).unwrap();
         assert_ne!(pk0, pk2);
     }
@@ -873,13 +768,48 @@ mod tests {
             ),
             Network::Regtest,
         );
+        // Test so that same path always returns the same public key (to not change it accidentally)
+        // check only first digit
+        let params = WinternitzDerivationPath::Kickoff(0, 1);
+        let expected_pk = vec![
+            173, 204, 163, 206, 248, 61, 42, 248, 42, 163, 51, 172, 127, 111, 1, 82, 142, 151, 78,
+            6,
+        ];
+        assert_eq!(
+            actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
+            expected_pk
+        );
 
-        let params = WinternitzDerivationPath::default();
-        let expected_pk = vec![[
-            47, 247, 126, 209, 93, 128, 238, 60, 31, 80, 198, 136, 26, 126, 131, 194, 209, 85, 180,
-            145,
-        ]];
-        assert_eq!(actor.derive_winternitz_pk(params).unwrap(), expected_pk);
+        let params = WinternitzDerivationPath::WatchtowerChallenge(1, Txid::all_zeros());
+        let expected_pk = vec![
+            237, 68, 125, 7, 202, 239, 182, 192, 94, 207, 47, 40, 57, 188, 195, 82, 231, 236, 105,
+            252,
+        ];
+        assert_eq!(
+            actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
+            expected_pk
+        );
+
+        let params =
+            WinternitzDerivationPath::BitvmAssert(3, "step0".to_string(), Txid::all_zeros());
+        let expected_pk = vec![
+            19, 106, 233, 190, 243, 102, 53, 65, 74, 188, 254, 213, 228, 200, 160, 166, 111, 183,
+            62, 126,
+        ];
+        assert_eq!(
+            actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
+            expected_pk
+        );
+
+        let params = WinternitzDerivationPath::ChallengeAckHash(0, Txid::all_zeros());
+        let expected_pk = vec![
+            50, 128, 175, 255, 135, 45, 190, 117, 75, 4, 141, 166, 43, 146, 207, 154, 189, 149,
+            143, 254,
+        ];
+        assert_eq!(
+            actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
+            expected_pk
+        );
     }
 
     #[tokio::test]
@@ -897,23 +827,26 @@ mod tests {
         );
 
         let data = "iwantporscheasagiftpls".as_bytes().to_vec();
-        let path = WinternitzDerivationPath {
-            message_length: data.len() as u32,
-            log_d: 8,
-            ..Default::default()
-        };
-        let params = winternitz::Parameters::new(path.message_length, path.log_d);
+        let message_len = data.len() as u32 * 2;
+        let path = WinternitzDerivationPath::BitvmAssert(
+            message_len,
+            "step1".to_string(),
+            Txid::all_zeros(),
+        );
+        let params = winternitz::Parameters::new(message_len, WINTERNITZ_LOG_D);
 
-        let witness = actor.sign_winternitz_signature(path, data.clone()).unwrap();
-        let pk = actor.derive_winternitz_pk(path).unwrap();
+        let witness = actor
+            .sign_winternitz_signature(path.clone(), data.clone())
+            .unwrap();
+        let pk = actor.derive_winternitz_pk(path.clone()).unwrap();
 
         let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
         let check_sig_script = winternitz.checksig_verify(&params, &pk);
 
         let message_checker = script! {
-            for i in 0..path.message_length {
+            for i in 0..message_len / 2 {
                 {data[i as usize]}
-                if i == path.message_length - 1 {
+                if i == message_len / 2 - 1 {
                     OP_EQUAL
                 } else {
                     OP_EQUALVERIFY

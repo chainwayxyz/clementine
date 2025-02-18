@@ -11,16 +11,7 @@ create table if not exists operators (
     operator_idx int primary key,
     xonly_pk text not null,
     wallet_reimburse_address text not null,
-    collateral_funding_txid text not null check (collateral_funding_txid ~ '^[a-fA-F0-9]{64}')
-);
-
--- Sequential collateral tx's of operators, Only Operator binaries can add entries to this table
-create table if not exists operator_sequential_collateral_txs (
-    operator_idx int, -- Index of the operator
-    idx int not null, -- Index of the sequential collateral tx. 0 meaning initial funding tx where the 0th output will be used
-    sequential_collateral_txid text not null check (sequential_collateral_txid ~ '^[a-fA-F0-9]{64}'), -- Txid
-    block_height int not null, -- Block height of the sequential collateral tx
-    primary key (operator_idx, idx)
+    collateral_funding_outpoint text not null check (collateral_funding_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$')
 );
 
 -- Verifier table for deposit details
@@ -134,16 +125,18 @@ create table if not exists watchtower_xonly_public_keys (
 create table if not exists watchtower_winternitz_public_keys (
     watchtower_id int not null,
     operator_id int not null,
-    winternitz_public_keys bytea not null,
-    primary key (watchtower_id, operator_id)
+    deposit_id int not null,
+    winternitz_public_key bytea not null,
+    primary key (watchtower_id, operator_id, deposit_id)
 );
 
 -- Verifier table of watchtower challenge addresses for every operator, sequential_collateral_tx_idx, and kickoff_idx
 create table if not exists watchtower_challenge_addresses (
     watchtower_id int not null,
     operator_id int not null,
-    challenge_addresses bytea[] not null,
-    primary key (watchtower_id, operator_id)
+    deposit_id int not null,
+    challenge_address bytea not null,
+    primary key (watchtower_id, operator_id, deposit_id)
 );
 
 -- Verifier table of operators Winternitz public keys for every sequential collateral tx
@@ -172,13 +165,12 @@ create table if not exists deposit_signatures (
 /* This table holds the BitVM setup data for each operator and sequential collateral tx pair. */
 create table if not exists bitvm_setups (
     operator_idx int not null,
-    sequential_collateral_tx_idx int not null,
-    kickoff_idx int not null,
+    deposit_id int not null,
     assert_tx_addrs bytea[] not null,
     root_hash bytea not null check (length(root_hash) = 32),
-    public_input_wots bytea[] not null,
+    --public_input_wots bytea[] not null,
     created_at timestamp not null default now(),
-    primary key (operator_idx, sequential_collateral_tx_idx, kickoff_idx)
+    primary key (operator_idx, deposit_id)
 );
 
 -- Verifier table for the operators public digests to acknowledge watchtower challenges.
@@ -186,11 +178,10 @@ create table if not exists bitvm_setups (
 challenges for each (operator_idx, sequential_collateral_tx_idx, kickoff_idx, watchtower_idx) tuple. */
 create table if not exists operators_challenge_ack_hashes (
     operator_idx int not null,
-    sequential_collateral_tx_idx int not null,
-    kickoff_idx int not null,
+    deposit_id int not null,
     public_hashes bytea[] not null,
     created_at timestamp not null default now(),
-    primary key (operator_idx, sequential_collateral_tx_idx, kickoff_idx)
+    primary key (operator_idx, deposit_id)
 );
 
 -- Table to store fee payer UTXOs
