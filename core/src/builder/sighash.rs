@@ -151,7 +151,7 @@ pub fn create_nofn_sighash_stream(
                         config.clone(),
                         deposit_data.clone(),
                         nofn_xonly_pk,
-                        TransactionType::AllNeededForVerifierDeposit,
+                        TransactionType::AllNeededForDeposit,
                         KickoffId {
                             operator_idx: operator_idx as u32,
                             sequential_collateral_idx: sequential_collateral_tx_idx as u32,
@@ -337,7 +337,7 @@ mod tests {
                 None,
                 o.try_into().unwrap(),
                 deposit_outpoint,
-                vec![ScriptBuf::default(); assert_len],
+                vec![[1u8; 32]; assert_len],
                 &[0x45; 32],
             )
             .await

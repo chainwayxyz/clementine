@@ -853,7 +853,7 @@ impl Verifier {
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
 
-        let assert_tx_addrs = BITVM_CACHE
+        let assert_tx_addrs: Vec<[u8; 32]> = BITVM_CACHE
             .intermediate_variables
             .iter()
             .enumerate()
@@ -863,12 +863,11 @@ impl Verifier {
                     operator_data.xonly_pk,
                     *intermediate_step_size as u32 * 2,
                 );
-                let (assert_tx_addr, _) = builder::address::create_taproot_address(
-                    &[script.to_script_buf()],
-                    None,
-                    self.config.network,
-                );
-                assert_tx_addr.script_pubkey()
+                let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
+                taproot_builder
+                    .try_into_taptree()
+                    .expect("taproot builder always builds a full taptree")
+                    .root_hash().to_raw_hash().to_byte_array()
             })
             .collect::<Vec<_>>();
 
@@ -891,7 +890,7 @@ impl Verifier {
                 None,
                 operator_idx as i32,
                 deposit_id.deposit_outpoint,
-                assert_tx_addrs,
+                &assert_tx_addrs,
                 &root_hash_bytes,
             )
             .await?;

@@ -14,11 +14,11 @@ pub struct NormalSignatureId {
     pub signature_kind: i32,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct WatchtowerSignatureId {
-    #[prost(enumeration = "WatchtowerSignatureKind", tag = "1")]
+pub struct NumberedSignatureId {
+    #[prost(enumeration = "NumberedSignatureKind", tag = "1")]
     pub signature_kind: i32,
     #[prost(int32, tag = "2")]
-    pub watchtower_idx: i32,
+    pub idx: i32,
 }
 /// A tagged signature struct that identifies the transaction-input that the signature is for.
 /// The id is left as NotStored for signatures that are created on the fly by the operator (they're also not stored).
@@ -36,7 +36,7 @@ pub mod tagged_signature {
         #[prost(message, tag = "1")]
         NormalSignature(super::NormalSignatureId),
         #[prost(message, tag = "2")]
-        WatchtowerSignature(super::WatchtowerSignatureId),
+        NumberedSignature(super::NumberedSignatureId),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -68,8 +68,8 @@ pub struct DepositParams {
     pub recovery_taproot_address: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct WatchtowerTransactionId {
-    #[prost(enumeration = "WatchtowerTransactionType", tag = "1")]
+pub struct NumberedTransactionId {
+    #[prost(enumeration = "NumberedTransactionType", tag = "1")]
     pub transaction_type: i32,
     #[prost(int32, tag = "2")]
     pub index: i32,
@@ -86,7 +86,7 @@ pub mod grpc_transaction_id {
         #[prost(enumeration = "super::NormalTransactionId", tag = "1")]
         NormalTransaction(i32),
         #[prost(message, tag = "2")]
-        WatchtowerTransaction(super::WatchtowerTransactionId),
+        WatchtowerTransaction(super::NumberedTransactionId),
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -340,9 +340,9 @@ pub enum NormalSignatureKind {
     NormalSignatureUnknown = 0,
     /// Used for TxHandlers that verifiers don't care. These will have signatures created
     /// by the operator on the fly.
-    NotStored = 1,
-    AssertTimeout1 = 2,
-    AssertTimeout2 = 3,
+    OperatorSighashDefault = 1,
+    AssertTimeoutUnused = 2,
+    AssertTimeoutUnused2 = 3,
     Challenge = 4,
     WatchtowerChallengeKickoff = 5,
     StartHappyReimburse2 = 6,
@@ -358,6 +358,11 @@ pub enum NormalSignatureKind {
     DisproveTimeout3 = 16,
     KickoffNotFinalized1 = 17,
     KickoffNotFinalized2 = 18,
+    Reimburse2 = 19,
+    NoSignature = 20,
+    ChallengeTimeout2 = 21,
+    MiniAssert1 = 22,
+    OperatorChallengeAck1 = 23,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -367,9 +372,9 @@ impl NormalSignatureKind {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::NormalSignatureUnknown => "NormalSignatureUnknown",
-            Self::NotStored => "NotStored",
-            Self::AssertTimeout1 => "AssertTimeout1",
-            Self::AssertTimeout2 => "AssertTimeout2",
+            Self::OperatorSighashDefault => "OperatorSighashDefault",
+            Self::AssertTimeoutUnused => "AssertTimeoutUnused",
+            Self::AssertTimeoutUnused2 => "AssertTimeoutUnused2",
             Self::Challenge => "Challenge",
             Self::WatchtowerChallengeKickoff => "WatchtowerChallengeKickoff",
             Self::StartHappyReimburse2 => "StartHappyReimburse2",
@@ -385,15 +390,20 @@ impl NormalSignatureKind {
             Self::DisproveTimeout3 => "DisproveTimeout3",
             Self::KickoffNotFinalized1 => "KickoffNotFinalized1",
             Self::KickoffNotFinalized2 => "KickoffNotFinalized2",
+            Self::Reimburse2 => "Reimburse2",
+            Self::NoSignature => "NoSignature",
+            Self::ChallengeTimeout2 => "ChallengeTimeout2",
+            Self::MiniAssert1 => "MiniAssert1",
+            Self::OperatorChallengeAck1 => "OperatorChallengeAck1",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "NormalSignatureUnknown" => Some(Self::NormalSignatureUnknown),
-            "NotStored" => Some(Self::NotStored),
-            "AssertTimeout1" => Some(Self::AssertTimeout1),
-            "AssertTimeout2" => Some(Self::AssertTimeout2),
+            "OperatorSighashDefault" => Some(Self::OperatorSighashDefault),
+            "AssertTimeoutUnused" => Some(Self::AssertTimeoutUnused),
+            "AssertTimeoutUnused2" => Some(Self::AssertTimeoutUnused2),
             "Challenge" => Some(Self::Challenge),
             "WatchtowerChallengeKickoff" => Some(Self::WatchtowerChallengeKickoff),
             "StartHappyReimburse2" => Some(Self::StartHappyReimburse2),
@@ -409,21 +419,33 @@ impl NormalSignatureKind {
             "DisproveTimeout3" => Some(Self::DisproveTimeout3),
             "KickoffNotFinalized1" => Some(Self::KickoffNotFinalized1),
             "KickoffNotFinalized2" => Some(Self::KickoffNotFinalized2),
+            "Reimburse2" => Some(Self::Reimburse2),
+            "NoSignature" => Some(Self::NoSignature),
+            "ChallengeTimeout2" => Some(Self::ChallengeTimeout2),
+            "MiniAssert1" => Some(Self::MiniAssert1),
+            "OperatorChallengeAck1" => Some(Self::OperatorChallengeAck1),
             _ => None,
         }
     }
 }
+/// Signatures that are needed multiple times per an operators kickoff.
+/// Some watchtower sigs are needed once per watchtower.
+/// Asserts are needed multiple times
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum WatchtowerSignatureKind {
+pub enum NumberedSignatureKind {
     WatchtowerSignatureUnknown = 0,
     /// Used for TxHandlers that verifiers don't care. These will have signatures created
     /// by the operator on the fly.
     WatchtowerNotStored = 1,
     OperatorChallengeNack1 = 2,
     OperatorChallengeNack2 = 3,
+    OperatorChallengeNack3 = 4,
+    AssertTimeout1 = 5,
+    AssertTimeout2 = 6,
+    AssertTimeout3 = 7,
 }
-impl WatchtowerSignatureKind {
+impl NumberedSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
@@ -434,6 +456,10 @@ impl WatchtowerSignatureKind {
             Self::WatchtowerNotStored => "WatchtowerNotStored",
             Self::OperatorChallengeNack1 => "OperatorChallengeNack1",
             Self::OperatorChallengeNack2 => "OperatorChallengeNack2",
+            Self::OperatorChallengeNack3 => "OperatorChallengeNack3",
+            Self::AssertTimeout1 => "AssertTimeout1",
+            Self::AssertTimeout2 => "AssertTimeout2",
+            Self::AssertTimeout3 => "AssertTimeout3",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -443,6 +469,10 @@ impl WatchtowerSignatureKind {
             "WatchtowerNotStored" => Some(Self::WatchtowerNotStored),
             "OperatorChallengeNack1" => Some(Self::OperatorChallengeNack1),
             "OperatorChallengeNack2" => Some(Self::OperatorChallengeNack2),
+            "OperatorChallengeNack3" => Some(Self::OperatorChallengeNack3),
+            "AssertTimeout1" => Some(Self::AssertTimeout1),
+            "AssertTimeout2" => Some(Self::AssertTimeout2),
+            "AssertTimeout3" => Some(Self::AssertTimeout3),
             _ => None,
         }
     }
@@ -538,14 +568,14 @@ impl NormalTransactionId {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum WatchtowerTransactionType {
+pub enum NumberedTransactionType {
     UnspecifiedIndexedTransactionType = 0,
     WatchtowerChallenge = 1,
     OperatorChallengeNack = 2,
     OperatorChallengeAck = 3,
-    MiniAssert = 4,
+    AssertPartTimeout = 4,
 }
-impl WatchtowerTransactionType {
+impl NumberedTransactionType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
@@ -558,7 +588,7 @@ impl WatchtowerTransactionType {
             Self::WatchtowerChallenge => "WATCHTOWER_CHALLENGE",
             Self::OperatorChallengeNack => "OPERATOR_CHALLENGE_NACK",
             Self::OperatorChallengeAck => "OPERATOR_CHALLENGE_ACK",
-            Self::MiniAssert => "MINI_ASSERT",
+            Self::AssertPartTimeout => "ASSERT_PART_TIMEOUT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -570,7 +600,7 @@ impl WatchtowerTransactionType {
             "WATCHTOWER_CHALLENGE" => Some(Self::WatchtowerChallenge),
             "OPERATOR_CHALLENGE_NACK" => Some(Self::OperatorChallengeNack),
             "OPERATOR_CHALLENGE_ACK" => Some(Self::OperatorChallengeAck),
-            "MINI_ASSERT" => Some(Self::MiniAssert),
+            "ASSERT_PART_TIMEOUT" => Some(Self::AssertPartTimeout),
             _ => None,
         }
     }

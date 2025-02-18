@@ -12,9 +12,16 @@ use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{Amount, Network, Sequence, TxOut, Txid};
+use bitcoin::{Address, Amount, Network, ScriptBuf, Sequence, TapNodeHash, TxOut, Txid};
 use bitcoin::{Witness, XOnlyPublicKey};
 use std::sync::Arc;
+use bitcoin::taproot::TaprootBuilder;
+use crate::utils::{SECP, UNSPENDABLE_XONLY_PUBKEY};
+
+pub enum AssertScripts<'a> {
+    AssertScriptTapNodeHash(&'a [[u8; 32]]),
+    AssertSpendableScript(Vec<Arc<dyn SpendableScript>>),
+}
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
@@ -24,11 +31,14 @@ pub fn create_kickoff_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     move_txid: Txid,
     operator_idx: usize,
+    // either actual SpendableScripts or scriptpubkeys from db
+    assert_scripts: AssertScripts,
+    disprove_root_hash: &[u8; 32],
     network: Network,
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new(TransactionType::Kickoff);
     builder = builder.add_input(
-        NormalSignatureKind::NotStored,
+        NormalSignatureKind::OperatorSighashDefault,
         sequential_collateral_txhandler.get_spendable_output(1 + kickoff_idx)?,
         builder::script::SpendPath::ScriptSpend(0),
         DEFAULT_SEQUENCE,
@@ -40,47 +50,110 @@ pub fn create_kickoff_txhandler(
         Some(operator_xonly_pk),
         BLOCKS_PER_WEEK,
     ));
-    let operator_2_5_week = Arc::new(TimelockScript::new(
-        Some(operator_xonly_pk),
-        BLOCKS_PER_WEEK / 2 * 5, // 2.5 weeks
-    ));
-    let nofn_3week = Arc::new(TimelockScript::new(
-        Some(nofn_xonly_pk),
-        3 * BLOCKS_PER_WEEK,
-    ));
 
     builder = builder
+        // goes to watchtower challenge kickoff
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone()],
             None,
             network,
         ))
+        // goes to challenge tx or no challenge tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone(), operator_1week],
             None,
             network,
         ))
+        // kickoff finalizer connector
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![nofn_script.clone(), operator_2_5_week],
+            vec![nofn_script.clone()],
             None,
             network,
         ))
+        // UTXO to reimburse tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![nofn_script.clone(), nofn_3week],
-            None,
-            network,
-        ))
-        .add_output(UnspentTxOut::from_scripts(
-            // kickoff finalizer
-            MIN_TAPROOT_AMOUNT,
-            vec![nofn_script],
+            vec![nofn_script.clone()],
             None,
             network,
         ));
+
+    // Add disprove utxo
+    // Add N-of-N in 5 week script to taproot, that connects to disprove timeout
+    let disprove_taproot_spend_info = TaprootBuilder::new()
+        .add_hidden_node(1, TapNodeHash::from_byte_array(*disprove_root_hash))
+        .expect("empty taptree will accept a node at depth 1")
+        .add_leaf(1, TimelockScript::new(Some(nofn_xonly_pk), BLOCKS_PER_WEEK * 5).to_script_buf())
+        .expect("taptree with one node at depth 1 will accept a script node")
+        .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+        .expect("Taproot with 2 nodes at depth 1 should be valid for disprove");
+
+    let disprove_address = Address::p2tr(
+        &SECP,
+        nofn_xonly_pk,
+        disprove_taproot_spend_info.merkle_root(),
+        network,
+    );
+
+    builder = builder
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: MIN_TAPROOT_AMOUNT,
+                script_pubkey: disprove_address.script_pubkey().clone(),
+            },
+            vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
+            Some(disprove_taproot_spend_info),
+        ));
+
+    // add nofn_4 week to all assert scripts
+    let mut nofn_4week = Arc::new(TimelockScript::new(
+        Some(nofn_xonly_pk),
+        4 * BLOCKS_PER_WEEK,
+    ));
+
+    match assert_scripts {
+        AssertScripts::AssertScriptTapNodeHash(assert_script_pubkeys) => {
+            for script_hash in assert_script_pubkeys.into() {
+                // Add N-of-N in 4 week script to taproot, that connects to assert timeout
+                let assert_spend_info = TaprootBuilder::new()
+                    .add_hidden_node(1, TapNodeHash::from_byte_array(script_hash))
+                    .expect("empty taptree will accept a node at depth 1")
+                    .add_leaf(1, TimelockScript::new(Some(nofn_xonly_pk), BLOCKS_PER_WEEK * 4).to_script_buf())
+                    .expect("taptree with one node at depth 1 will accept a script node")
+                    .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+                    .expect("Taproot with 2 nodes at depth 1 should be valid for assert");
+
+                let assert_address = Address::p2tr(
+                    &SECP,
+                    nofn_xonly_pk,
+                    assert_spend_info.merkle_root(),
+                    network,
+                );
+
+                builder = builder.add_output(UnspentTxOut::new(
+                    TxOut {
+                        value: MIN_TAPROOT_AMOUNT,
+                        script_pubkey: assert_address.script_pubkey().clone(),
+                    },
+                    vec![nofn_4week.clone()],
+                    Some(assert_spend_info),
+                ));
+            }
+        }
+        AssertScripts::AssertSpendableScript(assert_scripts) => {
+            for script in assert_scripts {
+                builder = builder.add_output(UnspentTxOut::from_scripts(
+                    MIN_TAPROOT_AMOUNT,
+                    vec![nofn_4week.clone(), script],
+                    None,
+                    network,
+                ));
+            }
+        }
+    }
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
     op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
@@ -105,7 +178,7 @@ pub fn create_kickoff_not_finalized_txhandler(
     Ok(TxHandlerBuilder::new(TransactionType::KickoffNotFinalized)
         .add_input(
             NormalSignatureKind::KickoffNotFinalized1,
-            kickoff_txhandler.get_spendable_output(4)?,
+            kickoff_txhandler.get_spendable_output(2)?,
             builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
@@ -121,95 +194,12 @@ pub fn create_kickoff_not_finalized_txhandler(
         .finalize())
 }
 
-/// Creates a [`TxHandler`] for the `start_happy_reimburse_tx`. This transaction will be sent by the operator
-/// in case of no challenges, to be able to send `happy_reimburse_tx` later. Everyone is happy because the
-/// operator is honest and the system does not have to deal with any disputes.
-pub fn create_start_happy_reimburse_txhandler(
-    kickoff_txhandler: &TxHandler,
-    operator_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new(TransactionType::StartHappyReimburse);
-    builder = builder
-        .add_input(
-            NormalSignatureKind::NotStored,
-            kickoff_txhandler.get_spendable_output(1)?,
-            builder::script::SpendPath::ScriptSpend(1),
-            Sequence::from_height(BLOCKS_PER_WEEK),
-        )
-        .add_input(
-            NormalSignatureKind::StartHappyReimburse2,
-            kickoff_txhandler.get_spendable_output(3)?,
-            builder::script::SpendPath::ScriptSpend(0),
-            DEFAULT_SEQUENCE,
-        )
-        .add_input(
-            NormalSignatureKind::StartHappyReimburse3,
-            kickoff_txhandler.get_spendable_output(4)?,
-            builder::script::SpendPath::ScriptSpend(0),
-            DEFAULT_SEQUENCE,
-        );
-
-    Ok(builder
-        .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
-            vec![],
-            Some(operator_xonly_pk),
-            network,
-        ))
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
-}
-
-/// Creates a [`TxHandler`] for the `happy_reimburse_tx`. This transaction will be sent by the operator
-/// in case of no challenges, to reimburse the operator for their honest behavior.
-pub fn create_happy_reimburse_txhandler(
-    move_txhandler: &TxHandler,
-    start_happy_reimburse_txhandler: &TxHandler,
-    reimburse_generator_txhandler: &TxHandler,
-    kickoff_idx: usize,
-    operator_reimbursement_address: &bitcoin::Address,
-) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new(TransactionType::HappyReimburse);
-    builder = builder
-        .add_input(
-            NormalSignatureKind::HappyReimburse1,
-            move_txhandler.get_spendable_output(0)?,
-            builder::script::SpendPath::ScriptSpend(0),
-            DEFAULT_SEQUENCE,
-        )
-        .add_input(
-            NormalSignatureKind::NotStored,
-            start_happy_reimburse_txhandler.get_spendable_output(0)?,
-            builder::script::SpendPath::KeySpend,
-            DEFAULT_SEQUENCE,
-        )
-        .add_input(
-            NormalSignatureKind::NotStored,
-            reimburse_generator_txhandler.get_spendable_output(1 + kickoff_idx)?,
-            builder::script::SpendPath::KeySpend,
-            DEFAULT_SEQUENCE,
-        );
-
-    Ok(builder
-        .add_output(UnspentTxOut::from_partial(TxOut {
-            value: move_txhandler.get_spendable_output(0)?.get_prevout().value,
-            script_pubkey: operator_reimbursement_address.script_pubkey(),
-        }))
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
-}
-
 /// Creates a [`TxHandler`] for the `reimburse_tx`. This transaction will be sent by the operator
 /// in case of a challenge, to reimburse the operator for their honest behavior.
 pub fn create_reimburse_txhandler(
     move_txhandler: &TxHandler,
-    disprove_timeout_txhandler: &TxHandler,
     reimburse_generator_txhandler: &TxHandler,
+    kickoff_txhandler: &TxHandler,
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
@@ -221,13 +211,13 @@ pub fn create_reimburse_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            NormalSignatureKind::NotStored,
-            disprove_timeout_txhandler.get_spendable_output(0)?,
-            builder::script::SpendPath::KeySpend,
+            NormalSignatureKind::Reimburse2,
+            kickoff_txhandler.get_spendable_output(3)?,
+            builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            NormalSignatureKind::NotStored,
+            NormalSignatureKind::OperatorSighashDefault,
             reimburse_generator_txhandler.get_spendable_output(1 + kickoff_idx)?,
             builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,

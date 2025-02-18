@@ -12,9 +12,9 @@ enum NormalSignatureKind {
   NormalSignatureUnknown = 0;
   // Used for TxHandlers that verifiers don't care. These will have signatures created
   // by the operator on the fly.
-  NotStored = 1;
-  AssertTimeout1 = 2;
-  AssertTimeout2 = 3;
+  OperatorSighashDefault = 1;
+  AssertTimeoutUnused = 2;
+  AssertTimeoutUnused2 = 3;
   Challenge = 4;
   WatchtowerChallengeKickoff = 5;
   StartHappyReimburse2 = 6;
@@ -30,24 +30,36 @@ enum NormalSignatureKind {
   DisproveTimeout3 = 16;
   KickoffNotFinalized1 = 17;
   KickoffNotFinalized2 = 18;
+  Reimburse2 = 19;
+  NoSignature = 20;
+  ChallengeTimeout2 = 21;
+  MiniAssert1 = 22;
+  OperatorChallengeAck1 = 23;
 }
 
-enum WatchtowerSignatureKind {
+// Signatures that are needed multiple times per an operators kickoff.
+// Some watchtower sigs are needed once per watchtower.
+// Asserts are needed multiple times
+enum NumberedSignatureKind {
   WatchtowerSignatureUnknown = 0;
   // Used for TxHandlers that verifiers don't care. These will have signatures created
   // by the operator on the fly.
   WatchtowerNotStored = 1;
   OperatorChallengeNack1 = 2;
   OperatorChallengeNack2 = 3;
+  OperatorChallengeNack3 = 4;
+  AssertTimeout1 = 5;
+  AssertTimeout2 = 6;
+  AssertTimeout3 = 7;
 }
 
 message NormalSignatureId {
   NormalSignatureKind signature_kind = 1;
 }
 
-message WatchtowerSignatureId {
-  WatchtowerSignatureKind signature_kind = 1;
-  int32 watchtower_idx = 2;
+message NumberedSignatureId {
+  NumberedSignatureKind signature_kind = 1;
+  int32 idx = 2;
 }
 
 // A tagged signature struct that identifies the transaction-input that the signature is for.
@@ -55,7 +67,7 @@ message WatchtowerSignatureId {
 message TaggedSignature {
   oneof signature_id {
     NormalSignatureId normal_signature = 1;
-    WatchtowerSignatureId watchtower_signature = 2;
+    NumberedSignatureId numbered_signature = 2;
   }
   bytes signature = 3;
 }
@@ -106,23 +118,23 @@ enum NormalTransactionId {
     KICKOFF_NOT_FINALIZED = 22;
 }
 
-enum WatchtowerTransactionType {
+enum NumberedTransactionType {
     UNSPECIFIED_INDEXED_TRANSACTION_TYPE = 0;
     WATCHTOWER_CHALLENGE = 1;
     OPERATOR_CHALLENGE_NACK = 2;
     OPERATOR_CHALLENGE_ACK = 3;
-    MINI_ASSERT = 4;
+    ASSERT_PART_TIMEOUT = 4;
 }
 
-message WatchtowerTransactionId {
-  WatchtowerTransactionType transaction_type = 1;
+message NumberedTransactionId {
+  NumberedTransactionType transaction_type = 1;
   int32 index = 2;
 }
 
 message GrpcTransactionId {
   oneof id {
     NormalTransactionId normal_transaction = 1;
-    WatchtowerTransactionId watchtower_transaction = 2;
+    NumberedTransactionId watchtower_transaction = 2;
   }
 }
 

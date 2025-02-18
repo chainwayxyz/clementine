@@ -540,7 +540,7 @@ mod tests {
         };
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
         builder = builder.add_input(
-            crate::rpc::clementine::NormalSignatureKind::NotStored,
+            crate::rpc::clementine::NormalSignatureKind::OperatorSighashDefault,
             SpendableTxIn::new(
                 outpoint,
                 TxOut {

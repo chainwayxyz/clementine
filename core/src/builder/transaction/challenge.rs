@@ -1,3 +1,4 @@
+use std::num::FpCategory::Normal;
 use crate::builder;
 use crate::builder::script::{PreimageRevealScript, SpendPath, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::output::UnspentTxOut;
@@ -5,7 +6,7 @@ use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_WEEK, OPERATOR_CHALLENGE_AMOUNT};
 use crate::errors::BridgeError;
-use crate::rpc::clementine::{NormalSignatureKind, WatchtowerSignatureKind};
+use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
 
@@ -50,7 +51,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
 /// The revealed preimage will later be used to send `disprove_tx` if the operator
 /// claims that the corresponding watchtower did not challenge them.
 pub fn create_watchtower_challenge_txhandler(
-    wcp_txhandler: &TxHandler,
+    wck_txhandler: &TxHandler,
     watchtower_idx: usize,
     operator_unlock_hash: &[u8; 20],
     nofn_xonly_pk: XOnlyPublicKey,
@@ -58,11 +59,11 @@ pub fn create_watchtower_challenge_txhandler(
     network: bitcoin::Network,
     script: Option<Arc<WinternitzCommit>>,
 ) -> Result<TxHandler, BridgeError> {
-    let prevout = wcp_txhandler.get_spendable_output(watchtower_idx)?;
+    let prevout = wck_txhandler.get_spendable_output(watchtower_idx)?;
     let builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
         .add_input(
             (
-                WatchtowerSignatureKind::WatchtowerNotStored,
+                NumberedSignatureKind::WatchtowerNotStored,
                 watchtower_idx as i32,
             ),
             // if a script is not provided, that means this tx will not be signed so there doesn't need
@@ -112,12 +113,13 @@ pub fn create_operator_challenge_nack_txhandler(
     watchtower_challenge_txhandler: &TxHandler,
     watchtower_idx: usize,
     kickoff_txhandler: &TxHandler,
+    sequential_collateral_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
             .add_input(
                 (
-                    WatchtowerSignatureKind::OperatorChallengeNack1,
+                    NumberedSignatureKind::OperatorChallengeNack1,
                     watchtower_idx as i32,
                 ),
                 watchtower_challenge_txhandler.get_spendable_output(0)?,
@@ -126,11 +128,20 @@ pub fn create_operator_challenge_nack_txhandler(
             )
             .add_input(
                 (
-                    WatchtowerSignatureKind::OperatorChallengeNack2,
+                    NumberedSignatureKind::OperatorChallengeNack2,
                     watchtower_idx as i32,
                 ),
                 kickoff_txhandler.get_spendable_output(2)?,
                 SpendPath::ScriptSpend(0),
+                DEFAULT_SEQUENCE,
+            )
+            .add_input(
+                (
+                    NumberedSignatureKind::OperatorChallengeNack3,
+                    watchtower_idx as i32,
+                ),
+                sequential_collateral_txhandler.get_spendable_output(0)?,
+                SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(
@@ -151,10 +162,7 @@ pub fn create_operator_challenge_ack_txhandler(
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
             .add_input(
-                (
-                    WatchtowerSignatureKind::WatchtowerNotStored,
-                    watchtower_idx as i32,
-                ),
+                NormalSignatureKind::OperatorChallengeAck1,
                 watchtower_challenge_txhandler.get_spendable_output(0)?,
                 SpendPath::ScriptSpend(0),
                 DEFAULT_SEQUENCE,
@@ -166,43 +174,17 @@ pub fn create_operator_challenge_ack_txhandler(
     )
 }
 
-/// Creates a [`TxHandler`] for the `already_disproved_tx`. This transaction will be sent by NofN, meaning
-/// that the operator was malicious. This transaction "burns" the operator's burn connector, kicking the
-/// operator out of the system.
-pub fn create_already_disproved_txhandler(
-    assert_end_txhandler: &TxHandler,
-    sequential_collateral_txhandler: &TxHandler,
-) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new(TransactionType::AlreadyDisproved)
-        .add_input(
-            NormalSignatureKind::AlreadyDisproved1,
-            assert_end_txhandler.get_spendable_output(1)?,
-            SpendPath::ScriptSpend(1),
-            Sequence::from_height(BLOCKS_PER_WEEK * 2),
-        )
-        .add_input(
-            NormalSignatureKind::AlreadyDisproved2,
-            sequential_collateral_txhandler.get_spendable_output(0)?,
-            SpendPath::KeySpend,
-            DEFAULT_SEQUENCE,
-        )
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
-}
-
 /// Creates a [`TxHandler`] for the `disprove_tx`. This transaction will be sent by NofN, meaning
 /// that the operator was malicious. This transaction burns the operator's burn connector, kicking the
 /// operator out of the system.
 pub fn create_disprove_txhandler(
-    assert_end_txhandler: &TxHandler,
+    kickoff_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::Disprove)
         .add_input(
-            NormalSignatureKind::NotStored,
-            assert_end_txhandler.get_spendable_output(0)?,
+            NormalSignatureKind::NoSignature,
+            kickoff_txhandler.get_spendable_output(4)?,
             SpendPath::Unknown,
             DEFAULT_SEQUENCE,
         )
@@ -236,5 +218,29 @@ pub fn create_challenge_txhandler(
             value: OPERATOR_CHALLENGE_AMOUNT,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
+        .finalize())
+}
+
+/// Creates a [`TxHandler`] for the `no challenge`. This transaction used when no one sends a
+/// challenge tx, so that operator can spend kickoff finalizer to finalize the kickoff.
+pub fn create_challenge_timeout_txhandler(
+    kickoff_txhandler: &TxHandler,
+) -> Result<TxHandler, BridgeError> {
+    Ok(TxHandlerBuilder::new(TransactionType::ChallengeTimeout)
+        .add_input(
+            NormalSignatureKind::OperatorSighashDefault,
+            kickoff_txhandler.get_spendable_output(1)?,
+            SpendPath::ScriptSpend(1),
+            Sequence::from_height(BLOCKS_PER_WEEK),
+        )
+        .add_input(
+            NormalSignatureKind::ChallengeTimeout2,
+            kickoff_txhandler.get_spendable_output(2)?,
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }

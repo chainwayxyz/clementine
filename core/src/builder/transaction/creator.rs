@@ -1,7 +1,7 @@
 use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::script::{SpendableScript, WinternitzCommit};
-use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
+use crate::builder::transaction::{create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler, AssertScripts, DepositData, OperatorData, TransactionType, TxHandler};
 use crate::config::BridgeConfig;
 use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
@@ -63,7 +63,7 @@ pub struct TxHandlerDbData {
     /// winternitz keys to sign the kickoff tx with the blockhash
     kickoff_winternitz_keys: Option<KickoffWinternitzKeys>,
     /// bitvm assert scripts for each assert utxo
-    bitvm_assert_addr: Option<Vec<ScriptBuf>>,
+    bitvm_assert_addr: Option<Vec<[u8; 32]>>,
     /// bitvm disprove scripts taproot merkle tree root hash
     bitvm_disprove_root_hash: Option<[u8; 32]>,
     /// Public hashes to acknowledge watchtower challenges
@@ -134,7 +134,7 @@ impl TxHandlerDbData {
         }
     }
 
-    pub async fn get_bitvm_assert_addr(&mut self) -> Result<&[ScriptBuf], BridgeError> {
+    pub async fn get_bitvm_assert_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
         match self.bitvm_assert_addr {
             Some(ref addr) => Ok(addr),
             None => {
@@ -248,7 +248,6 @@ pub async fn create_txhandlers(
                         .get_spendable_output(0)?
                         .get_prevout()
                         .value,
-                    config.timeout_block_count,
                     config.num_kickoffs_per_sequential_collateral_tx,
                     config.network,
                     kickoff_winternitz_keys
@@ -286,7 +285,6 @@ pub async fn create_txhandlers(
                 operator_data.xonly_pk,
                 operator_data.collateral_funding_outpoint,
                 config.collateral_funding_amount,
-                config.timeout_block_count,
                 config.num_kickoffs_per_sequential_collateral_tx,
                 config.network,
                 kickoff_id.sequential_collateral_idx as usize,
@@ -313,36 +311,73 @@ pub async fn create_txhandlers(
         reimburse_generator_txhandler,
     );
 
-    let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
-        get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
-        kickoff_id.kickoff_idx as usize,
-        nofn_xonly_pk,
-        operator_data.xonly_pk,
-        *get_txhandler(&txhandlers, TransactionType::MoveToVault)?.get_txid(),
-        kickoff_id.operator_idx as usize,
-        config.network,
-    )?;
-    txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
+    let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
+        // create scripts if any mini assert tx is specifically requested as it needs
+        // the actual scripts to be able to spend
+        let actor = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.network,
+        );
 
-    let kickoff_utxo_timeout_txhandler =
-        builder::transaction::create_kickoff_utxo_timeout_txhandler(
+        let mut assert_scripts: Vec<Arc<dyn SpendableScript>> =
+            Vec::with_capacity(utils::BITVM_CACHE.intermediate_variables.len());
+
+        for (intermediate_step, intermediate_step_size) in
+            utils::BITVM_CACHE.intermediate_variables.iter()
+        {
+            let path = WinternitzDerivationPath::BitvmAssert(
+                *intermediate_step_size as u32 * 2,
+                intermediate_step.to_string(),
+                deposit.deposit_outpoint.txid,
+            );
+            let pk = actor.derive_winternitz_pk(path)?;
+            assert_scripts.push(Arc::new(WinternitzCommit::new(
+                pk,
+                operator_data.xonly_pk,
+                *intermediate_step_size as u32 * 2,
+            )));
+        }
+
+        create_kickoff_txhandler(
             get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
             kickoff_id.kickoff_idx as usize,
-        )?;
-    txhandlers.insert(
-        kickoff_utxo_timeout_txhandler.get_transaction_type(),
-        kickoff_utxo_timeout_txhandler,
-    );
+            nofn_xonly_pk,
+            operator_data.xonly_pk,
+            deposit.deposit_outpoint.txid,
+            kickoff_id.operator_idx as usize,
+            AssertScripts::AssertSpendableScript(assert_scripts),
+            db_data.get_bitvm_disprove_root_hash().await?,
+            config.network,
+        )?
+    }
+    else {
+        // use db data for scripts
+        create_kickoff_txhandler(
+            get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+            kickoff_id.kickoff_idx as usize,
+            nofn_xonly_pk,
+            operator_data.xonly_pk,
+            deposit.deposit_outpoint.txid,
+            kickoff_id.operator_idx as usize,
+            AssertScripts::AssertScriptTapNodeHash(db_data.get_bitvm_assert_hash().await?),
+            db_data.get_bitvm_disprove_root_hash().await?,
+            config.network,
+        )?
+    };
+    txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
 
-    // Creates the kickoff_timeout_tx handler.
-    let kickoff_timeout_txhandler = builder::transaction::create_assert_timeout_txhandler(
+    let num_asserts = utils::BITVM_CACHE.intermediate_variables.len();
+
+    let assert_timeouts = create_assert_timeout_txhandlers(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+        num_asserts,
     )?;
-    txhandlers.insert(
-        kickoff_timeout_txhandler.get_transaction_type(),
-        kickoff_timeout_txhandler,
-    );
+
+    for assert_timeout in assert_timeouts.into_iter() {
+        txhandlers.insert(assert_timeout.get_transaction_type(), assert_timeout);
+    }
 
     // Creates the challenge_tx handler.
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
@@ -352,6 +387,16 @@ pub async fn create_txhandlers(
     txhandlers.insert(
         challenge_txhandler.get_transaction_type(),
         challenge_txhandler,
+    );
+
+    // Creates the challenge timeout txhandler
+    let challenge_timeout_txhandler = create_challenge_timeout_txhandler(
+        get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+    )?;
+
+    txhandlers.insert(
+        challenge_timeout_txhandler.get_transaction_type(),
+        challenge_timeout_txhandler,
     );
 
     let kickoff_not_finalized_txhandler =
@@ -364,52 +409,10 @@ pub async fn create_txhandlers(
         kickoff_not_finalized_txhandler,
     );
 
-    // Generate Happy reimburse txs conditionally
-    if matches!(
-        transaction_type,
-        TransactionType::StartHappyReimburse
-            | TransactionType::HappyReimburse
-            | TransactionType::AllNeededForVerifierDeposit
-    ) {
-        // Creates the start_happy_reimburse_tx handler.
-        let start_happy_reimburse_txhandler =
-            builder::transaction::create_start_happy_reimburse_txhandler(
-                get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                operator_data.xonly_pk,
-                config.network,
-            )?;
-        txhandlers.insert(
-            start_happy_reimburse_txhandler.get_transaction_type(),
-            start_happy_reimburse_txhandler,
-        );
-
-        // Creates the happy_reimburse_tx handler.
-        let happy_reimburse_txhandler = builder::transaction::create_happy_reimburse_txhandler(
-            get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-            get_txhandler(&txhandlers, TransactionType::StartHappyReimburse)?,
-            get_txhandler(&txhandlers, TransactionType::ReimburseGenerator)?,
-            kickoff_id.kickoff_idx as usize,
-            &operator_data.reimburse_addr,
-        )?;
-        txhandlers.insert(
-            happy_reimburse_txhandler.get_transaction_type(),
-            happy_reimburse_txhandler,
-        );
-
-        if !matches!(
-            transaction_type,
-            TransactionType::AllNeededForOperatorDeposit
-                | TransactionType::AllNeededForVerifierDeposit
-        ) {
-            // We do not need other txhandlers, exit early
-            return Ok(txhandlers);
-        }
-    }
-
     // Generate watchtower challenges (addresses from db) if all txs are needed
     if matches!(
         transaction_type,
-        TransactionType::AllNeededForVerifierDeposit
+        TransactionType::AllNeededForDeposit
             | TransactionType::WatchtowerChallengeKickoff
             | TransactionType::WatchtowerChallenge(_)
             | TransactionType::OperatorChallengeNack(_)
@@ -497,6 +500,7 @@ pub async fn create_txhandlers(
                     )?,
                     watchtower_idx,
                     get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+                    get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
                 )?;
             txhandlers.insert(
                 operator_challenge_nack_txhandler.get_transaction_type(),
@@ -522,106 +526,14 @@ pub async fn create_txhandlers(
                 }
             }
         }
-        if transaction_type != TransactionType::AllNeededForVerifierDeposit {
+        if transaction_type != TransactionType::AllNeededForDeposit {
             // We do not need other txhandlers, exit early
             return Ok(txhandlers);
         }
     }
 
-    // If we didn't return until this part, generate remaining assert/disprove tx's
-
-    if matches!(
-        transaction_type,
-        TransactionType::AssertBegin | TransactionType::AssertEnd | TransactionType::MiniAssert(_)
-    ) {
-        // if we specifically want to generate assert txs, we need to generate correct Winternitz scripts
-        let actor = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.network,
-        );
-        let mut assert_scripts: Vec<Arc<dyn SpendableScript>> =
-            Vec::with_capacity(utils::BITVM_CACHE.intermediate_variables.len());
-        for (intermediate_step, intermediate_step_size) in
-            utils::BITVM_CACHE.intermediate_variables.iter()
-        {
-            let path = WinternitzDerivationPath::BitvmAssert(
-                *intermediate_step_size as u32 * 2,
-                intermediate_step.to_string(),
-                deposit.deposit_outpoint.txid,
-            );
-            let pk = actor.derive_winternitz_pk(path)?;
-            assert_scripts.push(Arc::new(WinternitzCommit::new(
-                pk,
-                operator_data.xonly_pk,
-                *intermediate_step_size as u32 * 2,
-            )));
-        }
-        // Creates the assert_begin_tx handler.
-        let assert_begin_txhandler =
-            builder::transaction::create_assert_begin_txhandler_from_scripts(
-                get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                &assert_scripts,
-                config.network,
-            )?;
-
-        txhandlers.insert(
-            assert_begin_txhandler.get_transaction_type(),
-            assert_begin_txhandler,
-        );
-
-        let root_hash = db_data.get_bitvm_disprove_root_hash().await?;
-
-        // Creates the assert_end_tx handler.
-        let mini_asserts_and_assert_end_txhandlers =
-            builder::transaction::create_mini_asserts_and_assert_end_from_scripts(
-                get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                get_txhandler(&txhandlers, TransactionType::AssertBegin)?,
-                &assert_scripts,
-                root_hash,
-                nofn_xonly_pk,
-                operator_data.xonly_pk,
-                config.network,
-            )?;
-        for txhandler in mini_asserts_and_assert_end_txhandlers {
-            txhandlers.insert(txhandler.get_transaction_type(), txhandler);
-        }
-    } else {
-        let root_hash = *db_data.get_bitvm_disprove_root_hash().await?;
-        let assert_tx_addrs = db_data.get_bitvm_assert_addr().await?;
-
-        // Creates the assert_begin_tx handler.
-        let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
-            get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-            assert_tx_addrs,
-            config.network,
-        )?;
-
-        txhandlers.insert(
-            assert_begin_txhandler.get_transaction_type(),
-            assert_begin_txhandler,
-        );
-
-        // Creates the assert_end_tx handler.
-        let assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
-            get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-            get_txhandler(&txhandlers, TransactionType::AssertBegin)?,
-            assert_tx_addrs,
-            &root_hash,
-            nofn_xonly_pk,
-            operator_data.xonly_pk,
-            config.network,
-        )?;
-
-        txhandlers.insert(
-            assert_end_txhandler.get_transaction_type(),
-            assert_end_txhandler,
-        );
-    }
-
     // Creates the disprove_timeout_tx handler.
     let disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
-        get_txhandler(&txhandlers, TransactionType::AssertEnd)?,
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         operator_data.xonly_pk,
         config.network,
@@ -632,22 +544,11 @@ pub async fn create_txhandlers(
         disprove_timeout_txhandler,
     );
 
-    // Creates the already_disproved_tx handler.
-    let already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
-        get_txhandler(&txhandlers, TransactionType::AssertEnd)?,
-        get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
-    )?;
-
-    txhandlers.insert(
-        already_disproved_txhandler.get_transaction_type(),
-        already_disproved_txhandler,
-    );
-
     // Creates the reimburse_tx handler.
     let reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
         get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-        get_txhandler(&txhandlers, TransactionType::DisproveTimeout)?,
         get_txhandler(&txhandlers, TransactionType::ReimburseGenerator)?,
+        get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         kickoff_id.kickoff_idx as usize,
         &operator_data.reimburse_addr,
     )?;
@@ -658,9 +559,9 @@ pub async fn create_txhandlers(
     );
 
     match transaction_type {
-        TransactionType::AllNeededForOperatorDeposit => {
+        TransactionType::AllNeededForDeposit => {
             let disprove_txhandler = builder::transaction::create_disprove_txhandler(
-                get_txhandler(&txhandlers, TransactionType::AssertEnd)?,
+                get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
             )?;
             txhandlers.insert(
@@ -766,18 +667,13 @@ mod tests {
             TransactionType::Kickoff,
             TransactionType::KickoffNotFinalized,
             TransactionType::Challenge,
-            TransactionType::AssertTimeout,
-            TransactionType::KickoffUtxoTimeout,
             TransactionType::WatchtowerChallengeKickoff,
-            TransactionType::StartHappyReimburse,
-            TransactionType::HappyReimburse,
-            TransactionType::AssertBegin,
-            TransactionType::AssertEnd,
             //TransactionType::Disprove, TODO: add when we add actual disprove scripts
             TransactionType::DisproveTimeout,
-            TransactionType::AlreadyDisproved,
             TransactionType::Reimburse,
+            TransactionType::AssertTimeout(0),
             TransactionType::MiniAssert(0),
+            TransactionType::ChallengeTimeout,
         ];
         txs_operator_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
@@ -906,13 +802,11 @@ mod tests {
 
         let mut txs_verifier_can_sign = vec![
             TransactionType::Challenge,
-            TransactionType::AssertTimeout,
-            TransactionType::KickoffUtxoTimeout,
+            TransactionType::AssertTimeout(0),
             TransactionType::KickoffNotFinalized,
             TransactionType::WatchtowerChallengeKickoff,
             //TransactionType::Disprove,
             TransactionType::DisproveTimeout,
-            TransactionType::AlreadyDisproved,
         ];
         txs_verifier_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));

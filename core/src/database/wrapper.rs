@@ -435,7 +435,7 @@ mod tests {
         );
 
         use crate::rpc::clementine::{
-            DepositSignatures, NormalSignatureKind, WatchtowerSignatureKind,
+            DepositSignatures, NormalSignatureKind, NumberedSignatureKind,
         };
         let signatures = DepositSignatures {
             signatures: vec![
@@ -445,7 +445,7 @@ mod tests {
                 },
                 TaggedSignature {
                     signature: vec![0x45u8; 64],
-                    signature_id: Some((WatchtowerSignatureKind::OperatorChallengeNack2, 1).into()),
+                    signature_id: Some((NumberedSignatureKind::OperatorChallengeNack2, 1).into()),
                 },
             ],
         };

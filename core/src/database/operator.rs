@@ -22,9 +22,9 @@ use std::str::FromStr;
 
 pub type RootHash = [u8; 32];
 //pub type PublicInputWots = Vec<[u8; 20]>;
-pub type AssertTxAddrs = Vec<ScriptBuf>;
+pub type AssertTxHash = Vec<[u8; 32]>;
 
-pub type BitvmSetup = (AssertTxAddrs, RootHash);
+pub type BitvmSetup = (AssertTxHash, RootHash);
 
 impl Database {
     /// Sets a sequential collateral tx details for an operator.
@@ -668,7 +668,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
-        assert_tx_addrs: impl AsRef<[ScriptBuf]>,
+        assert_tx_addrs: impl AsRef<[[u8; 32]]>,
         root_hash: &[u8; 32],
     ) -> Result<(), BridgeError> {
         let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
@@ -719,7 +719,7 @@ impl Database {
                 let mut root_hash_array = [0u8; 32];
                 root_hash_array.copy_from_slice(&root_hash);
 
-                let assert_tx_addrs: Vec<ScriptBuf> = assert_tx_addrs
+                let assert_tx_addrs: Vec<[u8; 32]> = assert_tx_addrs
                     .into_iter()
                     .map(|addr| addr.into())
                     .collect();
@@ -770,7 +770,7 @@ mod tests {
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::Operator;
     use crate::rpc::clementine::{
-        DepositSignatures, NormalSignatureKind, TaggedSignature, WatchtowerSignatureKind,
+        DepositSignatures, NormalSignatureKind, TaggedSignature, NumberedSignatureKind,
     };
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
@@ -1093,7 +1093,7 @@ mod tests {
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;
-        let assert_tx_addrs = [vec![1u8; 34], vec![4u8; 34]];
+        let assert_tx_hashes: Vec<[u8; 32]> = vec![[1u8; 32], [4u8; 32]];
         let root_hash = [42u8; 32];
         //let public_input_wots = vec![[1u8; 20], [2u8; 20]];
 
@@ -1108,10 +1108,7 @@ mod tests {
                 None,
                 operator_idx,
                 deposit_outpoint,
-                assert_tx_addrs
-                    .iter()
-                    .map(|addr| addr.clone().into())
-                    .collect::<Vec<ScriptBuf>>(),
+                &assert_tx_hashes,
                 &root_hash,
             )
             .await
@@ -1126,10 +1123,7 @@ mod tests {
 
         assert_eq!(
             result.0,
-            assert_tx_addrs
-                .iter()
-                .map(|addr| addr.clone().into())
-                .collect::<Vec<ScriptBuf>>()
+            assert_tx_hashes
         );
         assert_eq!(result.1, root_hash);
 
@@ -1197,7 +1191,7 @@ mod tests {
                     signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
                 },
                 TaggedSignature {
-                    signature_id: Some((WatchtowerSignatureKind::OperatorChallengeNack1, 1).into()),
+                    signature_id: Some((NumberedSignatureKind::OperatorChallengeNack1, 1).into()),
                     signature: (vec![0x2F; SCHNORR_SIGNATURE_SIZE]),
                 },
             ],

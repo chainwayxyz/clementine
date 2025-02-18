@@ -152,7 +152,7 @@ pub async fn create_assert_commitment_txs(
         config.clone(),
         assert_data.deposit_data.clone(),
         nofn_xonly_pk,
-        TransactionType::AssertEnd,
+        TransactionType::MiniAssert(0),
         assert_data.kickoff_id,
         operator_data,
         None,
@@ -177,12 +177,6 @@ pub async fn create_assert_commitment_txs(
         )
         .await?;
     let signatures = sig_query.unwrap_or_default();
-
-    let mut assert_begin_txhandler = txhandlers
-        .remove(&TransactionType::AssertBegin)
-        .ok_or(BridgeError::TxHandlerNotFound(TransactionType::AssertBegin))?;
-    signer.tx_sign_and_fill_sigs(&mut assert_begin_txhandler, &signatures)?;
-    signed_txhandlers.push(assert_begin_txhandler.promote()?);
 
     for (idx, (step_name, &step_size)) in
         utils::BITVM_CACHE.intermediate_variables.iter().enumerate()
@@ -211,12 +205,6 @@ pub async fn create_assert_commitment_txs(
         )?;
         signed_txhandlers.push(mini_assert_txhandler.promote()?);
     }
-
-    let mut assert_end_txhandler = txhandlers
-        .remove(&TransactionType::AssertEnd)
-        .ok_or(BridgeError::TxHandlerNotFound(TransactionType::AssertEnd))?;
-    signer.tx_sign_and_fill_sigs(&mut assert_end_txhandler, &signatures)?;
-    signed_txhandlers.push(assert_end_txhandler.promote()?);
 
     Ok(RawSignedTxs {
         raw_txs: signed_txhandlers
