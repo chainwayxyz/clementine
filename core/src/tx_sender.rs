@@ -1,8 +1,7 @@
 use std::time::Duration;
 
 use bitcoin::{
-    consensus::serialize, transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction,
-    TxOut, Txid, Weight,
+    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
 };
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use tokio::task::JoinHandle;

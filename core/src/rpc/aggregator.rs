@@ -400,7 +400,7 @@ impl Aggregator {
         let move_tx = move_txhandler.get_cached_tx();
 
         self.tx_sender
-            .try_to_send(&move_tx, FeePayingType::CPFP, &[], &[], &[])
+            .try_to_send(move_tx, FeePayingType::CPFP, &[], &[], &[])
             .await?;
 
         // everything is fine, return the signed move tx
