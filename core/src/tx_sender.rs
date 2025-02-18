@@ -700,6 +700,7 @@ mod tests {
         rpc: &ExtendedRpc,
         signer: Actor,
         network: bitcoin::Network,
+        fee_paying_type: FeePayingType,
     ) -> Result<Transaction, BridgeError> {
         let (address, spend_info) =
             builder::address::create_taproot_address(&[], Some(signer.xonly_public_key), network);
@@ -708,8 +709,13 @@ mod tests {
         let outpoint = rpc.send_to_address(&address, amount).await?;
         rpc.mine_blocks(1).await?;
 
+        let version = match fee_paying_type {
+            FeePayingType::CPFP => Version::non_standard(3),
+            FeePayingType::RBF => Version::TWO,
+        };
+
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
-            .with_version(Version::non_standard(3))
+            .with_version(version)
             .add_input(
                 NormalSignatureKind::NotStored,
                 SpendableTxIn::new(
@@ -733,13 +739,17 @@ mod tests {
             ))
             .finalize();
 
-        let sighash =
-            builder.calculate_pubkey_spend_sighash(0, bitcoin::TapSighashType::Default)?;
+        let sighash_type = match fee_paying_type {
+            FeePayingType::CPFP => bitcoin::TapSighashType::Default,
+            FeePayingType::RBF => bitcoin::TapSighashType::AllPlusAnyoneCanPay,
+        };
+
+        let sighash = builder.calculate_pubkey_spend_sighash(0, sighash_type)?;
         let signature = signer.sign_with_tweak(sighash, None)?;
         builder.set_p2tr_key_spend_witness(
             &bitcoin::taproot::Signature {
                 signature,
-                sighash_type: bitcoin::TapSighashType::Default,
+                sighash_type,
             },
             0,
         )?;
@@ -749,7 +759,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_fee_payer_tx() -> Result<(), BridgeError> {
+    async fn test_try_to_send() -> Result<(), BridgeError> {
         let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
@@ -767,10 +777,35 @@ mod tests {
             .await
             .unwrap();
 
-        let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
+        let tx = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::CPFP)
+            .await
+            .unwrap();
 
         tx_sender
             .try_to_send(&tx, FeePayingType::CPFP, &[], &[], &[])
+            .await
+            .unwrap();
+
+        for _ in 0..30 {
+            rpc.mine_blocks(1).await.unwrap();
+
+            let tx_result = rpc
+                .client
+                .get_raw_transaction_info(&tx.compute_txid(), None)
+                .await;
+
+            if tx_result.is_ok() && tx_result.unwrap().confirmations.unwrap() > 0 {
+                return Ok(());
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        let tx2 = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::RBF)
+            .await
+            .unwrap();
+        tx_sender
+            .try_to_send(&tx2, FeePayingType::RBF, &[], &[], &[])
             .await
             .unwrap();
 
