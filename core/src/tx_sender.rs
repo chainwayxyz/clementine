@@ -784,6 +784,10 @@ mod tests {
             .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[])
             .await
             .unwrap();
+        tx_sender
+            .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[])
+            .await
+            .unwrap(); // It is ok to call this twice
         dbtx.commit().await.unwrap();
 
         for _ in 0..30 {
