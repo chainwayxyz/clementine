@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{bitcoin_syncer::BitcoinSyncerEvent, errors::BridgeError, execute_query_with_tx};
 use bitcoin::{BlockHash, OutPoint, Txid};
-use std::{ops::DerefMut, str::FromStr};
+use std::ops::DerefMut;
 
 impl Database {
     /// # Returns
@@ -49,6 +49,23 @@ impl Database {
 
         Ok(ret.map(|(prev_hash, height)| (prev_hash.0, height as u32)))
     }
+
+    pub async fn get_block_info_from_id(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_id: u32,
+    ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1 AND is_canonical = true",
+        )
+        .bind(block_id as i32);
+
+        let ret: Option<(BlockHashDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(ret.map(|(block_hash, height)| (block_hash.0, height as u32)))
+    }
+
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -66,23 +83,19 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         height: u64,
-    ) -> Result<Vec<BlockHash>, BridgeError> {
+    ) -> Result<Vec<i32>, BridgeError> {
         let query = sqlx::query_as(
             "WITH deleted AS (
                 UPDATE bitcoin_syncer 
                 SET is_canonical = false 
                 WHERE height > $1 
-                RETURNING blockhash
-            ) SELECT blockhash FROM deleted",
+                RETURNING block_id
+            ) SELECT block_id FROM deleted",
         )
         .bind(height as i64);
 
-        let block_hashes: Vec<(String,)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-        Ok(block_hashes
-            .into_iter()
-            .map(|(hash,)| BlockHash::from_str(&hash))
-            .collect::<Result<Vec<_>, _>>()?)
+        let block_ids: Vec<(i32,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        Ok(block_ids.into_iter().map(|(block_id,)| block_id).collect())
     }
 
     pub async fn add_txid_to_block(
@@ -164,98 +177,16 @@ impl Database {
         event_type: BitcoinSyncerEvent,
     ) -> Result<(), BridgeError> {
         let query = match event_type {
-            BitcoinSyncerEvent::NewBlock(block_hash) => sqlx::query(
-                "INSERT INTO bitcoin_syncer_events (blockhash, event_type) VALUES ($1, 'new_block'::bitcoin_syncer_event_type)",
+            BitcoinSyncerEvent::NewBlock(block_id) => sqlx::query(
+                "INSERT INTO bitcoin_syncer_events (block_id, event_type) VALUES ($1, 'new_block'::bitcoin_syncer_event_type)",
             )
-            .bind(BlockHashDB(block_hash)),
-            BitcoinSyncerEvent::ReorgedBlock(block_hash) => sqlx::query(
-                "INSERT INTO bitcoin_syncer_events (blockhash, event_type) VALUES ($1, 'reorged_block'::bitcoin_syncer_event_type)",
+            .bind(block_id as i32),
+            BitcoinSyncerEvent::ReorgedBlock(block_id) => sqlx::query(
+                "INSERT INTO bitcoin_syncer_events (block_id, event_type) VALUES ($1, 'reorged_block'::bitcoin_syncer_event_type)",
             )
-            .bind(BlockHashDB(block_hash)),
+            .bind(block_id as i32),
         };
         execute_query_with_tx!(self.connection, tx, query, execute)?;
-        Ok(())
-    }
-
-    pub async fn confirm_transactions(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        block_hash: &bitcoin::BlockHash,
-    ) -> Result<(), BridgeError> {
-        // Update tx_sender_fee_payer_utxos
-        sqlx::query(
-            r#"
-            UPDATE tx_sender_fee_payer_utxos utxos
-            SET 
-                is_confirmed = true,
-                confirmed_blockhash = bs.blockhash
-            FROM bitcoin_syncer_txs bstx
-            JOIN bitcoin_syncer bs ON bstx.block_id = bs.id
-            WHERE utxos.fee_payer_txid = bstx.txid
-              AND bs.blockhash = $1
-            "#,
-        )
-        .bind(BlockHashDB(*block_hash))
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_txs
-        sqlx::query(
-            r#"
-            UPDATE tx_sender_txs txs
-            SET 
-                is_confirmed = true,
-                confirmed_blockhash = bs.blockhash
-            FROM bitcoin_syncer_txs bstx
-            JOIN bitcoin_syncer bs ON bstx.block_id = bs.id
-            WHERE txs.txid = bstx.txid
-              AND bs.blockhash = $1
-            "#,
-        )
-        .bind(BlockHashDB(*block_hash))
-        .execute(tx.deref_mut())
-        .await?;
-        Ok(())
-    }
-
-    pub async fn unconfirm_transactions(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        block_hash: &bitcoin::BlockHash,
-    ) -> Result<(), BridgeError> {
-        // Unconfirm tx_sender_fee_payer_utxos
-        sqlx::query(
-            r#"
-            UPDATE tx_sender_fee_payer_utxos utxos
-            SET 
-                is_confirmed = false,
-                confirmed_blockhash = NULL
-            FROM bitcoin_syncer_txs bstx
-            JOIN bitcoin_syncer bs ON bstx.block_id = bs.id
-            WHERE utxos.fee_payer_txid = bstx.txid
-              AND bs.blockhash = $1
-            "#,
-        )
-        .bind(BlockHashDB(*block_hash))
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Unconfirm tx_sender_txs
-        sqlx::query(
-            r#"
-            UPDATE tx_sender_txs txs
-            SET 
-                is_confirmed = false,
-                confirmed_blockhash = NULL
-            FROM bitcoin_syncer_txs bstx
-            JOIN bitcoin_syncer bs ON bstx.block_id = bs.id
-            WHERE txs.txid = bstx.txid
-              AND bs.blockhash = $1
-            "#,
-        )
-        .bind(BlockHashDB(*block_hash))
-        .execute(tx.deref_mut())
-        .await?;
         Ok(())
     }
 
@@ -289,9 +220,9 @@ impl Database {
         .await?;
 
         // Step 3: Retrieve the next event that hasn't been processed yet
-        let event = sqlx::query_as::<_, (i32, BlockHashDB, String)>(
+        let event = sqlx::query_as::<_, (i32, i32, String)>(
             r#"
-            SELECT id, blockhash, event_type::text
+            SELECT id, block_id, event_type::text
             FROM bitcoin_syncer_events
             WHERE id > $1
             ORDER BY id ASC
@@ -308,8 +239,8 @@ impl Database {
 
         let event = event.expect("should exist since we checked is_none()");
         let event_type = match event.2.as_str() {
-            "new_block" => BitcoinSyncerEvent::NewBlock(event.1 .0),
-            "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(event.1 .0),
+            "new_block" => BitcoinSyncerEvent::NewBlock(event.1 as u32),
+            "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(event.1 as u32),
             _ => return Err(BridgeError::Error("Invalid event type".to_string())),
         };
         let event_id = event.0;

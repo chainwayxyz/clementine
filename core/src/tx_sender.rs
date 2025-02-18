@@ -1,8 +1,7 @@
 use std::time::Duration;
 
 use bitcoin::{
-    consensus::serialize, transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction,
-    TxOut, Txid, Weight,
+    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
 };
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use tokio::task::JoinHandle;
@@ -92,39 +91,44 @@ impl TxSender {
         let this = self.clone();
 
         let handle = tokio::spawn(async move {
+            let mut current_tip_height = 0;
             loop {
-                let result: Result<(), BridgeError> = async {
-                    let mut dbtx = db.begin_transaction().await?;
+                let mut dbtx = db.begin_transaction().await?;
+
+                let is_reorg = async {
                     let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
-                    if let Some(event) = event {
-                        match event {
-                            BitcoinSyncerEvent::NewBlock(block_hash) => {
-                                db.confirm_transactions(&mut dbtx, &block_hash).await?;
+                    Ok::<bool, BridgeError>(match event {
+                        Some(event) => match event {
+                            BitcoinSyncerEvent::NewBlock(block_id) => {
+                                db.confirm_transactions(&mut dbtx, block_id as i32).await?;
+                                current_tip_height = db
+                                    .get_block_info_from_id(Some(&mut dbtx), block_id)
+                                    .await?
+                                    .ok_or(BridgeError::Error("Block not found".to_string()))?
+                                    .1;
                                 dbtx.commit().await?;
-                                let current_tip_header =
-                                    this.rpc.client.get_block_header_info(&block_hash).await?; // TODO: Fix this to db
-                                let current_tip_height = current_tip_header.height;
-                                let fee_rate = this.get_fee_rate().await?;
-                                this.try_to_send_unconfirmed_txs(
-                                    fee_rate,
-                                    current_tip_height as u64,
-                                )
-                                .await?;
+                                false
                             }
-                            BitcoinSyncerEvent::ReorgedBlock(block_hash) => {
-                                db.unconfirm_transactions(&mut dbtx, &block_hash).await?;
+                            BitcoinSyncerEvent::ReorgedBlock(block_id) => {
+                                db.unconfirm_transactions(&mut dbtx, block_id as i32)
+                                    .await?;
                                 dbtx.commit().await?;
+                                true
                             }
-                        }
-                    }
-
-                    Ok(())
+                        },
+                        None => true,
+                    })
                 }
-                .await;
+                .await?;
 
-                if let Err(e) = result {
-                    tracing::error!("Error in tx_sender background task: {}", e);
+                if is_reorg {
+                    // Don't wait in reorg, simply get the next event, there has to be a new event.
+                    continue;
                 }
+
+                let fee_rate = this.get_fee_rate().await?;
+                this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height as u64)
+                    .await?;
 
                 tokio::time::sleep(poll_delay).await;
             }
@@ -611,11 +615,14 @@ impl TxSender {
                             tracing::error!("TXSENDER: Insufficient fee payer amount, creating new fee payer UTXO");
                             let tx = self.db.get_tx(None, id).await?;
                             let _fee_payer_utxo = self
-                                .create_fee_payer_utxo(id, tx.weight(), FeePayingType::CPFP)
+                                .create_fee_payer_utxo(id, tx.weight(), fee_paying_type)
                                 .await?;
                             continue;
                         }
-                        _ => return Err(e),
+                        _ => {
+                            tracing::error!("TXSENDER: Error sending tx with CPFP: {:?}", e);
+                            continue;
+                        }
                     }
                 }
             }
@@ -714,7 +721,6 @@ mod tests {
     async fn test_create_fee_payer_tx() {
         let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc().clone();
         let rpc = regtest.rpc().clone();
         rpc.mine_blocks(1).await.unwrap();
 

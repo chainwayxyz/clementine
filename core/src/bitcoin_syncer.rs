@@ -24,8 +24,8 @@ struct BlockInfo {
 /// Events emitted by the Bitcoin syncer.
 #[derive(Clone, Debug)]
 pub enum BitcoinSyncerEvent {
-    NewBlock(BlockHash),
-    ReorgedBlock(BlockHash),
+    NewBlock(u32),
+    ReorgedBlock(u32),
 }
 
 /// Fetches the [`BlockInfo`] for a given height from Bitcoin.
@@ -155,12 +155,9 @@ pub async fn set_initial_block_info_if_not_exists(
 
     let mut dbtx = db.begin_transaction().await?;
 
-    save_block(db, &mut dbtx, &block, current_height as i64).await?;
-    db.add_event(
-        Some(&mut dbtx),
-        BitcoinSyncerEvent::NewBlock(block_info.hash),
-    )
-    .await?;
+    let block_id = save_block(db, &mut dbtx, &block, current_height as i64).await?;
+    db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        .await?;
 
     dbtx.commit().await?;
 
@@ -234,9 +231,12 @@ async fn handle_reorg_events(
         .set_non_canonical_block_hashes(Some(dbtx), common_ancestor_height)
         .await?;
 
-    for reorg_hash in reorg_blocks {
-        db.add_event(Some(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_hash))
-            .await?;
+    for reorg_block_id in reorg_blocks {
+        db.add_event(
+            Some(dbtx),
+            BitcoinSyncerEvent::ReorgedBlock(reorg_block_id as u32),
+        )
+        .await?;
     }
 
     Ok(())
@@ -252,8 +252,8 @@ async fn process_new_blocks(
     for block_info in new_blocks {
         let block = rpc.client.get_block(&block_info.hash).await?;
 
-        save_block(db, dbtx, &block, block_info.height as i64).await?;
-        db.add_event(Some(dbtx), BitcoinSyncerEvent::NewBlock(block_info.hash))
+        let block_id = save_block(db, dbtx, &block, block_info.height as i64).await?;
+        db.add_event(Some(dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await?;
     }
 

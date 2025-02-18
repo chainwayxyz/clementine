@@ -214,15 +214,17 @@ create table if not exists tx_sender_try_to_send_txs (
     fee_paying_type fee_paying_type not null,
     effective_fee_rate bigint,
     confirmed_block_id int references bitcoin_syncer(id),
+    latest_active_at timestamp,
     created_at timestamp not null default now()
 );
 
 create table if not exists tx_sender_cancel_try_to_send_outpoints (
     cancelled_id int not null references tx_sender_try_to_send_txs(id),
-    outpoint text not null check (outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
+    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    vout int not null,
     seen_block_id int references bitcoin_syncer(id),
     created_at timestamp not null default now(),
-    primary key (cancelled_id, outpoint)
+    primary key (cancelled_id, txid, vout)
 );
 
 create table if not exists tx_sender_cancel_try_to_send_txids (
@@ -270,14 +272,14 @@ create type bitcoin_syncer_event_type as enum ('new_block', 'reorged_block');
 
 create table if not exists bitcoin_syncer_events (
     id serial primary key,
-    blockhash text not null,
+    block_id int not null references bitcoin_syncer (id),
     event_type bitcoin_syncer_event_type not null,
     created_at timestamp not null default now()
 );
 
 create table if not exists bitcoin_syncer_event_handlers (
     consumer_handle text not null,
-    last_processed_event_id int not null,
+    last_processed_event_id int not null references bitcoin_syncer_events (id),
     created_at timestamp not null default now(),
     primary key (consumer_handle)
 );

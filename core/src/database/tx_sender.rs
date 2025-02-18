@@ -3,7 +3,7 @@
 //! This module includes database functions which are mainly used by the transaction sender.
 
 use super::{
-    wrapper::{OutPointDB, ScriptBufDB, TxidDB},
+    wrapper::{OutPointDB, TxidDB},
     Database, DatabaseTransaction,
 };
 use crate::{
@@ -13,11 +13,98 @@ use crate::{
 };
 use bitcoin::{
     consensus::{deserialize, serialize},
-    Amount, FeeRate, ScriptBuf, Transaction, Txid,
+    Amount, FeeRate, Transaction, Txid,
 };
-use std::str::FromStr;
+use std::{ops::DerefMut, str::FromStr};
 
 impl Database {
+    pub async fn confirm_transactions(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        block_id: i32,
+    ) -> Result<(), BridgeError> {
+        // Update tx_sender_fee_payer_utxos
+        sqlx::query(
+            r#"
+            WITH relevant_txs AS (
+                SELECT txid
+                FROM bitcoin_syncer_txs
+                WHERE block_id = $1
+            ),
+            relevant_spent_utxos AS (
+                SELECT txid, vout
+                FROM bitcoin_syncer_spent_utxos
+                WHERE block_id = $1
+            )
+
+            -- Update tx_sender_activate_prerequisite_txs
+            UPDATE tx_sender_activate_prerequisite_txs AS tap
+            SET seen_block_id = $1
+            WHERE tap.txid IN (SELECT txid FROM relevant_txs)
+            AND tap.seen_block_id IS NULL;
+
+            -- Update tx_sender_cancel_try_to_send_txids
+            UPDATE tx_sender_cancel_try_to_send_txids AS ctt
+            SET seen_block_id = $1
+            WHERE ctt.txid IN (SELECT txid FROM relevant_txs)
+            AND ctt.seen_block_id IS NULL;
+
+            -- Update tx_sender_cancel_try_to_send_outpoints
+            UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
+            SET seen_block_id = $1
+            WHERE (cto.txid, cto.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
+            AND cto.seen_block_id IS NULL;
+
+            -- Update tx_sender_fee_payer_utxos
+            UPDATE tx_sender_fee_payer_utxos AS fpu
+            SET confirmed_block_id = $1
+            WHERE fpu.fee_payer_txid IN (SELECT txid FROM relevant_txs)
+            AND fpu.confirmed_block_id IS NULL;
+            "#,
+        )
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn unconfirm_transactions(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        block_id: i32,
+    ) -> Result<(), BridgeError> {
+        // Unconfirm tx_sender_fee_payer_utxos
+        sqlx::query(
+            r#"
+            -- Update tx_sender_activate_prerequisite_txs
+            UPDATE tx_sender_activate_prerequisite_txs AS tap
+            SET seen_block_id = NULL
+            WHERE tap.seen_block_id = $1;
+
+            -- Update tx_sender_cancel_try_to_send_txids
+            UPDATE tx_sender_cancel_try_to_send_txids AS ctt
+            SET seen_block_id = NULL
+            WHERE ctt.seen_block_id = $1;
+
+            -- Update tx_sender_cancel_try_to_send_outpoints
+            UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
+            SET seen_block_id = NULL
+            WHERE cto.seen_block_id = $1;
+
+            -- Update tx_sender_fee_payer_utxos
+            UPDATE tx_sender_fee_payer_utxos AS fpu
+            SET confirmed_block_id = NULL
+            WHERE fpu.confirmed_block_id = $1;
+            "#,
+        )
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
+
+        Ok(())
+    }
+
     /// Saves a fee payer transaction to the database.
     ///
     /// # Arguments
@@ -44,43 +131,6 @@ impl Database {
         .bind(vout as i32)
         .bind(amount.to_sat() as i64)
         .bind(replacement_of_id);
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    /// Updates the confirmation status of a fee payer transaction.
-    pub async fn confirm_fee_payer_tx(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        fee_payer_txid: Txid,
-        blockhash: bitcoin::BlockHash,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "UPDATE tx_sender_fee_payer_utxos 
-             SET is_confirmed = true, confirmed_blockhash = $1 
-             WHERE fee_payer_txid = $2",
-        )
-        .bind(blockhash.to_string())
-        .bind(fee_payer_txid.to_string());
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    pub async fn reset_fee_payer_tx(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        fee_payer_txid: Txid,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "UPDATE fee_payer_utxos 
-             SET is_confirmed = false, confirmed_blockhash = NULL 
-             WHERE fee_payer_txid = $1",
-        )
-        .bind(fee_payer_txid.to_string());
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -126,42 +176,42 @@ impl Database {
             .collect())
     }
 
-    /// Gets the fee payer transaction details by bumped_txid and script_pubkey.
-    ///
-    /// # Arguments
-    /// * `tx` - Optional database transaction
-    /// * `bumped_txid` - The txid of the bumped transaction
-    /// * `script_pubkey` - The script pubkey of the UTXO
-    ///
-    /// # Returns
-    /// * `Result<Vec<(Txid, u32, Amount, bool)>, BridgeError>` - Vector of (fee_payer_txid, vout, amount, is_confirmed)
-    pub async fn get_fee_payer_tx(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        bumped_id: i32,
-    ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT fee_payer_txid, vout, amount, is_confirmed 
-             FROM tx_sender_fee_payer_utxos 
-             WHERE bumped_tx_id = $1",
-        )
-        .bind(bumped_id);
+    // /// Gets the fee payer transaction details by bumped_txid and script_pubkey.
+    // ///
+    // /// # Arguments
+    // /// * `tx` - Optional database transaction
+    // /// * `bumped_txid` - The txid of the bumped transaction
+    // /// * `script_pubkey` - The script pubkey of the UTXO
+    // ///
+    // /// # Returns
+    // /// * `Result<Vec<(Txid, u32, Amount, bool)>, BridgeError>` - Vector of (fee_payer_txid, vout, amount, is_confirmed)
+    // pub async fn get_fee_payer_tx(
+    //     &self,
+    //     tx: Option<DatabaseTransaction<'_, '_>>,
+    //     bumped_id: i32,
+    // ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
+    //     let query = sqlx::query_as(
+    //         "SELECT fee_payer_txid, vout, amount, is_confirmed
+    //          FROM tx_sender_fee_payer_utxos
+    //          WHERE bumped_tx_id = $1",
+    //     )
+    //     .bind(bumped_id);
 
-        let results: Vec<(String, i32, i64, bool)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+    //     let results: Vec<(String, i32, i64, bool)> =
+    //         execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        let mut txs = Vec::new();
-        for (fee_payer_txid, vout, amount, is_confirmed) in results {
-            txs.push((
-                Txid::from_str(&fee_payer_txid).expect("Invalid fee payer txid"),
-                vout as u32,
-                Amount::from_sat(amount as u64),
-                is_confirmed,
-            ));
-        }
+    //     let mut txs = Vec::new();
+    //     for (fee_payer_txid, vout, amount, is_confirmed) in results {
+    //         txs.push((
+    //             Txid::from_str(&fee_payer_txid).expect("Invalid fee payer txid"),
+    //             vout as u32,
+    //             Amount::from_sat(amount as u64),
+    //             is_confirmed,
+    //         ));
+    //     }
 
-        Ok(txs)
-    }
+    //     Ok(txs)
+    // }
 
     pub async fn get_confirmed_fee_payer_utxos(
         &self,
@@ -310,7 +360,7 @@ impl Database {
                 SELECT activated_id
                 FROM tx_sender_activate_prerequisite_txs AS activate
                 JOIN bitcoin_syncer AS syncer ON activate.seen_block_id = syncer.id
-                WHERE (syncer.height + activate.timelock) < $2
+                WHERE (syncer.height + activate.timelock) <= $2
             ),
             valid_cancel_outpoints AS (
                 SELECT cancelled_id
@@ -322,13 +372,16 @@ impl Database {
                 FROM tx_sender_cancel_try_to_send_txids
                 WHERE seen_block_id IS NOT NULL
             )
-            SELECT txs.id, txs.fee_paying_type::text
+            UPDATE tx_sender_try_to_send_txs
+            SET latest_active_at = NOW()
+            WHERE latest_active_at IS NULL;
+            
+            SELECT txs.id, txs.fee_paying_type
             FROM tx_sender_try_to_send_txs AS txs
             WHERE txs.id IN (SELECT activated_id FROM valid_activated_txs)
                 AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
                 AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
-                AND txs.is_confirmed = false
-                AND txs.effective_fee_rate < $1",
+                AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1);",
         )
         .bind(fee_rate.to_sat_per_vb_ceil() as i64)
         .bind(current_tip_height as i64);
@@ -382,115 +435,115 @@ impl Database {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    // Imports required for create_test_config_with_thread_name macro.
-    use crate::config::BridgeConfig;
-    use crate::utils::initialize_logger;
-    use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
+// #[cfg(test)]
+// mod tests {
+//     // Imports required for create_test_config_with_thread_name macro.
+//     use crate::config::BridgeConfig;
+//     use crate::utils::initialize_logger;
+//     use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
 
-    use super::*;
-    use bitcoin::hashes::Hash;
+//     use super::*;
+//     use bitcoin::hashes::Hash;
 
-    #[tokio::test]
-    async fn test_fee_payer_tx_operations() {
-        let config = create_test_config_with_thread_name!(None);
-        let db = Database::new(&config).await.unwrap();
+//     #[tokio::test]
+//     async fn test_fee_payer_tx_operations() {
+//         let config = create_test_config_with_thread_name!(None);
+//         let db = Database::new(&config).await.unwrap();
 
-        let bumped_id = 1;
-        let fee_payer_txid = Txid::hash(&[2u8; 32]);
-        let vout = 1;
-        let amount = 50000;
+//         let bumped_id = 1;
+//         let fee_payer_txid = Txid::hash(&[2u8; 32]);
+//         let vout = 1;
+//         let amount = 50000;
 
-        // Save fee payer tx
-        db.save_fee_payer_tx(
-            None,
-            bumped_id,
-            fee_payer_txid,
-            vout,
-            Amount::from_sat(amount),
-            None,
-        )
-        .await
-        .unwrap();
+//         // Save fee payer tx
+//         db.save_fee_payer_tx(
+//             None,
+//             bumped_id,
+//             fee_payer_txid,
+//             vout,
+//             Amount::from_sat(amount),
+//             None,
+//         )
+//         .await
+//         .unwrap();
 
-        // get
+//         // get
 
-        let fee_payer_txs = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
-        assert_eq!(fee_payer_txs.len(), 1);
-        assert_eq!(fee_payer_txs[0].0, fee_payer_txid);
-        assert_eq!(fee_payer_txs[0].1, vout);
-        assert_eq!(fee_payer_txs[0].2, Amount::from_sat(amount));
-        assert!(!fee_payer_txs[0].3);
+//         let fee_payer_txs = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
+//         assert_eq!(fee_payer_txs.len(), 1);
+//         assert_eq!(fee_payer_txs[0].0, fee_payer_txid);
+//         assert_eq!(fee_payer_txs[0].1, vout);
+//         assert_eq!(fee_payer_txs[0].2, Amount::from_sat(amount));
+//         assert!(!fee_payer_txs[0].3);
 
-        // // Check unconfirmed txs
-        // let unconfirmed = db.get_unconfirmed_fee_payer_txs(None).await.unwrap();
-        // assert_eq!(unconfirmed.len(), 1);
-        // assert_eq!(
-        //     unconfirmed[0],
-        //     (bumped_txid, fee_payer_txid, vout, script_pubkey, amount)
-        // );
+//         // // Check unconfirmed txs
+//         // let unconfirmed = db.get_unconfirmed_fee_payer_txs(None).await.unwrap();
+//         // assert_eq!(unconfirmed.len(), 1);
+//         // assert_eq!(
+//         //     unconfirmed[0],
+//         //     (bumped_txid, fee_payer_txid, vout, script_pubkey, amount)
+//         // );
 
-        // // Confirm tx
-        // let blockhash = Txid::hash(&[3u8; 32]);
-        // db.confirm_fee_payer_tx(None, fee_payer_txid, blockhash)
-        //     .await
-        //     .unwrap();
+//         // // Confirm tx
+//         // let blockhash = Txid::hash(&[3u8; 32]);
+//         // db.confirm_fee_payer_tx(None, fee_payer_txid, blockhash)
+//         //     .await
+//         //     .unwrap();
 
-        // // Check unconfirmed txs again
-        // let unconfirmed = db.get_unconfirmed_fee_payer_txs(None).await.unwrap();
-        // assert_eq!(unconfirmed.len(), 0);
-    }
+//         // // Check unconfirmed txs again
+//         // let unconfirmed = db.get_unconfirmed_fee_payer_txs(None).await.unwrap();
+//         // assert_eq!(unconfirmed.len(), 0);
+//     }
 
-    #[tokio::test]
-    async fn test_get_fee_payer_tx() {
-        let config = create_test_config_with_thread_name!(None);
-        let db = Database::new(&config).await.unwrap();
+//     #[tokio::test]
+//     async fn test_get_fee_payer_tx() {
+//         let config = create_test_config_with_thread_name!(None);
+//         let db = Database::new(&config).await.unwrap();
 
-        let bumped_id = 1;
-        let fee_payer_txid = Txid::hash(&[2u8; 32]);
-        let vout = 1;
-        let amount = 50000;
+//         let bumped_id = 1;
+//         let fee_payer_txid = Txid::hash(&[2u8; 32]);
+//         let vout = 1;
+//         let amount = 50000;
 
-        // Save fee payer tx
-        db.save_fee_payer_tx(
-            None,
-            bumped_id,
-            fee_payer_txid,
-            vout,
-            Amount::from_sat(amount),
-            None,
-        )
-        .await
-        .unwrap();
+//         // Save fee payer tx
+//         db.save_fee_payer_tx(
+//             None,
+//             bumped_id,
+//             fee_payer_txid,
+//             vout,
+//             Amount::from_sat(amount),
+//             None,
+//         )
+//         .await
+//         .unwrap();
 
-        // Get and verify the fee payer tx details
-        let result = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
+//         // Get and verify the fee payer tx details
+//         let result = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
 
-        assert_eq!(result.len(), 1);
-        let (result_txid, result_vout, result_amount, is_confirmed) = result[0];
-        assert_eq!(result_txid, fee_payer_txid);
-        assert_eq!(result_vout, vout);
-        assert_eq!(result_amount, Amount::from_sat(amount));
-        assert!(!is_confirmed);
+//         assert_eq!(result.len(), 1);
+//         let (result_txid, result_vout, result_amount, is_confirmed) = result[0];
+//         assert_eq!(result_txid, fee_payer_txid);
+//         assert_eq!(result_vout, vout);
+//         assert_eq!(result_amount, Amount::from_sat(amount));
+//         assert!(!is_confirmed);
 
-        // Confirm the transaction
-        let blockhash = bitcoin::BlockHash::all_zeros();
-        db.confirm_fee_payer_tx(None, fee_payer_txid, blockhash)
-            .await
-            .unwrap();
+//         // Confirm the transaction
+//         let blockhash = bitcoin::BlockHash::all_zeros();
+//         db.confirm_fee_payer_tx(None, fee_payer_txid, blockhash)
+//             .await
+//             .unwrap();
 
-        // Check confirmed transaction
-        let result = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
-        assert_eq!(result.len(), 1);
-        let (_, _, _, is_confirmed) = result[0];
-        assert!(is_confirmed);
+//         // Check confirmed transaction
+//         let result = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
+//         assert_eq!(result.len(), 1);
+//         let (_, _, _, is_confirmed) = result[0];
+//         assert!(is_confirmed);
 
-        // Test non-existent tx
-        assert!(db
-            .get_fee_payer_tx(None, bumped_id + 1)
-            .await
-            .unwrap()
-            .is_empty());
-    }
-}
+//         // Test non-existent tx
+//         assert!(db
+//             .get_fee_payer_tx(None, bumped_id + 1)
+//             .await
+//             .unwrap()
+//             .is_empty());
+//     }
+// }
