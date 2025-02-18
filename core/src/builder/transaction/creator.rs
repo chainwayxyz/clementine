@@ -1,10 +1,12 @@
+use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::script::{SpendableScript, WinternitzCommit};
-use crate::builder::transaction::{DepositId, OperatorData, TransactionType, TxHandler};
+use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
 use crate::config::BridgeConfig;
-use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
+use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
 use crate::errors::BridgeError;
+use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use crate::{builder, utils};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
@@ -21,16 +23,197 @@ fn get_txhandler(
         .ok_or(BridgeError::TxHandlerNotFound(tx_type))
 }
 
-pub async fn create_txhandlers(
+#[derive(Debug, Clone)]
+/// Helper struct to get specific kickoff winternitz keys for a sequential collateral tx
+pub struct KickoffWinternitzKeys {
+    keys: Vec<bitvm::signatures::winternitz::PublicKey>,
+    num_kickoffs_per_seq: usize,
+}
+
+impl KickoffWinternitzKeys {
+    pub fn new(
+        keys: Vec<bitvm::signatures::winternitz::PublicKey>,
+        num_kickoffs_per_seq: usize,
+    ) -> Self {
+        Self {
+            keys,
+            num_kickoffs_per_seq,
+        }
+    }
+
+    /// Get the winternitz keys for a specific sequential collateral tx
+    pub fn get_keys_for_seq_col(
+        &self,
+        seq_col_idx: usize,
+    ) -> &[bitvm::signatures::winternitz::PublicKey] {
+        &self.keys
+            [seq_col_idx * self.num_kickoffs_per_seq..(seq_col_idx + 1) * self.num_kickoffs_per_seq]
+    }
+}
+
+/// Struct to retrieve and store DB data for creating TxHandlers on demand
+#[derive(Debug, Clone)]
+pub struct TxHandlerDbData {
     db: Database,
+    operator_idx: u32,
+    deposit_data: DepositData,
     config: BridgeConfig,
-    deposit: DepositId,
+    /// watchtower challenge addresses
+    watchtower_challenge_addr: Option<Vec<ScriptBuf>>,
+    /// winternitz keys to sign the kickoff tx with the blockhash
+    kickoff_winternitz_keys: Option<KickoffWinternitzKeys>,
+    /// bitvm assert scripts for each assert utxo
+    bitvm_assert_addr: Option<Vec<ScriptBuf>>,
+    /// bitvm disprove scripts taproot merkle tree root hash
+    bitvm_disprove_root_hash: Option<[u8; 32]>,
+    /// Public hashes to acknowledge watchtower challenges
+    challenge_ack_hashes: Option<Vec<PublicHash>>,
+}
+
+impl TxHandlerDbData {
+    pub fn new(
+        db: Database,
+        operator_idx: u32,
+        deposit_data: DepositData,
+        config: BridgeConfig,
+    ) -> Self {
+        Self {
+            db,
+            operator_idx,
+            deposit_data,
+            config,
+            watchtower_challenge_addr: None,
+            kickoff_winternitz_keys: None,
+            bitvm_assert_addr: None,
+            bitvm_disprove_root_hash: None,
+            challenge_ack_hashes: None,
+        }
+    }
+    pub async fn get_watchtower_challenge_addr(&mut self) -> Result<&[ScriptBuf], BridgeError> {
+        match self.watchtower_challenge_addr {
+            Some(ref addr) => Ok(addr),
+            None => {
+                // Get all watchtower challenge addresses for the operator.
+                let watchtower_challenge_addr = (0..self.config.num_watchtowers)
+                    .map(|i| {
+                        self.db.get_watchtower_challenge_address(
+                            None,
+                            i as u32,
+                            self.operator_idx,
+                            self.deposit_data.deposit_outpoint,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                self.watchtower_challenge_addr =
+                    Some(futures::future::try_join_all(watchtower_challenge_addr).await?);
+                Ok(self
+                    .watchtower_challenge_addr
+                    .as_ref()
+                    .expect("Inserted before"))
+            }
+        }
+    }
+
+    pub async fn get_kickoff_winternitz_keys(
+        &mut self,
+    ) -> Result<&KickoffWinternitzKeys, BridgeError> {
+        match self.kickoff_winternitz_keys {
+            Some(ref keys) => Ok(keys),
+            None => {
+                self.kickoff_winternitz_keys = Some(KickoffWinternitzKeys::new(
+                    self.db
+                        .get_operator_kickoff_winternitz_public_keys(None, self.operator_idx)
+                        .await?,
+                    self.config.num_kickoffs_per_sequential_collateral_tx,
+                ));
+                Ok(self
+                    .kickoff_winternitz_keys
+                    .as_ref()
+                    .expect("Inserted before"))
+            }
+        }
+    }
+
+    pub async fn get_bitvm_assert_addr(&mut self) -> Result<&[ScriptBuf], BridgeError> {
+        match self.bitvm_assert_addr {
+            Some(ref addr) => Ok(addr),
+            None => {
+                let (assert_addr, bitvm_hash) = self
+                    .db
+                    .get_bitvm_setup(
+                        None,
+                        self.operator_idx as i32,
+                        self.deposit_data.deposit_outpoint,
+                    )
+                    .await?
+                    .ok_or(BridgeError::BitvmSetupNotFound(
+                        self.operator_idx as i32,
+                        self.deposit_data.deposit_outpoint.txid,
+                    ))?;
+                self.bitvm_assert_addr = Some(assert_addr);
+                self.bitvm_disprove_root_hash = Some(bitvm_hash);
+                Ok(self.bitvm_assert_addr.as_ref().expect("Inserted before"))
+            }
+        }
+    }
+
+    pub async fn get_challenge_ack_hashes(&mut self) -> Result<&[PublicHash], BridgeError> {
+        match self.challenge_ack_hashes {
+            Some(ref hashes) => Ok(hashes),
+            None => {
+                self.challenge_ack_hashes = Some(
+                    self.db
+                        .get_operators_challenge_ack_hashes(
+                            None,
+                            self.operator_idx as i32,
+                            self.deposit_data.deposit_outpoint,
+                        )
+                        .await?
+                        .ok_or(BridgeError::WatchtowerPublicHashesNotFound(
+                            self.operator_idx as i32,
+                            self.deposit_data.deposit_outpoint.txid,
+                        ))?,
+                );
+                Ok(self.challenge_ack_hashes.as_ref().expect("Inserted before"))
+            }
+        }
+    }
+
+    pub async fn get_bitvm_disprove_root_hash(&mut self) -> Result<&[u8; 32], BridgeError> {
+        match self.bitvm_disprove_root_hash {
+            Some(ref hash) => Ok(hash),
+            None => {
+                let bitvm_hash = self
+                    .db
+                    .get_bitvm_root_hash(
+                        None,
+                        self.operator_idx as i32,
+                        self.deposit_data.deposit_outpoint,
+                    )
+                    .await?
+                    .ok_or(BridgeError::BitvmSetupNotFound(
+                        self.operator_idx as i32,
+                        self.deposit_data.deposit_outpoint.txid,
+                    ))?;
+                self.bitvm_disprove_root_hash = Some(bitvm_hash);
+                Ok(self
+                    .bitvm_disprove_root_hash
+                    .as_ref()
+                    .expect("Inserted before"))
+            }
+        }
+    }
+}
+
+pub async fn create_txhandlers(
+    config: BridgeConfig,
+    deposit: DepositData,
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_type: TransactionType,
     kickoff_id: KickoffId,
     operator_data: OperatorData,
-    watchtower_challenge_addr: Option<&[ScriptBuf]>,
     prev_reimburse_generator: Option<TxHandler>,
+    db_data: &mut TxHandlerDbData,
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
     let mut txhandlers = BTreeMap::new();
 
@@ -47,6 +230,8 @@ pub async fn create_txhandlers(
     )?;
     txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
 
+    let kickoff_winternitz_keys = db_data.get_kickoff_winternitz_keys().await?;
+
     let (
         sequential_collateral_txhandler,
         ready_to_reimburse_txhandler,
@@ -56,7 +241,9 @@ pub async fn create_txhandlers(
             let sequential_collateral_txhandler =
                 builder::transaction::create_sequential_collateral_txhandler(
                     operator_data.xonly_pk,
-                    *prev_reimburse_generator.get_txid(),
+                    *prev_reimburse_generator
+                        .get_spendable_output(0)?
+                        .get_prev_outpoint(),
                     prev_reimburse_generator
                         .get_spendable_output(0)?
                         .get_prevout()
@@ -64,6 +251,8 @@ pub async fn create_txhandlers(
                     config.timeout_block_count,
                     config.num_kickoffs_per_sequential_collateral_tx,
                     config.network,
+                    kickoff_winternitz_keys
+                        .get_keys_for_seq_col(kickoff_id.sequential_collateral_idx as usize),
                 )?;
 
             let ready_to_reimburse_txhandler =
@@ -95,12 +284,13 @@ pub async fn create_txhandlers(
                 reimburse_generator_txhandler,
             ) = builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
                 operator_data.xonly_pk,
-                operator_data.collateral_funding_txid,
+                operator_data.collateral_funding_outpoint,
                 config.collateral_funding_amount,
                 config.timeout_block_count,
                 config.num_kickoffs_per_sequential_collateral_tx,
                 config.network,
                 kickoff_id.sequential_collateral_idx as usize,
+                kickoff_winternitz_keys,
             )?;
             (
                 sequential_collateral_txhandler,
@@ -232,6 +422,8 @@ pub async fn create_txhandlers(
                 -1
             };
 
+        let watchtower_challenge_addr = db_data.get_watchtower_challenge_addr().await?;
+
         // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
         // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
         // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]
@@ -241,28 +433,15 @@ pub async fn create_txhandlers(
             builder::transaction::create_watchtower_challenge_kickoff_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 config.num_watchtowers as u32,
-                watchtower_challenge_addr.ok_or(BridgeError::Error(
-                    "Watchtower challenge data from db not given to create_txhandlers".to_string(),
-                ))?,
+                watchtower_challenge_addr,
             )?;
         txhandlers.insert(
             watchtower_challenge_kickoff_txhandler.get_transaction_type(),
             watchtower_challenge_kickoff_txhandler,
         );
 
-        let public_hashes = db
-            .get_operators_challenge_ack_hashes(
-                None,
-                kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
-            )
-            .await?
-            .ok_or(BridgeError::WatchtowerPublicHashesNotFound(
-                kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
-            ))?;
+        let public_hashes = db_data.get_challenge_ack_hashes().await?;
+
         // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
         // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
         // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]
@@ -281,17 +460,9 @@ pub async fn create_txhandlers(
                 )?
             } else {
                 // generate with actual scripts if we want to specifically create a watchtower challenge tx
-                let path = WinternitzDerivationPath {
-                    message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
-                    log_d: WINTERNITZ_LOG_D,
-                    tx_type: crate::actor::TxType::WatchtowerChallenge,
-                    index: None,
-                    operator_idx: Some(kickoff_id.operator_idx),
-                    watchtower_idx: None,
-                    sequential_collateral_tx_idx: Some(kickoff_id.sequential_collateral_idx),
-                    kickoff_idx: Some(kickoff_id.kickoff_idx),
-                    intermediate_step_name: None,
-                };
+                let path =
+                    WatchtowerChallenge(kickoff_id.operator_idx, deposit.deposit_outpoint.txid);
+
                 let actor = Actor::new(
                     config.secret_key,
                     config.winternitz_secret_key,
@@ -374,22 +545,16 @@ pub async fn create_txhandlers(
         for (intermediate_step, intermediate_step_size) in
             utils::BITVM_CACHE.intermediate_variables.iter()
         {
-            let path = WinternitzDerivationPath {
-                message_length: *intermediate_step_size as u32 * 2,
-                log_d: 4,
-                tx_type: crate::actor::TxType::BitVM,
-                index: Some(kickoff_id.operator_idx), // same as in operator get_params, idk why its not operator_idx
-                operator_idx: None,
-                watchtower_idx: None,
-                sequential_collateral_tx_idx: Some(kickoff_id.sequential_collateral_idx),
-                kickoff_idx: Some(kickoff_id.kickoff_idx),
-                intermediate_step_name: Some(intermediate_step),
-            };
+            let path = WinternitzDerivationPath::BitvmAssert(
+                *intermediate_step_size as u32 * 2,
+                intermediate_step.to_string(),
+                deposit.deposit_outpoint.txid,
+            );
             let pk = actor.derive_winternitz_pk(path)?;
             assert_scripts.push(Arc::new(WinternitzCommit::new(
                 pk,
                 operator_data.xonly_pk,
-                path.message_length,
+                *intermediate_step_size as u32 * 2,
             )));
         }
         // Creates the assert_begin_tx handler.
@@ -405,19 +570,7 @@ pub async fn create_txhandlers(
             assert_begin_txhandler,
         );
 
-        let root_hash = db
-            .get_bitvm_root_hash(
-                None,
-                kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
-            )
-            .await?
-            .ok_or(BridgeError::BitvmSetupNotFound(
-                kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
-            ))?;
+        let root_hash = db_data.get_bitvm_disprove_root_hash().await?;
 
         // Creates the assert_end_tx handler.
         let mini_asserts_and_assert_end_txhandlers =
@@ -425,7 +578,7 @@ pub async fn create_txhandlers(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 get_txhandler(&txhandlers, TransactionType::AssertBegin)?,
                 &assert_scripts,
-                &root_hash,
+                root_hash,
                 nofn_xonly_pk,
                 operator_data.xonly_pk,
                 config.network,
@@ -434,25 +587,13 @@ pub async fn create_txhandlers(
             txhandlers.insert(txhandler.get_transaction_type(), txhandler);
         }
     } else {
-        // Get the bitvm setup for this operator, sequential collateral tx, and kickoff idx.
-        let (assert_tx_addrs, root_hash, _public_input_wots) = db
-            .get_bitvm_setup(
-                None,
-                kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
-            )
-            .await?
-            .ok_or(BridgeError::BitvmSetupNotFound(
-                kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
-            ))?;
+        let root_hash = *db_data.get_bitvm_disprove_root_hash().await?;
+        let assert_tx_addrs = db_data.get_bitvm_assert_addr().await?;
 
         // Creates the assert_begin_tx handler.
         let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
             get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-            &assert_tx_addrs,
+            assert_tx_addrs,
             config.network,
         )?;
 
@@ -465,7 +606,7 @@ pub async fn create_txhandlers(
         let assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
             get_txhandler(&txhandlers, TransactionType::Kickoff)?,
             get_txhandler(&txhandlers, TransactionType::AssertBegin)?,
-            &assert_tx_addrs,
+            assert_tx_addrs,
             &root_hash,
             nofn_xonly_pk,
             operator_data.xonly_pk,
@@ -564,9 +705,12 @@ mod tests {
     };
     use bitcoin::Txid;
     use futures::future::try_join_all;
+    use std::panic;
 
     use crate::builder::transaction::TransactionType;
-    use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
+    use crate::constants::{
+        KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
+    };
     use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
@@ -674,6 +818,13 @@ mod tests {
                                         ) = tx_type
                                         {
                                             full_commit_data[*assert_idx].clone()
+                                        } else if *tx_type == TransactionType::Kickoff {
+                                            vec![
+                                                1u8;
+                                                KICKOFF_BLOCKHASH_COMMIT_LENGTH as usize
+                                                    * WINTERNITZ_LOG_D as usize
+                                                    / 8
+                                            ]
                                         } else {
                                             vec![]
                                         },

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use super::script::SpendPath;
 use super::script::{CheckSig, DepositScript, TimelockScript};
 pub use crate::builder::transaction::challenge::*;
-pub use crate::builder::transaction::creator::create_txhandlers;
+pub use crate::builder::transaction::creator::{create_txhandlers, TxHandlerDbData};
 use crate::builder::transaction::input::SpendableTxIn;
 pub use crate::builder::transaction::operator_assert::*;
 pub use crate::builder::transaction::operator_collateral::*;
@@ -27,7 +27,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
 use bitcoin::transaction::Version;
-use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -43,7 +43,7 @@ mod txhandler;
 
 /// Type to uniquely identify a deposit.
 #[derive(Debug, Clone)]
-pub struct DepositId {
+pub struct DepositData {
     /// User's deposit UTXO.
     pub deposit_outpoint: bitcoin::OutPoint,
     /// User's EVM address.
@@ -56,7 +56,7 @@ pub struct DepositId {
 pub struct OperatorData {
     pub xonly_pk: XOnlyPublicKey,
     pub reimburse_addr: Address,
-    pub collateral_funding_txid: Txid,
+    pub collateral_funding_outpoint: OutPoint,
 }
 
 /// Types of all transactions that can be created. Some transactions have an (usize) to as they are created

@@ -357,7 +357,7 @@ fn get_script_from_arr<T: SpendableScript>(
 }
 #[cfg(test)]
 mod tests {
-    use crate::actor::{Actor, TxType, WinternitzDerivationPath};
+    use crate::actor::{Actor, WinternitzDerivationPath};
     use crate::extended_rpc::ExtendedRpc;
     use crate::{create_regtest_rpc, create_test_config_with_thread_name, utils};
     use std::sync::Arc;
@@ -506,7 +506,7 @@ mod tests {
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
     use crate::utils::SECP;
-    use bitcoin::{Amount, Sequence, TxOut};
+    use bitcoin::{Amount, Sequence, TxOut, Txid};
 
     async fn create_taproot_test_tx(
         rpc: &ExtendedRpc,
@@ -619,17 +619,9 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let derivation = WinternitzDerivationPath {
-            message_length: 64,
-            log_d: 4,
-            tx_type: TxType::BitVM,
-            index: Default::default(),
-            operator_idx: Default::default(),
-            watchtower_idx: Default::default(),
-            sequential_collateral_tx_idx: Some(0),
-            kickoff_idx: Some(0),
-            intermediate_step_name: None,
-        };
+        let derivation =
+            WinternitzDerivationPath::BitvmAssert(64, "x".to_string(), Txid::all_zeros());
+
         let signer = Actor::new(
             kp.secret_key(),
             Some(kp.secret_key()),
@@ -638,7 +630,7 @@ mod tests {
 
         let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
             signer
-                .derive_winternitz_pk(derivation)
+                .derive_winternitz_pk(derivation.clone())
                 .expect("failed to derive Winternitz public key"),
             xonly_pk,
             64,

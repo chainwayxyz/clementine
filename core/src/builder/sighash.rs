@@ -7,7 +7,7 @@
 
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
-    create_txhandlers, DepositId, OperatorData, TransactionType, TxHandler,
+    create_txhandlers, DepositData, OperatorData, TransactionType, TxHandler, TxHandlerDbData,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -15,7 +15,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::KickoffId;
 use async_stream::try_stream;
-use bitcoin::{Address, TapSighash, Txid, XOnlyPublicKey};
+use bitcoin::{Address, OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
 /// Returns the number of required signatures for N-of-N signing session.
@@ -111,33 +111,30 @@ impl PartialSignatureInfo {
 pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,
-    deposit_data: DepositId,
+    deposit_data: DepositData,
     nofn_xonly_pk: XOnlyPublicKey,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
-        let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
+        let operators: Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)> =
             db.get_operators(None).await?;
         if operators.len() < config.num_operators {
             Err(BridgeError::NotEnoughOperators)?;
         }
 
-        for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid)) in
+        for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_outpoint)) in
             operators.iter().enumerate()
         {
-            // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
-            let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
-                .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, operator_idx as u32))
-                .collect::<Vec<_>>();
-            let watchtower_all_challenge_addresses = futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
+            let mut tx_db_data = TxHandlerDbData::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
 
             let mut last_reimburse_generator: Option<TxHandler> = None;
 
             let operator_data = OperatorData {
                 xonly_pk: *operator_xonly_pk,
                 reimburse_addr: operator_reimburse_address.clone(),
-                collateral_funding_txid: *collateral_funding_txid,
+                collateral_funding_outpoint: *collateral_funding_outpoint,
             };
+
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
             for sequential_collateral_tx_idx in 0..config.num_sequential_collateral_txs {
@@ -150,13 +147,7 @@ pub fn create_nofn_sighash_stream(
                 for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
                     let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_tx_idx, kickoff_idx);
 
-                    // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
-                    let watchtower_challenge_addresses = (0..config.num_watchtowers)
-                    .map(|i| watchtower_all_challenge_addresses[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
-                    .collect::<Vec<_>>();
-
                     let mut txhandlers = create_txhandlers(
-                        db.clone(),
                         config.clone(),
                         deposit_data.clone(),
                         nofn_xonly_pk,
@@ -167,8 +158,8 @@ pub fn create_nofn_sighash_stream(
                             kickoff_idx: kickoff_idx as u32,
                         },
                         operator_data.clone(),
-                        Some(&watchtower_challenge_addresses),
                         last_reimburse_generator,
+                        &mut tx_db_data,
                     ).await?;
 
                     let mut sum = 0;
@@ -198,25 +189,21 @@ pub fn create_nofn_sighash_stream(
 pub fn create_operator_sighash_stream(
     db: Database,
     operator_idx: usize,
-    collateral_funding_txid: Txid,
+    collateral_funding_outpoint: OutPoint,
     operator_reimburse_addr: Address,
     operator_xonly_pk: XOnlyPublicKey,
     config: BridgeConfig,
-    deposit_data: DepositId,
+    deposit_data: DepositData,
     nofn_xonly_pk: XOnlyPublicKey,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         let operator_data = OperatorData {
             xonly_pk: operator_xonly_pk,
             reimburse_addr: operator_reimburse_addr,
-            collateral_funding_txid,
+            collateral_funding_outpoint,
         };
 
-        // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
-        let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
-            .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, operator_idx as u32))
-            .collect::<Vec<_>>();
-        let watchtower_all_challenge_addresses = futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
+        let mut tx_db_data = TxHandlerDbData::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
 
         let mut last_reimburse_generator: Option<TxHandler> = None;
 
@@ -225,13 +212,7 @@ pub fn create_operator_sighash_stream(
             for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
                 let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_tx_idx, kickoff_idx);
 
-                // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
-                let watchtower_challenge_addresses = (0..config.num_watchtowers)
-                .map(|i| watchtower_all_challenge_addresses[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
-                .collect::<Vec<_>>();
-
                 let mut txhandlers = create_txhandlers(
-                    db.clone(),
                     config.clone(),
                     deposit_data.clone(),
                     nofn_xonly_pk,
@@ -242,8 +223,8 @@ pub fn create_operator_sighash_stream(
                         kickoff_idx: kickoff_idx as u32,
                     },
                     operator_data.clone(),
-                    Some(&watchtower_challenge_addresses),
                     last_reimburse_generator,
+                    &mut tx_db_data,
                 ).await?;
 
                 let mut sum = 0;
@@ -266,7 +247,7 @@ pub fn create_operator_sighash_stream(
 #[cfg(test)]
 mod tests {
     use crate::builder::sighash::create_nofn_sighash_stream;
-    use crate::builder::transaction::DepositId;
+    use crate::builder::transaction::DepositData;
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::Operator;
     use crate::utils::BITVM_CACHE;
@@ -310,7 +291,10 @@ mod tests {
                 i.try_into().unwrap(),
                 operator_xonly_pk,
                 recovery_taproot_address.to_string(),
-                Txid::all_zeros(),
+                OutPoint {
+                    vout: 0x45,
+                    txid: Txid::all_zeros(),
+                },
             )
             .await
             .unwrap();
@@ -321,24 +305,27 @@ mod tests {
                 .unwrap();
         }
         for i in 0..config.num_operators {
-            db.set_operator_winternitz_public_keys(
+            db.set_operator_kickoff_winternitz_public_keys(
                 None,
                 i.try_into().unwrap(),
-                operator.get_winternitz_public_keys().unwrap(),
+                operator
+                    .generate_assert_winternitz_pubkeys(Txid::all_zeros())
+                    .unwrap(),
             )
             .await
             .unwrap();
         }
         for i in 0..config.num_operators {
             for j in 0..config.num_watchtowers {
-                db.set_watchtower_challenge_addresses(
+                db.set_watchtower_challenge_address(
                     None,
                     j.try_into().unwrap(),
                     i.try_into().unwrap(),
-                    watchtower
-                        .get_watchtower_challenge_addresses()
+                    &watchtower
+                        .get_watchtower_challenge_addresses(Txid::all_zeros())
                         .await
-                        .unwrap(),
+                        .unwrap()[i],
+                    deposit_outpoint,
                 )
                 .await
                 .unwrap();
@@ -346,42 +333,31 @@ mod tests {
         }
         let assert_len = BITVM_CACHE.intermediate_variables.len();
         for o in 0..config.num_operators {
-            for t in 0..config.num_sequential_collateral_txs {
-                for k in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                    db.set_bitvm_setup(
-                        None,
-                        o.try_into().unwrap(),
-                        t.try_into().unwrap(),
-                        k.try_into().unwrap(),
-                        vec![ScriptBuf::default(); assert_len],
-                        &[0x45; 32],
-                        vec![],
-                    )
-                    .await
-                    .unwrap();
-                }
-            }
+            db.set_bitvm_setup(
+                None,
+                o.try_into().unwrap(),
+                deposit_outpoint,
+                vec![ScriptBuf::default(); assert_len],
+                &[0x45; 32],
+            )
+            .await
+            .unwrap();
         }
         for o in 0..config.num_operators {
-            for t in 0..config.num_sequential_collateral_txs {
-                for k in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                    db.set_operator_challenge_ack_hashes(
-                        None,
-                        o.try_into().unwrap(),
-                        t.try_into().unwrap(),
-                        k.try_into().unwrap(),
-                        vec![[0x45; 20]; config.num_watchtowers],
-                    )
-                    .await
-                    .unwrap();
-                }
-            }
+            db.set_operator_challenge_ack_hashes(
+                None,
+                o.try_into().unwrap(),
+                deposit_outpoint,
+                &vec![[0x45; 20]; config.num_watchtowers],
+            )
+            .await
+            .unwrap();
         }
 
         let mut nofn_stream = pin!(create_nofn_sighash_stream(
             db,
             config.clone(),
-            DepositId {
+            DepositData {
                 deposit_outpoint,
                 evm_address,
                 recovery_taproot_address: recovery_taproot_address.as_unchecked().clone(),

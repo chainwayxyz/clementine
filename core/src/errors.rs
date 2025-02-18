@@ -4,7 +4,10 @@
 
 use crate::builder::transaction::TransactionType;
 use bitcoin::{
-    consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, OutPoint, Txid,
+    
+    consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, FeeRate, OutPoint,
+    OutPoint, Txid,
+,
 };
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
@@ -159,6 +162,8 @@ pub enum BridgeError {
     /// InvalidKickoffUtxo is returned when the kickoff utxo is invalid
     #[error("InvalidKickoffUtxo")]
     InvalidKickoffUtxo,
+    #[error("Operator idx {0} was not found in the DB")]
+    OperatorNotFound(u32),
 
     #[error("Error while generating musig nonces: {0}")]
     MusigNonceGenFailed(#[from] musig::MusigNonceGenError),
@@ -260,11 +265,11 @@ pub enum BridgeError {
     )]
     InvalidStepCommitData(usize, usize, usize),
 
-    #[error("BitvmSetupNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
-    BitvmSetupNotFound(i32, i32, i32),
+    #[error("BitvmSetupNotFound for operator {0}, deposit_txid {1}")]
+    BitvmSetupNotFound(i32, Txid),
 
-    #[error("WatchtowerPublicHashesNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
-    WatchtowerPublicHashesNotFound(i32, i32, i32),
+    #[error("WatchtowerPublicHashesNotFound for operator {0}, deposit_txid {1}")]
+    WatchtowerPublicHashesNotFound(i32, Txid),
 
     #[error("Challenge addresses of the watchtower {0} for the operator {1} not found")]
     WatchtowerChallengeAddressesNotFound(u32, u32),
@@ -307,6 +312,11 @@ pub enum BridgeError {
 
     #[error("Effective fee rate is lower than required")]
     EffectiveFeeRateLowerThanRequired,
+
+    #[error("Can't bump fee for Txid of {0} and feerate of {1}: {2}")]
+    BumpFeeError(Txid, FeeRate, String),
+    #[error("Cannot bump fee - UTXO is already spent")]
+    BumpFeeUTXOSpent(OutPoint),
 
     #[error("Cannot bump fee - UTXO is already spent")]
     BumpFeeUTXOSpent(OutPoint),

@@ -181,7 +181,7 @@ impl ExtendedRpc {
         txid: Txid,
         fee_rate: FeeRate,
     ) -> Result<Txid, BridgeError> {
-        let bump_fee_result = self
+        let bump_fee_result = match self
             .client
             .bump_fee(
                 &txid,
@@ -193,31 +193,51 @@ impl ExtendedRpc {
                     ..Default::default()
                 }),
             )
-            .await;
-
-        match bump_fee_result {
-            Ok(bump_fee_result) => Ok(bump_fee_result.txid.expect("Bump fee txid is None")),
+            .await
+        {
+            Ok(bump_fee_result) => bump_fee_result,
             Err(e) => match e {
                 bitcoincore_rpc::Error::JsonRpc(json_rpc_error) => match json_rpc_error {
                     bitcoincore_rpc::RpcError::Rpc(rpc_error) => {
-                        if rpc_error.message.ends_with(" is already spent") {
-                            let outpoint_str = rpc_error
-                                .message
-                                .split(" is already spent")
-                                .next()
-                                .expect("RPC error message should contain ' is already spent'");
-                            let outpoint = OutPoint::from_str(outpoint_str)
-                                .expect("RPC error message should contain a valid outpoint");
-                            Err(BridgeError::BumpFeeUTXOSpent(outpoint))
-                        } else {
-                            Err(BridgeError::Error(rpc_error.message))
+                        if let Some(outpoint_str) =
+                            rpc_error.message.split(" is already spent").next()
+                        {
+                            let outpoint = OutPoint::from_str(outpoint_str).map_err(|e| {
+                                BridgeError::BumpFeeError(
+                                    txid,
+                                    fee_rate,
+                                    format!(
+                                        "Failed to parse an outpoint from {}: {}",
+                                        outpoint_str, e
+                                    ),
+                                )
+                            })?;
+
+                            return Err(BridgeError::BumpFeeUTXOSpent(outpoint));
                         }
+
+                        return Err(BridgeError::BumpFeeError(txid, fee_rate, rpc_error.message));
                     }
-                    _ => Err(BridgeError::Error(json_rpc_error.to_string())),
+                    _ => {
+                        return Err(BridgeError::BumpFeeError(
+                            txid,
+                            fee_rate,
+                            json_rpc_error.to_string(),
+                        ))
+                    }
                 },
-                _ => Err(BridgeError::Error(e.to_string())),
+                _ => return Err(BridgeError::BumpFeeError(txid, fee_rate, e.to_string())),
             },
-        }
+        };
+
+        bump_fee_result.txid.ok_or({
+            BridgeError::BumpFeeError(
+                txid,
+                fee_rate,
+                "Can't get Txid from bump_fee_result: Wallet private keys are disabled."
+                    .to_string(),
+            )
+        })
     }
 
     pub async fn clone_inner(&self) -> Result<Self, bitcoincore_rpc::Error> {

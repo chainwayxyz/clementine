@@ -1,7 +1,8 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, PartialSig, RawSignedTx, TransactionRequest, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerKeysWithDeposit,
+    WatchtowerParams,
 };
 use super::error;
 use crate::builder::sighash::{
@@ -14,7 +15,6 @@ use crate::{
     errors::BridgeError,
     fetch_next_message_from_stream,
     rpc::parser::{self},
-    utils::BITVM_CACHE,
     verifier::Verifier,
 };
 use bitcoin::secp256k1::PublicKey;
@@ -55,34 +55,27 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Empty>, Status> {
         let mut in_stream = req.into_inner();
 
-        let (operator_index, collateral_funding_txid, operator_xonly_pk, wallet_reimburse_address) =
-            parser::operator::parse_details(&mut in_stream).await?;
+        let (
+            operator_index,
+            collateral_funding_outpoint,
+            operator_xonly_pk,
+            wallet_reimburse_address,
+        ) = parser::operator::parse_details(&mut in_stream).await?;
 
-        let mut operator_winternitz_public_keys = Vec::new();
+        let mut operator_kickoff_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_kickoffs_per_sequential_collateral_tx
             * self.config.num_sequential_collateral_txs
-            * BITVM_CACHE.intermediate_variables.len()
         {
-            operator_winternitz_public_keys
+            operator_kickoff_winternitz_public_keys
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
-        }
-
-        let mut operators_challenge_ack_public_hashes = Vec::new();
-        for _ in 0..self.config.num_sequential_collateral_txs
-            * self.config.num_kickoffs_per_sequential_collateral_tx
-            * self.config.num_watchtowers
-        {
-            operators_challenge_ack_public_hashes
-                .push(parser::operator::parse_challenge_ack_public_hash(&mut in_stream).await?);
         }
 
         self.set_operator(
             operator_index,
-            collateral_funding_txid,
+            collateral_funding_outpoint,
             operator_xonly_pk,
             wallet_reimburse_address,
-            operator_winternitz_public_keys,
-            operators_challenge_ack_public_hashes,
+            operator_kickoff_winternitz_public_keys,
         )
         .await?;
 
@@ -98,19 +91,9 @@ impl ClementineVerifier for Verifier {
 
         let watchtower_id = parser::watchtower::parse_id(&mut in_stream).await?;
 
-        let mut watchtower_winternitz_public_keys = Vec::new();
-        for _ in 0..self.config.num_operators
-            * self.config.num_sequential_collateral_txs
-            * self.config.num_kickoffs_per_sequential_collateral_tx
-        {
-            watchtower_winternitz_public_keys
-                .push(parser::watchtower::parse_winternitz_public_key(&mut in_stream).await?);
-        }
-
         let xonly_pk = parser::watchtower::parse_xonly_pk(&mut in_stream).await?;
 
-        self.set_watchtower(watchtower_id, watchtower_winternitz_public_keys, xonly_pk)
-            .await?;
+        self.set_watchtower(watchtower_id, xonly_pk).await?;
 
         Ok(Response::new(Empty {}))
     }
@@ -165,7 +148,10 @@ impl ClementineVerifier for Verifier {
             {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
-                ) => parser::verifier::parse_deposit_params(deposit_sign_session, verifier.idx)?,
+                ) => parser::verifier::parse_deposit_sign_session(
+                    deposit_sign_session,
+                    verifier.idx,
+                )?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
             param_tx
@@ -263,7 +249,7 @@ impl ClementineVerifier for Verifier {
         let params = fetch_next_message_from_stream!(in_stream, params)?;
         let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params {
             Params::DepositSignFirstParam(deposit_sign_session) => {
-                parser::verifier::parse_deposit_params(deposit_sign_session, self.idx)?
+                parser::verifier::parse_deposit_sign_session(deposit_sign_session, self.idx)?
             }
             _ => Err(Status::internal("Expected DepositOutpoint"))?,
         };
@@ -376,5 +362,30 @@ impl ClementineVerifier for Verifier {
         .await?;
 
         Ok(Response::new(raw_tx))
+    }
+
+    async fn set_operator_keys(
+        &self,
+        request: tonic::Request<super::OperatorKeysWithDeposit>,
+    ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        let data = request.into_inner();
+        let (deposit_params, op_keys, operator_idx) =
+            parser::verifier::parse_op_keys_with_deposit(data)?;
+        self.set_operator_keys(deposit_params, op_keys, operator_idx)
+            .await?;
+        Ok(Response::new(Empty {}))
+    }
+
+    async fn set_watchtower_keys(
+        &self,
+        request: Request<WatchtowerKeysWithDeposit>,
+    ) -> Result<Response<Empty>, Status> {
+        let data = request.into_inner();
+        let (deposit_params, wt_keys, watchtower_idx) =
+            parser::verifier::parse_wt_keys_with_deposit(data)?;
+
+        self.set_watchtower_keys(deposit_params, wt_keys, watchtower_idx)
+            .await?;
+        Ok(Response::new(Empty {}))
     }
 }
