@@ -32,7 +32,8 @@ pub struct TxSender {
     pub network: bitcoin::Network,
 }
 
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, sqlx::Type)]
+#[sqlx(type_name = "fee_paying_type", rename_all = "lowercase")]
 pub enum FeePayingType {
     CPFP,
     RBF,
@@ -748,7 +749,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_fee_payer_tx() {
+    async fn test_create_fee_payer_tx() -> Result<(), BridgeError> {
         let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
@@ -762,38 +763,32 @@ mod tests {
                 .unwrap();
 
         let _tx_sender_handle = tx_sender
-            .run("tx_sender", Duration::from_secs(0))
+            .run("tx_sender", Duration::from_secs(1))
             .await
             .unwrap();
-
-        tokio::time::sleep(Duration::from_secs(3)).await;
 
         let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
-        let _outpoint = tx_sender
-            .create_fee_payer_utxo(1, tx.weight(), FeePayingType::CPFP)
-            .await
-            .unwrap();
         tx_sender
             .try_to_send(&tx, FeePayingType::CPFP, &[], &[], &[])
             .await
             .unwrap();
 
-        // Mine a block and wait for confirmation
-        rpc.mine_blocks(1).await.unwrap();
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        for _ in 0..30 {
+            rpc.mine_blocks(1).await.unwrap();
 
-        // get the tx from the rpc
-        let get_raw_transaction_result = rpc
-            .client
-            .get_raw_transaction(&tx.compute_txid(), None)
-            .await
-            .unwrap();
+            let tx_result = rpc
+                .client
+                .get_raw_transaction_info(&tx.compute_txid(), None)
+                .await;
 
-        tracing::info!(
-            "Get raw transaction result: {:?}",
-            get_raw_transaction_result
-        );
+            if tx_result.is_ok() && tx_result.unwrap().confirmations.unwrap() > 0 {
+                return Ok(());
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        panic!("Tx was not confirmed in time");
     }
 
     #[tokio::test]

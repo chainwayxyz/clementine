@@ -89,8 +89,8 @@ impl Database {
                 UPDATE bitcoin_syncer 
                 SET is_canonical = false 
                 WHERE height > $1 
-                RETURNING block_id
-            ) SELECT block_id FROM deleted",
+                RETURNING id
+            ) SELECT id FROM deleted",
         )
         .bind(height as i64);
 

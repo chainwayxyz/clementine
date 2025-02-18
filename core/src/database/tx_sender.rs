@@ -12,7 +12,7 @@ use bitcoin::{
     consensus::{deserialize, serialize},
     Amount, FeeRate, Transaction, Txid,
 };
-use std::{ops::DerefMut, str::FromStr};
+use std::ops::DerefMut;
 
 impl Database {
     pub async fn confirm_transactions(
@@ -77,9 +77,9 @@ impl Database {
         sqlx::query(&format!(
             "{} 
             UPDATE tx_sender_fee_payer_utxos AS fpu
-            SET confirmed_block_id = $1
+            SET seen_block_id = $1
             WHERE fpu.fee_payer_txid IN (SELECT txid FROM relevant_txs)
-            AND fpu.confirmed_block_id IS NULL",
+            AND fpu.seen_block_id IS NULL",
             common_ctes
         ))
         .bind(block_id)
@@ -114,8 +114,8 @@ impl Database {
 
             -- Update tx_sender_fee_payer_utxos
             UPDATE tx_sender_fee_payer_utxos AS fpu
-            SET confirmed_block_id = NULL
-            WHERE fpu.confirmed_block_id = $1;
+            SET seen_block_id = NULL
+            WHERE fpu.seen_block_id = $1;
             "#,
         )
         .bind(block_id)
@@ -128,7 +128,7 @@ impl Database {
     /// Saves a fee payer transaction to the database.
     ///
     /// # Arguments
-    /// * `bumped_txid` - The txid of the bumped transaction
+    /// * `bumped_id` - The id of the bumped transaction
     /// * `fee_payer_txid` - The txid of the fee payer transaction
     /// * `vout` - The output index of the UTXO
     /// * `script_pubkey` - The script pubkey of the UTXO
@@ -143,7 +143,7 @@ impl Database {
         replacement_of_id: Option<i32>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_fee_payer_utxos (bumped_tx_id, fee_payer_txid, vout, amount, replacement_of_id) 
+            "INSERT INTO tx_sender_fee_payer_utxos (bumped_id, fee_payer_txid, vout, amount, replacement_of_id) 
              VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(bumped_id)
@@ -169,8 +169,8 @@ impl Database {
             "
             SELECT fpu.id, fpu.fee_payer_txid, fpu.vout, fpu.amount
             FROM tx_sender_fee_payer_utxos fpu
-            WHERE fpu.bumped_txid = $1
-              AND fpu.is_confirmed = false
+            WHERE fpu.bumped_id = $1
+              AND fpu.seen_block_id IS NULL
               AND NOT EXISTS (
                   SELECT 1
                   FROM tx_sender_fee_payer_utxos replacement
@@ -196,43 +196,6 @@ impl Database {
             .collect())
     }
 
-    // /// Gets the fee payer transaction details by bumped_txid and script_pubkey.
-    // ///
-    // /// # Arguments
-    // /// * `tx` - Optional database transaction
-    // /// * `bumped_txid` - The txid of the bumped transaction
-    // /// * `script_pubkey` - The script pubkey of the UTXO
-    // ///
-    // /// # Returns
-    // /// * `Result<Vec<(Txid, u32, Amount, bool)>, BridgeError>` - Vector of (fee_payer_txid, vout, amount, is_confirmed)
-    // pub async fn get_fee_payer_tx(
-    //     &self,
-    //     tx: Option<DatabaseTransaction<'_, '_>>,
-    //     bumped_id: i32,
-    // ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
-    //     let query = sqlx::query_as(
-    //         "SELECT fee_payer_txid, vout, amount, is_confirmed
-    //          FROM tx_sender_fee_payer_utxos
-    //          WHERE bumped_tx_id = $1",
-    //     )
-    //     .bind(bumped_id);
-
-    //     let results: Vec<(String, i32, i64, bool)> =
-    //         execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-
-    //     let mut txs = Vec::new();
-    //     for (fee_payer_txid, vout, amount, is_confirmed) in results {
-    //         txs.push((
-    //             Txid::from_str(&fee_payer_txid).expect("Invalid fee payer txid"),
-    //             vout as u32,
-    //             Amount::from_sat(amount as u64),
-    //             is_confirmed,
-    //         ));
-    //     }
-
-    //     Ok(txs)
-    // }
-
     pub async fn get_confirmed_fee_payer_utxos(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -241,7 +204,7 @@ impl Database {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
             "SELECT fee_payer_txid, vout, amount 
              FROM tx_sender_fee_payer_utxos fpu
-             WHERE fpu.bumped_txid = $1 AND fpu.is_confirmed = true",
+             WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NOT NULL",
         )
         .bind(id);
 
@@ -268,7 +231,7 @@ impl Database {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
             "SELECT fee_payer_txid, vout, amount 
              FROM tx_sender_fee_payer_utxos fpu
-             WHERE fpu.bumped_txid = $1 AND fpu.is_confirmed = false",
+             WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NULL",
         )
         .bind(id);
 
@@ -287,23 +250,6 @@ impl Database {
             .collect())
     }
 
-    // /// Gets txids of txs that are unconfirmed and have a lower effective fee rate than the given fee rate.
-    // pub async fn get_unconfirmed_bumpable_txs(
-    //     &self,
-    //     tx: Option<DatabaseTransaction<'_, '_>>,
-    //     new_effective_fee_rate: FeeRate,
-    // ) -> Result<Vec<Txid>, BridgeError> {
-    //     let query = sqlx::query_as::<_, (TxidDB,)>(
-    //         "SELECT txid
-    //          FROM tx_sender_txs
-    //          WHERE is_confirmed = false AND (effective_fee_rate IS NULL OR effective_fee_rate < $1)",
-    //     )
-    //     .bind(new_effective_fee_rate.to_sat_per_vb_ceil() as i64);
-
-    //     let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-    //     Ok(results.into_iter().map(|(txid,)| txid.0).collect())
-    // }
-
     pub async fn save_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -314,7 +260,7 @@ impl Database {
             "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type) VALUES ($1, $2::fee_paying_type) RETURNING id"
         )
         .bind(serialize(raw_tx))
-        .bind(fee_paying_type.to_string());
+        .bind(fee_paying_type);
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok(id)
@@ -386,7 +332,7 @@ impl Database {
         // execute_query_with_tx!(self.connection, tx.as_ref(), update_query, execute)?;
 
         // Then perform the main selection query
-        let select_query = sqlx::query_as::<_, (i32, String)>(
+        let select_query = sqlx::query_as::<_, (i32, FeePayingType)>(
             "WITH valid_activated_txs AS (
                 SELECT activated_id
                 FROM tx_sender_activate_prerequisite_txs AS activate
@@ -403,12 +349,14 @@ impl Database {
                 FROM tx_sender_cancel_try_to_send_txids
                 WHERE seen_block_id IS NOT NULL
             )
-            SELECT txs.id, txs.fee_paying_type
+            SELECT txs.id, txs.fee_paying_type::fee_paying_type
             FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.id IN (SELECT activated_id FROM valid_activated_txs)
-                AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
-                AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
-                AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1)",
+            WHERE
+                -- txs.id IN (SELECT activated_id FROM valid_activated_txs)
+                -- AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
+                -- AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
+                -- AND
+                (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1)",
         )
         .bind(fee_rate.to_sat_per_vb_ceil() as i64)
         .bind(current_tip_height as i64);
@@ -417,12 +365,7 @@ impl Database {
 
         let txs = results
             .into_iter()
-            .map(|(id, fee_paying_type)| {
-                Ok((
-                    id,
-                    FeePayingType::from_str(&fee_paying_type).expect("Invalid fee paying type"),
-                ))
-            })
+            .map(|(id, fee_paying_type)| Ok((id, fee_paying_type)))
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         Ok(txs)
