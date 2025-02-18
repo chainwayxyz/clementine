@@ -17,17 +17,22 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
-        winternitz_public_key: Vec<WinternitzPublicKey>,
+        deposit_outpoint: bitcoin::OutPoint,
+        winternitz_public_key: &WinternitzPublicKey,
     ) -> Result<(), BridgeError> {
-        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorshError)?;
+        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let wpk = borsh::to_vec(winternitz_public_key).map_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
             "INSERT INTO watchtower_winternitz_public_keys
-            (watchtower_id, operator_id, winternitz_public_keys)
-            VALUES ($1, $2, $3);",
+            (watchtower_id, operator_id, deposit_id, winternitz_public_key)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (watchtower_id, operator_id, deposit_id) DO UPDATE
+            SET winternitz_public_key = EXCLUDED.winternitz_public_key;",
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
+        .bind(deposit_id)
         .bind(wpk);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -42,16 +47,20 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
-    ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
+        deposit_outpoint: bitcoin::OutPoint,
+    ) -> Result<winternitz::PublicKey, BridgeError> {
+        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
         let query = sqlx::query_as(
-            "SELECT winternitz_public_keys FROM watchtower_winternitz_public_keys WHERE operator_id = $1 AND watchtower_id = $2;",
+            "SELECT winternitz_public_key FROM watchtower_winternitz_public_keys WHERE operator_id = $1 AND watchtower_id = $2
+                AND deposit_id = $3;",
         )
         .bind(operator_id as i64)
-        .bind(watchtower_id as i64);
+        .bind(watchtower_id as i64)
+            .bind(deposit_id);
 
         let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        let watchtower_winternitz_public_keys: Vec<winternitz::PublicKey> =
+        let watchtower_winternitz_public_keys: winternitz::PublicKey =
             borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
 
         Ok(watchtower_winternitz_public_keys)
@@ -59,27 +68,25 @@ impl Database {
 
     /// Sets challenge addresses of a watchtower for an operator. If there is an
     /// existing entry, it overwrites it with the new addresses.
-    #[tracing::instrument(
-        level = "warn",
-        skip(self, tx, watchtower_challenge_addresses)
-        ret
-    )]
-    pub async fn set_watchtower_challenge_addresses(
+    pub async fn set_watchtower_challenge_address(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
-        watchtower_challenge_addresses: impl AsRef<[ScriptBuf]>,
+        watchtower_challenge_address: &ScriptBuf,
+        deposit_outpoint: bitcoin::OutPoint,
     ) -> Result<(), BridgeError> {
+        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
         let query = sqlx::query(
-        "INSERT INTO watchtower_challenge_addresses (watchtower_id, operator_id, challenge_addresses)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (watchtower_id, operator_id) DO UPDATE
-         SET challenge_addresses = EXCLUDED.challenge_addresses;",
+        "INSERT INTO watchtower_challenge_addresses (watchtower_id, operator_id, deposit_id, challenge_address)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (watchtower_id, operator_id, deposit_id) DO UPDATE
+         SET challenge_address = EXCLUDED.challenge_address;",
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
-        .bind(watchtower_challenge_addresses.as_ref().iter().map(|addr| addr.as_ref()).collect::<Vec<&[u8]>>());
+            .bind(deposit_id)
+        .bind(watchtower_challenge_address.as_bytes());
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -87,31 +94,27 @@ impl Database {
     }
 
     /// Gets the challenge addresses of a watchtower for an operator.
-    #[tracing::instrument(level = "warn", skip(self, tx), ret)]
-    pub async fn get_watchtower_challenge_addresses(
+    pub async fn get_watchtower_challenge_address(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
-    ) -> Result<Vec<ScriptBuf>, BridgeError> {
-        let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
-            "SELECT challenge_addresses 
-         FROM watchtower_challenge_addresses 
-         WHERE watchtower_id = $1 AND operator_id = $2;",
+        deposit_outpoint: bitcoin::OutPoint,
+    ) -> Result<ScriptBuf, BridgeError> {
+        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let query = sqlx::query_as::<_, (Vec<u8>,)>(
+            "SELECT challenge_address
+         FROM watchtower_challenge_addresses
+         WHERE watchtower_id = $1 AND operator_id = $2 and deposit_id = $3;",
         )
         .bind(watchtower_id as i64)
-        .bind(operator_id as i64);
+        .bind(operator_id as i64)
+        .bind(deposit_id);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((challenge_addresses,)) => {
-                let challenge_addresses: Vec<ScriptBuf> = challenge_addresses
-                    .into_iter()
-                    .map(|addr| addr.into())
-                    .collect();
-                Ok(challenge_addresses)
-            }
+            Some((challenge_address,)) => Ok(challenge_address.into()),
             None => Err(BridgeError::WatchtowerChallengeAddressesNotFound(
                 watchtower_id,
                 operator_id,
@@ -178,8 +181,9 @@ mod tests {
     use super::Database;
     use crate::create_test_config_with_thread_name;
     use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
+    use bitcoin::hashes::Hash;
     use bitcoin::key::{Keypair, Secp256k1};
-    use bitcoin::{ScriptBuf, XOnlyPublicKey};
+    use bitcoin::{ScriptBuf, Txid, XOnlyPublicKey};
     use bitvm::signatures::winternitz::{self};
     use secp256k1::rand;
 
@@ -190,27 +194,19 @@ mod tests {
 
         // Assuming there are 2 sequential collateral txs.
         let wpk0: winternitz::PublicKey = vec![[0x45; 20], [0x1F; 20]];
-        let wpk1: winternitz::PublicKey = vec![[0x12; 20], [0x34; 20]];
-        let watchtower_winternitz_public_keys = vec![wpk0.clone(), wpk1.clone()];
+        let deposit_outpoint = bitcoin::OutPoint::new(Txid::all_zeros(), 0x1F);
 
         database
-            .set_watchtower_winternitz_public_keys(
-                None,
-                0x45,
-                0x1F,
-                watchtower_winternitz_public_keys.clone(),
-            )
+            .set_watchtower_winternitz_public_keys(None, 0x45, 0x1F, deposit_outpoint, &wpk0)
             .await
             .unwrap();
 
         let read_wpks = database
-            .get_watchtower_winternitz_public_keys(None, 0x45, 0x1F)
+            .get_watchtower_winternitz_public_keys(None, 0x45, 0x1F, deposit_outpoint)
             .await
             .unwrap();
 
-        assert_eq!(watchtower_winternitz_public_keys.len(), read_wpks.len());
-        assert_eq!(wpk0, read_wpks[0]);
-        assert_eq!(wpk1, read_wpks[1]);
+        assert_eq!(wpk0, read_wpks);
     }
 
     #[tokio::test]
@@ -220,30 +216,29 @@ mod tests {
 
         // Assuming there are 2 time_txs.
         let address_0: ScriptBuf = ScriptBuf::from_bytes([0x45; 34].to_vec());
-        let address_1: ScriptBuf = ScriptBuf::from_bytes([0x12; 34].to_vec());
-        let watchtower_winternitz_public_keys = vec![address_0.clone(), address_1.clone()];
 
         database
-            .set_watchtower_challenge_addresses(
+            .set_watchtower_challenge_address(
                 None,
                 0x45,
                 0x1F,
-                watchtower_winternitz_public_keys.clone(),
+                &address_0,
+                bitcoin::OutPoint::new(Txid::all_zeros(), 0x1F),
             )
             .await
             .unwrap();
 
         let read_addresses = database
-            .get_watchtower_challenge_addresses(None, 0x45, 0x1F)
+            .get_watchtower_challenge_address(
+                None,
+                0x45,
+                0x1F,
+                bitcoin::OutPoint::new(Txid::all_zeros(), 0x1F),
+            )
             .await
             .unwrap();
 
-        assert_eq!(
-            watchtower_winternitz_public_keys.len(),
-            read_addresses.len()
-        );
-        assert_eq!(address_0, read_addresses[0]);
-        assert_eq!(address_1, read_addresses[1]);
+        assert_eq!(address_0, read_addresses);
     }
 
     #[tokio::test]

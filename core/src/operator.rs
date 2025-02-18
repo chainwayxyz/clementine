@@ -3,17 +3,15 @@ use std::time::Duration;
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitcoin_syncer::{self};
 use crate::builder::sighash::create_operator_sighash_stream;
-use crate::builder::transaction::DepositId;
+use crate::builder::transaction::DepositData;
 use crate::config::BridgeConfig;
-use crate::constants::WINTERNITZ_LOG_D;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::tx_sender::TxSender;
 use crate::utils::SECP;
-use crate::{builder, EVMAddress, UTXO};
-use bitcoin::address::NetworkUnchecked;
+use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message};
@@ -37,7 +35,7 @@ pub struct Operator {
     pub signer: Actor,
     pub config: BridgeConfig,
     pub nofn_xonly_pk: XOnlyPublicKey,
-    pub collateral_funding_txid: Txid,
+    pub collateral_funding_outpoint: OutPoint,
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSender,
@@ -85,37 +83,25 @@ impl Operator {
             .clone()
             .assume_checked();
 
-        // let mut tx = db.begin_transaction().await?;
-        // // check if funding utxo is already set
-        // if db.get_funding_utxo(Some(&mut tx)).await?.is_none() {
-        //     let outpoint = rpc.send_to_address(&signer.address, Amount::from_sat(200_000_000))?; // TODO: Is this OK to be a fixed value
-        //     let funding_utxo = UTXO {
-        //         outpoint,
-        //         txout: TxOut {
-        //             value: bitcoin::Amount::from_sat(200_000_000),
-        //             script_pubkey: signer.address.script_pubkey(),
-        //         },
-        //     };
-        //     db.set_funding_utxo(Some(&mut tx), funding_utxo).await?;
-        // }
-        // tx.commit().await?;
-
-        let mut tx = db.begin_transaction().await?;
-        // check if there is any sequential collateral tx from the current operator
-        let sequential_collateral_txs = db
-            .get_sequential_collateral_txs(Some(&mut tx), idx as i32)
-            .await?;
-        let collateral_funding_txid = if sequential_collateral_txs.is_empty() {
-            let outpoint = rpc
-                .send_to_address(&signer.address, Amount::from_sat(200_000_000))
-                .await?; // TODO: Is this OK to be a fixed value
-            db.set_sequential_collateral_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
+        // check if we store our collateral outpoint already in db
+        let op_data = db.get_operator(None, idx as i32).await?;
+        let collateral_funding_outpoint = match op_data {
+            Some(op_data) => op_data.collateral_funding_outpoint,
+            None => {
+                let outpoint = rpc
+                    .send_to_address(&signer.address, config.collateral_funding_amount)
+                    .await?;
+                db.set_operator(
+                    None,
+                    idx as i32,
+                    signer.xonly_public_key,
+                    reimburse_addr.to_string(),
+                    outpoint,
+                )
                 .await?;
-            outpoint.txid
-        } else {
-            sequential_collateral_txs[0].1
+                outpoint
+            }
         };
-        tx.commit().await?;
 
         let citrea_client = if !config.citrea_rpc_url.is_empty() {
             Some(HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?)
@@ -136,7 +122,7 @@ impl Operator {
             config,
             nofn_xonly_pk,
             idx,
-            collateral_funding_txid,
+            collateral_funding_outpoint,
             tx_sender,
             citrea_client,
             reimburse_addr,
@@ -154,20 +140,10 @@ impl Operator {
     /// - [`mpsc::Receiver`]: A [`tokio`] data channel with a type of
     ///   [`PublicHash`] and size of operator's challenge ack preimages & hashes
     ///   count
-    pub async fn get_params(
-        &self,
-    ) -> Result<
-        (
-            mpsc::Receiver<winternitz::PublicKey>,
-            mpsc::Receiver<PublicHash>,
-        ),
-        BridgeError,
-    > {
-        let wpks = self.get_winternitz_public_keys()?;
+    ///
+    pub async fn get_params(&self) -> Result<mpsc::Receiver<winternitz::PublicKey>, BridgeError> {
+        let wpks = self.generate_kickoff_winternitz_pubkeys()?;
         let wpk_channel = mpsc::channel(wpks.len());
-
-        let hashes = self.generate_challenge_ack_preimages_and_hashes()?;
-        let hashes_channel = mpsc::channel(hashes.len());
 
         tokio::spawn(async move {
             for wpk in wpks {
@@ -178,38 +154,26 @@ impl Operator {
                     .map_err(|e| BridgeError::SendError("winternitz public key", e.to_string()))?;
             }
 
-            for hash in hashes {
-                hashes_channel.0.send(hash).await.map_err(|e| {
-                    BridgeError::SendError("challenge_ack_preimages_and_hashes", e.to_string())
-                })?;
-            }
-
             Ok::<(), BridgeError>(())
         });
 
-        Ok((wpk_channel.1, hashes_channel.1))
+        Ok(wpk_channel.1)
     }
 
     pub async fn deposit_sign(
         &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: Address<NetworkUnchecked>,
+        deposit_id: DepositData,
     ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
         let (sig_tx, sig_rx) = mpsc::channel(1280);
 
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
             self.db.clone(),
             self.idx,
-            self.collateral_funding_txid,
+            self.collateral_funding_outpoint,
             self.reimburse_addr.clone(),
             self.signer.xonly_public_key,
             self.config.clone(),
-            DepositId {
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
-            },
+            deposit_id,
             self.nofn_xonly_pk,
         ));
 
@@ -834,38 +798,51 @@ impl Operator {
     //     Ok(txs_to_be_sent)
     // }
 
-    /// Generates Winternitz public keys for every watchtower challenge and
-    /// BitVM assert tx.
+    /// Generates Winternitz public keys for every  BitVM assert tx for a deposit.
     ///
     /// # Returns
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public keys for
     ///   `watchtower index` row and `BitVM assert tx index` column.
-    pub fn get_winternitz_public_keys(&self) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
+    pub fn generate_assert_winternitz_pubkeys(
+        &self,
+        deposit_txid: Txid,
+    ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         // TODO: Misleading name
         let mut winternitz_pubkeys = Vec::new();
 
-        for sequential_collateral_tx in 0..self.config.num_sequential_collateral_txs as u32 {
-            for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
-                // ALL_BITVM_INTERMEDIATE_VARIABLES is a global variable that contains the intermediate variables for the BitVM in BTreeMap
-                for (intermediate_step, intermediate_step_size) in
-                    crate::utils::BITVM_CACHE.intermediate_variables.iter()
-                {
-                    let step_name = intermediate_step.as_str();
-                    let path = WinternitzDerivationPath {
-                        message_length: *intermediate_step_size as u32 * 2,
-                        log_d: WINTERNITZ_LOG_D,
-                        tx_type: crate::actor::TxType::BitVM,
-                        index: Some(self.idx as u32),
-                        operator_idx: None,
-                        watchtower_idx: None,
-                        sequential_collateral_tx_idx: Some(sequential_collateral_tx),
-                        kickoff_idx: Some(kickoff_idx),
-                        intermediate_step_name: Some(step_name),
-                    };
+        for (intermediate_step, intermediate_step_size) in
+            crate::utils::BITVM_CACHE.intermediate_variables.iter()
+        {
+            let path = WinternitzDerivationPath::BitvmAssert(
+                *intermediate_step_size as u32 * 2,
+                intermediate_step.to_owned(),
+                deposit_txid,
+            );
+            winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
+        }
 
-                    winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
-                }
+        Ok(winternitz_pubkeys)
+    }
+    /// Generates Winternitz public keys for every blockhash commit to be used in kickoff utxos.
+    /// Unique for each kickoff utxo of operator.
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public keys for
+    ///   `sequential_collateral_index` row and `kickoff_idx` column.
+    pub fn generate_kickoff_winternitz_pubkeys(
+        &self,
+    ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
+        let mut winternitz_pubkeys = Vec::new();
+
+        for sequential_collateral_idx in 0..self.config.num_sequential_collateral_txs {
+            for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
+                let path = WinternitzDerivationPath::Kickoff(
+                    sequential_collateral_idx as u32,
+                    kickoff_idx as u32,
+                );
+                winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
             }
         }
 
@@ -874,27 +851,15 @@ impl Operator {
 
     pub fn generate_challenge_ack_preimages_and_hashes(
         &self,
+        deposit_txid: Txid,
     ) -> Result<Vec<PublicHash>, BridgeError> {
         let mut hashes = Vec::new();
 
-        for sequential_collateral_tx_idx in 0..self.config.num_sequential_collateral_txs as u32 {
-            for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
-                for watchtower_idx in 0..self.config.num_watchtowers {
-                    let path = WinternitzDerivationPath {
-                        message_length: 1,
-                        log_d: 1,
-                        tx_type: crate::actor::TxType::OperatorChallengeACK,
-                        index: None,
-                        operator_idx: Some(self.idx as u32), // TODO: Handle casting better
-                        watchtower_idx: Some(watchtower_idx as u32), // TODO: Handle casting better
-                        sequential_collateral_tx_idx: Some(sequential_collateral_tx_idx),
-                        kickoff_idx: Some(kickoff_idx),
-                        intermediate_step_name: None,
-                    };
-                    let hash = self.signer.generate_public_hash_from_path(path)?;
-                    hashes.push(hash); // Subject to change
-                }
-            }
+        for watchtower_idx in 0..self.config.num_watchtowers {
+            let path =
+                WinternitzDerivationPath::ChallengeAckHash(watchtower_idx as u32, deposit_txid);
+            let hash = self.signer.generate_public_hash_from_path(path)?;
+            hashes.push(hash);
         }
         tracing::info!("Public hashes len: {:?}", hashes.len());
         Ok(hashes)
@@ -910,6 +875,8 @@ mod tests {
     use crate::{
         create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator,
     };
+    use bitcoin::hashes::Hash;
+    use bitcoin::Txid;
 
     // #[tokio::test]
     // async fn set_funding_utxo() {
@@ -989,7 +956,9 @@ mod tests {
 
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
 
-        let winternitz_public_key = operator.get_winternitz_public_keys().unwrap();
+        let winternitz_public_key = operator
+            .generate_assert_winternitz_pubkeys(Txid::all_zeros())
+            .unwrap();
         assert_eq!(
             winternitz_public_key.len(),
             config.num_sequential_collateral_txs * config.num_kickoffs_per_sequential_collateral_tx
@@ -1005,14 +974,9 @@ mod tests {
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
 
         let preimages = operator
-            .generate_challenge_ack_preimages_and_hashes()
+            .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
             .unwrap();
-        assert_eq!(
-            preimages.len(),
-            config.num_sequential_collateral_txs
-                * config.num_kickoffs_per_sequential_collateral_tx
-                * config.num_watchtowers
-        );
+        assert_eq!(preimages.len(), config.num_watchtowers);
     }
 
     #[tokio::test]
@@ -1022,19 +986,14 @@ mod tests {
         let rpc = regtest.rpc();
 
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
-        let actual_wpks = operator.get_winternitz_public_keys().unwrap();
-        let actual_hashes = operator
-            .generate_challenge_ack_preimages_and_hashes()
-            .unwrap();
+        let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
 
-        let (mut wpk_rx, mut hashes_rx) = operator.get_params().await.unwrap();
-
-        for (i, wpk) in wpk_rx.recv().await.into_iter().enumerate() {
-            assert_eq!(actual_wpks[i], wpk);
+        let mut wpk_rx = operator.get_params().await.unwrap();
+        let mut idx = 0;
+        while let Some(wpk) = wpk_rx.recv().await {
+            assert_eq!(actual_wpks[idx], wpk);
+            idx += 1;
         }
-
-        for (i, hash) in hashes_rx.recv().await.into_iter().enumerate() {
-            assert_eq!(actual_hashes[i], hash);
-        }
+        assert_eq!(idx, actual_wpks.len());
     }
 }
