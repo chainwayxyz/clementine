@@ -41,10 +41,7 @@ tempfile = { workspace = true }
 [dev-dependencies]
 serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
-
-[features]
-default = []
-testing = []
+citrea-e2e = { workspace = true }
 
 [[bin]]
 name = "server"
