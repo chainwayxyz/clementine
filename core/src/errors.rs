@@ -3,7 +3,10 @@
 //! This module defines errors, returned by the library.
 
 use crate::builder::transaction::TransactionType;
-use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, Txid};
+use bitcoin::{
+    consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, FeeRate, OutPoint,
+    Txid,
+};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
 use secp256k1::musig;
@@ -284,7 +287,7 @@ pub enum BridgeError {
     #[error("Bitcoin RPC signing error: {0:?}")]
     BitcoinRPCSigningError(Vec<String>),
 
-    #[error("Fee estimation error: {0:?}")]
+    #[error("Can't estimate fees: {0:?}")]
     FeeEstimationError(Vec<String>),
 
     #[error("Fee payer transaction not found")]
@@ -304,6 +307,11 @@ pub enum BridgeError {
 
     #[error("Effective fee rate is lower than required")]
     EffectiveFeeRateLowerThanRequired,
+
+    #[error("Can't bump fee for Txid of {0} and feerate of {1}: {2}")]
+    BumpFeeError(Txid, FeeRate, String),
+    #[error("Cannot bump fee - UTXO is already spent")]
+    BumpFeeUTXOSpent(OutPoint),
 
     #[error("Encountered multiple winternitz scripts when attempting to commit to only one.")]
     MultipleWinternitzScripts,

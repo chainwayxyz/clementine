@@ -1,7 +1,4 @@
-use std::time::Duration;
-
 use crate::actor::{Actor, WinternitzDerivationPath};
-use crate::bitcoin_syncer::{self};
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::builder::transaction::DepositData;
 use crate::config::BridgeConfig;
@@ -22,6 +19,7 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -52,12 +50,6 @@ impl Operator {
         );
 
         let db = Database::new(&config).await?;
-
-        bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc).await?;
-        // Store sender in a variable to keep it alive
-        let _handle =
-            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
-                .await?;
 
         let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
 
@@ -893,7 +885,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn set_funding_utxo() {
-    //     let config = create_test_config_with_thread_name!(None);
+    //     let mut config = create_test_config_with_thread_name!(None);
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -963,7 +955,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc();
 
@@ -980,7 +972,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc();
 
@@ -994,7 +986,7 @@ mod tests {
 
     #[tokio::test]
     async fn operator_get_params() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc();
 
