@@ -2,10 +2,7 @@
 //!
 //! This module includes database functions which are mainly used by the transaction sender.
 
-use super::{
-    wrapper::{OutPointDB, TxidDB},
-    Database, DatabaseTransaction,
-};
+use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -291,7 +288,7 @@ impl Database {
         fee_paying_type: FeePayingType,
     ) -> Result<i32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type) VALUES ($1, $2) RETURNING id"
+            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type) VALUES ($1, $2::fee_paying_type) RETURNING id"
         )
         .bind(serialize(raw_tx))
         .bind(fee_paying_type.to_string());
@@ -307,10 +304,11 @@ impl Database {
         outpoint: bitcoin::OutPoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, outpoint) VALUES ($1, $2)"
+            "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, txid, vout) VALUES ($1, $2, $3)"
         )
         .bind(cancelled_id)
-        .bind(OutPointDB(outpoint));
+        .bind(TxidDB(outpoint.txid))
+        .bind(outpoint.vout as i32);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())

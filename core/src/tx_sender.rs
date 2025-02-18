@@ -137,52 +137,6 @@ impl TxSender {
         Ok(handle)
     }
 
-    /// Creates a fee payer UTXO for a parent transaction. This function should
-    /// be called before the parent tx is sent to the network.
-    ///
-    /// This is to make sure the client has enough funds to bump fees. The fee
-    /// payer UTXO is used to bump fees of the parent tx.
-    ///
-    /// The fee payer UTXO **must be confirmed** before the parent tx is sent to
-    /// the network.
-    ///
-    /// # Returns
-    ///
-    /// - [`OutPoint`]: Outpoint of the fee payer UTXO.
-    pub async fn create_fee_payer_utxo(
-        &self,
-        bumped_id: i32,
-        tx_weight: Weight,
-        _fee_paying_type: FeePayingType,
-    ) -> Result<OutPoint, BridgeError> {
-        let fee_rate = self.get_fee_rate().await?;
-        let required_amount =
-            Self::calculate_required_amount_for_fee_payer_utxo(tx_weight, fee_rate)?;
-        tracing::info!(
-            "Creating fee payer UTXO with amount {} ({} sat/vb)",
-            required_amount,
-            fee_rate
-        );
-
-        let outpoint = self
-            .rpc
-            .send_to_address(&self.signer.address, required_amount)
-            .await?;
-
-        self.db
-            .save_fee_payer_tx(
-                None,
-                bumped_id,
-                outpoint.txid,
-                outpoint.vout,
-                required_amount,
-                None,
-            )
-            .await?;
-
-        Ok(outpoint)
-    }
-
     /// Tries to send a tx. If all conditions are met, it will save the tx to the database.
     /// It will also save the cancelled outpoints, cancelled txids and activated prerequisite txs to the database.
     /// It will automatically saves inputs as cancelled outpoints.
@@ -229,6 +183,52 @@ impl TxSender {
         dbtx.commit().await?;
 
         Ok(())
+    }
+
+    /// Creates a fee payer UTXO for a parent transaction. This function should
+    /// be called before the parent tx is sent to the network.
+    ///
+    /// This is to make sure the client has enough funds to bump fees. The fee
+    /// payer UTXO is used to bump fees of the parent tx.
+    ///
+    /// The fee payer UTXO **must be confirmed** before the parent tx is sent to
+    /// the network.
+    ///
+    /// # Returns
+    ///
+    /// - [`OutPoint`]: Outpoint of the fee payer UTXO.
+    pub async fn create_fee_payer_utxo(
+        &self,
+        bumped_id: i32,
+        tx_weight: Weight,
+        _fee_paying_type: FeePayingType,
+    ) -> Result<OutPoint, BridgeError> {
+        let fee_rate = self.get_fee_rate().await?;
+        let required_amount =
+            Self::calculate_required_amount_for_fee_payer_utxo(tx_weight, fee_rate)?;
+        tracing::info!(
+            "Creating fee payer UTXO with amount {} ({} sat/vb)",
+            required_amount,
+            fee_rate
+        );
+
+        let outpoint = self
+            .rpc
+            .send_to_address(&self.signer.address, required_amount)
+            .await?;
+
+        self.db
+            .save_fee_payer_tx(
+                None,
+                bumped_id,
+                outpoint.txid,
+                outpoint.vout,
+                required_amount,
+                None,
+            )
+            .await?;
+
+        Ok(outpoint)
     }
 
     /// Gets the current fee rate.

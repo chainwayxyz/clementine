@@ -184,56 +184,7 @@ create table if not exists operators_challenge_ack_hashes (
     primary key (operator_idx, deposit_id)
 );
 
--- Table to store fee payer UTXOs can
-create table if not exists tx_sender_fee_payer_utxos (
-    id serial primary key,
-    replacement_of_id int references tx_sender_fee_payer_utxos(id),
-    bumped_tx_id int not null references tx_sender_try_to_send_txs(id),
-    fee_payer_txid text not null check (fee_payer_txid ~ '^[a-fA-F0-9]{64}'),
-    vout int not null,
-    amount bigint not null,
-    confirmed_block_id int references bitcoin_syncer(id),
-    created_at timestamp not null default now()
-);
-
-create type fee_paying_type as enum ('CPFP', 'RBF');
-
--- Table to store txs that needs to be fee bumped
-create table if not exists tx_sender_try_to_send_txs (
-    id serial primary key,
-    raw_tx bytea not null,
-    fee_paying_type fee_paying_type not null,
-    effective_fee_rate bigint,
-    confirmed_block_id int references bitcoin_syncer(id),
-    latest_active_at timestamp,
-    created_at timestamp not null default now()
-);
-
-create table if not exists tx_sender_cancel_try_to_send_outpoints (
-    cancelled_id int not null references tx_sender_try_to_send_txs(id),
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
-    vout int not null,
-    seen_block_id int references bitcoin_syncer(id),
-    created_at timestamp not null default now(),
-    primary key (cancelled_id, txid, vout)
-);
-
-create table if not exists tx_sender_cancel_try_to_send_txids (
-    cancelled_id int not null references tx_sender_try_to_send_txs(id),
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
-    seen_block_id int references bitcoin_syncer(id),
-    created_at timestamp not null default now(),
-    primary key (cancelled_id, txid)
-);
-
-create table if not exists tx_sender_activate_prerequisite_txs (
-    activated_id int not null references tx_sender_try_to_send_txs(id),
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
-    timelock bigint not null,
-    seen_block_id int references bitcoin_syncer(id),
-    created_at timestamp not null default now(),
-    primary key (activated_id, txid)
-);
+-------- BITCOIN SYNCER --------
 
 create table if not exists bitcoin_syncer (
     id serial primary key,
@@ -273,6 +224,61 @@ create table if not exists bitcoin_syncer_event_handlers (
     last_processed_event_id int not null references bitcoin_syncer_events (id),
     created_at timestamp not null default now(),
     primary key (consumer_handle)
+);
+
+
+-------- TX SENDER --------
+
+
+create type fee_paying_type as enum ('CPFP', 'RBF');
+
+-- Table to store txs that needs to be fee bumped
+create table if not exists tx_sender_try_to_send_txs (
+    id serial primary key,
+    raw_tx bytea not null,
+    fee_paying_type fee_paying_type not null,
+    effective_fee_rate bigint,
+    confirmed_block_id int references bitcoin_syncer(id),
+    latest_active_at timestamp,
+    created_at timestamp not null default now()
+);
+
+-- Table to store fee payer UTXOs
+create table if not exists tx_sender_fee_payer_utxos (
+    id serial primary key,
+    replacement_of_id int references tx_sender_fee_payer_utxos(id),
+    bumped_tx_id int not null references tx_sender_try_to_send_txs(id),
+    fee_payer_txid text not null check (fee_payer_txid ~ '^[a-fA-F0-9]{64}'),
+    vout int not null,
+    amount bigint not null,
+    confirmed_block_id int references bitcoin_syncer(id),
+    created_at timestamp not null default now()
+);
+
+create table if not exists tx_sender_cancel_try_to_send_outpoints (
+    cancelled_id int not null references tx_sender_try_to_send_txs(id),
+    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    vout int not null,
+    seen_block_id int references bitcoin_syncer(id),
+    created_at timestamp not null default now(),
+    primary key (cancelled_id, txid, vout)
+);
+
+create table if not exists tx_sender_cancel_try_to_send_txids (
+    cancelled_id int not null references tx_sender_try_to_send_txs(id),
+    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    seen_block_id int references bitcoin_syncer(id),
+    created_at timestamp not null default now(),
+    primary key (cancelled_id, txid)
+);
+
+create table if not exists tx_sender_activate_prerequisite_txs (
+    activated_id int not null references tx_sender_try_to_send_txs(id),
+    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    timelock bigint not null,
+    seen_block_id int references bitcoin_syncer(id),
+    created_at timestamp not null default now(),
+    primary key (activated_id, txid)
 );
 
 COMMIT;
