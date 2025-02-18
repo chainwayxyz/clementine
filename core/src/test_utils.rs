@@ -4,14 +4,6 @@
 //! in binaries. There will be multiple prerequisites that these macros require.
 //! Please check comments of each for more information.
 
-use lazy_static::lazy_static;
-use std::sync::{Arc, Mutex};
-
-lazy_static! {
-    // Create a Mutex to ensure only one process accesses the port and bitcoind startup logic at a time
-    pub static ref BITCOIN_STARTUP_MUTEX: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
-}
-
 /// Creates a Bitcoin regtest node for testing, waits for it to start and returns an RPC.
 ///
 /// Requires an import of `ExtendedRpc` and `BridgeConfig`.
@@ -37,9 +29,6 @@ macro_rules! create_regtest_rpc {
         let data_dir = TempDir::new()
             .expect("Failed to create temporary directory")
             .into_path();
-
-        // Acquire the lock on the mutex for the critical section
-        let _lock = BITCOIN_STARTUP_MUTEX.lock().unwrap();
 
         // Get available ports for RPC
         let rpc_port = {
@@ -75,9 +64,6 @@ macro_rules! create_regtest_rpc {
             .stderr(std::process::Stdio::null())
             .spawn()
             .expect("Failed to start bitcoind");
-
-        // drop lock after bitcoind process is started
-        drop(_lock);
 
         struct WithProcessCleanup(pub std::process::Child, ExtendedRpc, std::path::PathBuf);
         impl WithProcessCleanup {

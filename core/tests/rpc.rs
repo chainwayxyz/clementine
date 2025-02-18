@@ -2,7 +2,6 @@
 //!
 //! This tests checks if typical RPC flows works or not.
 
-use crate::common::test_utils::BITCOIN_STARTUP_MUTEX;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use clementine_core::builder::script::SpendPath;
 use clementine_core::builder::transaction::TransactionType;

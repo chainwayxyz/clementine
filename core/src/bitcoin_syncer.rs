@@ -313,7 +313,6 @@ pub async fn start_bitcoin_syncer(
 mod tests {
     use crate::builder::transaction::DEFAULT_SEQUENCE;
     use crate::extended_rpc::ExtendedRpc;
-    use crate::test_utils::BITCOIN_STARTUP_MUTEX;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };

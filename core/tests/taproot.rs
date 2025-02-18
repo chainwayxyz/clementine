@@ -1,4 +1,3 @@
-use crate::common::test_utils::BITCOIN_STARTUP_MUTEX;
 use bitcoin::{Amount, TxOut};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
