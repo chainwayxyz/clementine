@@ -4,6 +4,7 @@
 //! structures.
 
 pub mod address;
+pub mod citrea;
 pub mod script;
 pub mod sighash;
 pub mod transaction;

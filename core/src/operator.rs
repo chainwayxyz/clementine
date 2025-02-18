@@ -523,22 +523,9 @@ impl Operator {
 
         // Check Citrea for the withdrawal state.
         if let Some(citrea_client) = &self.citrea_client {
-            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
-            let params = rpc_params![
-                json!({
-                    "to": "0x3100000000000000000000000000000000000002",
-                    "data": format!("0x471ba1e300000000000000000000000000000000000000000000000000000000{}",
-                    hex::encode(withdrawal_index.to_be_bytes())),
-                }),
-                "latest"
-            ];
-            let response: String = citrea_client.request("eth_call", params).await?;
+            let txid =
+                builder::citrea::withdrawal_utxos(citrea_client.clone(), withdrawal_index).await?;
 
-            let txid_response = &response[2..66];
-            let txid = hex::decode(txid_response).map_err(|e| BridgeError::Error(e.to_string()))?;
-            // txid.reverse(); // TODO: we should need to reverse this, test this with declareWithdrawalFiller
-
-            let txid = Txid::from_slice(&txid)?;
             if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
                 // TODO: Fix this, vout can be different from 0 as well
                 return Err(BridgeError::InvalidInputUTXO(

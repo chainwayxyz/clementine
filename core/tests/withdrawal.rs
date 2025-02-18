@@ -15,7 +15,7 @@ impl TestCase for DockerIntegrationTest {
         TestCaseConfig {
             with_batch_prover: false,
             with_sequencer: true,
-            with_full_node: false,
+            with_full_node: true,
             docker: TestCaseDockerConfig {
                 bitcoin: false,
                 citrea: true,
