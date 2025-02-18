@@ -1,3 +1,4 @@
+use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit, WatchtowerKeysWithDeposit};
 use crate::{
     actor::Actor,
     builder::{self},
@@ -23,8 +24,12 @@ use bitcoin::{
     secp256k1::{schnorr, Message},
     Address, OutPoint, XOnlyPublicKey,
 };
+use bitcoin::{hashes::Hash, Txid};
+use bitcoincore_rpc::RawTx;
+use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::time::Duration;
+use tonic::Status;
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
@@ -102,6 +107,132 @@ impl Aggregator {
             operator_clients,
             watchtower_clients,
         })
+    }
+
+    /// collects and distributes keys to verifiers from operators and watchtowers for the new deposit
+    /// for operators: get bitvm assert winternitz public keys and watchtower challenge ack hashes
+    /// for watchtowers: get winternitz public keys for watchtower challenges
+    pub async fn collect_and_distribute_keys(
+        &self,
+        deposit_params: &DepositParams,
+    ) -> Result<(), Status> {
+        let (operator_keys_tx, operator_keys_rx) =
+            tokio::sync::broadcast::channel(self.config.num_operators);
+        // create receivers for each verifier
+        let operator_rx_handles = (0..self.config.num_verifiers)
+            .map(|_| operator_keys_rx.resubscribe())
+            .collect::<Vec<_>>();
+
+        // copy because they will be moved into the async block
+        let mut operators = self.operator_clients.clone();
+        let deposit = deposit_params.clone();
+
+        let get_operators_keys_handle = tokio::spawn(async move {
+            try_join_all(
+                operators
+                    .iter_mut()
+                    .enumerate()
+                    .map(|(idx, operator_client)| {
+                        let deposit_params = deposit.clone();
+                        let tx = operator_keys_tx.clone();
+                        async move {
+                            let operator_keys = operator_client
+                                .get_deposit_keys(deposit_params.clone())
+                                .await?
+                                .into_inner();
+                            // operator indexes are the index of operator_client for now.....
+                            // set it here so that operators cannot send fake idx(?)
+                            tx.send(OperatorKeysWithDeposit {
+                                deposit_params: Some(deposit_params),
+                                operator_keys: Some(operator_keys),
+                                operator_idx: idx as u32,
+                            })
+                            .map_err(|_| Status::internal("Failed to send operator keys"))
+                        }
+                    }),
+            )
+            .await?;
+            Ok::<_, Status>(())
+        });
+
+        let mut verifiers = self.verifier_clients.clone();
+        let distribute_operators_keys_handle = tokio::spawn(async move {
+            try_join_all(verifiers.iter_mut().zip(operator_rx_handles).map(
+                |(verifier, mut rx)| async move {
+                    while let Ok(operator_keys) = rx.recv().await {
+                        verifier.set_operator_keys(operator_keys).await?;
+                    }
+                    Ok::<_, Status>(())
+                },
+            ))
+            .await?;
+            Ok::<_, Status>(())
+        });
+
+        let (watchtower_keys_tx, watchtower_keys_rx) =
+            tokio::sync::broadcast::channel(self.config.num_watchtowers);
+        // create receivers for each verifier
+        let watchtower_rx_handles = (0..self.config.num_verifiers)
+            .map(|_| watchtower_keys_rx.resubscribe())
+            .collect::<Vec<_>>();
+
+        // copy because they will be moved into the async block
+        let mut watchtowers = self.watchtower_clients.clone();
+        let deposit = deposit_params.clone();
+
+        let get_watchtowers_keys_handle = tokio::spawn(async move {
+            try_join_all(
+                watchtowers
+                    .iter_mut()
+                    .enumerate()
+                    .map(|(idx, watchtower_client)| {
+                        let deposit_params = deposit.clone();
+                        let tx = watchtower_keys_tx.clone();
+                        async move {
+                            let watchtower_keys = watchtower_client
+                                .get_challenge_keys(deposit_params.clone())
+                                .await?
+                                .into_inner();
+                            // watchtower indexes are the index of watchtower_clients for now.....
+                            // set it here so that watchtowers cannot send fake idx(?)
+                            tx.send(WatchtowerKeysWithDeposit {
+                                deposit_params: Some(deposit_params),
+                                watchtower_keys: Some(watchtower_keys),
+                                watchtower_idx: idx as u32,
+                            })
+                            .map_err(|_| Status::internal("Failed to send watchtower keys"))
+                        }
+                    }),
+            )
+            .await?;
+            Ok::<_, Status>(())
+        });
+
+        let mut verifiers = self.verifier_clients.clone();
+        let distribute_watchtowers_keys_handle = tokio::spawn(async move {
+            try_join_all(verifiers.iter_mut().zip(watchtower_rx_handles).map(
+                |(verifier, mut rx)| async move {
+                    while let Ok(watchtower_keys) = rx.recv().await {
+                        verifier.set_watchtower_keys(watchtower_keys).await?;
+                    }
+                    Ok::<_, Status>(())
+                },
+            ))
+            .await?;
+            Ok::<_, Status>(())
+        });
+
+        // await for all tasks to end
+        try_join_all(vec![
+            get_operators_keys_handle,
+            distribute_operators_keys_handle,
+            get_watchtowers_keys_handle,
+            distribute_watchtowers_keys_handle,
+        ])
+        .await
+        .map_err(|e| Status::internal(format!("Failed to collect and distribute keys: {:?}", e)))?;
+
+        Ok(())
     }
 
     // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

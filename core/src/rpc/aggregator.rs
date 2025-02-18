@@ -454,6 +454,9 @@ impl ClementineAggregator for Aggregator {
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
             tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
+        let operator_params_rx_handles = (0..self.config.num_verifiers)
+            .map(|_| operator_params_rx.resubscribe())
+            .collect::<Vec<_>>();
 
         let operators = self.operator_clients.clone();
         let get_operator_params_chunked_handle = tokio::spawn(async move {
@@ -480,21 +483,22 @@ impl ClementineAggregator for Aggregator {
         let verifiers = self.verifier_clients.clone();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers of existing operators...");
-            try_join_all(verifiers.iter().map(|verifier| {
-                let verifier = verifier.clone();
-                let mut rx = operator_params_rx.resubscribe();
-                async move {
-                    collect_and_call(&mut rx, |params| {
-                        let mut verifier = verifier.clone();
-                        async move {
-                            verifier.set_operator(futures::stream::iter(params)).await?;
-                            Ok::<_, Status>(())
-                        }
-                    })
-                    .await?;
-                    Ok::<_, Status>(())
-                }
-            }))
+            try_join_all(verifiers.iter().zip(operator_params_rx_handles).map(
+                |(verifier, mut rx)| {
+                    let verifier = verifier.clone();
+                    async move {
+                        collect_and_call(&mut rx, |params| {
+                            let mut verifier = verifier.clone();
+                            async move {
+                                verifier.set_operator(futures::stream::iter(params)).await?;
+                                Ok::<_, Status>(())
+                            }
+                        })
+                        .await?;
+                        Ok::<_, Status>(())
+                    }
+                },
+            ))
             .await?;
             Ok::<_, Status>(())
         });
@@ -503,6 +507,9 @@ impl ClementineAggregator for Aggregator {
 
         let (watchtower_params_tx, watchtower_params_rx) =
             tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
+        let watchtower_params_rx_handles = (0..self.config.num_verifiers)
+            .map(|_| watchtower_params_rx.resubscribe())
+            .collect::<Vec<_>>();
 
         let get_watchtower_params_chunked_handle = tokio::spawn({
             let watchtowers = self.watchtower_clients.clone();
@@ -532,27 +539,24 @@ impl ClementineAggregator for Aggregator {
             let verifiers = self.verifier_clients.clone();
             async move {
                 tracing::info!("Sending Winternitz public keys to verifiers...");
-                try_join_all(
-                    verifiers
-                        .iter()
-                        .map(|v| (v, watchtower_params_rx.resubscribe()))
-                        .map(|(verifier, mut rx)| {
-                            let verifier = verifier.clone();
-                            async move {
-                                collect_and_call(&mut rx, |params| {
-                                    let mut verifier = verifier.clone();
-                                    async move {
-                                        verifier
-                                            .set_watchtower(futures::stream::iter(params))
-                                            .await?;
-                                        Ok::<_, Status>(())
-                                    }
-                                })
-                                .await?;
-                                Ok::<_, Status>(())
-                            }
-                        }),
-                )
+                try_join_all(verifiers.iter().zip(watchtower_params_rx_handles).map(
+                    |(verifier, mut rx)| {
+                        let verifier = verifier.clone();
+                        async move {
+                            collect_and_call(&mut rx, |params| {
+                                let mut verifier = verifier.clone();
+                                async move {
+                                    verifier
+                                        .set_watchtower(futures::stream::iter(params))
+                                        .await?;
+                                    Ok::<_, Status>(())
+                                }
+                            })
+                            .await?;
+                            Ok::<_, Status>(())
+                        }
+                    },
+                ))
                 .await?;
                 Ok::<_, Status>(())
             }
@@ -599,8 +603,8 @@ impl ClementineAggregator for Aggregator {
     ) -> Result<Response<clementine::Txid>, Status> {
         let deposit_params = request.into_inner();
 
-        let (deposit_outpoint, evm_address, recovery_taproot_address) =
-            parser::parse_deposit_params(deposit_params.clone())?;
+        // Collect and distribute keys needed keys from operators and watchtowers to verifiers
+        self.collect_and_distribute_keys(&deposit_params).await?;
 
         // Generate nonce streams for all verifiers.
         let num_required_sigs = calculate_num_required_nofn_sigs(&self.config);
@@ -670,15 +674,13 @@ impl ClementineAggregator for Aggregator {
                 })?;
         }
 
+        let deposit_data = parser::parse_deposit_params(deposit_params.clone())?;
+
         // Create sighash stream for transaction signing
         let sighash_stream = Box::pin(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
-            DepositId {
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
-            },
+            deposit_data,
             self.nofn_xonly_pk,
         ));
 
@@ -815,8 +817,6 @@ mod tests {
         extended_rpc::ExtendedRpc,
         get_available_port,
         rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
-        verifier::Verifier,
-        watchtower::Watchtower,
     };
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;

@@ -26,7 +26,7 @@ pub struct BridgeConfig {
     pub host: String,
     /// Port of the operator or the verifier
     pub port: u16,
-    /// Entitiy index.
+    /// Entity index.
     pub index: u32,
     /// Bitcoin network to work on.
     pub network: Network,

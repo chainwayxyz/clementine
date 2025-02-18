@@ -1,9 +1,8 @@
 use super::clementine::{self, AssertRequest, Outpoint, TransactionRequest, WinternitzPubkey};
-use super::error;
+use super::{clementine, error};
 use crate::builder::transaction::sign::{AssertRequestData, TransactionRequestData};
-use crate::builder::transaction::{DepositId, TransactionType};
+use crate::builder::transaction::{DepositData, TransactionType};
 use crate::errors::BridgeError;
-use crate::rpc::clementine::DepositParams;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
@@ -150,35 +149,34 @@ impl TryFrom<clementine::Txid> for Txid {
 }
 
 pub fn parse_deposit_params(
-    deposit_params: DepositParams,
-) -> Result<
-    (
-        bitcoin::OutPoint,
-        EVMAddress,
-        bitcoin::Address<NetworkUnchecked>,
-    ),
-    Status,
-> {
+    deposit_params: clementine::DepositParams,
+) -> Result<DepositData, Status> {
     let deposit_outpoint: bitcoin::OutPoint = deposit_params
         .deposit_outpoint
         .ok_or(Status::invalid_argument("No deposit outpoint received"))?
         .try_into()?;
-    let evm_address: EVMAddress = deposit_params
-        .evm_address
-        .try_into()
-        .map_err(|_| Status::invalid_argument("Could not parse deposit outpoint EVM address"))?;
+    let evm_address: EVMAddress = deposit_params.evm_address.try_into().map_err(|e| {
+        Status::invalid_argument(format!(
+            "Failed to convert evm_address to EVMAddress: {}",
+            e
+        ))
+    })?;
     let recovery_taproot_address = deposit_params
         .recovery_taproot_address
         .parse::<bitcoin::Address<_>>()
         .map_err(|e| Status::internal(e.to_string()))?;
 
-    Ok((deposit_outpoint, evm_address, recovery_taproot_address))
+    Ok(DepositData {
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address,
+    })
 }
 
 pub fn parse_transaction_request(
     request: TransactionRequest,
 ) -> Result<TransactionRequestData, Status> {
-    let (deposit_outpoint, evm_address, recovery_taproot_address) = parse_deposit_params(
+    let deposit_data = parse_deposit_params(
         request
             .deposit_params
             .ok_or(Status::invalid_argument("No deposit params received"))?,
@@ -197,11 +195,7 @@ pub fn parse_transaction_request(
         .ok_or(Status::invalid_argument("No kickoff params received"))?;
 
     Ok(TransactionRequestData {
-        deposit_id: DepositId {
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-        },
+        deposit_data,
         transaction_type,
         kickoff_id,
         commit_data: request.commit_data,
@@ -209,7 +203,7 @@ pub fn parse_transaction_request(
 }
 
 pub fn parse_assert_request(request: AssertRequest) -> Result<AssertRequestData, Status> {
-    let (deposit_outpoint, evm_address, recovery_taproot_address) = parse_deposit_params(
+    let deposit_data = parse_deposit_params(
         request
             .deposit_params
             .ok_or(Status::invalid_argument("No deposit params received"))?,
@@ -219,11 +213,7 @@ pub fn parse_assert_request(request: AssertRequest) -> Result<AssertRequestData,
         .ok_or(Status::invalid_argument("No kickoff params received"))?;
 
     Ok(AssertRequestData {
-        deposit_id: DepositId {
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-        },
+        deposit_data,
         kickoff_id,
         commit_data: request.commit_data,
     })
