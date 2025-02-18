@@ -3,7 +3,7 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::{create_move_to_vault_txhandler, TxHandler, TxHandler};
+use crate::builder::transaction::{create_move_to_vault_txhandler, TxHandler};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -398,11 +398,10 @@ impl Aggregator {
         move_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
         // Add fee bumper.
         let move_tx = move_txhandler.get_cached_tx();
-        let _fee_payer_utxo = self
-            .tx_sender
-            .create_fee_payer_utxo(*move_txhandler.get_txid(), move_tx.weight())
+
+        self.tx_sender
+            .try_to_send(&move_tx, FeePayingType::CPFP, &[], &[], &[])
             .await?;
-        self.tx_sender.save_tx(move_tx).await?;
 
         // everything is fine, return the signed move tx
         // TODO: Sign the transaction correctly after we create taproot witness generation functions

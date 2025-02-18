@@ -1,12 +1,10 @@
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit, WatchtowerKeysWithDeposit};
 use crate::{
     actor::Actor,
-    actor::Actor,
     builder::{self},
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedRpc,
     extended_rpc::ExtendedRpc,
     musig2::{aggregate_partial_signatures, AggregateFromPublicKeys},
     rpc::{
@@ -18,10 +16,8 @@ use crate::{
         },
     },
     tx_sender::TxSender,
-    tx_sender::TxSender,
     EVMAddress,
 };
-use bitcoin::hashes::Hash;
 use bitcoin::hashes::Hash;
 use bitcoin::{
     address::NetworkUnchecked,
@@ -32,7 +28,6 @@ use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::time::Duration;
 use tonic::Status;
-use std::time::Duration;
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.

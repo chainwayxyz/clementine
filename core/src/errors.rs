@@ -4,10 +4,8 @@
 
 use crate::builder::transaction::TransactionType;
 use bitcoin::{
-    
     consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, FeeRate, OutPoint,
-    OutPoint, Txid,
-,
+    Txid,
 };
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
@@ -315,8 +313,6 @@ pub enum BridgeError {
 
     #[error("Can't bump fee for Txid of {0} and feerate of {1}: {2}")]
     BumpFeeError(Txid, FeeRate, String),
-    #[error("Cannot bump fee - UTXO is already spent")]
-    BumpFeeUTXOSpent(OutPoint),
 
     #[error("Cannot bump fee - UTXO is already spent")]
     BumpFeeUTXOSpent(OutPoint),
