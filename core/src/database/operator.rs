@@ -14,7 +14,7 @@ use crate::{
     rpc::clementine::{DepositSignatures, TaggedSignature},
     UTXO,
 };
-use bitcoin::{secp256k1::schnorr, OutPoint, ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoin::{secp256k1::schnorr, OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use sqlx::{Postgres, QueryBuilder};
@@ -721,7 +721,11 @@ impl Database {
 
                 let assert_tx_addrs: Vec<[u8; 32]> = assert_tx_addrs
                     .into_iter()
-                    .map(|addr| addr.into())
+                    .map(|addr| {
+                        let mut addr_array = [0u8; 32];
+                        addr_array.copy_from_slice(&addr);
+                        addr_array
+                    })
                     .collect();
 
                 Ok(Some((assert_tx_addrs, root_hash_array)))
@@ -770,7 +774,7 @@ mod tests {
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::Operator;
     use crate::rpc::clementine::{
-        DepositSignatures, NormalSignatureKind, TaggedSignature, NumberedSignatureKind,
+        DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
@@ -1121,10 +1125,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(
-            result.0,
-            assert_tx_hashes
-        );
+        assert_eq!(result.0, assert_tx_hashes);
         assert_eq!(result.1, root_hash);
 
         let hash = database
@@ -1187,7 +1188,7 @@ mod tests {
         let signatures = DepositSignatures {
             signatures: vec![
                 TaggedSignature {
-                    signature_id: Some(NormalSignatureKind::HappyReimburse1.into()),
+                    signature_id: Some(NormalSignatureKind::Reimburse1.into()),
                     signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
                 },
                 TaggedSignature {

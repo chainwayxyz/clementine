@@ -1,4 +1,3 @@
-use std::num::FpCategory::Normal;
 use crate::builder;
 use crate::builder::script::{PreimageRevealScript, SpendPath, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::output::UnspentTxOut;
@@ -63,7 +62,7 @@ pub fn create_watchtower_challenge_txhandler(
     let builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
         .add_input(
             (
-                NumberedSignatureKind::WatchtowerNotStored,
+                NumberedSignatureKind::NumberedNotStored,
                 watchtower_idx as i32,
             ),
             // if a script is not provided, that means this tx will not be signed so there doesn't need

@@ -60,7 +60,7 @@ lazy_static::lazy_static! {
         let start = Instant::now();
 
         #[cfg(debug_assertions)]
-        let bitvm_cache = {
+        let mut bitvm_cache = {
             println!("Debug mode: Using dummy BitVM cache");
             // Create minimal dummy data for faster development
             BitvmCache {
@@ -95,6 +95,7 @@ lazy_static::lazy_static! {
                     map.insert((0, 1), vec![(1, 0)]);
                     map
                 },
+                num_asserts: 0,
             }
         };
 
@@ -115,7 +116,7 @@ lazy_static::lazy_static! {
                 }
             }
         };
-
+        bitvm_cache.num_asserts = bitvm_cache.intermediate_variables.len();
         println!("BitVM initialization took: {:?}", start.elapsed());
         bitvm_cache
     };
@@ -126,6 +127,7 @@ pub struct BitvmCache {
     pub intermediate_variables: BTreeMap<String, usize>,
     pub disprove_scripts: Vec<Vec<u8>>,
     pub replacement_places: HashMap<(usize, usize), Vec<(usize, usize)>>,
+    pub num_asserts: usize,
 }
 
 #[cfg(not(debug_assertions))]

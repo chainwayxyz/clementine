@@ -21,12 +21,14 @@ use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
-use crate::constants::{BLOCKS_PER_DAY, BLOCKS_PER_WEEK, KICKOFF_BLOCKHASH_COMMIT_LENGTH, MIN_TAPROOT_AMOUNT};
+use crate::constants::{
+    BLOCKS_PER_DAY, BLOCKS_PER_WEEK, KICKOFF_BLOCKHASH_COMMIT_LENGTH, MIN_TAPROOT_AMOUNT,
+};
 use crate::errors::BridgeError;
+use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
-use crate::rpc::clementine::NumberedSignatureKind;
 
 /// Creates a [`TxHandler`] for `sequential_collateral_tx`. It will always use the first
 /// output of the  previous `reimburse_generator_tx` as the input. The flow is as follows:
@@ -66,10 +68,7 @@ pub fn create_sequential_collateral_txhandler(
 
     // This 1 block is to enforce that operator has to put a sequence number in the input
     // so this spending path can't be used to send kickoff tx
-    let timeout_block_count_locked_script = Arc::new(TimelockScript::new(
-        None,
-        1u16,
-    ));
+    let timeout_block_count_locked_script = Arc::new(TimelockScript::new(None, 1u16));
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
         input_amount, // TODO: - num_kickoffs_per_sequential_collateral_tx * kickoff_sats,
@@ -161,28 +160,31 @@ pub fn create_assert_timeout_txhandlers(
 ) -> Result<Vec<TxHandler>, BridgeError> {
     let mut txhandlers = Vec::new();
     for idx in 0..num_asserts {
-        txhandlers.push(TxHandlerBuilder::new(TransactionType::AssertTimeout(idx))
-            .add_input(
-                (NumberedSignatureKind::AssertTimeout1, idx as i32),
-                kickoff_txhandler.get_spendable_output(5 + idx)?,
-                SpendPath::ScriptSpend(0),
-                Sequence::from_height(BLOCKS_PER_WEEK * 4),
-            )
-            .add_input(
-                (NumberedSignatureKind::AssertTimeout2, idx as i32),
-                kickoff_txhandler.get_spendable_output(2)?,
-                SpendPath::ScriptSpend(0),
-                DEFAULT_SEQUENCE,
-            )
-            .add_input(
-                (NumberedSignatureKind::AssertTimeout3, idx as i32),
-                sequential_collateral_txhandler.get_spendable_output(0)?,
-                SpendPath::KeySpend,
-                DEFAULT_SEQUENCE,
-            ).add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-            .finalize());
+        txhandlers.push(
+            TxHandlerBuilder::new(TransactionType::AssertTimeout(idx))
+                .add_input(
+                    (NumberedSignatureKind::AssertTimeout1, idx as i32),
+                    kickoff_txhandler.get_spendable_output(5 + idx)?,
+                    SpendPath::ScriptSpend(0),
+                    Sequence::from_height(BLOCKS_PER_WEEK * 4),
+                )
+                .add_input(
+                    (NumberedSignatureKind::AssertTimeout2, idx as i32),
+                    kickoff_txhandler.get_spendable_output(2)?,
+                    SpendPath::ScriptSpend(0),
+                    DEFAULT_SEQUENCE,
+                )
+                .add_input(
+                    (NumberedSignatureKind::AssertTimeout3, idx as i32),
+                    sequential_collateral_txhandler.get_spendable_output(0)?,
+                    SpendPath::KeySpend,
+                    DEFAULT_SEQUENCE,
+                )
+                .add_output(UnspentTxOut::from_partial(
+                    builder::transaction::anchor_output(),
+                ))
+                .finalize(),
+        );
     }
     Ok(txhandlers)
 }

@@ -19,6 +19,7 @@ pub enum DepositSigKeyOwner {
     NofnDB(TapSighashType),
     /// this type is for signatures that is needed for Operator themselves to spend the utxo
     /// So verifiers do not need this signature info, thus it is not saved to DB.
+    /// Added to help define different sighash types for operator's own signatures.
     Operator(TapSighashType),
 }
 
@@ -30,52 +31,51 @@ impl SignatureId {
         };
         match *self {
             SignatureId::NormalSignature(normal_sig) => {
-                let normal_sig_type = (normal_sig.signature_kind).try_into().map_err(|_| {
-                    BridgeError::Error(
-                        "Couldn't convert SignatureId::NormalSignature to DepositSigKey"
-                            .to_string(),
-                    )
-                })?;
+                let normal_sig_type = NormalSignatureKind::try_from(normal_sig.signature_kind)
+                    .map_err(|_| {
+                        BridgeError::Error(
+                            "Couldn't convert SignatureId::NormalSignature to DepositSigKey"
+                                .to_string(),
+                        )
+                    })?;
                 use NormalSignatureKind::*;
                 match normal_sig_type {
-                    OperatorSighashDefault => Ok(NotOwned),
+                    OperatorSighashDefault => Ok(Operator(SighashDefault)),
                     NormalSignatureUnknown => Ok(NotOwned),
                     WatchtowerChallengeKickoff => Ok(NofnDB(SighashDefault)),
                     Challenge => Ok(NofnDB(SinglePlusAnyoneCanPay)),
-                    AssertTimeout1 => Ok(NofnDB(SighashDefault)),
-                    AssertTimeout2 => Ok(OperatorDB(SighashDefault)),
-                    StartHappyReimburse2 => Ok(NofnDB(SighashDefault)),
-                    HappyReimburse1 => Ok(NofnDB(SighashDefault)),
-                    AssertEndLast => Ok(NofnDB(SighashDefault)),
-                    DisproveTimeout1 => Ok(NofnDB(SighashDefault)),
                     DisproveTimeout2 => Ok(NofnDB(SighashDefault)),
-                    AlreadyDisproved1 => Ok(NofnDB(SighashDefault)),
-                    AlreadyDisproved2 => Ok(OperatorDB(SighashDefault)),
                     Disprove2 => Ok(OperatorDB(SighashNone)),
                     Reimburse1 => Ok(NofnDB(SighashDefault)),
-                    StartHappyReimburse3 => Ok(NofnDB(SighashDefault)),
-                    DisproveTimeout3 => Ok(NofnDB(SighashDefault)),
                     KickoffNotFinalized1 => Ok(NofnDB(SighashDefault)),
                     KickoffNotFinalized2 => Ok(OperatorDB(SighashDefault)),
+                    Reimburse2 => Ok(NofnDB(SighashDefault)),
+                    NoSignature => Ok(NotOwned),
+                    ChallengeTimeout2 => Ok(NofnDB(SighashDefault)),
+                    MiniAssert1 => Ok(Operator(SinglePlusAnyoneCanPay)),
+                    OperatorChallengeAck1 => Ok(Operator(SinglePlusAnyoneCanPay)),
                 }
             }
-            SignatureId::NumberedSignature(watchtower_sig) => {
-                let watchtower_sig_type = NumberedSignatureKind::try_from(
-                    watchtower_sig.signature_kind,
-                )
-                .map_err(|_| {
-                    BridgeError::Error(
-                        "Couldn't convert SignatureId::WatchtowerSignature to DepositSigKey"
-                            .to_string(),
-                    )
-                })?;
+            SignatureId::NumberedSignature(numbered_sig) => {
+                let numbered_sig_type =
+                    NumberedSignatureKind::try_from(numbered_sig.signature_kind).map_err(|_| {
+                        BridgeError::Error(
+                            "Couldn't convert SignatureId::NumberedSignature to DepositSigKey"
+                                .to_string(),
+                        )
+                    })?;
                 use NumberedSignatureKind::*;
-                match watchtower_sig_type {
-                    WatchtowerSignatureUnknown => Ok(NotOwned),
-                    WatchtowerNotStored => Ok(NotOwned),
+                match numbered_sig_type {
                     OperatorChallengeNack1 => Ok(NofnDB(SighashDefault)),
                     OperatorChallengeNack2 => Ok(NofnDB(SighashDefault)),
-                    AssertPart1 => Ok(NofnDB(SighashDefault)),
+                    NumberedSignatureUnknown => Ok(NotOwned),
+                    NumberedNotStored => Ok(Operator(SighashDefault)),
+                    OperatorChallengeNack3 => Ok(OperatorDB(SighashDefault)),
+                    AssertTimeout1 => Ok(NofnDB(SighashDefault)),
+                    AssertTimeout2 => Ok(NofnDB(SighashDefault)),
+                    AssertTimeout3 => Ok(OperatorDB(SighashDefault)),
+                    UnspentKickoff1 => Ok(OperatorDB(SighashDefault)),
+                    UnspentKickoff2 => Ok(OperatorDB(SighashDefault)),
                 }
             }
         }

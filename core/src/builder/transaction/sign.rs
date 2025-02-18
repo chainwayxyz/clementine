@@ -167,17 +167,6 @@ pub async fn create_assert_commitment_txs(
 
     let mut signed_txhandlers = Vec::new();
 
-    let sig_query = db
-        .get_deposit_signatures(
-            None,
-            assert_data.deposit_data.deposit_outpoint,
-            assert_data.kickoff_id.operator_idx as usize,
-            assert_data.kickoff_id.sequential_collateral_idx as usize,
-            assert_data.kickoff_id.kickoff_idx as usize,
-        )
-        .await?;
-    let signatures = sig_query.unwrap_or_default();
-
     for (idx, (step_name, &step_size)) in
         utils::BITVM_CACHE.intermediate_variables.iter().enumerate()
     {

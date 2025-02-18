@@ -191,7 +191,7 @@ impl Verifier {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, xonly_pk), fields(verifier_idx = self.idx), level = "warn", ret)]
+    #[tracing::instrument(skip(self, xonly_pk), fields(verifier_idx = self.idx), level = "info", ret)]
     pub async fn set_watchtower(
         &self,
         watchtower_idx: u32,
@@ -346,7 +346,8 @@ impl Verifier {
         let num_required_nofn_sigs_per_kickoff =
             calculate_num_required_nofn_sigs_per_kickoff(&self.config);
         let num_required_op_sigs = calculate_num_required_operator_sigs(&self.config);
-        let num_required_op_sigs_per_kickoff = calculate_num_required_operator_sigs_per_kickoff();
+        let num_required_op_sigs_per_kickoff =
+            calculate_num_required_operator_sigs_per_kickoff(&self.config);
         let &BridgeConfig {
             num_operators,
             num_sequential_collateral_txs,
@@ -867,7 +868,9 @@ impl Verifier {
                 taproot_builder
                     .try_into_taptree()
                     .expect("taproot builder always builds a full taptree")
-                    .root_hash().to_raw_hash().to_byte_array()
+                    .root_hash()
+                    .to_raw_hash()
+                    .to_byte_array()
             })
             .collect::<Vec<_>>();
 

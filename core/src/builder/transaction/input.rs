@@ -115,12 +115,12 @@ impl SpendableTxIn {
         }
         let script_bufs: Vec<ScriptBuf> = scripts
             .iter()
-            .map(|script| script.clone().to_script_buf())
+            .map(|script| script.to_script_buf())
             .collect();
-        if script_bufs.iter().any(|script| {
+        if script_bufs.into_iter().any(|script| {
             spendinfo
                 .script_map()
-                .get(&(script.clone(), LeafVersion::TapScript))
+                .get(&(script, LeafVersion::TapScript))
                 .is_none()
         }) {
             return Err(IncompleteMerkleProofMap);

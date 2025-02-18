@@ -13,44 +13,36 @@ enum NormalSignatureKind {
   // Used for TxHandlers that verifiers don't care. These will have signatures created
   // by the operator on the fly.
   OperatorSighashDefault = 1;
-  AssertTimeoutUnused = 2;
-  AssertTimeoutUnused2 = 3;
-  Challenge = 4;
-  WatchtowerChallengeKickoff = 5;
-  StartHappyReimburse2 = 6;
-  HappyReimburse1 = 7;
-  AssertEndLast = 8;
-  DisproveTimeout1 = 9;
-  DisproveTimeout2 = 10;
-  AlreadyDisproved1 = 11;
-  AlreadyDisproved2 = 12;
-  Disprove2 = 13;
-  Reimburse1 = 14;
-  StartHappyReimburse3 = 15;
-  DisproveTimeout3 = 16;
-  KickoffNotFinalized1 = 17;
-  KickoffNotFinalized2 = 18;
-  Reimburse2 = 19;
-  NoSignature = 20;
-  ChallengeTimeout2 = 21;
-  MiniAssert1 = 22;
-  OperatorChallengeAck1 = 23;
+  Challenge = 2;
+  WatchtowerChallengeKickoff = 3;
+  DisproveTimeout2 = 4;
+  Disprove2 = 5;
+  Reimburse1 = 6;
+  KickoffNotFinalized1 = 7;
+  KickoffNotFinalized2 = 8;
+  Reimburse2 = 9;
+  NoSignature = 10;
+  ChallengeTimeout2 = 11;
+  MiniAssert1 = 12;
+  OperatorChallengeAck1 = 13;
 }
 
 // Signatures that are needed multiple times per an operators kickoff.
 // Some watchtower sigs are needed once per watchtower.
 // Asserts are needed multiple times
 enum NumberedSignatureKind {
-  WatchtowerSignatureUnknown = 0;
+  NumberedSignatureUnknown = 0;
   // Used for TxHandlers that verifiers don't care. These will have signatures created
   // by the operator on the fly.
-  WatchtowerNotStored = 1;
+  NumberedNotStored = 1;
   OperatorChallengeNack1 = 2;
   OperatorChallengeNack2 = 3;
   OperatorChallengeNack3 = 4;
   AssertTimeout1 = 5;
   AssertTimeout2 = 6;
   AssertTimeout3 = 7;
+  UnspentKickoff1 = 8;
+  UnspentKickoff2 = 9;
 }
 
 message NormalSignatureId {
@@ -100,22 +92,15 @@ enum NormalTransactionId {
     MOVE_TO_VAULT = 4;
     PAYOUT = 5;
     CHALLENGE = 6;
-    ASSERT_TIMEOUT = 7;
-    KICKOFF_UTXO_TIMEOUT = 8;
-    WATCHTOWER_CHALLENGE_KICKOFF = 9;
-    START_HAPPY_REIMBURSE = 10;
-    HAPPY_REIMBURSE = 11;
-    ASSERT_BEGIN = 12;
-    ASSERT_END = 13;
-    DISPROVE = 14;
-    DISPROVE_TIMEOUT = 15;
-    ALREADY_DISPROVED = 16;
-    REIMBURSE = 17;
-    ALL_NEEDED_FOR_VERIFIER_DEPOSIT = 18;
-    ALL_NEEDED_FOR_OPERATOR_DEPOSIT = 19;
-    DUMMY = 20;
-    READY_TO_REIMBURSE = 21;
-    KICKOFF_NOT_FINALIZED = 22;
+    WATCHTOWER_CHALLENGE_KICKOFF = 7;
+    DISPROVE = 8;
+    DISPROVE_TIMEOUT = 9;
+    REIMBURSE = 10;
+    ALL_NEEDED_FOR_DEPOSIT = 11;
+    DUMMY = 12;
+    READY_TO_REIMBURSE = 13;
+    KICKOFF_NOT_FINALIZED = 14;
+    CHALLENGE_TIMEOUT = 15;
 }
 
 enum NumberedTransactionType {
@@ -123,7 +108,9 @@ enum NumberedTransactionType {
     WATCHTOWER_CHALLENGE = 1;
     OPERATOR_CHALLENGE_NACK = 2;
     OPERATOR_CHALLENGE_ACK = 3;
-    ASSERT_PART_TIMEOUT = 4;
+    ASSERT_TIMEOUT = 4;
+    UNSPENT_KICKOFF = 5;
+    MINI_ASSERT = 6;
 }
 
 message NumberedTransactionId {

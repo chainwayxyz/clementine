@@ -8,16 +8,17 @@ use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
+use crate::utils::{SECP, UNSPENDABLE_XONLY_PUBKEY};
 use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{Address, Amount, Network, ScriptBuf, Sequence, TapNodeHash, TxOut, Txid};
+use bitcoin::taproot::TaprootBuilder;
+use bitcoin::{Address, Amount, Network, TapNodeHash, TxOut, Txid};
 use bitcoin::{Witness, XOnlyPublicKey};
 use std::sync::Arc;
-use bitcoin::taproot::TaprootBuilder;
-use crate::utils::{SECP, UNSPENDABLE_XONLY_PUBKEY};
 
+#[derive(Debug, Clone)]
 pub enum AssertScripts<'a> {
     AssertScriptTapNodeHash(&'a [[u8; 32]]),
     AssertSpendableScript(Vec<Arc<dyn SpendableScript>>),
@@ -82,53 +83,60 @@ pub fn create_kickoff_txhandler(
         ));
 
     // Add disprove utxo
-    // Add N-of-N in 5 week script to taproot, that connects to disprove timeout
+    // Add Operator in 5 week script to taproot, that connects to disprove timeout
+    let operator_5week = Arc::new(TimelockScript::new(
+        Some(operator_xonly_pk),
+        BLOCKS_PER_WEEK * 5,
+    ));
     let disprove_taproot_spend_info = TaprootBuilder::new()
+        .add_leaf(1, operator_5week.to_script_buf())
+        .expect("taptree with one node at depth 1 will accept a script node")
         .add_hidden_node(1, TapNodeHash::from_byte_array(*disprove_root_hash))
         .expect("empty taptree will accept a node at depth 1")
-        .add_leaf(1, TimelockScript::new(Some(nofn_xonly_pk), BLOCKS_PER_WEEK * 5).to_script_buf())
-        .expect("taptree with one node at depth 1 will accept a script node")
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
         .expect("Taproot with 2 nodes at depth 1 should be valid for disprove");
 
     let disprove_address = Address::p2tr(
         &SECP,
-        nofn_xonly_pk,
+        *UNSPENDABLE_XONLY_PUBKEY,
         disprove_taproot_spend_info.merkle_root(),
         network,
     );
 
-    builder = builder
-        .add_output(UnspentTxOut::new(
-            TxOut {
-                value: MIN_TAPROOT_AMOUNT,
-                script_pubkey: disprove_address.script_pubkey().clone(),
-            },
-            vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
-            Some(disprove_taproot_spend_info),
-        ));
+    builder = builder.add_output(UnspentTxOut::new(
+        TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: disprove_address.script_pubkey().clone(),
+        },
+        vec![operator_5week],
+        Some(disprove_taproot_spend_info),
+    ));
 
     // add nofn_4 week to all assert scripts
-    let mut nofn_4week = Arc::new(TimelockScript::new(
+    let nofn_4week = Arc::new(TimelockScript::new(
         Some(nofn_xonly_pk),
         4 * BLOCKS_PER_WEEK,
     ));
 
     match assert_scripts {
         AssertScripts::AssertScriptTapNodeHash(assert_script_pubkeys) => {
-            for script_hash in assert_script_pubkeys.into() {
+            for script_hash in assert_script_pubkeys.iter() {
                 // Add N-of-N in 4 week script to taproot, that connects to assert timeout
                 let assert_spend_info = TaprootBuilder::new()
-                    .add_hidden_node(1, TapNodeHash::from_byte_array(script_hash))
-                    .expect("empty taptree will accept a node at depth 1")
-                    .add_leaf(1, TimelockScript::new(Some(nofn_xonly_pk), BLOCKS_PER_WEEK * 4).to_script_buf())
+                    .add_hidden_node(1, TapNodeHash::from_byte_array(*script_hash))
                     .expect("taptree with one node at depth 1 will accept a script node")
+                    .add_leaf(
+                        1,
+                        TimelockScript::new(Some(nofn_xonly_pk), BLOCKS_PER_WEEK * 4)
+                            .to_script_buf(),
+                    )
+                    .expect("empty taptree will accept a node at depth 1")
                     .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
                     .expect("Taproot with 2 nodes at depth 1 should be valid for assert");
 
                 let assert_address = Address::p2tr(
                     &SECP,
-                    nofn_xonly_pk,
+                    *UNSPENDABLE_XONLY_PUBKEY,
                     assert_spend_info.merkle_root(),
                     network,
                 );
@@ -136,7 +144,7 @@ pub fn create_kickoff_txhandler(
                 builder = builder.add_output(UnspentTxOut::new(
                     TxOut {
                         value: MIN_TAPROOT_AMOUNT,
-                        script_pubkey: assert_address.script_pubkey().clone(),
+                        script_pubkey: assert_address.script_pubkey(),
                     },
                     vec![nofn_4week.clone()],
                     Some(assert_spend_info),

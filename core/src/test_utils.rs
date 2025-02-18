@@ -572,7 +572,7 @@ macro_rules! generate_withdrawal_transaction_and_signature {
 
         let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
             .add_input(
-                NormalSignatureKind::NotStored,
+                NormalSignatureKind::NormalSignatureUnknown,
                 txin,
                 SpendPath::KeySpend,
                 builder::transaction::DEFAULT_SEQUENCE,

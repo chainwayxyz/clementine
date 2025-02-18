@@ -516,7 +516,7 @@ mod tests {
             script_pubkey: tap_addr.script_pubkey(),
         };
         let builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
-            NormalSignatureKind::AlreadyDisproved1,
+            NormalSignatureKind::Reimburse2,
             SpendableTxIn::new(
                 OutPoint::default(),
                 prevtxo.clone(),
@@ -573,7 +573,7 @@ mod tests {
         );
 
         let builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
-            NormalSignatureKind::AlreadyDisproved1,
+            NormalSignatureKind::KickoffNotFinalized1,
             spendable_input,
             SpendPath::ScriptSpend(0),
             bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,

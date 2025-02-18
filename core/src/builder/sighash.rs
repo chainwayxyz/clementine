@@ -14,6 +14,7 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::KickoffId;
+use crate::utils;
 use async_stream::try_stream;
 use bitcoin::{Address, OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
@@ -42,7 +43,7 @@ pub fn calculate_num_required_operator_sigs(config: &BridgeConfig) -> usize {
     } = config;
     num_sequential_collateral_txs
         * num_kickoffs_per_sequential_collateral_tx
-        * calculate_num_required_operator_sigs_per_kickoff()
+        * calculate_num_required_operator_sigs_per_kickoff(config)
 }
 
 pub fn calculate_num_required_nofn_sigs_per_kickoff(
@@ -50,11 +51,11 @@ pub fn calculate_num_required_nofn_sigs_per_kickoff(
         num_watchtowers, ..
     }: &BridgeConfig,
 ) -> usize {
-    13 + 2 * num_watchtowers
+    7 + 2 * num_watchtowers + utils::BITVM_CACHE.num_asserts * 2
 }
 
-pub fn calculate_num_required_operator_sigs_per_kickoff() -> usize {
-    4
+pub fn calculate_num_required_operator_sigs_per_kickoff(config: &BridgeConfig) -> usize {
+    2 + utils::BITVM_CACHE.num_asserts + config.num_watchtowers
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -170,6 +171,7 @@ pub fn create_nofn_sighash_stream(
                             yield sighash;
                         }
                     }
+
                     if sum != calculate_num_required_nofn_sigs_per_kickoff(&config) {
                         Err(BridgeError::NofNSighashMismatch(calculate_num_required_nofn_sigs_per_kickoff(&config), sum))?;
                     }
@@ -216,7 +218,7 @@ pub fn create_operator_sighash_stream(
                     config.clone(),
                     deposit_data.clone(),
                     nofn_xonly_pk,
-                    TransactionType::AllNeededForOperatorDeposit,
+                    TransactionType::AllNeededForDeposit,
                     KickoffId {
                         operator_idx: operator_idx as u32,
                         sequential_collateral_idx: sequential_collateral_tx_idx as u32,
@@ -235,8 +237,8 @@ pub fn create_operator_sighash_stream(
                         yield sighash;
                     }
                 }
-                if sum != calculate_num_required_operator_sigs_per_kickoff() {
-                    Err(BridgeError::OperatorSighashMismatch(calculate_num_required_operator_sigs_per_kickoff(), sum))?;
+                if sum != calculate_num_required_operator_sigs_per_kickoff(&config) {
+                    Err(BridgeError::OperatorSighashMismatch(calculate_num_required_operator_sigs_per_kickoff(&config), sum))?;
                 }
                 last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
             }
@@ -257,7 +259,7 @@ mod tests {
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
     use bitcoin::hashes::Hash;
-    use bitcoin::{OutPoint, ScriptBuf, TapSighash, Txid, XOnlyPublicKey};
+    use bitcoin::{OutPoint, TapSighash, Txid, XOnlyPublicKey};
     use futures::StreamExt;
     use std::pin::pin;
 
