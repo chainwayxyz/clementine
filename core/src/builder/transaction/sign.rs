@@ -60,7 +60,7 @@ pub async fn create_and_sign_tx(
             None,
             transaction_data.deposit_data.deposit_outpoint,
             transaction_data.kickoff_id.operator_idx as usize,
-            transaction_data.kickoff_id.sequential_collateral_idx as usize,
+            transaction_data.kickoff_id.round_idx as usize,
             transaction_data.kickoff_id.kickoff_idx as usize,
         )
         .await?;
@@ -114,7 +114,7 @@ pub async fn create_and_sign_tx(
     if let TransactionType::Kickoff = transaction_data.transaction_type {
         // need to commit blockhash to start kickoff
         let path = WinternitzDerivationPath::Kickoff(
-            transaction_data.kickoff_id.sequential_collateral_idx,
+            transaction_data.kickoff_id.round_idx,
             transaction_data.kickoff_id.kickoff_idx,
         );
         signer.tx_sign_winternitz(

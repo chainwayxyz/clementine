@@ -86,21 +86,20 @@ message DepositParams {
 
 enum NormalTransactionId {
     UNSPECIFIED_TRANSACTION_TYPE = 0;
-    SEQUENTIAL_COLLATERAL = 1;
-    REIMBURSE_GENERATOR = 2;
-    KICKOFF = 3;
-    MOVE_TO_VAULT = 4;
-    PAYOUT = 5;
-    CHALLENGE = 6;
-    WATCHTOWER_CHALLENGE_KICKOFF = 7;
-    DISPROVE = 8;
-    DISPROVE_TIMEOUT = 9;
-    REIMBURSE = 10;
-    ALL_NEEDED_FOR_DEPOSIT = 11;
-    DUMMY = 12;
-    READY_TO_REIMBURSE = 13;
-    KICKOFF_NOT_FINALIZED = 14;
-    CHALLENGE_TIMEOUT = 15;
+    ROUND = 1;
+    KICKOFF = 2;
+    MOVE_TO_VAULT = 3;
+    PAYOUT = 4;
+    CHALLENGE = 5;
+    WATCHTOWER_CHALLENGE_KICKOFF = 6;
+    DISPROVE = 7;
+    DISPROVE_TIMEOUT = 8;
+    REIMBURSE = 9;
+    ALL_NEEDED_FOR_DEPOSIT = 10;
+    DUMMY = 11;
+    READY_TO_REIMBURSE = 12;
+    KICKOFF_NOT_FINALIZED = 13;
+    CHALLENGE_TIMEOUT = 14;
 }
 
 enum NumberedTransactionType {
@@ -127,7 +126,7 @@ message GrpcTransactionId {
 
 message KickoffId {
   uint32 operator_idx = 1;
-  uint32 sequential_collateral_idx = 2;
+  uint32 round_idx = 2;
   uint32 kickoff_idx = 3;
 }
 
@@ -213,14 +212,14 @@ message WithdrawalFinalizedParams {
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
-// chain of UTXOs named `sequential_collateral_txs`. An operator also runs a verifier. These are
+// chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
 // connected to the same database and both have access to watchtowers'
 // winternitz pubkeys.
 service ClementineOperator {
   // Returns an operator's deposit keys.
   // Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
   rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
-  // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+  // Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
   // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
   //
   // # Parameters
@@ -263,8 +262,8 @@ service ClementineOperator {
   // - Operator burn Schnorr signature
   rpc DepositSign(DepositSignSession) returns (stream OperatorBurnSig) {}
 
-  // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-  // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+  // Prepares a withdrawal if it's profitable and previous round_tx's timelock
+  // has ended, by paying for the withdrawal and locking the current round_tx.
   rpc NewWithdrawalSig(NewWithdrawalSigParams)
     returns (NewWithdrawalSigResponse) {}
 
@@ -291,7 +290,7 @@ message VerifierParams {
   uint32 num_verifiers = 3;
   uint32 num_watchtowers = 4;
   uint32 num_operators = 5;
-  uint32 num_sequential_collateral_txs = 6;
+  uint32 num_round_txs = 6;
 }
 
 message PartialSig {
@@ -339,7 +338,7 @@ service ClementineVerifier {
   rpc SetWatchtowerKeys(WatchtowerKeysWithDeposit) returns (Empty) {}
   // Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
   rpc SetOperatorKeys(OperatorKeysWithDeposit)  returns (Empty) {}
-  // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+  // Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
   // It will create the transaction and sign it with saved nofn signatures.
   //
   // # Parameters
@@ -399,7 +398,7 @@ message WatchtowerKeys {
 service ClementineWatchtower {
   // Returns watchtower's challenge winternitz keys for each operator for a deposit.
   rpc GetChallengeKeys(DepositParams) returns (WatchtowerKeys) {}
-  // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+  // Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
   // It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
   //
   // # Parameters

@@ -350,8 +350,8 @@ impl Verifier {
             calculate_num_required_operator_sigs_per_kickoff(&self.config);
         let &BridgeConfig {
             num_operators,
-            num_sequential_collateral_txs,
-            num_kickoffs_per_sequential_collateral_tx,
+            num_round_txs: num_sequential_collateral_txs,
+            num_kickoffs_per_round: num_kickoffs_per_sequential_collateral_tx,
             ..
         } = &self.config;
         let mut verified_sigs = vec![

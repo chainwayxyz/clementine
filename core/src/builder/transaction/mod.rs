@@ -62,8 +62,7 @@ pub struct OperatorData {
 /// multiple times per kickoff.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub enum TransactionType {
-    SequentialCollateral,
-    ReimburseGenerator,
+    Round,
     Kickoff,
     MoveToVault,
     Payout,
@@ -97,8 +96,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
             grpc_transaction_id::Id::NormalTransaction(idx) => {
                 let tx_type = NormalTransactionId::try_from(idx)?;
                 match tx_type {
-                    Normal::SequentialCollateral => Ok(Self::SequentialCollateral),
-                    Normal::ReimburseGenerator => Ok(Self::ReimburseGenerator),
+                    Normal::Round => Ok(Self::Round),
                     Normal::Kickoff => Ok(Self::Kickoff),
                     Normal::MoveToVault => Ok(Self::MoveToVault),
                     Normal::Payout => Ok(Self::Payout),
@@ -152,12 +150,7 @@ impl From<TransactionType> for GrpcTransactionId {
         use NumberedTransactionType as Numbered;
         GrpcTransactionId {
             id: Some(match value {
-                TransactionType::SequentialCollateral => {
-                    NormalTransaction(Normal::SequentialCollateral as i32)
-                }
-                TransactionType::ReimburseGenerator => {
-                    NormalTransaction(Normal::ReimburseGenerator as i32)
-                }
+                TransactionType::Round => NormalTransaction(Normal::Round as i32),
                 TransactionType::Kickoff => NormalTransaction(Normal::Kickoff as i32),
                 TransactionType::MoveToVault => NormalTransaction(Normal::MoveToVault as i32),
                 TransactionType::Payout => NormalTransaction(Normal::Payout as i32),

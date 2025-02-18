@@ -23,13 +23,13 @@ use futures_core::stream::Stream;
 pub fn calculate_num_required_nofn_sigs(config: &BridgeConfig) -> usize {
     let &BridgeConfig {
         num_operators,
-        num_sequential_collateral_txs,
-        num_kickoffs_per_sequential_collateral_tx,
+        num_round_txs,
+        num_kickoffs_per_round,
         ..
     } = config;
     num_operators
-        * num_sequential_collateral_txs
-        * num_kickoffs_per_sequential_collateral_tx
+        * num_round_txs
+        * num_kickoffs_per_round
         * calculate_num_required_nofn_sigs_per_kickoff(config)
 }
 
@@ -37,12 +37,12 @@ pub fn calculate_num_required_nofn_sigs(config: &BridgeConfig) -> usize {
 // This will change as we implement the system design.
 pub fn calculate_num_required_operator_sigs(config: &BridgeConfig) -> usize {
     let &BridgeConfig {
-        num_sequential_collateral_txs,
-        num_kickoffs_per_sequential_collateral_tx,
+        num_round_txs,
+        num_kickoffs_per_round,
         ..
     } = config;
-    num_sequential_collateral_txs
-        * num_kickoffs_per_sequential_collateral_tx
+    num_round_txs
+        * num_kickoffs_per_round
         * calculate_num_required_operator_sigs_per_kickoff(config)
 }
 
@@ -128,7 +128,7 @@ pub fn create_nofn_sighash_stream(
         {
             let mut tx_db_data = TxHandlerDbData::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
 
-            let mut last_reimburse_generator: Option<TxHandler> = None;
+            let mut last_ready_to_reimburse: Option<TxHandler> = None;
 
             let operator_data = OperatorData {
                 xonly_pk: *operator_xonly_pk,
@@ -138,14 +138,14 @@ pub fn create_nofn_sighash_stream(
 
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-            for sequential_collateral_tx_idx in 0..config.num_sequential_collateral_txs {
+            for sequential_collateral_tx_idx in 0..config.num_round_txs {
                 // For each kickoff_utxo, it connnects to a kickoff_tx that results in
                 // either start_happy_reimburse_tx
                 // or challenge_tx, which forces the operator to initiate BitVM sequence
                 // (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
                 // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
                 // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
-                for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                for kickoff_idx in 0..config.num_kickoffs_per_round {
                     let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_tx_idx, kickoff_idx);
 
                     let mut txhandlers = create_txhandlers(
@@ -155,11 +155,11 @@ pub fn create_nofn_sighash_stream(
                         TransactionType::AllNeededForDeposit,
                         KickoffId {
                             operator_idx: operator_idx as u32,
-                            sequential_collateral_idx: sequential_collateral_tx_idx as u32,
+                            round_idx: sequential_collateral_tx_idx as u32,
                             kickoff_idx: kickoff_idx as u32,
                         },
                         operator_data.clone(),
-                        last_reimburse_generator,
+                        last_ready_to_reimburse,
                         &mut tx_db_data,
                     ).await?;
 
@@ -175,7 +175,7 @@ pub fn create_nofn_sighash_stream(
                     if sum != calculate_num_required_nofn_sigs_per_kickoff(&config) {
                         Err(BridgeError::NofNSighashMismatch(calculate_num_required_nofn_sigs_per_kickoff(&config), sum))?;
                     }
-                    last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
+                    last_ready_to_reimburse = txhandlers.remove(&TransactionType::ReadyToReimburse);
                 }
             }
         }
@@ -210,8 +210,8 @@ pub fn create_operator_sighash_stream(
         let mut last_reimburse_generator: Option<TxHandler> = None;
 
         // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-        for sequential_collateral_tx_idx in 0..config.num_sequential_collateral_txs {
-            for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+        for sequential_collateral_tx_idx in 0..config.num_round_txs {
+            for kickoff_idx in 0..config.num_kickoffs_per_round {
                 let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_tx_idx, kickoff_idx);
 
                 let mut txhandlers = create_txhandlers(
@@ -221,7 +221,7 @@ pub fn create_operator_sighash_stream(
                     TransactionType::AllNeededForDeposit,
                     KickoffId {
                         operator_idx: operator_idx as u32,
-                        sequential_collateral_idx: sequential_collateral_tx_idx as u32,
+                        round_idx: sequential_collateral_tx_idx as u32,
                         kickoff_idx: kickoff_idx as u32,
                     },
                     operator_data.clone(),
@@ -243,183 +243,5 @@ pub fn create_operator_sighash_stream(
                 last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::builder::sighash::create_nofn_sighash_stream;
-    use crate::builder::transaction::DepositData;
-    use crate::extended_rpc::ExtendedRpc;
-    use crate::operator::Operator;
-    use crate::utils::BITVM_CACHE;
-    use crate::watchtower::Watchtower;
-    use crate::{builder, create_regtest_rpc, create_test_config_with_thread_name};
-    use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
-    use bitcoin::hashes::Hash;
-    use bitcoin::{OutPoint, TapSighash, Txid, XOnlyPublicKey};
-    use futures::StreamExt;
-    use std::pin::pin;
-
-    #[tokio::test]
-    #[ignore = "Not needed because checks are already done in stream functions now"]
-    async fn calculate_num_required_nofn_sigs() {
-        let config = create_test_config_with_thread_name!(None);
-        let db = Database::new(&config).await.unwrap();
-        let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc().clone();
-
-        let operator = Operator::new(config.clone(), rpc).await.unwrap();
-        let watchtower = Watchtower::new(config.clone()).await.unwrap();
-
-        // Dummy inputs for nofn_stream.
-        let deposit_outpoint = OutPoint {
-            txid: Txid::all_zeros(),
-            vout: 0x45,
-        };
-        let evm_address = crate::EVMAddress([0x45; 20]);
-        let recovery_taproot_address =
-            builder::address::create_taproot_address(&[], None, bitcoin::Network::Regtest).0;
-        let nofn_xonly_pk = XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap();
-
-        // Initialize database.
-        let operator_xonly_pk = XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap();
-        let watchtower_xonly_pk = XOnlyPublicKey::from_slice(&[0x1F; 32]).unwrap();
-        for i in 0..config.num_operators {
-            db.set_operator(
-                None,
-                i.try_into().unwrap(),
-                operator_xonly_pk,
-                recovery_taproot_address.to_string(),
-                OutPoint {
-                    vout: 0x45,
-                    txid: Txid::all_zeros(),
-                },
-            )
-            .await
-            .unwrap();
-        }
-        for i in 0..config.num_watchtowers {
-            db.set_watchtower_xonly_pk(None, i.try_into().unwrap(), &watchtower_xonly_pk)
-                .await
-                .unwrap();
-        }
-        for i in 0..config.num_operators {
-            db.set_operator_kickoff_winternitz_public_keys(
-                None,
-                i.try_into().unwrap(),
-                operator
-                    .generate_assert_winternitz_pubkeys(Txid::all_zeros())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        }
-        for i in 0..config.num_operators {
-            for j in 0..config.num_watchtowers {
-                db.set_watchtower_challenge_address(
-                    None,
-                    j.try_into().unwrap(),
-                    i.try_into().unwrap(),
-                    &watchtower
-                        .get_watchtower_challenge_addresses(Txid::all_zeros())
-                        .await
-                        .unwrap()[i],
-                    deposit_outpoint,
-                )
-                .await
-                .unwrap();
-            }
-        }
-        let assert_len = BITVM_CACHE.intermediate_variables.len();
-        for o in 0..config.num_operators {
-            db.set_bitvm_setup(
-                None,
-                o.try_into().unwrap(),
-                deposit_outpoint,
-                vec![[1u8; 32]; assert_len],
-                &[0x45; 32],
-            )
-            .await
-            .unwrap();
-        }
-        for o in 0..config.num_operators {
-            db.set_operator_challenge_ack_hashes(
-                None,
-                o.try_into().unwrap(),
-                deposit_outpoint,
-                &vec![[0x45; 20]; config.num_watchtowers],
-            )
-            .await
-            .unwrap();
-        }
-
-        let mut nofn_stream = pin!(create_nofn_sighash_stream(
-            db,
-            config.clone(),
-            DepositData {
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address: recovery_taproot_address.as_unchecked().clone(),
-            },
-            nofn_xonly_pk,
-        ));
-
-        let mut challenge_tx_sighashes = Vec::<TapSighash>::new();
-        let mut start_happy_reimburse_sighashes = Vec::<TapSighash>::new();
-        let mut happy_reimburse_sighashes = Vec::<TapSighash>::new();
-        let mut watchtower_challenge_kickoff_sighashes = Vec::<TapSighash>::new();
-        let mut kickoff_timeout_sighashes = Vec::<TapSighash>::new();
-        let mut operator_challenge_nack_sighashes = Vec::<TapSighash>::new();
-        let mut assert_end_sighashes = Vec::<TapSighash>::new();
-        let mut disprove_timeout_sighashes = Vec::<TapSighash>::new();
-        let mut already_disproved_sighashes = Vec::<TapSighash>::new();
-        let mut reimburse_sighashes = Vec::<TapSighash>::new();
-
-        for _ in 0..config.num_operators {
-            for _ in 0..config.num_sequential_collateral_txs {
-                for _ in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                    challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
-                    start_happy_reimburse_sighashes
-                        .push(nofn_stream.next().await.unwrap().unwrap().0);
-                    happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
-                    watchtower_challenge_kickoff_sighashes
-                        .push(nofn_stream.next().await.unwrap().unwrap().0);
-                    kickoff_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
-
-                    for _ in 0..config.num_watchtowers {
-                        // Script spend.
-                        operator_challenge_nack_sighashes
-                            .push(nofn_stream.next().await.unwrap().unwrap().0);
-                        // Pubkey spend.
-                        operator_challenge_nack_sighashes
-                            .push(nofn_stream.next().await.unwrap().unwrap().0);
-                    }
-
-                    assert_end_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
-                    // Pubkey spend.
-                    disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
-                    // Script spend.
-                    disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
-                    already_disproved_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
-                    reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
-                }
-            }
-        }
-        assert!(nofn_stream.next().await.is_none());
-
-        let sum = challenge_tx_sighashes.len()
-            + start_happy_reimburse_sighashes.len()
-            + happy_reimburse_sighashes.len()
-            + watchtower_challenge_kickoff_sighashes.len()
-            + kickoff_timeout_sighashes.len()
-            + operator_challenge_nack_sighashes.len()
-            + assert_end_sighashes.len()
-            + disprove_timeout_sighashes.len()
-            + already_disproved_sighashes.len()
-            + reimburse_sighashes.len();
-        assert_eq!(sum, super::calculate_num_required_nofn_sigs(&config));
     }
 }

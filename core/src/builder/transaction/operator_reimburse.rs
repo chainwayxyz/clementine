@@ -206,9 +206,10 @@ pub fn create_kickoff_not_finalized_txhandler(
 /// in case of a challenge, to reimburse the operator for their honest behavior.
 pub fn create_reimburse_txhandler(
     move_txhandler: &TxHandler,
-    reimburse_generator_txhandler: &TxHandler,
+    round_txhandler: &TxHandler,
     kickoff_txhandler: &TxHandler,
     kickoff_idx: usize,
+    num_kickoffs_per_round: usize,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new(TransactionType::Reimburse)
@@ -226,7 +227,7 @@ pub fn create_reimburse_txhandler(
         )
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            reimburse_generator_txhandler.get_spendable_output(1 + kickoff_idx)?,
+            round_txhandler.get_spendable_output(1 + kickoff_idx + num_kickoffs_per_round)?,
             builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         );

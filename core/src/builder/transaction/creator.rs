@@ -3,7 +3,8 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
-    create_mini_asserts, AssertScripts, DepositData, OperatorData, TransactionType, TxHandler,
+    create_mini_asserts, create_round_txhandler, AssertScripts, DepositData, OperatorData,
+    TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
@@ -30,27 +31,27 @@ fn get_txhandler(
 /// Helper struct to get specific kickoff winternitz keys for a sequential collateral tx
 pub struct KickoffWinternitzKeys {
     keys: Vec<bitvm::signatures::winternitz::PublicKey>,
-    num_kickoffs_per_seq: usize,
+    num_kickoffs_per_round: usize,
 }
 
 impl KickoffWinternitzKeys {
     pub fn new(
         keys: Vec<bitvm::signatures::winternitz::PublicKey>,
-        num_kickoffs_per_seq: usize,
+        num_kickoffs_per_round: usize,
     ) -> Self {
         Self {
             keys,
-            num_kickoffs_per_seq,
+            num_kickoffs_per_round,
         }
     }
 
     /// Get the winternitz keys for a specific sequential collateral tx
-    pub fn get_keys_for_seq_col(
+    pub fn get_keys_for_round(
         &self,
-        seq_col_idx: usize,
+        round_idx: usize,
     ) -> &[bitvm::signatures::winternitz::PublicKey] {
         &self.keys
-            [seq_col_idx * self.num_kickoffs_per_seq..(seq_col_idx + 1) * self.num_kickoffs_per_seq]
+            [round_idx * self.num_kickoffs_per_round..(round_idx + 1) * self.num_kickoffs_per_round]
     }
 }
 
@@ -127,7 +128,7 @@ impl TxHandlerDbData {
                     self.db
                         .get_operator_kickoff_winternitz_public_keys(None, self.operator_idx)
                         .await?,
-                    self.config.num_kickoffs_per_sequential_collateral_tx,
+                    self.config.num_kickoffs_per_round,
                 ));
                 Ok(self
                     .kickoff_winternitz_keys
@@ -215,7 +216,7 @@ pub async fn create_txhandlers(
     transaction_type: TransactionType,
     kickoff_id: KickoffId,
     operator_data: OperatorData,
-    prev_reimburse_generator: Option<TxHandler>,
+    prev_ready_to_reimburse: Option<TxHandler>,
     db_data: &mut TxHandlerDbData,
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
     let mut txhandlers = BTreeMap::new();
@@ -235,83 +236,63 @@ pub async fn create_txhandlers(
 
     let kickoff_winternitz_keys = db_data.get_kickoff_winternitz_keys().await?;
 
-    let (
-        sequential_collateral_txhandler,
-        ready_to_reimburse_txhandler,
-        reimburse_generator_txhandler,
-    ) = match prev_reimburse_generator {
-        Some(prev_reimburse_generator) => {
-            let sequential_collateral_txhandler =
-                builder::transaction::create_sequential_collateral_txhandler(
-                    operator_data.xonly_pk,
-                    *prev_reimburse_generator
-                        .get_spendable_output(0)?
-                        .get_prev_outpoint(),
-                    prev_reimburse_generator
-                        .get_spendable_output(0)?
-                        .get_prevout()
-                        .value,
-                    config.num_kickoffs_per_sequential_collateral_tx,
-                    config.network,
-                    kickoff_winternitz_keys
-                        .get_keys_for_seq_col(kickoff_id.sequential_collateral_idx as usize),
-                )?;
+    let (round_txhandler, ready_to_reimburse_txhandler) = match prev_ready_to_reimburse {
+        Some(prev_ready_to_reimburse_txhandler) => {
+            let round_txhandler = builder::transaction::create_round_txhandler(
+                operator_data.xonly_pk,
+                *prev_ready_to_reimburse_txhandler
+                    .get_spendable_output(0)?
+                    .get_prev_outpoint(),
+                prev_ready_to_reimburse_txhandler
+                    .get_spendable_output(0)?
+                    .get_prevout()
+                    .value,
+                config.num_kickoffs_per_round,
+                config.network,
+                kickoff_winternitz_keys.get_keys_for_round(kickoff_id.round_idx as usize),
+            )?;
 
             let ready_to_reimburse_txhandler =
                 builder::transaction::create_ready_to_reimburse_txhandler(
-                    &sequential_collateral_txhandler,
+                    &round_txhandler,
                     operator_data.xonly_pk,
                     config.network,
                 )?;
-
-            // Create the reimburse_generator_tx handler.
-            let reimburse_generator_txhandler =
-                builder::transaction::create_reimburse_generator_txhandler(
-                    &ready_to_reimburse_txhandler,
-                    operator_data.xonly_pk,
-                    config.num_kickoffs_per_sequential_collateral_tx,
-                    config.network,
-                )?;
-            (
-                sequential_collateral_txhandler,
-                ready_to_reimburse_txhandler,
-                reimburse_generator_txhandler,
-            )
+            (round_txhandler, ready_to_reimburse_txhandler)
         }
         None => {
             // create nth sequential collateral tx and reimburse generator tx for the operator
-            let (
-                sequential_collateral_txhandler,
-                ready_to_reimburse_txhandler,
-                reimburse_generator_txhandler,
-            ) = builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
+            builder::transaction::create_round_nth_txhandler(
                 operator_data.xonly_pk,
                 operator_data.collateral_funding_outpoint,
                 config.collateral_funding_amount,
-                config.num_kickoffs_per_sequential_collateral_tx,
+                config.num_kickoffs_per_round,
                 config.network,
-                kickoff_id.sequential_collateral_idx as usize,
+                kickoff_id.round_idx as usize,
                 kickoff_winternitz_keys,
-            )?;
-            (
-                sequential_collateral_txhandler,
-                ready_to_reimburse_txhandler,
-                reimburse_generator_txhandler,
-            )
+            )?
         }
     };
 
-    txhandlers.insert(
-        sequential_collateral_txhandler.get_transaction_type(),
-        sequential_collateral_txhandler,
-    );
+    // get the next round txhandler (because reimburse connectors will be in it)
+    let next_round_txhandler = create_round_txhandler(
+        operator_data.xonly_pk,
+        *ready_to_reimburse_txhandler
+            .get_spendable_output(0)?
+            .get_prev_outpoint(),
+        ready_to_reimburse_txhandler
+            .get_spendable_output(0)?
+            .get_prevout()
+            .value,
+        config.num_kickoffs_per_round,
+        config.network,
+        kickoff_winternitz_keys.get_keys_for_round(kickoff_id.round_idx as usize + 1),
+    )?;
+
+    txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
     txhandlers.insert(
         ready_to_reimburse_txhandler.get_transaction_type(),
         ready_to_reimburse_txhandler,
-    );
-    txhandlers.insert(
-        reimburse_generator_txhandler.get_transaction_type(),
-        reimburse_generator_txhandler,
     );
 
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
@@ -343,7 +324,7 @@ pub async fn create_txhandlers(
         }
 
         let kickoff_txhandler = create_kickoff_txhandler(
-            get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+            get_txhandler(&txhandlers, TransactionType::Round)?,
             kickoff_id.kickoff_idx as usize,
             nofn_xonly_pk,
             operator_data.xonly_pk,
@@ -369,7 +350,7 @@ pub async fn create_txhandlers(
         let disprove_root_hash = *db_data.get_bitvm_disprove_root_hash().await?;
         // use db data for scripts
         create_kickoff_txhandler(
-            get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+            get_txhandler(&txhandlers, TransactionType::Round)?,
             kickoff_id.kickoff_idx as usize,
             nofn_xonly_pk,
             operator_data.xonly_pk,
@@ -386,7 +367,7 @@ pub async fn create_txhandlers(
 
     let assert_timeouts = create_assert_timeout_txhandlers(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-        get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+        get_txhandler(&txhandlers, TransactionType::Round)?,
         num_asserts,
     )?;
 
@@ -416,7 +397,7 @@ pub async fn create_txhandlers(
     let kickoff_not_finalized_txhandler =
         builder::transaction::create_kickoff_not_finalized_txhandler(
             get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-            get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+            get_txhandler(&txhandlers, TransactionType::Round)?,
         )?;
     txhandlers.insert(
         kickoff_not_finalized_txhandler.get_transaction_type(),
@@ -514,7 +495,7 @@ pub async fn create_txhandlers(
                     )?,
                     watchtower_idx,
                     get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                    get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+                    get_txhandler(&txhandlers, TransactionType::Round)?,
                 )?;
             txhandlers.insert(
                 operator_challenge_nack_txhandler.get_transaction_type(),
@@ -559,9 +540,10 @@ pub async fn create_txhandlers(
     // Creates the reimburse_tx handler.
     let reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
         get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-        get_txhandler(&txhandlers, TransactionType::ReimburseGenerator)?,
+        &next_round_txhandler,
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         kickoff_id.kickoff_idx as usize,
+        config.num_kickoffs_per_round,
         &operator_data.reimburse_addr,
     )?;
 
@@ -574,7 +556,7 @@ pub async fn create_txhandlers(
         TransactionType::AllNeededForDeposit => {
             let disprove_txhandler = builder::transaction::create_disprove_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+                get_txhandler(&txhandlers, TransactionType::Round)?,
             )?;
             txhandlers.insert(
                 disprove_txhandler.get_transaction_type(),
@@ -673,9 +655,8 @@ mod tests {
         tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
 
         let mut txs_operator_can_sign = vec![
-            TransactionType::SequentialCollateral,
+            TransactionType::Round,
             TransactionType::ReadyToReimburse,
-            TransactionType::ReimburseGenerator,
             TransactionType::Kickoff,
             TransactionType::KickoffNotFinalized,
             TransactionType::Challenge,
@@ -708,11 +689,11 @@ mod tests {
                 let full_commit_data = full_commit_data.clone();
                 let mut operator_rpc = operator_rpc.clone();
                 async move {
-                    for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
-                        for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                    for sequential_collateral_idx in 0..config.num_round_txs {
+                        for kickoff_idx in 0..config.num_kickoffs_per_round {
                             let kickoff_id = KickoffId {
                                 operator_idx: operator_idx as u32,
-                                sequential_collateral_idx: sequential_collateral_idx as u32,
+                                round_idx: sequential_collateral_idx as u32,
                                 kickoff_idx: kickoff_idx as u32,
                             };
                             for tx_type in &txs_operator_can_sign {
@@ -775,11 +756,11 @@ mod tests {
                 let mut watchtower_rpc = watchtower_rpc.clone();
                 async move {
                     for operator_idx in 0..config.num_operators {
-                        for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
-                            for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                        for sequential_collateral_idx in 0..config.num_round_txs {
+                            for kickoff_idx in 0..config.num_kickoffs_per_round {
                                 let kickoff_id = KickoffId {
                                     operator_idx: operator_idx as u32,
-                                    sequential_collateral_idx: sequential_collateral_idx as u32,
+                                    round_idx: sequential_collateral_idx as u32,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 let _raw_tx = watchtower_rpc
@@ -832,11 +813,11 @@ mod tests {
                 let mut verifier_rpc = verifier_rpc.clone();
                 async move {
                     for operator_idx in 0..config.num_operators {
-                        for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
-                            for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                        for sequential_collateral_idx in 0..config.num_round_txs {
+                            for kickoff_idx in 0..config.num_kickoffs_per_round {
                                 let kickoff_id = KickoffId {
                                     operator_idx: operator_idx as u32,
-                                    sequential_collateral_idx: sequential_collateral_idx as u32,
+                                    round_idx: sequential_collateral_idx as u32,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 for tx_type in &txs_verifier_can_sign {

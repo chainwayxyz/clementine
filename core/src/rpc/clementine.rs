@@ -94,7 +94,7 @@ pub struct KickoffId {
     #[prost(uint32, tag = "1")]
     pub operator_idx: u32,
     #[prost(uint32, tag = "2")]
-    pub sequential_collateral_idx: u32,
+    pub round_idx: u32,
     #[prost(uint32, tag = "3")]
     pub kickoff_idx: u32,
 }
@@ -230,7 +230,7 @@ pub struct VerifierParams {
     #[prost(uint32, tag = "5")]
     pub num_operators: u32,
     #[prost(uint32, tag = "6")]
-    pub num_sequential_collateral_txs: u32,
+    pub num_round_txs: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PartialSig {
@@ -457,21 +457,20 @@ impl NumberedSignatureKind {
 #[repr(i32)]
 pub enum NormalTransactionId {
     UnspecifiedTransactionType = 0,
-    SequentialCollateral = 1,
-    ReimburseGenerator = 2,
-    Kickoff = 3,
-    MoveToVault = 4,
-    Payout = 5,
-    Challenge = 6,
-    WatchtowerChallengeKickoff = 7,
-    Disprove = 8,
-    DisproveTimeout = 9,
-    Reimburse = 10,
-    AllNeededForDeposit = 11,
-    Dummy = 12,
-    ReadyToReimburse = 13,
-    KickoffNotFinalized = 14,
-    ChallengeTimeout = 15,
+    Round = 1,
+    Kickoff = 2,
+    MoveToVault = 3,
+    Payout = 4,
+    Challenge = 5,
+    WatchtowerChallengeKickoff = 6,
+    Disprove = 7,
+    DisproveTimeout = 8,
+    Reimburse = 9,
+    AllNeededForDeposit = 10,
+    Dummy = 11,
+    ReadyToReimburse = 12,
+    KickoffNotFinalized = 13,
+    ChallengeTimeout = 14,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -481,8 +480,7 @@ impl NormalTransactionId {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::UnspecifiedTransactionType => "UNSPECIFIED_TRANSACTION_TYPE",
-            Self::SequentialCollateral => "SEQUENTIAL_COLLATERAL",
-            Self::ReimburseGenerator => "REIMBURSE_GENERATOR",
+            Self::Round => "ROUND",
             Self::Kickoff => "KICKOFF",
             Self::MoveToVault => "MOVE_TO_VAULT",
             Self::Payout => "PAYOUT",
@@ -502,8 +500,7 @@ impl NormalTransactionId {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "UNSPECIFIED_TRANSACTION_TYPE" => Some(Self::UnspecifiedTransactionType),
-            "SEQUENTIAL_COLLATERAL" => Some(Self::SequentialCollateral),
-            "REIMBURSE_GENERATOR" => Some(Self::ReimburseGenerator),
+            "ROUND" => Some(Self::Round),
             "KICKOFF" => Some(Self::Kickoff),
             "MOVE_TO_VAULT" => Some(Self::MoveToVault),
             "PAYOUT" => Some(Self::Payout),
@@ -578,7 +575,7 @@ pub mod clementine_operator_client {
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     /// An operator is responsible for paying withdrawals. It has an unique ID and
-    /// chain of UTXOs named `sequential_collateral_txs`. An operator also runs a verifier. These are
+    /// chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
     /// connected to the same database and both have access to watchtowers'
     /// winternitz pubkeys.
     #[derive(Debug, Clone)]
@@ -686,7 +683,7 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
         ///
         /// # Parameters
@@ -822,8 +819,8 @@ pub mod clementine_operator_client {
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "DepositSign"));
             self.inner.server_streaming(req, path, codec).await
         }
-        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+        /// Prepares a withdrawal if it's profitable and previous round_tx's timelock
+        /// has ended, by paying for the withdrawal and locking the current round_tx.
         pub async fn new_withdrawal_sig(
             &mut self,
             request: impl tonic::IntoRequest<super::NewWithdrawalSigParams>,
@@ -1029,7 +1026,7 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction and sign it with saved nofn signatures.
         ///
         /// # Parameters
@@ -1363,7 +1360,7 @@ pub mod clementine_watchtower_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
         ///
         /// # Parameters
@@ -1592,7 +1589,7 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::OperatorKeys>, tonic::Status>;
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
         ///
         /// # Parameters
@@ -1659,8 +1656,8 @@ pub mod clementine_operator_server {
             tonic::Response<Self::DepositSignStream>,
             tonic::Status,
         >;
-        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+        /// Prepares a withdrawal if it's profitable and previous round_tx's timelock
+        /// has ended, by paying for the withdrawal and locking the current round_tx.
         async fn new_withdrawal_sig(
             &self,
             request: tonic::Request<super::NewWithdrawalSigParams>,
@@ -1686,7 +1683,7 @@ pub mod clementine_operator_server {
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     /// An operator is responsible for paying withdrawals. It has an unique ID and
-    /// chain of UTXOs named `sequential_collateral_txs`. An operator also runs a verifier. These are
+    /// chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
     /// connected to the same database and both have access to watchtowers'
     /// winternitz pubkeys.
     #[derive(Debug)]
@@ -2163,7 +2160,7 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::OperatorKeysWithDeposit>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction and sign it with saved nofn signatures.
         ///
         /// # Parameters
@@ -2843,7 +2840,7 @@ pub mod clementine_watchtower_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::WatchtowerKeys>, tonic::Status>;
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
         ///
         /// # Parameters

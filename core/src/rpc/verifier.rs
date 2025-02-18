@@ -63,9 +63,8 @@ impl ClementineVerifier for Verifier {
         ) = parser::operator::parse_details(&mut in_stream).await?;
 
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
-        for _ in 0..self.config.num_kickoffs_per_sequential_collateral_tx
-            * self.config.num_sequential_collateral_txs
-        {
+        // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
+        for _ in 0..self.config.num_kickoffs_per_round * (self.config.num_round_txs + 1) {
             operator_kickoff_winternitz_public_keys
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
         }

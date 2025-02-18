@@ -849,8 +849,9 @@ impl Operator {
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();
 
-        for sequential_collateral_idx in 0..self.config.num_sequential_collateral_txs {
-            for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
+        // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
+        for sequential_collateral_idx in 0..self.config.num_round_txs + 1 {
+            for kickoff_idx in 0..self.config.num_kickoffs_per_round {
                 let path = WinternitzDerivationPath::Kickoff(
                     sequential_collateral_idx as u32,
                     kickoff_idx as u32,
@@ -974,7 +975,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             winternitz_public_key.len(),
-            config.num_sequential_collateral_txs * config.num_kickoffs_per_sequential_collateral_tx
+            config.num_round_txs * config.num_kickoffs_per_round
         );
     }
 
