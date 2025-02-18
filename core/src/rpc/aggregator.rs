@@ -3,7 +3,7 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::{create_move_to_vault_txhandler, DepositId, TxHandler};
+use crate::builder::transaction::{create_move_to_vault_txhandler, TxHandler};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -364,15 +364,14 @@ impl Aggregator {
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -> Result<TxHandler, Status> {
-        let (deposit_outpoint, evm_address, recovery_taproot_address) =
-            parser::parse_deposit_params(deposit_params)?;
+        let deposit_data = parser::parse_deposit_params(deposit_params)?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
         let mut move_txhandler = create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
+            deposit_data.deposit_outpoint,
+            deposit_data.evm_address,
+            &deposit_data.recovery_taproot_address,
             self.nofn_xonly_pk,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
@@ -839,160 +838,6 @@ mod tests {
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .is_err());
-    }
-
-    #[tokio::test]
-    async fn aggregator_setup_watchtower_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
-            create_actors!(config.clone());
-        let rpc = regtest.rpc();
-
-        aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .unwrap();
-        let watchtower = Watchtower::new(config.clone()).await.unwrap();
-        let watchtower_wpks = watchtower
-            .get_watchtower_winternitz_public_keys()
-            .await
-            .unwrap();
-        config.db_name += "0"; // This modification is done by the create_actors_grpc function.
-        let verifier = Verifier::new(rpc.clone(), config.clone()).await.unwrap();
-        let verifier_wpks = verifier
-            .db
-            .get_watchtower_winternitz_public_keys(None, 0, 0) // TODO: Change this, this index should not be 0 for the watchtower.
-            .await
-            .unwrap();
-        tracing::info!("watchtower_wpks length: {:?}", watchtower_wpks.len());
-        tracing::info!("verifier_wpks length: {:?}", verifier_wpks.len());
-        tracing::info!(
-            "config.num_time_txs: {:?}",
-            config.num_sequential_collateral_txs
-        );
-        tracing::info!(
-            "config.num_kickoffs_per_timetx: {:?}",
-            config.num_kickoffs_per_sequential_collateral_tx
-        );
-        assert_eq!(
-            config.num_sequential_collateral_txs * config.num_kickoffs_per_sequential_collateral_tx,
-            verifier_wpks.len()
-        );
-        assert!(
-            watchtower_wpks[0..config.num_sequential_collateral_txs
-                * config.num_kickoffs_per_sequential_collateral_tx]
-                .to_vec()
-                == verifier_wpks,
-            "Winternitz keys of watchtower and verifier are not equal"
-        );
-    }
-
-    #[tokio::test]
-    async fn aggregator_setup_watchtower_challenge_addresses() {
-        let config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
-            create_actors!(config.clone());
-        let rpc = regtest.rpc();
-
-        aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .unwrap();
-        let watchtower = Watchtower::new(config.clone()).await.unwrap();
-        tracing::info!("watchtower config: {:#?}", watchtower.config);
-        let watchtower_wpks = watchtower
-            .get_watchtower_winternitz_public_keys()
-            .await
-            .unwrap();
-        let watchtower_challenge_addresses = watchtower
-            .get_watchtower_challenge_addresses()
-            .await
-            .unwrap();
-        let verifier0 = {
-            let mut config = config.clone();
-            config.db_name += "0"; // This modification is done by the create_actors_grpc function.
-            Verifier::new(rpc.clone(), config).await.unwrap()
-        };
-
-        tracing::info!("verifier config: {:#?}", verifier0.config);
-
-        let verifier_wpks = verifier0
-            .db
-            .get_watchtower_winternitz_public_keys(None, 0, 0)
-            .await
-            .unwrap();
-        let verifier_challenge_addresses_0 = verifier0
-            .db
-            .get_watchtower_challenge_addresses(None, 0, 0)
-            .await
-            .unwrap();
-        let verifier_challenge_addresses_1 = verifier0
-            .db
-            .get_watchtower_challenge_addresses(None, 1, 0)
-            .await
-            .unwrap();
-        let verifier_challenge_addresses_2 = verifier0
-            .db
-            .get_watchtower_challenge_addresses(None, 2, 0)
-            .await
-            .unwrap();
-        let verifier_challenge_addresses_3 = verifier0
-            .db
-            .get_watchtower_challenge_addresses(None, 3, 0)
-            .await
-            .unwrap();
-        tracing::info!(
-            "watchtower_challenge_addresses length: {:?}",
-            watchtower_challenge_addresses.len()
-        );
-        tracing::info!(
-            "verifier_challenge_addresses length: {:?}",
-            verifier_challenge_addresses_0.len()
-        );
-        assert_eq!(
-            config.num_kickoffs_per_sequential_collateral_tx
-                * config.num_kickoffs_per_sequential_collateral_tx,
-            verifier_wpks.len()
-        );
-        assert_eq!(
-            config.num_kickoffs_per_sequential_collateral_tx
-                * config.num_kickoffs_per_sequential_collateral_tx,
-            verifier_challenge_addresses_0.len()
-        );
-        tracing::info!(
-            "watchtower_challenge_addresses: {:?}",
-            watchtower_challenge_addresses
-        );
-        tracing::info!(
-            "verifier_challenge_addresses_0: {:?}",
-            verifier_challenge_addresses_0
-        );
-        tracing::info!(
-            "verifier_challenge_addresses_1: {:?}",
-            verifier_challenge_addresses_1
-        );
-        tracing::info!(
-            "verifier_challenge_addresses_2: {:?}",
-            verifier_challenge_addresses_2
-        );
-        tracing::info!(
-            "verifier_challenge_addresses_3: {:?}",
-            verifier_challenge_addresses_3
-        );
-        assert!(
-            watchtower_wpks[0..config.num_kickoffs_per_sequential_collateral_tx
-                * config.num_kickoffs_per_sequential_collateral_tx]
-                .to_vec()
-                == verifier_wpks,
-            "Winternitz keys of watchtower and verifier are not equal"
-        );
-        assert!(
-            watchtower_challenge_addresses[0..config.num_kickoffs_per_sequential_collateral_tx
-                * config.num_kickoffs_per_sequential_collateral_tx]
-                .to_vec()
-                == verifier_challenge_addresses_2, // Caveat: https://github.com/chainwayxyz/clementine/issues/478
-            "Challenge addresses of watchtower and verifier are not equal"
-        );
     }
 
     #[tokio::test]

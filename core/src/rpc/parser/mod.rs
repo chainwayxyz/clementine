@@ -1,10 +1,9 @@
 use super::clementine::{self, AssertRequest, Outpoint, TransactionRequest, WinternitzPubkey};
-use super::{clementine, error};
+use super::error;
 use crate::builder::transaction::sign::{AssertRequestData, TransactionRequestData};
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::errors::BridgeError;
 use crate::EVMAddress;
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::{OutPoint, Txid};
 use bitvm::signatures::winternitz;

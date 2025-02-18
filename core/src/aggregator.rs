@@ -24,8 +24,6 @@ use bitcoin::{
     secp256k1::{schnorr, Message},
     Address, OutPoint, XOnlyPublicKey,
 };
-use bitcoin::{hashes::Hash, Txid};
-use bitcoincore_rpc::RawTx;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::time::Duration;
