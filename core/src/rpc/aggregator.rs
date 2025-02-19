@@ -403,7 +403,9 @@ impl Aggregator {
         self.tx_sender
             .try_to_send(&mut dbtx, move_tx, FeePayingType::CPFP, &[], &[], &[])
             .await?;
-        dbtx.commit().await.expect("Failed to commit transaction");
+        dbtx.commit()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
 
         // everything is fine, return the signed move tx
         // TODO: Sign the transaction correctly after we create taproot witness generation functions

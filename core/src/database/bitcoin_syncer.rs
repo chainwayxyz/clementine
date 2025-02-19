@@ -83,7 +83,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         height: u64,
-    ) -> Result<Vec<i32>, BridgeError> {
+    ) -> Result<Vec<u32>, BridgeError> {
         let query = sqlx::query_as(
             "WITH deleted AS (
                 UPDATE bitcoin_syncer 
@@ -95,7 +95,10 @@ impl Database {
         .bind(height as i64);
 
         let block_ids: Vec<(i32,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-        Ok(block_ids.into_iter().map(|(block_id,)| block_id).collect())
+        Ok(block_ids
+            .into_iter()
+            .map(|(block_id,)| block_id as u32)
+            .collect())
     }
 
     pub async fn add_txid_to_block(

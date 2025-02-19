@@ -450,7 +450,8 @@ impl Database {
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
-            deserialize(&result.0).expect("Failed to deserialize tx"),
+            deserialize(&result.0)
+                .map_err(|e| BridgeError::Error(format!("Bitcoin deserialization error: {}", e)))?,
             result.1,
             result.2,
         ))

@@ -22,6 +22,7 @@ struct BlockInfo {
 }
 
 /// Events emitted by the Bitcoin syncer.
+/// It emits the block_id of the block in the db that was saved.
 #[derive(Clone, Debug)]
 pub enum BitcoinSyncerEvent {
     NewBlock(u32),

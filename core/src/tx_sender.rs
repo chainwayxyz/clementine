@@ -586,22 +586,15 @@ impl TxSender {
         let bumpable_fee_payer_txs = self.db.get_bumpable_fee_payer_txs(None, bumped_id).await?;
 
         for (id, fee_payer_txid, vout, amount) in bumpable_fee_payer_txs {
-            let new_txid_result = self
+            let new_txi_result = self
                 .rpc
                 .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
                 .await;
 
-            match new_txid_result {
-                Ok(_new_txid) => {
+            match new_txi_result {
+                Ok(new_txid) => {
                     self.db
-                        .save_fee_payer_tx(
-                            None,
-                            bumped_id,
-                            new_txid_result.expect("New txid result is None"),
-                            vout,
-                            amount,
-                            Some(id),
-                        )
+                        .save_fee_payer_tx(None, bumped_id, new_txid, vout, amount, Some(id))
                         .await?;
                 }
                 Err(e) => match e {
