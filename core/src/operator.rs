@@ -969,7 +969,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let _regtest = create_regtest_rpc!(config);
 
         let operator = Operator::new(config.clone()).await.unwrap();
@@ -982,7 +982,7 @@ mod tests {
 
     #[tokio::test]
     async fn operator_get_params() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let _regtest = create_regtest_rpc!(config);
 
         let operator = Operator::new(config.clone()).await.unwrap();

@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use bitcoin::consensus::encode::serialize;
 use bitcoin::consensus::{self, Decodable as _, Encodable};
 use bitcoin::hashes::Hash;
@@ -29,13 +27,12 @@ use clementine_core::servers::{
     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
     create_watchtower_grpc_server,
 };
-use clementine_core::tx_sender::TxSender;
+use clementine_core::utils::initialize_logger;
 use clementine_core::utils::SECP;
-use clementine_core::utils::{self, initialize_logger};
+use clementine_core::EVMAddress;
+use clementine_core::UTXO;
 use clementine_core::{actor::Actor, builder, musig2::AggregateFromPublicKeys};
-use clementine_core::{bitcoin_syncer, UTXO};
-use clementine_core::{tx_sender, EVMAddress};
-use eyre::{bail, Context, OptionExt, Result};
+use eyre::{Context, OptionExt, Result};
 use secp256k1::rand::rngs::ThreadRng;
 use tonic::Request;
 
