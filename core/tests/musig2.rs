@@ -12,15 +12,14 @@ use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
 use clementine_core::rpc::clementine::NormalSignatureKind;
+use clementine_core::test_utils::*;
 use clementine_core::utils::SECP;
 use clementine_core::{
     builder::{self},
     config::BridgeConfig,
-    extended_rpc::ExtendedRpc,
     musig2::{nonce_pair, partial_sign, MuSigNoncePair},
     utils,
 };
-use clementine_core::{database::Database, utils::initialize_logger};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::sync::Arc;
 
@@ -73,8 +72,8 @@ fn get_nonces(
 #[tokio::test]
 
 async fn key_spend() {
-    let mut config = create_test_config_with_thread_name!(None);
-    let regtest = create_regtest_rpc!(config);
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
@@ -168,8 +167,8 @@ async fn key_spend() {
 #[tokio::test]
 
 async fn key_spend_with_script() {
-    let mut config = create_test_config_with_thread_name!(None);
-    let regtest = create_regtest_rpc!(config);
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
@@ -273,8 +272,8 @@ async fn key_spend_with_script() {
 #[tokio::test]
 
 async fn script_spend() {
-    let mut config = create_test_config_with_thread_name!(None);
-    let regtest = create_regtest_rpc!(config);
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
     let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
@@ -382,8 +381,8 @@ async fn key_and_script_spend() {
     use bitcoin::{Network::*, *};
 
     // Arrange
-    let mut config = create_test_config_with_thread_name!(None);
-    let regtest = create_regtest_rpc!(config);
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
     // -- Musig2 Setup --

@@ -175,8 +175,8 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
-    use crate::{create_test_config_with_thread_name, database::Database};
+    use crate::database::Database;
+    use crate::test_utils::*;
     use bitcoin::block::{self, Header, Version};
     use bitcoin::hashes::Hash;
     use bitcoin::{BlockHash, CompactTarget, TxMerkleNode};
@@ -185,7 +185,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_get_new_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
 
         let block = block::Block {
@@ -214,7 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_block_header() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
 
         let block = block::Block {
@@ -252,7 +252,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     pub async fn get_latest_chain_proof_height() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
 
         let mut block = block::Block {
@@ -309,7 +309,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     pub async fn save_get_block_proof() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
 
         // Save dummy block.
@@ -354,7 +354,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     pub async fn get_non_proven_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
 
         assert!(db.get_non_proven_block(None).await.is_err());

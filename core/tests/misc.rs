@@ -1,14 +1,13 @@
 use crate::common::run_single_deposit;
 use bitcoincore_rpc::RpcApi;
-use clementine_core::{
-    config::BridgeConfig, database::Database, extended_rpc::ExtendedRpc, utils::initialize_logger,
-};
+use clementine_core::extended_rpc::ExtendedRpc;
 
 mod common;
+use clementine_core::test_utils::*;
 
 #[tokio::test]
 async fn test_deposit() {
-    let config = create_test_config_with_thread_name!(None);
+    let config = create_test_config_with_thread_name(None).await;
     run_single_deposit(config).await.unwrap();
 }
 
@@ -20,8 +19,9 @@ async fn test_deposit() {
 
 #[tokio::test]
 async fn create_regtest_rpc_macro() {
-    let mut config = create_test_config_with_thread_name!(None);
-    let regtest = create_regtest_rpc!(config);
+    let mut config = create_test_config_with_thread_name(None).await;
+
+    let regtest = create_regtest_rpc(&mut config).await;
 
     let macro_rpc = regtest.rpc();
     let rpc = ExtendedRpc::connect(

@@ -78,7 +78,7 @@ jobs:
         shared-key: "debug-build"
 
     - name: Run tests
-      run: cargo test
+      run: cargo test --all-features
 
   release_build_test:
     name: Test code with release build
@@ -113,4 +113,4 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests
-      run: cargo test --release
+      run: cargo test --release --all-features

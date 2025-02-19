@@ -489,12 +489,8 @@ mod tests {
     use crate::bitcoin_syncer;
     use crate::builder::script::{CheckSig, SpendableScript};
     use crate::builder::transaction::TransactionType;
-    use crate::config::BridgeConfig;
-    use crate::utils::{initialize_logger, SECP};
-    use crate::{
-        create_regtest_rpc, create_test_config_with_thread_name, database::Database,
-        initialize_database,
-    };
+    use crate::utils::SECP;
+    use crate::{database::Database, test_utils::*};
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
     use secp256k1::rand;
@@ -507,7 +503,7 @@ mod tests {
         let network = bitcoin::Network::Regtest;
         let actor = Actor::new(sk, None, network);
 
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
 
         let db = Database::new(&config).await.unwrap();
 
@@ -570,8 +566,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_fee_payer_tx() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         rpc.mine_blocks(1).await.unwrap();
 
@@ -616,8 +612,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_fee_rate() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc: ExtendedRpc = regtest.rpc().clone();
         let db = Database::new(&config).await.unwrap();
 

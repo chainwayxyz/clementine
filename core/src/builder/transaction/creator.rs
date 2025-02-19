@@ -679,33 +679,11 @@ pub async fn create_txhandlers(
 
 #[cfg(test)]
 mod tests {
-    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-    use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-    use crate::{
-        config::BridgeConfig,
-        create_test_config_with_thread_name,
-        database::Database,
-        errors::BridgeError,
-        initialize_database,
-        rpc::clementine::DepositParams,
-        servers::{
-            create_aggregator_grpc_server, create_operator_grpc_server,
-            create_verifier_grpc_server, create_watchtower_grpc_server,
-        },
-        utils,
-        utils::initialize_logger,
-        EVMAddress,
-    };
-    use crate::{
-        create_actors, create_regtest_rpc,
-        extended_rpc::ExtendedRpc,
-        get_available_port,
-        rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
-    };
+
+    use crate::rpc::clementine::{self};
+    use crate::{rpc::clementine::DepositParams, test_utils::*, utils, EVMAddress};
     use bitcoin::Txid;
     use futures::future::try_join_all;
-    use std::panic;
 
     use crate::builder::transaction::TransactionType;
     use crate::constants::{
@@ -717,10 +695,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
 
     async fn test_deposit_and_sign_txs() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
 
         let (mut verifiers, mut operators, mut aggregator, mut watchtowers, _regtest) =
-            create_actors!(config);
+            create_actors(&config).await;
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();

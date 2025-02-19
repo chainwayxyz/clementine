@@ -3,23 +3,19 @@
 //! This tests checks if typical RPC flows works or not.
 
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use clementine_core::builder::script::SpendPath;
-use clementine_core::builder::transaction::TransactionType;
 use clementine_core::rpc::clementine::NewWithdrawalSigParams;
-use clementine_core::rpc::clementine::NormalSignatureKind;
-use clementine_core::{actor::Actor, builder, UTXO};
-use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
-use clementine_core::{extended_rpc::ExtendedRpc, utils::SECP};
+use clementine_core::utils::SECP;
 use common::run_single_deposit;
 use tonic::Request;
 
+use clementine_core::test_utils::*;
 mod common;
 
 #[ignore = "Design changes in progress"]
 #[tokio::test]
 async fn honest_operator_takes_refund() {
-    let mut config = create_test_config_with_thread_name!(None);
-    let regtest = create_regtest_rpc!(config);
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
     let (_verifiers, mut operators, _aggregator, _watchtowers, _deposit_outpoint) =
@@ -41,12 +37,13 @@ async fn honest_operator_takes_refund() {
             - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
     );
 
-    let (empty_utxo, _withdrawal_tx_out, user_sig) = generate_withdrawal_transaction_and_signature!(
-        config,
-        rpc,
-        withdrawal_address,
-        withdrawal_amount
-    );
+    let (empty_utxo, _withdrawal_tx_out, user_sig) = generate_withdrawal_transaction_and_signature(
+        &config,
+        &rpc,
+        &withdrawal_address,
+        withdrawal_amount,
+    )
+    .await;
 
     let request = Request::new(NewWithdrawalSigParams {
         withdrawal_id: 0,
@@ -128,7 +125,7 @@ async fn honest_operator_takes_refund() {
 //             Amount::from_sat(config.bridge_amount_sats.to_sat()),
 //         )
 //         .await
-//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature!
+//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature
 
 //     // Operator will reject because it its not profitable.
 //     assert!(operators[0]

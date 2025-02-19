@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Run Cargo fmt
-      run: cargo fmt --check
+      run: cargo fmt --check --all-features
 
   linting:
     name: Check linting
@@ -25,7 +25,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Run Cargo clippy
-      run: cargo clippy --no-deps --all-targets -- -Dwarnings
+      run: cargo clippy --no-deps --all-targets --all-features -- -Dwarnings
 
   udeps:
     name: Check unused dependencies
@@ -79,7 +79,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage and print that to a JSON file
-        run: cargo llvm-cov --json --output-path lcov.json --ignore-filename-regex core/src/rpc/clementine.rs # TODO: Remove ignore and test auto generated code too
+        run: cargo llvm-cov --all-features --json --output-path lcov.json --ignore-filename-regex core/src/rpc/clementine.rs # TODO: Remove ignore and test auto generated code too
       - name: Check coverage
         run: scripts/check_json_code_coverage.py lcov.json
 

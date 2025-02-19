@@ -69,9 +69,9 @@ impl Database {
     ) -> Result<Vec<BlockHash>, BridgeError> {
         let query = sqlx::query_as(
             "WITH deleted AS (
-                UPDATE bitcoin_syncer 
-                SET is_canonical = false 
-                WHERE height > $1 
+                UPDATE bitcoin_syncer
+                SET is_canonical = false
+                WHERE height > $1
                 RETURNING blockhash
             ) SELECT blockhash FROM deleted",
         )
@@ -186,7 +186,7 @@ impl Database {
         sqlx::query(
             r#"
             UPDATE tx_sender_fee_payer_utxos utxos
-            SET 
+            SET
                 is_confirmed = true,
                 confirmed_blockhash = bs.blockhash
             FROM bitcoin_syncer_txs bstx
@@ -203,7 +203,7 @@ impl Database {
         sqlx::query(
             r#"
             UPDATE tx_sender_txs txs
-            SET 
+            SET
                 is_confirmed = true,
                 confirmed_blockhash = bs.blockhash
             FROM bitcoin_syncer_txs bstx
@@ -227,7 +227,7 @@ impl Database {
         sqlx::query(
             r#"
             UPDATE tx_sender_fee_payer_utxos utxos
-            SET 
+            SET
                 is_confirmed = false,
                 confirmed_blockhash = NULL
             FROM bitcoin_syncer_txs bstx
@@ -244,7 +244,7 @@ impl Database {
         sqlx::query(
             r#"
             UPDATE tx_sender_txs txs
-            SET 
+            SET
                 is_confirmed = false,
                 confirmed_blockhash = NULL
             FROM bitcoin_syncer_txs bstx
@@ -333,14 +333,14 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
-    use crate::{create_test_config_with_thread_name, database::Database};
+    use crate::database::Database;
+    use crate::test_utils::*;
     use bitcoin::hashes::Hash;
     use bitcoin::{BlockHash, Txid};
 
     #[tokio::test]
     async fn add_get_block_info() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
 
         let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
@@ -392,7 +392,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_and_get_txids_from_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
         let mut dbtx = db.begin_transaction().await.unwrap();
 
@@ -435,7 +435,7 @@ mod tests {
 
     #[tokio::test]
     async fn insert_get_spent_utxos() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
         let mut dbtx = db.begin_transaction().await.unwrap();
 
