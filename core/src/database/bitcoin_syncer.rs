@@ -402,8 +402,7 @@ mod tests {
 
         // Verify blocks above height 2 are not returned
         for height in heights {
-            let block_hash =
-                BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
+            let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
             let block_info = db
                 .get_block_info_from_hash(Some(&mut dbtx), block_hash)
                 .await
@@ -422,7 +421,6 @@ mod tests {
 
         dbtx.commit().await.unwrap();
     }
-
 
     #[tokio::test]
     async fn add_get_block_info() {
