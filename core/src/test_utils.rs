@@ -49,20 +49,6 @@ impl Drop for WithProcessCleanup {
 /// Creates a Bitcoin regtest node for testing, waits for it to start and returns an RPC.
 /// **Beware**: **Do not drop** returned value until the end of the test
 /// otherwise ExtendedRpc will fail to connect Bitcoind.
-///
-/// Requires an import of `ExtendedRpc` and `BridgeConfig`.
-///
-/// # Required Imports
-///
-/// ## Unit Tests
-/// ```rust
-/// use crate::rpc::ExtendedRpc;
-/// ```
-///
-/// ## Integration Tests And Binaries
-/// ```rust
-/// use clementine_core::rpc::ExtendedRpc;
-/// ```
 pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup {
     use bitcoincore_rpc::RpcApi;
     use tempfile::TempDir;
@@ -173,22 +159,6 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 /// # Returns
 ///
 /// - [`BridgeConfig`]: Modified configuration struct
-///
-/// # Required Imports
-///
-/// ## Unit Tests
-///
-/// ```rust
-/// use crate::{
-///     config::BridgeConfig, database::Database, test_utils::*, utils::initialize_logger,
-/// };
-/// ```
-///
-/// ## Integration Tests And Binaries
-///
-/// ```rust
-/// use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
-/// ```
 pub async fn create_test_config_with_thread_name(suffix: Option<&str>) -> BridgeConfig {
     let suffix = suffix.unwrap_or_default().to_string();
 
@@ -245,20 +215,6 @@ pub async fn create_test_config_with_thread_name(suffix: Option<&str>) -> Bridge
 /// # Parameters
 ///
 /// - `config`: Configuration options in `BridgeConfig` type.
-///
-/// # Required Imports
-///
-/// ## Unit Tests
-///
-/// ```rust
-/// use crate::database::Database;
-/// ```
-///
-/// ## Integration Tests And Binaries
-///
-/// ```rust
-/// use clementine_core::database::Database;
-/// ```
 pub async fn initialize_database(config: &BridgeConfig) {
     let url = Database::get_postgresql_url(config);
     let conn = sqlx::PgPool::connect(url.as_str()).await.unwrap_or_else(|_| panic!("Failed to connect to database, please make sure a test Postgres DB is running at {}",
@@ -292,41 +248,6 @@ pub async fn initialize_database(config: &BridgeConfig) {
 ///
 /// Returns a tuple of vectors of clients, handles, and addresses for the
 /// verifiers, operators, aggregator and watchtowers.
-///
-/// # Required Imports
-///
-/// ## Unit Tests
-///
-/// ```rust
-/// use crate::{
-///     config::BridgeConfig,
-///     database::Database,
-///     errors::BridgeError,
-///     test_utils::*
-///     extended_rpc::ExtendedRpc,
-///     servers::{
-///         create_aggregator_grpc_server, create_operator_grpc_server,
-///         create_verifier_grpc_server, create_watchtower_grpc_server,
-///     },
-/// };
-/// use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-/// use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-/// use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-/// use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-/// ```
-///
-/// ## Integration Tests And Binaries
-///
-/// ```rust
-/// use clementine_core::servers::{
-///     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
-///     create_watchtower_grpc_server,
-/// };
-/// use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-/// use clementine_core::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-/// use clementine_core::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-/// use clementine_core::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-/// ```
 pub async fn create_actors(
     config: &BridgeConfig,
 ) -> (
@@ -496,20 +417,6 @@ pub async fn create_actors(
 /// # Returns
 ///
 /// - [`Address`]: Deposit address of the user
-///
-/// # Required Imports
-///
-/// ## Unit Tests
-///
-/// ```rust
-/// use crate::{actor::Actor, builder, musig2::AggregateFromPublicKeys};
-/// ```
-///
-/// ## Integration Tests And Binaries
-///
-/// ```rust
-/// use clementine_core::{actor::Actor, builder, musig2::AggregateFromPublicKeys};
-/// ```
 pub fn get_deposit_address(
     config: &BridgeConfig,
     evm_address: EVMAddress,
@@ -543,24 +450,6 @@ pub fn get_deposit_address(
 /// - [`UTXO`]: Dust UTXO used as the input of the withdrawal transaction
 /// - [`TxOut`]: Txout of the withdrawal transaction
 /// - [`Signature`]: Signature of the withdrawal transaction
-///
-/// # Required Imports
-///
-/// ## Unit Tests
-///
-/// ```rust
-/// use crate::{actor::Actor, builder, UTXO};
-/// use crate::builder::script::SpendPath;
-/// use crate::rpc::clementine::NormalSignatureKind;
-/// ```
-///
-/// ## Integration Tests And Binaries
-///
-/// ```rust
-/// use clementine_core::{actor::Actor, builder, UTXO};
-/// use clementine_core::builder::script::SpendPath;
-/// use clementine_core::rpc::clementine::NormalSignatureKind;
-/// ```
 pub async fn generate_withdrawal_transaction_and_signature(
     config: &BridgeConfig,
     rpc: &ExtendedRpc,

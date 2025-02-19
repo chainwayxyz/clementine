@@ -52,3 +52,6 @@ path = "src/bin/server.rs"
 
 [lints.clippy]
 unwrap_used = { level = "deny" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rust_analyzer)'] }

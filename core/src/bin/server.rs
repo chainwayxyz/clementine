@@ -7,7 +7,10 @@
 
 #[tokio::main]
 async fn main() {
-    println!("grpc switch in progress. please inform us if you get this error.")
+    #[cfg(all(not(rust_analyzer), feature = "test", not(test)))]
+    compile_error!("Binaries should not be compiled with the test feature.");
+
+    println!("grpc switch in progress. please inform us if you get this error.");
     // let (mut config, args) = get_configuration_for_binaries();
 
     // if !args.verifier_server && !args.operator_server && !args.aggregator_server {
