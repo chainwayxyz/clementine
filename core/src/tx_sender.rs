@@ -40,8 +40,14 @@ pub enum FeePayingType {
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct PrerequisiteTx {
+pub struct ActivedWithTxid {
     pub txid: Txid,
+    pub timelock: bitcoin::Sequence,
+}
+
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct ActivedWithOutpoint {
+    pub outpoint: OutPoint,
     pub timelock: bitcoin::Sequence,
 }
 
@@ -155,7 +161,8 @@ impl TxSender {
         fee_paying_type: FeePayingType,
         cancel_outpoints: &[OutPoint],
         cancel_txids: &[Txid],
-        activate_prerequisite_txs: &[PrerequisiteTx],
+        activate_txids: &[ActivedWithTxid],
+        activate_outpoints: &[ActivedWithOutpoint],
     ) -> Result<u32, BridgeError> {
         let try_to_send_id = self
             .db
@@ -180,9 +187,15 @@ impl TxSender {
                 .await?;
         }
 
-        for prerequisite_tx in activate_prerequisite_txs {
+        for activated_txid in activate_txids {
             self.db
-                .save_activated_prerequisite_tx(Some(dbtx), try_to_send_id, prerequisite_tx)
+                .save_activated_txid(Some(dbtx), try_to_send_id, activated_txid)
+                .await?;
+        }
+
+        for activated_outpoint in activate_outpoints {
+            self.db
+                .save_activated_outpoint(Some(dbtx), try_to_send_id, activated_outpoint)
                 .await?;
         }
 
@@ -789,11 +802,11 @@ mod tests {
 
         let mut dbtx = db.begin_transaction().await.unwrap();
         let tx_id1 = tx_sender
-            .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[])
+            .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[], &[])
             .await
             .unwrap();
         let tx_id2 = tx_sender
-            .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[])
+            .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[], &[])
             .await
             .unwrap(); // It is ok to call this twice
         dbtx.commit().await.unwrap();
@@ -813,8 +826,7 @@ mod tests {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        // sleep 2 seconds to make sure the tx is seen by the bitcoin_syncer
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(10)).await;
 
         let (_, _, tx_id2_seen_block_id) = db.get_tx(None, tx_id2).await.unwrap();
 
@@ -830,7 +842,7 @@ mod tests {
 
         let mut dbtx = db.begin_transaction().await.unwrap();
         tx_sender
-            .try_to_send(&mut dbtx, &tx2, FeePayingType::RBF, &[], &[], &[])
+            .try_to_send(&mut dbtx, &tx2, FeePayingType::RBF, &[], &[], &[], &[])
             .await
             .unwrap();
         dbtx.commit().await.unwrap();

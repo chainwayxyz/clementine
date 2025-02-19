@@ -280,13 +280,23 @@ create table if not exists tx_sender_cancel_try_to_send_txids (
     primary key (cancelled_id, txid)
 );
 
-create table if not exists tx_sender_activate_prerequisite_txs (
+create table if not exists tx_sender_activate_try_to_send_txids (
     activated_id int not null references tx_sender_try_to_send_txs(id),
     txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
     timelock bigint not null,
     seen_block_id int references bitcoin_syncer(id),
     created_at timestamp not null default now(),
     primary key (activated_id, txid)
+);
+
+create table if not exists tx_sender_activate_try_to_send_outpoints (
+    activated_id int not null references tx_sender_try_to_send_txs(id),
+    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    vout int not null,
+    timelock bigint not null,
+    seen_block_id int references bitcoin_syncer(id),
+    created_at timestamp not null default now(),
+    primary key (activated_id, txid, vout)
 );
 
 COMMIT;

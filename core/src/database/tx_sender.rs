@@ -6,7 +6,7 @@ use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
-    tx_sender::{FeePayingType, PrerequisiteTx},
+    tx_sender::{ActivedWithOutpoint, ActivedWithTxid, FeePayingType},
 };
 use bitcoin::{
     consensus::{deserialize, serialize},
@@ -40,12 +40,25 @@ impl Database {
             )
         "#;
 
-        // Update tx_sender_activate_prerequisite_txs
+        // Update tx_sender_activate_try_to_send_txids
         sqlx::query(&format!(
             "{} 
-            UPDATE tx_sender_activate_prerequisite_txs AS tap
+            UPDATE tx_sender_activate_try_to_send_txids AS tap
             SET seen_block_id = $1
             WHERE tap.txid IN (SELECT txid FROM relevant_txs)
+            AND tap.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .execute(tx.deref_mut())
+        .await?;
+
+        // Update tx_sender_activate_try_to_send_outpoints
+        sqlx::query(&format!(
+            "{} 
+            UPDATE tx_sender_activate_try_to_send_outpoints AS tap
+            SET seen_block_id = $1
+            WHERE (tap.txid, tap.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
@@ -129,8 +142,13 @@ impl Database {
         // Unconfirm tx_sender_fee_payer_utxos
         sqlx::query(
             r#"
-            -- Update tx_sender_activate_prerequisite_txs
-            UPDATE tx_sender_activate_prerequisite_txs AS tap
+            -- Update tx_sender_activate_try_to_send_txids
+            UPDATE tx_sender_activate_try_to_send_txids AS tap
+            SET seen_block_id = NULL
+            WHERE tap.seen_block_id = $1;
+
+            -- Update tx_sender_activate_try_to_send_outpoints
+            UPDATE tx_sender_activate_try_to_send_outpoints AS tap
             SET seen_block_id = NULL
             WHERE tap.seen_block_id = $1;
 
@@ -364,18 +382,35 @@ impl Database {
         Ok(())
     }
 
-    pub async fn save_activated_prerequisite_tx(
+    pub async fn save_activated_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         activated_id: u32,
-        prerequisite_tx: &PrerequisiteTx,
+        prerequisite_tx: &ActivedWithTxid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_activate_prerequisite_txs (activated_id, txid, timelock) VALUES ($1, $2, $3)"
+            "INSERT INTO tx_sender_activate_try_to_send_txids (activated_id, txid, timelock) VALUES ($1, $2, $3)"
         )
         .bind(i32::try_from(activated_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .bind(TxidDB(prerequisite_tx.txid))
         .bind(i32::try_from(prerequisite_tx.timelock.0).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn save_activated_outpoint(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        activated_id: u32,
+        activated_outpoint: &ActivedWithOutpoint,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout) VALUES ($1, $2, $3)"
+        )
+        .bind(i32::try_from(activated_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(TxidDB(activated_outpoint.outpoint.txid))
+        .bind(i32::try_from(activated_outpoint.outpoint.vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -392,15 +427,22 @@ impl Database {
                     -- Select all tx_sender_try_to_send_txs IDs
                     SELECT txs.id AS activated_id
                     FROM tx_sender_try_to_send_txs AS txs
-                    LEFT JOIN tx_sender_activate_prerequisite_txs AS activate
-                        ON txs.id = activate.activated_id
-                    LEFT JOIN bitcoin_syncer AS syncer
-                        ON activate.seen_block_id = syncer.id
+                    LEFT JOIN tx_sender_activate_try_to_send_txids AS activate_txid
+                        ON txs.id = activate_txid.activated_id
+                    LEFT JOIN tx_sender_activate_try_to_send_outpoints AS activate_outpoint
+                        ON txs.id = activate_outpoint.activated_id
+                    LEFT JOIN bitcoin_syncer AS syncer_txid
+                        ON activate_txid.seen_block_id = syncer_txid.id
+                    LEFT JOIN bitcoin_syncer AS syncer_outpoint
+                        ON activate_outpoint.seen_block_id = syncer_outpoint.id
                     GROUP BY txs.id
                     HAVING 
-                        -- If the transaction has prerequisites, ensure all are activated
-                        COUNT(activate.txid) = 0 
-                        OR COUNT(activate.txid) = COUNT(CASE WHEN (syncer.height + activate.timelock) <= $2 THEN 1 END)
+                        -- If the transaction has no prerequisites, it is valid
+                        (COUNT(activate_txid.txid) = 0 AND COUNT(activate_outpoint.txid) = 0)
+                        -- If it has txid-based prerequisites, all must be activated
+                        OR COUNT(activate_txid.txid) = COUNT(CASE WHEN (syncer_txid.height + activate_txid.timelock) <= $2 THEN 1 END)
+                        -- If it has outpoint-based prerequisites, all must be activated
+                        OR COUNT(activate_outpoint.txid) = COUNT(CASE WHEN (syncer_outpoint.height + activate_outpoint.timelock) <= $2 THEN 1 END)
                 ),
                 valid_cancel_outpoints AS (
                     SELECT cancelled_id
@@ -418,7 +460,8 @@ impl Database {
                     txs.id IN (SELECT activated_id FROM valid_activated_txs)
                     AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
                     AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1);",
+                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1);
+",
         )
         .bind(i64::try_from(fee_rate.to_sat_per_vb_ceil())
             .map_err(|e| BridgeError::ConversionError(e.to_string()))?)
@@ -458,7 +501,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: u32,
-    ) -> Result<(Transaction, FeePayingType, Option<i32>), BridgeError> {
+    ) -> Result<(Transaction, FeePayingType, Option<u32>), BridgeError> {
         let query = sqlx::query_as::<_, (Vec<u8>, FeePayingType, Option<i32>)>(
             "SELECT raw_tx, fee_paying_type::fee_paying_type, seen_block_id
              FROM tx_sender_try_to_send_txs 
@@ -471,7 +514,12 @@ impl Database {
             deserialize(&result.0)
                 .map_err(|e| BridgeError::Error(format!("Bitcoin deserialization error: {}", e)))?,
             result.1,
-            result.2,
+            result
+                .2
+                .map(|id| {
+                    u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
+                })
+                .transpose()?,
         ))
     }
 }

@@ -401,7 +401,7 @@ impl Aggregator {
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(&mut dbtx, move_tx, FeePayingType::CPFP, &[], &[], &[])
+            .try_to_send(&mut dbtx, move_tx, FeePayingType::CPFP, &[], &[], &[], &[])
             .await?;
         dbtx.commit()
             .await
