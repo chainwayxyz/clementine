@@ -38,6 +38,7 @@ pub async fn create_and_sign_tx(
             transaction_data.kickoff_id.operator_idx,
         ))?;
 
+    let start_time = std::time::Instant::now();
     let mut txhandlers = builder::transaction::create_txhandlers(
         config.clone(),
         transaction_data.deposit_data.clone(),
@@ -54,6 +55,11 @@ pub async fn create_and_sign_tx(
         ),
     )
     .await?;
+    tracing::warn!(
+        "create_txhandlers for {:?} finished in {:?}",
+        transaction_data.transaction_type,
+        start_time.elapsed()
+    );
 
     let sig_query = db
         .get_deposit_signatures(

@@ -304,7 +304,7 @@ impl Verifier {
 
                 nonce_idx += 1;
                 tracing::debug!(
-                    "Verifier {} signed sighash {} of {}",
+                    "Verifier {} signed and sent sighash {} of {}",
                     verifier.idx,
                     nonce_idx,
                     num_required_sigs
@@ -356,8 +356,8 @@ impl Verifier {
             calculate_num_required_operator_sigs_per_kickoff(&self.config);
         let &BridgeConfig {
             num_operators,
-            num_round_txs: num_sequential_collateral_txs,
-            num_kickoffs_per_round: num_kickoffs_per_sequential_collateral_tx,
+            num_round_txs,
+            num_kickoffs_per_round,
             ..
         } = &self.config;
         let mut verified_sigs = vec![
@@ -366,9 +366,9 @@ impl Verifier {
                     Vec::<TaggedSignature>::with_capacity(
                         num_required_nofn_sigs_per_kickoff + num_required_op_sigs_per_kickoff
                     );
-                    num_kickoffs_per_sequential_collateral_tx
+                    num_kickoffs_per_round
                 ];
-                num_sequential_collateral_txs
+                num_round_txs
             ];
             num_operators
         ];
@@ -381,7 +381,7 @@ impl Verifier {
                 .await
                 .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
-            tracing::debug!("Verifying Final Signature");
+            tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
             utils::SECP
                 .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
                 .map_err(|x| {
@@ -393,7 +393,7 @@ impl Verifier {
                 })?;
             let &SignatureInfo {
                 operator_idx,
-                sequential_collateral_idx,
+                round_idx,
                 kickoff_utxo_idx,
                 signature_id,
             } = &sighash.1;
@@ -401,8 +401,7 @@ impl Verifier {
                 signature: sig.serialize().to_vec(),
                 signature_id: Some(signature_id),
             };
-            verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
-                .push(tagged_sig);
+            verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
@@ -499,6 +498,12 @@ impl Verifier {
                     .await
                     .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
+                tracing::debug!(
+                    "Verifying Final operator Signature {} for operator {}",
+                    nonce_idx + 1,
+                    operator_idx
+                );
+
                 utils::SECP
                     .verify_schnorr(
                         &operator_sig,
@@ -516,7 +521,7 @@ impl Verifier {
 
                 let &SignatureInfo {
                     operator_idx,
-                    sequential_collateral_idx,
+                    round_idx,
                     kickoff_utxo_idx,
                     signature_id,
                 } = &sighash.1;
@@ -524,8 +529,7 @@ impl Verifier {
                     signature: operator_sig.serialize().to_vec(),
                     signature_id: Some(signature_id),
                 };
-                verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
-                    .push(tagged_sig);
+                verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
 
                 op_sig_count += 1;
                 total_op_sig_count += 1;

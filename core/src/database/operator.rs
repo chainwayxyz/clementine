@@ -27,50 +27,6 @@ pub type AssertTxHash = Vec<[u8; 32]>;
 pub type BitvmSetup = (AssertTxHash, RootHash);
 
 impl Database {
-    /// Sets a sequential collateral tx details for an operator.
-    pub async fn set_sequential_collateral_tx(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: i32,
-        idx: i32,
-        sequential_collateral_txid: Txid,
-        block_height: i32,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "INSERT INTO operator_sequential_collateral_txs (operator_idx, idx, sequential_collateral_txid, block_height) VALUES ($1, $2, $3, $4);",
-        )
-        .bind(operator_idx)
-        .bind(idx)
-        .bind(TxidDB(sequential_collateral_txid))
-        .bind(block_height);
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    /// Fetches sequential collateral tx details for an operator.
-    ///
-    /// # Returns
-    ///
-    /// - `Vec<(i32, Txid, i32)>`: A vector of tuples containing the index,
-    ///   [`Txid`], and block height for a sequential collateral tx.
-    pub async fn get_sequential_collateral_txs(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: i32,
-    ) -> Result<Vec<(i32, Txid, i32)>, BridgeError> {
-        let query = sqlx::query_as("SELECT idx, sequential_collateral_txid, block_height FROM operator_sequential_collateral_txs WHERE operator_idx = $1 ORDER BY idx;").bind(operator_idx);
-
-        let result: Vec<(i32, TxidDB, i32)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-
-        Ok(result
-            .into_iter()
-            .map(|(idx, txid_db, block_height)| (idx, txid_db.0, block_height))
-            .collect())
-    }
-
     /// TODO: wallet_address should have `Address` type.
     pub async fn set_operator(
         &self,
@@ -582,7 +538,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         operator_idx: usize,
-        sequential_collateral_idx: usize,
+        round_idx: usize,
         kickoff_idx: usize,
         signatures: Vec<TaggedSignature>,
     ) -> Result<(), BridgeError> {
@@ -593,7 +549,7 @@ impl Database {
             ON CONFLICT DO NOTHING 
             RETURNING deposit_id
             )
-            INSERT INTO deposit_signatures (deposit_id, operator_idx, sequential_collateral_idx, kickoff_idx, signatures)
+            INSERT INTO deposit_signatures (deposit_id, operator_idx, round_idx, kickoff_idx, signatures)
             VALUES (
             (SELECT deposit_id FROM deposit UNION SELECT deposit_id FROM deposits WHERE deposit_outpoint = $1), 
             $2, $3, $4, $5
@@ -601,7 +557,7 @@ impl Database {
         )
         .bind(OutPointDB(deposit_outpoint))
         .bind(operator_idx as i32)
-        .bind(sequential_collateral_idx as i32)
+        .bind(round_idx as i32)
         .bind(kickoff_idx as i32)
         .bind(SignaturesDB(DepositSignatures{signatures}));
 
@@ -636,7 +592,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         operator_idx: usize,
-        sequential_collateral_idx: usize,
+        round_idx: usize,
         kickoff_idx: usize,
     ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
         let query = sqlx::query_as::<_, (SignaturesDB,)>(
@@ -644,12 +600,12 @@ impl Database {
                     INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
                  WHERE d.deposit_outpoint = $1
                  AND ds.operator_idx = $2
-                 AND ds.sequential_collateral_idx = $3
+                 AND ds.round_idx = $3
                  AND ds.kickoff_idx = $4;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .bind(operator_idx as i32)
-        .bind(sequential_collateral_idx as i32)
+        .bind(round_idx as i32)
         .bind(kickoff_idx as i32);
 
         let result: Result<(SignaturesDB,), sqlx::Error> =
@@ -1183,7 +1139,7 @@ mod tests {
             txid: Txid::from_slice(&[0x45; 32]).unwrap(),
             vout: 0x1F,
         };
-        let sequential_coll_idx = 1;
+        let round_idx = 1;
         let kickoff_idx = 1;
         let signatures = DepositSignatures {
             signatures: vec![
@@ -1203,7 +1159,7 @@ mod tests {
                 None,
                 deposit_outpoint,
                 operator_idx,
-                sequential_coll_idx,
+                round_idx,
                 kickoff_idx,
                 signatures.signatures.clone(),
             )
@@ -1211,13 +1167,7 @@ mod tests {
             .unwrap();
 
         let result = database
-            .get_deposit_signatures(
-                None,
-                deposit_outpoint,
-                operator_idx,
-                sequential_coll_idx,
-                kickoff_idx,
-            )
+            .get_deposit_signatures(None, deposit_outpoint, operator_idx, round_idx, kickoff_idx)
             .await
             .unwrap()
             .unwrap();
@@ -1228,7 +1178,7 @@ mod tests {
                 None,
                 deposit_outpoint,
                 operator_idx + 1,
-                sequential_coll_idx + 1,
+                round_idx + 1,
                 kickoff_idx + 1,
             )
             .await
@@ -1236,13 +1186,7 @@ mod tests {
         assert!(non_existent.is_none());
 
         let non_existent = database
-            .get_deposit_signatures(
-                None,
-                OutPoint::null(),
-                operator_idx,
-                sequential_coll_idx,
-                kickoff_idx,
-            )
+            .get_deposit_signatures(None, OutPoint::null(), operator_idx, round_idx, kickoff_idx)
             .await
             .unwrap();
         assert!(non_existent.is_none());
@@ -1252,7 +1196,7 @@ mod tests {
                 None,
                 OutPoint::null(),
                 operator_idx + 1,
-                sequential_coll_idx,
+                round_idx,
                 kickoff_idx,
             )
             .await

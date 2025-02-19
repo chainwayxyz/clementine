@@ -295,6 +295,7 @@ pub async fn create_txhandlers(
         ready_to_reimburse_txhandler,
     );
 
+    let start_time = std::time::Instant::now();
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
         // the actual scripts to be able to spend
@@ -362,18 +363,7 @@ pub async fn create_txhandlers(
         )?
     };
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
-
-    let num_asserts = utils::BITVM_CACHE.intermediate_variables.len();
-
-    let assert_timeouts = create_assert_timeout_txhandlers(
-        get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-        get_txhandler(&txhandlers, TransactionType::Round)?,
-        num_asserts,
-    )?;
-
-    for assert_timeout in assert_timeouts.into_iter() {
-        txhandlers.insert(assert_timeout.get_transaction_type(), assert_timeout);
-    }
+    tracing::warn!("Kickoff txhandler created in {:?}", start_time.elapsed());
 
     // Creates the challenge_tx handler.
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
@@ -413,6 +403,8 @@ pub async fn create_txhandlers(
             | TransactionType::OperatorChallengeNack(_)
             | TransactionType::OperatorChallengeAck(_)
     ) {
+        tracing::warn!("Generating watchtower txs");
+        let start_time = std::time::Instant::now();
         let needed_watchtower_idx: i32 =
             if let TransactionType::WatchtowerChallenge(idx) = transaction_type {
                 idx as i32
@@ -521,12 +513,33 @@ pub async fn create_txhandlers(
                 }
             }
         }
+        tracing::warn!("Watchtower txs created in {:?}", start_time.elapsed());
         if transaction_type != TransactionType::AllNeededForDeposit {
             // We do not need other txhandlers, exit early
             return Ok(txhandlers);
         }
     }
 
+    let num_asserts = utils::BITVM_CACHE.intermediate_variables.len();
+
+    let start_time = std::time::Instant::now();
+    let assert_timeouts = create_assert_timeout_txhandlers(
+        get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+        get_txhandler(&txhandlers, TransactionType::Round)?,
+        num_asserts,
+    )?;
+
+    tracing::warn!(
+        "Assert timeout txhandlers created in {:?}, num asserts: {}",
+        start_time.elapsed(),
+        num_asserts
+    );
+
+    for assert_timeout in assert_timeouts.into_iter() {
+        txhandlers.insert(assert_timeout.get_transaction_type(), assert_timeout);
+    }
+
+    let start_time = std::time::Instant::now();
     // Creates the disprove_timeout_tx handler.
     let disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
@@ -568,6 +581,7 @@ pub async fn create_txhandlers(
         }
         _ => {}
     }
+    tracing::warn!("Remaining txhandlers created in {:?}", start_time.elapsed());
 
     Ok(txhandlers)
 }
@@ -689,14 +703,15 @@ mod tests {
                 let full_commit_data = full_commit_data.clone();
                 let mut operator_rpc = operator_rpc.clone();
                 async move {
-                    for sequential_collateral_idx in 0..config.num_round_txs {
+                    for round_idx in 0..config.num_round_txs {
                         for kickoff_idx in 0..config.num_kickoffs_per_round {
                             let kickoff_id = KickoffId {
                                 operator_idx: operator_idx as u32,
-                                round_idx: sequential_collateral_idx as u32,
+                                round_idx: round_idx as u32,
                                 kickoff_idx: kickoff_idx as u32,
                             };
                             for tx_type in &txs_operator_can_sign {
+                                let start_time = std::time::Instant::now();
                                 let _raw_tx = operator_rpc
                                     .internal_create_signed_tx(TransactionRequest {
                                         deposit_params: deposit_params.clone().into(),
@@ -720,6 +735,11 @@ mod tests {
                                     })
                                     .await
                                     .unwrap();
+                                tracing::warn!(
+                                    "Operator signed tx {:?} from rpc call in time {:?}",
+                                    tx_type,
+                                    start_time.elapsed()
+                                );
                                 tracing::info!("Operator Signed tx: {:?}", tx_type);
                             }
                             // TODO: run with release after bitvm optimization? all raw tx's don't fit 4mb (grpc limit) for now
@@ -756,11 +776,11 @@ mod tests {
                 let mut watchtower_rpc = watchtower_rpc.clone();
                 async move {
                     for operator_idx in 0..config.num_operators {
-                        for sequential_collateral_idx in 0..config.num_round_txs {
+                        for round_idx in 0..config.num_round_txs {
                             for kickoff_idx in 0..config.num_kickoffs_per_round {
                                 let kickoff_id = KickoffId {
                                     operator_idx: operator_idx as u32,
-                                    round_idx: sequential_collateral_idx as u32,
+                                    round_idx: round_idx as u32,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 let _raw_tx = watchtower_rpc
@@ -813,11 +833,11 @@ mod tests {
                 let mut verifier_rpc = verifier_rpc.clone();
                 async move {
                     for operator_idx in 0..config.num_operators {
-                        for sequential_collateral_idx in 0..config.num_round_txs {
+                        for round_idx in 0..config.num_round_txs {
                             for kickoff_idx in 0..config.num_kickoffs_per_round {
                                 let kickoff_id = KickoffId {
                                     operator_idx: operator_idx as u32,
-                                    round_idx: sequential_collateral_idx as u32,
+                                    round_idx: round_idx as u32,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 for tx_type in &txs_verifier_can_sign {

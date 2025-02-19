@@ -1,16 +1,14 @@
 //! # Collaterals
 //!
-//! This module contains the logic for creating the `sequential_collateral_tx`, `reimburse_generator_tx`,
-//! and `kickoff_utxo_timeout_tx` transactions. These transactions are used to control the sequence of transactions
+//! This module contains the logic for creating the `round_tx`, `ready_to_reimburse_tx`,
+//! and `unspent_kickoff_tx` transactions. These transactions are used to control the sequence of transactions
 //! in the withdrawal process and limits the number of withdrawals the operator can make in a given time period.
 //!
 //! The flow is as follows:
-//! `sequential_collateral_tx -> reimburse_generator_tx -> sequential_collateral_tx -> ...`
+//! `round_tx -> ready_to_reimburse_tx -> round_tx -> ...`
 //!
-//! The `sequential_collateral_tx` is used to create a collateral for the withdrawal. The `reimburse_generator_tx`
-//! is used to reimburse the operator for the collateral. The `sequential_collateral_tx` is used to create a
-//! new collateral for the withdrawal.
-//!
+//! The `round_tx` is used to create a collateral for the withdrawal, kickoff utxos for the current
+//! round and the reimburse connectors for the previous round.
 
 use super::txhandler::DEFAULT_SEQUENCE;
 use crate::builder;
@@ -44,7 +42,7 @@ pub fn create_round_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     input_outpoint: OutPoint,
     input_amount: Amount,
-    num_kickoffs_per_sequential_collateral_tx: usize,
+    num_kickoffs_per_round: usize,
     network: bitcoin::Network,
     pubkeys: &[bitvm::signatures::winternitz::PublicKey],
 ) -> Result<TxHandler, BridgeError> {
@@ -77,10 +75,7 @@ pub fn create_round_txhandler(
     ));
 
     // add kickoff utxos
-    for pubkey in pubkeys
-        .iter()
-        .take(num_kickoffs_per_sequential_collateral_tx)
-    {
+    for pubkey in pubkeys.iter().take(num_kickoffs_per_round) {
         let blockhash_commit = Arc::new(WinternitzCommit::new(
             pubkey.clone(),
             operator_xonly_pk,
@@ -94,7 +89,7 @@ pub fn create_round_txhandler(
         ));
     }
     // Create reimburse utxos
-    for _ in 0..num_kickoffs_per_sequential_collateral_tx {
+    for _ in 0..num_kickoffs_per_round {
         builder = builder.add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![],
@@ -154,7 +149,7 @@ pub fn create_round_nth_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     input_outpoint: OutPoint,
     input_amount: Amount,
-    num_kickoffs_per_sequential_collateral_tx: usize,
+    num_kickoffs_per_round: usize,
     network: bitcoin::Network,
     index: usize,
     pubkeys: &KickoffWinternitzKeys,
@@ -163,7 +158,7 @@ pub fn create_round_nth_txhandler(
         operator_xonly_pk,
         input_outpoint,
         input_amount,
-        num_kickoffs_per_sequential_collateral_tx,
+        num_kickoffs_per_round,
         network,
         pubkeys.get_keys_for_round(0),
     )?;
@@ -179,7 +174,7 @@ pub fn create_round_nth_txhandler(
                 .get_spendable_output(0)?
                 .get_prevout()
                 .value,
-            num_kickoffs_per_sequential_collateral_tx,
+            num_kickoffs_per_round,
             network,
             pubkeys.get_keys_for_round(idx),
         )?;
@@ -190,11 +185,11 @@ pub fn create_round_nth_txhandler(
 }
 
 pub fn create_ready_to_reimburse_txhandler(
-    sequential_collateral_txhandler: &TxHandler,
+    round_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
-    let prevout = sequential_collateral_txhandler.get_spendable_output(0)?;
+    let prevout = round_txhandler.get_spendable_output(0)?;
     Ok(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,

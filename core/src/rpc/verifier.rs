@@ -215,7 +215,7 @@ impl ClementineVerifier for Verifier {
 
                 nonce_idx += 1;
                 tracing::debug!(
-                    "Verifier {} signed sighash {} of {}",
+                    "Verifier {} signed and sent sighash {} of {} through rpc deposit_sign",
                     verifier.idx,
                     nonce_idx,
                     num_required_sigs
@@ -240,6 +240,7 @@ impl ClementineVerifier for Verifier {
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
         let mut in_stream = req.into_inner();
+        tracing::debug!("In verifier {} deposit_finalize()", self.idx);
 
         let (sig_tx, sig_rx) = mpsc::channel(1280);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
@@ -252,6 +253,10 @@ impl ClementineVerifier for Verifier {
             }
             _ => Err(Status::internal("Expected DepositOutpoint"))?,
         };
+        tracing::debug!(
+            "verifier {} got DepositSignFirstParam in deposit_finalize()",
+            self.idx
+        );
 
         // Start deposit finalize job.
         let verifier = self.clone();
@@ -278,11 +283,18 @@ impl ClementineVerifier for Verifier {
                 parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
                     .await?
             {
+                tracing::debug!(
+                    "Received full nofn sig {} in deposit_finalize()",
+                    nonce_idx + 1
+                );
                 sig_tx
                     .send(sig)
                     .await
                     .map_err(error::output_stream_ended_prematurely)?;
-
+                tracing::debug!(
+                    "Sent full nofn sig {} to src/verifier in deposit_finalize()",
+                    nonce_idx + 1
+                );
                 nonce_idx += 1;
                 if nonce_idx == num_required_nofn_sigs {
                     break;
@@ -313,10 +325,18 @@ impl ClementineVerifier for Verifier {
                     parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
                         .await?
                 {
+                    tracing::debug!(
+                        "Received full operator sig {} in deposit_finalize()",
+                        op_sig_count + 1
+                    );
                     operator_sig_tx
                         .send(operator_sig)
                         .await
                         .map_err(error::output_stream_ended_prematurely)?;
+                    tracing::debug!(
+                        "Sent full operator sig {} to src/verifier in deposit_finalize()",
+                        op_sig_count + 1
+                    );
 
                     op_sig_count += 1;
                     total_op_sig_count += 1;

@@ -25,7 +25,7 @@ use bitvm::signatures::winternitz::{
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
-    /// sequential_collateral_tx_idx, kickoff_idx
+    /// round_idx, kickoff_idx
     /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
     Kickoff(u32, u32),
     /// operator_idx, deposit_txid

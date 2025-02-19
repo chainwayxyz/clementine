@@ -64,6 +64,8 @@ async fn nonce_aggregator(
             })?
             .0;
 
+        total_sigs += 1;
+
         let pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
             |(i, s)| async move {
                 s.next().await.ok_or_else(|| {
@@ -74,6 +76,11 @@ async fn nonce_aggregator(
             },
         ))
         .await?;
+
+        tracing::debug!(
+            "Received nonces for sighash {} in nonce_aggregator",
+            total_sigs
+        );
 
         let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
 
@@ -87,7 +94,7 @@ async fn nonce_aggregator(
                 ))
             })?;
 
-        total_sigs += 1;
+        tracing::debug!("Sent nonces for sighash {} in nonce_aggregator", total_sigs);
     }
 
     if total_sigs == 0 {
@@ -103,6 +110,8 @@ async fn nonce_aggregator(
     }))
     .await?;
 
+    tracing::debug!("Received nonces for movetx in nonce_aggregator");
+
     let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
 
     Ok(agg_nonce)
@@ -117,7 +126,14 @@ async fn nonce_distributor(
     )>,
     partial_sig_sender: Sender<(Vec<MusigPartialSignature>, AggNonceQueueItem)>,
 ) -> Result<(), BridgeError> {
+    let mut sig_count = 0;
     while let Some(queue_item) = agg_nonce_receiver.recv().await {
+        sig_count += 1;
+        tracing::debug!(
+            "Received aggregated nonce {} in nonce_distributor",
+            sig_count
+        );
+
         let agg_nonce_wrapped = clementine::VerifierDepositSignParams {
             params: Some(clementine::verifier_deposit_sign_params::Params::AggNonce(
                 queue_item.agg_nonce.serialize().to_vec(),
@@ -133,6 +149,11 @@ async fn nonce_distributor(
             })?;
         }
 
+        tracing::debug!(
+            "Sent aggregated nonce {} to verifiers in nonce_distributor",
+            sig_count
+        );
+
         let partial_sigs = try_join_all(partial_sig_streams.iter_mut().map(|(stream, _)| async {
             let partial_sig = stream
                 .message()
@@ -143,12 +164,22 @@ async fn nonce_distributor(
         }))
         .await?;
 
+        tracing::debug!(
+            "Received partial signature {} from verifiers in nonce_distributor",
+            sig_count
+        );
+
         partial_sig_sender
             .send((partial_sigs, queue_item))
             .await
             .map_err(|e| {
                 BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send partial sigs: {}", e))
             })?;
+
+        tracing::debug!(
+            "Sent partial signature {} to signature_aggregator in nonce_distributor",
+            sig_count
+        );
     }
 
     Ok(())
@@ -160,7 +191,14 @@ async fn signature_aggregator(
     verifiers_public_keys: Vec<PublicKey>,
     final_sig_sender: Sender<FinalSigQueueItem>,
 ) -> Result<(), BridgeError> {
+    let mut sig_count = 0;
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
+        sig_count += 1;
+        tracing::debug!(
+            "Received partial signatures {} in signature_aggregator",
+            sig_count
+        );
+
         let final_sig = crate::musig2::aggregate_partial_signatures(
             &verifiers_public_keys,
             None,
@@ -177,6 +215,10 @@ async fn signature_aggregator(
             .map_err(|e| {
                 BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send final sigs: {}", e))
             })?;
+        tracing::debug!(
+            "Sent aggregated signature {} to signature_distributor in signature_aggregator",
+            sig_count
+        );
     }
 
     Ok(())
@@ -189,7 +231,10 @@ async fn signature_distributor(
     movetx_agg_nonce: impl Future<Output = Result<MusigAggNonce, Status>>,
 ) -> Result<(), BridgeError> {
     use verifier_deposit_finalize_params::Params;
+    let mut sig_count = 0;
     while let Some(queue_item) = final_sig_receiver.recv().await {
+        sig_count += 1;
+        tracing::debug!("Received signature {} in signature_distributor", sig_count);
         let final_params = VerifierDepositFinalizeParams {
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
@@ -199,9 +244,14 @@ async fn signature_distributor(
                 .await
                 .map_err(output_stream_ended_prematurely)?;
         }
+        tracing::debug!(
+            "Sent signature {} to verifiers in signature_distributor",
+            sig_count
+        );
     }
 
     let movetx_agg_nonce = movetx_agg_nonce.await?;
+    tracing::debug!("Got movetx aggregated nonce in signature distributor");
     // Send the movetx agg nonce to the verifiers.
     for tx in &deposit_finalize_sender {
         tx.send(VerifierDepositFinalizeParams {
@@ -212,6 +262,7 @@ async fn signature_distributor(
         .await
         .map_err(output_stream_ended_prematurely)?
     }
+    tracing::debug!("Sent movetx aggregated nonce to verifiers in signature distributor");
 
     Ok(())
 }
@@ -643,19 +694,22 @@ impl ClementineAggregator for Aggregator {
         }
 
         // Set up deposit finalization streams
-        let mut deposit_finalize_clients = self.verifier_clients.clone();
-        let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(
-            |verifier_client| async move {
+        let deposit_finalize_clients = self.verifier_clients.clone();
+        let deposit_finalize_streams = try_join_all(deposit_finalize_clients.into_iter().map(
+            |mut verifier_client| async move {
                 let (tx, rx) = tokio::sync::mpsc::channel(1280);
                 let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+                // start deposit_finalize with tokio spawn
+                let deposit_finalize_future =
+                    tokio::spawn(
+                        async move { verifier_client.deposit_finalize(receiver_stream).await },
+                    );
 
-                let deposit_finalize_futures =
-                    verifier_client.deposit_finalize(receiver_stream).boxed();
-
-                Ok::<_, Status>((deposit_finalize_futures, tx))
+                Ok::<_, Status>((deposit_finalize_future, tx))
             },
         ))
         .await?;
+
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
 
@@ -684,9 +738,9 @@ impl ClementineAggregator for Aggregator {
         ));
 
         // Create channels for pipeline communication
-        let (agg_nonce_sender, agg_nonce_receiver) = channel(32);
-        let (partial_sig_sender, partial_sig_receiver) = channel(32);
-        let (final_sig_sender, final_sig_receiver) = channel(32);
+        let (agg_nonce_sender, agg_nonce_receiver) = channel(1280);
+        let (partial_sig_sender, partial_sig_receiver) = channel(1280);
+        let (final_sig_sender, final_sig_receiver) = channel(1280);
 
         // Start the nonce aggregation pipe.
         let nonce_agg_handle = tokio::spawn(nonce_aggregator(
@@ -738,9 +792,14 @@ impl ClementineAggregator for Aggregator {
             .await
             .map_err(|_| Status::internal("panic when pipelining"))?;
 
+        // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
+        // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
+        // 1st signature of all operators, then 2nd of all operators etc.
         let operator_sigs = operator_sigs_fut
             .await
             .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
+
+        tracing::debug!("Got all operator signatures");
 
         // send operators sigs to verifiers after all verifiers have signed
         let send_operator_sigs: Vec<_> = deposit_finalize_sender
@@ -769,13 +828,17 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!("Waiting for deposit finalization");
 
         // Collect partial signatures for move transaction
-        let move_tx_partial_sigs = try_join_all(
-            deposit_finalize_futures
-                .iter_mut()
-                .map(|fut| async { Ok::<_, Status>(fut.await?.into_inner().partial_sig) }),
-        )
-        .await
-        .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
+        let move_tx_partial_sigs =
+            try_join_all(deposit_finalize_futures.iter_mut().map(|fut| async {
+                Ok::<_, Status>(
+                    fut.await
+                        .map_err(|_| Status::internal("panic finishing deposit_finalize"))??
+                        .into_inner()
+                        .partial_sig,
+                )
+            }))
+            .await
+            .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
 
         tracing::debug!("Received move tx partial sigs: {:?}", move_tx_partial_sigs);
 

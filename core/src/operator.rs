@@ -835,19 +835,16 @@ impl Operator {
     /// # Returns
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public keys for
-    ///   `sequential_collateral_index` row and `kickoff_idx` column.
+    ///   `round_index` row and `kickoff_idx` column.
     pub fn generate_kickoff_winternitz_pubkeys(
         &self,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();
 
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
-        for sequential_collateral_idx in 0..self.config.num_round_txs + 1 {
+        for round_idx in 0..self.config.num_round_txs + 1 {
             for kickoff_idx in 0..self.config.num_kickoffs_per_round {
-                let path = WinternitzDerivationPath::Kickoff(
-                    sequential_collateral_idx as u32,
-                    kickoff_idx as u32,
-                );
+                let path = WinternitzDerivationPath::Kickoff(round_idx as u32, kickoff_idx as u32);
                 winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
             }
         }

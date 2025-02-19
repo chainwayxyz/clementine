@@ -112,7 +112,7 @@ pub fn create_operator_challenge_nack_txhandler(
     watchtower_challenge_txhandler: &TxHandler,
     watchtower_idx: usize,
     kickoff_txhandler: &TxHandler,
-    sequential_collateral_txhandler: &TxHandler,
+    round_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
@@ -139,7 +139,7 @@ pub fn create_operator_challenge_nack_txhandler(
                     NumberedSignatureKind::OperatorChallengeNack3,
                     watchtower_idx as i32,
                 ),
-                sequential_collateral_txhandler.get_spendable_output(0)?,
+                round_txhandler.get_spendable_output(0)?,
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
@@ -178,7 +178,7 @@ pub fn create_operator_challenge_ack_txhandler(
 /// operator out of the system.
 pub fn create_disprove_txhandler(
     kickoff_txhandler: &TxHandler,
-    sequential_collateral_txhandler: &TxHandler,
+    round_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::Disprove)
         .add_input(
@@ -189,7 +189,7 @@ pub fn create_disprove_txhandler(
         )
         .add_input(
             NormalSignatureKind::Disprove2,
-            sequential_collateral_txhandler.get_spendable_output(0)?,
+            round_txhandler.get_spendable_output(0)?,
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )

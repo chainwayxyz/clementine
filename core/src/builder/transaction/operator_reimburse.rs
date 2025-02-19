@@ -26,7 +26,7 @@ pub enum AssertScripts<'a> {
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
-    sequential_collateral_txhandler: &TxHandler,
+    round_txhandler: &TxHandler,
     kickoff_idx: usize,
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
@@ -40,7 +40,7 @@ pub fn create_kickoff_txhandler(
     let mut builder = TxHandlerBuilder::new(TransactionType::Kickoff);
     builder = builder.add_input(
         NormalSignatureKind::OperatorSighashDefault,
-        sequential_collateral_txhandler.get_spendable_output(1 + kickoff_idx)?,
+        round_txhandler.get_spendable_output(1 + kickoff_idx)?,
         builder::script::SpendPath::ScriptSpend(0),
         DEFAULT_SEQUENCE,
     );

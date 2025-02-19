@@ -61,14 +61,14 @@ pub fn calculate_num_required_operator_sigs_per_kickoff(config: &BridgeConfig) -
 #[derive(Copy, Clone, Debug)]
 pub struct PartialSignatureInfo {
     pub operator_idx: usize,
-    pub sequential_collateral_idx: usize,
+    pub round_idx: usize,
     pub kickoff_utxo_idx: usize,
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct SignatureInfo {
     pub operator_idx: usize,
-    pub sequential_collateral_idx: usize,
+    pub round_idx: usize,
     pub kickoff_utxo_idx: usize,
     pub signature_id: SignatureId,
 }
@@ -76,19 +76,19 @@ pub struct SignatureInfo {
 impl PartialSignatureInfo {
     pub fn new(
         operator_idx: usize,
-        sequential_collateral_idx: usize,
+        round_idx: usize,
         kickoff_utxo_idx: usize,
     ) -> PartialSignatureInfo {
         PartialSignatureInfo {
             operator_idx,
-            sequential_collateral_idx,
+            round_idx,
             kickoff_utxo_idx,
         }
     }
     pub fn complete(&self, signature_id: SignatureId) -> SignatureInfo {
         SignatureInfo {
             operator_idx: self.operator_idx,
-            sequential_collateral_idx: self.sequential_collateral_idx,
+            round_idx: self.round_idx,
             kickoff_utxo_idx: self.kickoff_utxo_idx,
             signature_id,
         }
@@ -98,7 +98,7 @@ impl PartialSignatureInfo {
 /// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
 /// These sighashes are needed in order to create the message to be signed later for MuSig2 of NofN.
 /// WIP: Update if the design changes.
-/// For a given deposit tx, for each operator and sequential_collateral tx, generates the sighash stream for:
+/// For a given deposit tx, for each operator and round tx, generates the sighash stream for:
 /// - challenge_tx,
 /// - start_happy_reimburse_tx,
 /// - happy_reimburse_tx,
@@ -138,7 +138,7 @@ pub fn create_nofn_sighash_stream(
 
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-            for sequential_collateral_tx_idx in 0..config.num_round_txs {
+            for round_iidx in 0..config.num_round_txs {
                 // For each kickoff_utxo, it connnects to a kickoff_tx that results in
                 // either start_happy_reimburse_tx
                 // or challenge_tx, which forces the operator to initiate BitVM sequence
@@ -146,8 +146,9 @@ pub fn create_nofn_sighash_stream(
                 // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
                 // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
                 for kickoff_idx in 0..config.num_kickoffs_per_round {
-                    let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_tx_idx, kickoff_idx);
+                    let partial = PartialSignatureInfo::new(operator_idx, round_iidx, kickoff_idx);
 
+                    let start_time = std::time::Instant::now();
                     let mut txhandlers = create_txhandlers(
                         config.clone(),
                         deposit_data.clone(),
@@ -155,13 +156,14 @@ pub fn create_nofn_sighash_stream(
                         TransactionType::AllNeededForDeposit,
                         KickoffId {
                             operator_idx: operator_idx as u32,
-                            round_idx: sequential_collateral_tx_idx as u32,
+                            round_idx: round_iidx as u32,
                             kickoff_idx: kickoff_idx as u32,
                         },
                         operator_data.clone(),
                         last_ready_to_reimburse,
                         &mut tx_db_data,
                     ).await?;
+                    tracing::warn!("create_txhandlers for nofn sighash finished in {:?}", start_time.elapsed());
 
                     let mut sum = 0;
                     for (_, txhandler) in txhandlers.iter() {
@@ -209,11 +211,12 @@ pub fn create_operator_sighash_stream(
 
         let mut last_reimburse_generator: Option<TxHandler> = None;
 
-        // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-        for sequential_collateral_tx_idx in 0..config.num_round_txs {
+        // For each round_tx, we have multiple kickoff_utxos as the connectors.
+        for round_idx in 0..config.num_round_txs {
             for kickoff_idx in 0..config.num_kickoffs_per_round {
-                let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_tx_idx, kickoff_idx);
+                let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
+                let start_time = std::time::Instant::now();
                 let mut txhandlers = create_txhandlers(
                     config.clone(),
                     deposit_data.clone(),
@@ -221,13 +224,14 @@ pub fn create_operator_sighash_stream(
                     TransactionType::AllNeededForDeposit,
                     KickoffId {
                         operator_idx: operator_idx as u32,
-                        round_idx: sequential_collateral_tx_idx as u32,
+                        round_idx: round_idx as u32,
                         kickoff_idx: kickoff_idx as u32,
                     },
                     operator_data.clone(),
                     last_reimburse_generator,
                     &mut tx_db_data,
                 ).await?;
+                tracing::warn!("create_txhandlers for nofn sighash finished in {:?}", start_time.elapsed());
 
                 let mut sum = 0;
                 for (_, txhandler) in txhandlers.iter() {
