@@ -1,5 +1,3 @@
-use bitcoin::{Amount, TxOut};
-use bitcoincore_rpc::RpcApi;
 use crate::actor::Actor;
 use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
@@ -9,8 +7,9 @@ use crate::builder::{self};
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::test_utils::*;
 use crate::utils::SECP;
+use bitcoin::{Amount, TxOut};
+use bitcoincore_rpc::RpcApi;
 use std::sync::Arc;
-
 
 #[tokio::test]
 async fn create_address_and_transaction_then_sign_transaction() {

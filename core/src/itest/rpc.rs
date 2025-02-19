@@ -2,10 +2,10 @@
 //!
 //! This tests checks if typical RPC flows works or not.
 
-use bitcoin::{secp256k1::SecretKey, Address, Amount};
+use super::common::run_single_deposit;
 use crate::rpc::clementine::NewWithdrawalSigParams;
 use crate::utils::SECP;
-use super::common::run_single_deposit;
+use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use tonic::Request;
 
 use crate::test_utils::*;

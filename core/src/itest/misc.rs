@@ -1,6 +1,6 @@
 use super::common::run_single_deposit;
-use bitcoincore_rpc::RpcApi;
 use crate::extended_rpc::ExtendedRpc;
+use bitcoincore_rpc::RpcApi;
 
 use crate::test_utils::*;
 
