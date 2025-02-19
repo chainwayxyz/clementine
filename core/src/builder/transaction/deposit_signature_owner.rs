@@ -54,6 +54,7 @@ impl SignatureId {
                     ChallengeTimeout2 => Ok(NofnDB(SighashDefault)),
                     MiniAssert1 => Ok(Operator(SinglePlusAnyoneCanPay)),
                     OperatorChallengeAck1 => Ok(Operator(SinglePlusAnyoneCanPay)),
+                    NotStored => Ok(NotOwned),
                 }
             }
             SignatureId::NumberedSignature(numbered_sig) => {

@@ -2,6 +2,7 @@
 //!
 //! This module provides helpful functions for Bitcoin RPC.
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::builder;
@@ -11,9 +12,11 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::BlockHash;
+use bitcoin::FeeRate;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::TxOut;
+use bitcoin::Txid;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
@@ -21,7 +24,7 @@ use bitcoincore_rpc::RpcApi;
 
 #[derive(Debug, Clone)]
 pub struct ExtendedRpc {
-    url: String,
+    pub url: String,
     auth: Auth,
     pub client: Arc<Client>,
 }
@@ -169,6 +172,72 @@ impl ExtendedRpc {
         }
 
         Ok(())
+    }
+
+    /// Bumps the fee of a transaction with a given fee rate.
+    /// Returns the txid of the bumped transaction.
+    pub async fn bump_fee_with_fee_rate(
+        &self,
+        txid: Txid,
+        fee_rate: FeeRate,
+    ) -> Result<Txid, BridgeError> {
+        let bump_fee_result = match self
+            .client
+            .bump_fee(
+                &txid,
+                Some(&bitcoincore_rpc::json::BumpFeeOptions {
+                    fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
+                        fee_rate.to_sat_per_vb_ceil(),
+                    ))),
+                    replaceable: Some(true),
+                    ..Default::default()
+                }),
+            )
+            .await
+        {
+            Ok(bump_fee_result) => bump_fee_result,
+            Err(e) => match e {
+                bitcoincore_rpc::Error::JsonRpc(json_rpc_error) => match json_rpc_error {
+                    bitcoincore_rpc::RpcError::Rpc(rpc_error) => {
+                        if let Some(outpoint_str) =
+                            rpc_error.message.split(" is already spent").next()
+                        {
+                            let outpoint = OutPoint::from_str(outpoint_str).map_err(|e| {
+                                BridgeError::BumpFeeError(
+                                    txid,
+                                    fee_rate,
+                                    format!(
+                                        "Failed to parse an outpoint from {}: {}",
+                                        outpoint_str, e
+                                    ),
+                                )
+                            })?;
+
+                            return Err(BridgeError::BumpFeeUTXOSpent(outpoint));
+                        }
+
+                        return Err(BridgeError::BumpFeeError(txid, fee_rate, rpc_error.message));
+                    }
+                    _ => {
+                        return Err(BridgeError::BumpFeeError(
+                            txid,
+                            fee_rate,
+                            json_rpc_error.to_string(),
+                        ))
+                    }
+                },
+                _ => return Err(BridgeError::BumpFeeError(txid, fee_rate, e.to_string())),
+            },
+        };
+
+        bump_fee_result.txid.ok_or({
+            BridgeError::BumpFeeError(
+                txid,
+                fee_rate,
+                "Can't get Txid from bump_fee_result: Wallet private keys are disabled."
+                    .to_string(),
+            )
+        })
     }
 
     pub async fn clone_inner(&self) -> Result<Self, bitcoincore_rpc::Error> {

@@ -1,5 +1,7 @@
 //! # Common Utilities for Integration Tests
 
+#![allow(unused)]
+
 #[path = "../../src/test_utils.rs"]
 mod test_utils;
 
@@ -248,7 +250,7 @@ use tonic::Request;
 // }
 
 pub async fn run_single_deposit(
-    config: BridgeConfig,
+    mut config: BridgeConfig,
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -296,25 +298,4 @@ pub async fn run_single_deposit(
         watchtowers,
         deposit_outpoint,
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::common::run_single_deposit;
-    use crate::create_test_config_with_thread_name;
-    use crate::initialize_database;
-    use clementine_core::database::Database;
-    use clementine_core::{config::BridgeConfig, utils::initialize_logger};
-
-    #[tokio::test]
-    async fn test_deposit() {
-        let config = create_test_config_with_thread_name!(None);
-        run_single_deposit(config).await.unwrap();
-    }
-
-    //     #[ignore = "We are switching to gRPC"]
-    //     #[tokio::test]
-    //     async fn multiple_deposits_for_operator() {
-    //         run_multiple_deposits("test_config.toml").await;
-    //     }
 }

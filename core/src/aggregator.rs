@@ -1,9 +1,11 @@
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit, WatchtowerKeysWithDeposit};
 use crate::{
+    actor::Actor,
     builder::{self},
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
+    extended_rpc::ExtendedRpc,
     musig2::{aggregate_partial_signatures, AggregateFromPublicKeys},
     rpc::{
         self,
@@ -13,17 +15,18 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
+    tx_sender::TxSender,
     EVMAddress,
 };
+use bitcoin::hashes::Hash;
 use bitcoin::{
     address::NetworkUnchecked,
     secp256k1::{schnorr, Message},
     Address, OutPoint, XOnlyPublicKey,
 };
-use bitcoin::{hashes::Hash, Txid};
-use bitcoincore_rpc::RawTx;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+use std::time::Duration;
 use tonic::Status;
 
 /// Aggregator struct.
@@ -39,13 +42,13 @@ pub struct Aggregator {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nofn_xonly_pk: XOnlyPublicKey,
+    pub(crate) tx_sender: TxSender,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     pub(crate) watchtower_clients: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
 }
 
 impl Aggregator {
-    // #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let db = Database::new(&config).await?;
 
@@ -83,10 +86,21 @@ impl Aggregator {
         let watchtower_clients =
             rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::connect).await?;
 
+        let signer = Actor::new(config.secret_key, None, config.network);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
+        let tx_sender = TxSender::new(signer, rpc, db.clone(), config.network);
+        let _tx_sender_handle = tx_sender.run("aggregator", Duration::from_secs(1)).await?;
+
         Ok(Aggregator {
             db,
             config,
             nofn_xonly_pk,
+            tx_sender,
             verifier_clients,
             operator_clients,
             watchtower_clients,
@@ -457,36 +471,36 @@ impl Aggregator {
     //     Ok(operator_take_sigs)
     // }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn aggregate_move_tx_sigs(
-        &self,
-        deposit_outpoint: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-        agg_nonce: MusigAggNonce,
-        partial_sigs: Vec<MusigPartialSignature>,
-    ) -> Result<(String, Txid), BridgeError> {
-        let move_tx_sig = self.aggregate_move_partial_sigs(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            &agg_nonce,
-            partial_sigs,
-        )?;
+    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    // pub async fn aggregate_move_tx_sigs(
+    //     &self,
+    //     deposit_outpoint: OutPoint,
+    //     recovery_taproot_address: Address<NetworkUnchecked>,
+    //     evm_address: EVMAddress,
+    //     agg_nonce: MusigAggNonce,
+    //     partial_sigs: Vec<MusigPartialSignature>,
+    // ) -> Result<(String, Txid), BridgeError> {
+    //     let move_tx_sig = self.aggregate_move_partial_sigs(
+    //         deposit_outpoint,
+    //         evm_address,
+    //         &recovery_taproot_address,
+    //         &agg_nonce,
+    //         partial_sigs,
+    //     )?;
 
-        let mut move_tx_handler = builder::transaction::create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            self.nofn_xonly_pk,
-            self.config.user_takes_after,
-            self.config.bridge_amount_sats,
-            self.config.network,
-        )?;
-        let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
-        move_tx_handler.set_p2tr_script_spend_witness(&move_tx_witness_elements, 0, 0)?;
+    //     let mut move_tx_handler = builder::transaction::create_move_to_vault_txhandler(
+    //         deposit_outpoint,
+    //         evm_address,
+    //         &recovery_taproot_address,
+    //         self.nofn_xonly_pk,
+    //         self.config.user_takes_after,
+    //         self.config.bridge_amount_sats,
+    //         self.config.network,
+    //     )?;
+    //     let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
+    //     move_tx_handler.set_p2tr_script_spend_witness(&move_tx_witness_elements, 0, 0)?;
 
-        let txid = *move_tx_handler.get_txid();
-        Ok((move_tx_handler.get_cached_tx().raw_hex(), txid))
-    }
+    //     let txid = *move_tx_handler.get_txid();
+    //     Ok((move_tx_handler.get_cached_tx().raw_hex(), txid))
+    // }
 }

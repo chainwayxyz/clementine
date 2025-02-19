@@ -3,6 +3,11 @@ package clementine;
 
 message Empty {}
 
+// TODO: Use this message for all txid instances
+message Txid {
+  bytes txid = 1;
+}
+
 message Outpoint {
   bytes txid = 1;
   uint32 vout = 2;
@@ -25,6 +30,7 @@ enum NormalSignatureKind {
   ChallengeTimeout2 = 11;
   MiniAssert1 = 12;
   OperatorChallengeAck1 = 13;
+  NotStored = 14;
 }
 
 // Signatures that are needed multiple times per an operators kickoff.
@@ -435,5 +441,5 @@ service ClementineAggregator {
   // this will also call the operator to get their signatures and send it to
   // DepositFinalize then it will collect the partial sigs and create the move
   // tx.
-  rpc NewDeposit(DepositParams) returns (RawSignedTx) {}
+  rpc NewDeposit(DepositParams) returns (Txid) {}
 }

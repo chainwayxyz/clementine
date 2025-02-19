@@ -1145,7 +1145,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_operator_winternitz_public_keys() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
