@@ -51,11 +51,11 @@ pub fn calculate_num_required_nofn_sigs_per_kickoff(
         num_watchtowers, ..
     }: &BridgeConfig,
 ) -> usize {
-    7 + 2 * num_watchtowers + utils::BITVM_CACHE.intermediate_variables.len() * 2
+    7 + 2 * num_watchtowers + utils::COMBINED_ASSERT_DATA.num_steps.len() * 2
 }
 
 pub fn calculate_num_required_operator_sigs_per_kickoff(config: &BridgeConfig) -> usize {
-    2 + utils::BITVM_CACHE.intermediate_variables.len() + config.num_watchtowers
+    2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + config.num_watchtowers
 }
 
 #[derive(Copy, Clone, Debug)]

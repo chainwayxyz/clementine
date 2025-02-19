@@ -2,24 +2,22 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::transaction::creator::TxHandlerDbData;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::config::BridgeConfig;
+use crate::constants::{KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH};
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
 use crate::{builder, utils};
 use bitcoin::XOnlyPublicKey;
-use tonic::Status;
 
 pub struct TransactionRequestData {
     pub deposit_data: DepositData,
     pub transaction_type: TransactionType,
     pub kickoff_id: KickoffId,
-    pub commit_data: Vec<u8>,
 }
 
 pub struct AssertRequestData {
     pub deposit_data: DepositData,
     pub kickoff_id: KickoffId,
-    pub commit_data: Vec<Vec<u8>>,
 }
 
 /// Creates a transaction type for a kickoff Id, signs it and returns the raw signed transaction
@@ -90,20 +88,17 @@ pub async fn create_and_sign_tx(
         signer.tx_sign_preimage(&mut requested_txhandler, preimage)?;
     }
     if let TransactionType::MiniAssert(assert_idx) = transaction_data.transaction_type {
-        let (step_name, step_size) = utils::BITVM_CACHE
-            .intermediate_variables
-            .iter()
-            .nth(assert_idx)
-            .ok_or_else(|| Status::invalid_argument("Mini Assert Index is too big"))?;
-        let path = WinternitzDerivationPath::BitvmAssert(
-            *step_size as u32,
-            step_name.to_owned(),
+        let (paths, sizes) = utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(
+            assert_idx,
             transaction_data.deposit_data.deposit_outpoint.txid,
         );
         signer.tx_sign_winternitz(
             &mut requested_txhandler,
-            &transaction_data.commit_data,
-            path,
+            &sizes
+                .iter()
+                .map(|size| vec![0u8; *size as usize / 2])
+                .collect::<Vec<Vec<u8>>>(), // dummy assert
+            &paths,
         )?;
     }
     if let TransactionType::WatchtowerChallenge(_) = transaction_data.transaction_type {
@@ -113,8 +108,8 @@ pub async fn create_and_sign_tx(
         );
         signer.tx_sign_winternitz(
             &mut requested_txhandler,
-            &transaction_data.commit_data,
-            path,
+            &[vec![1u8; WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize / 2]], // dummy challenge
+            &[path],
         )?;
     }
     if let TransactionType::Kickoff = transaction_data.transaction_type {
@@ -125,8 +120,8 @@ pub async fn create_and_sign_tx(
         );
         signer.tx_sign_winternitz(
             &mut requested_txhandler,
-            &transaction_data.commit_data,
-            path,
+            &[vec![1u8; KICKOFF_BLOCKHASH_COMMIT_LENGTH as usize / 2]], // dummy blockhash
+            &[path],
         )?;
     }
 
@@ -150,10 +145,6 @@ pub async fn create_assert_commitment_txs(
             assert_data.kickoff_id.operator_idx,
         ))?;
 
-    if assert_data.commit_data.len() != utils::BITVM_CACHE.intermediate_variables.len() {
-        return Err(BridgeError::InvalidCommitData);
-    }
-
     let mut txhandlers = builder::transaction::create_txhandlers(
         config.clone(),
         assert_data.deposit_data.clone(),
@@ -173,30 +164,20 @@ pub async fn create_assert_commitment_txs(
 
     let mut signed_txhandlers = Vec::new();
 
-    for (idx, (step_name, &step_size)) in
-        utils::BITVM_CACHE.intermediate_variables.iter().enumerate()
-    {
-        if step_size != assert_data.commit_data[idx].len() {
-            return Err(BridgeError::InvalidStepCommitData(
-                idx,
-                step_size,
-                assert_data.commit_data[idx].len(),
-            ));
-        }
-
-        let path = WinternitzDerivationPath::BitvmAssert(
-            step_size as u32 * 2,
-            step_name.to_owned(),
-            assert_data.deposit_data.deposit_outpoint.txid,
-        );
+    for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
+        let (paths, sizes) = utils::COMBINED_ASSERT_DATA
+            .get_paths_and_sizes(idx, assert_data.deposit_data.deposit_outpoint.txid);
         let mut mini_assert_txhandler =
             txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
                 BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),
             )?;
         signer.tx_sign_winternitz(
             &mut mini_assert_txhandler,
-            &assert_data.commit_data[idx],
-            path,
+            &sizes
+                .iter()
+                .map(|size| vec![0u8; *size as usize / 2])
+                .collect::<Vec<Vec<u8>>>(), // dummy assert
+            &paths,
         )?;
         signed_txhandlers.push(mini_assert_txhandler.promote()?);
     }

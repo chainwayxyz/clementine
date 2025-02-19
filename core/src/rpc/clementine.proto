@@ -140,13 +140,11 @@ message TransactionRequest {
   DepositParams deposit_params = 1;
   GrpcTransactionId transaction_type = 2;
   KickoffId kickoff_id = 3;
-  bytes commit_data = 4;
 }
 
 message AssertRequest {
   DepositParams deposit_params = 1;
   KickoffId kickoff_id = 2;
-  repeated bytes commit_data = 3;
 }
 
 // Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)

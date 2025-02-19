@@ -112,8 +112,6 @@ pub struct TransactionRequest {
     pub transaction_type: ::core::option::Option<GrpcTransactionId>,
     #[prost(message, optional, tag = "3")]
     pub kickoff_id: ::core::option::Option<KickoffId>,
-    #[prost(bytes = "vec", tag = "4")]
-    pub commit_data: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AssertRequest {
@@ -121,8 +119,6 @@ pub struct AssertRequest {
     pub deposit_params: ::core::option::Option<DepositParams>,
     #[prost(message, optional, tag = "2")]
     pub kickoff_id: ::core::option::Option<KickoffId>,
-    #[prost(bytes = "vec", repeated, tag = "3")]
-    pub commit_data: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 /// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
 #[derive(Clone, PartialEq, ::prost::Message)]

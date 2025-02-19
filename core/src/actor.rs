@@ -308,8 +308,8 @@ impl Actor {
     pub fn tx_sign_winternitz(
         &self,
         txhandler: &mut TxHandler,
-        data: &Vec<u8>,
-        path: WinternitzDerivationPath,
+        data: &[Vec<u8>],
+        path: &[WinternitzDerivationPath],
     ) -> Result<(), BridgeError> {
         let mut signed_winternitz = false;
 
@@ -340,7 +340,10 @@ impl Actor {
                                 }
                                 script.generate_script_inputs(
                                     data,
-                                    &self.get_derived_winternitz_sk(path.clone())?,
+                                    &path
+                                        .iter()
+                                        .map(|path| self.get_derived_winternitz_sk(path.clone()))
+                                        .collect::<Result<Vec<_>, _>>()?,
                                     &self.sign(calc_sighash()?),
                                 )
                             }

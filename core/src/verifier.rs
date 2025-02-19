@@ -19,7 +19,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
-use crate::utils::{self, BITVM_CACHE, SECP};
+use crate::utils::{self, SECP};
 use crate::{bitcoin_syncer, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -864,15 +864,22 @@ impl Verifier {
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
 
-        let assert_tx_addrs: Vec<[u8; 32]> = BITVM_CACHE
-            .intermediate_variables
+        let mut steps_iter = utils::BITVM_CACHE.intermediate_variables.iter();
+
+        let assert_tx_addrs: Vec<[u8; 32]> = utils::COMBINED_ASSERT_DATA
+            .num_steps
             .iter()
-            .enumerate()
-            .map(|(idx, (_intermediate_step, intermediate_step_size))| {
+            .map(|steps| {
+                let len = steps.1 - steps.0;
+                let intermediate_steps = Vec::from_iter(steps_iter.by_ref().take(len));
+                let sizes: Vec<u32> = intermediate_steps
+                    .iter()
+                    .map(|(_, intermediate_step_size)| **intermediate_step_size as u32 * 2)
+                    .collect();
                 let script = WinternitzCommit::new(
-                    winternitz_keys[idx].clone(),
+                    &winternitz_keys[steps.0..steps.1],
                     operator_data.xonly_pk,
-                    *intermediate_step_size as u32 * 2,
+                    &sizes,
                 );
                 let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
                 taproot_builder
@@ -940,8 +947,8 @@ impl Verifier {
                 .await?;
             let challenge_addr = derive_challenge_address_from_xonlypk_and_wpk(
                 &watchtower_xonly_pk,
-                winternitz_key,
-                WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
+                &[winternitz_key.clone()],
+                &[WATCHTOWER_CHALLENGE_MESSAGE_LENGTH],
                 self.config.network,
             )
             .script_pubkey();

@@ -1,5 +1,5 @@
+use crate::actor::Actor;
 use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
-use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
@@ -295,6 +295,8 @@ pub async fn create_txhandlers(
         ready_to_reimburse_txhandler,
     );
 
+    let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
+
     let start_time = std::time::Instant::now();
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
@@ -306,21 +308,19 @@ pub async fn create_txhandlers(
         );
 
         let mut assert_scripts: Vec<Arc<dyn SpendableScript>> =
-            Vec::with_capacity(utils::BITVM_CACHE.intermediate_variables.len());
+            Vec::with_capacity(utils::COMBINED_ASSERT_DATA.num_steps.len());
 
-        for (intermediate_step, intermediate_step_size) in
-            utils::BITVM_CACHE.intermediate_variables.iter()
-        {
-            let path = WinternitzDerivationPath::BitvmAssert(
-                *intermediate_step_size as u32 * 2,
-                intermediate_step.to_string(),
-                deposit.deposit_outpoint.txid,
-            );
-            let pk = actor.derive_winternitz_pk(path)?;
+        for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
+            let (paths, sizes) =
+                utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(idx, deposit.deposit_outpoint.txid);
+            let pks = paths
+                .into_iter()
+                .map(|path| actor.derive_winternitz_pk(path))
+                .collect::<Result<Vec<_>, _>>()?;
             assert_scripts.push(Arc::new(WinternitzCommit::new(
-                pk,
+                &pks,
                 operator_data.xonly_pk,
-                *intermediate_step_size as u32 * 2,
+                &sizes,
             )));
         }
 
@@ -337,10 +337,7 @@ pub async fn create_txhandlers(
         )?;
 
         // Create and insert mini_asserts into return Vec
-        let mini_asserts = create_mini_asserts(
-            &kickoff_txhandler,
-            utils::BITVM_CACHE.intermediate_variables.len(),
-        )?;
+        let mini_asserts = create_mini_asserts(&kickoff_txhandler, num_asserts)?;
 
         for mini_assert in mini_asserts.into_iter() {
             txhandlers.insert(mini_assert.get_transaction_type(), mini_assert);
@@ -468,9 +465,9 @@ pub async fn create_txhandlers(
                     operator_data.xonly_pk,
                     config.network,
                     Some(Arc::new(WinternitzCommit::new(
-                        public_key,
+                        &[public_key],
                         actor.xonly_public_key,
-                        WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
+                        &[WATCHTOWER_CHALLENGE_MESSAGE_LENGTH],
                     ))),
                 )?
             };
@@ -519,8 +516,6 @@ pub async fn create_txhandlers(
             return Ok(txhandlers);
         }
     }
-
-    let num_asserts = utils::BITVM_CACHE.intermediate_variables.len();
 
     let start_time = std::time::Instant::now();
     let assert_timeouts = create_assert_timeout_txhandlers(
@@ -602,7 +597,6 @@ mod tests {
             create_aggregator_grpc_server, create_operator_grpc_server,
             create_verifier_grpc_server, create_watchtower_grpc_server,
         },
-        utils,
         utils::initialize_logger,
         EVMAddress,
     };
@@ -617,9 +611,6 @@ mod tests {
     use std::panic;
 
     use crate::builder::transaction::TransactionType;
-    use crate::constants::{
-        KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
-    };
     use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
@@ -687,12 +678,6 @@ mod tests {
         txs_operator_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeAck));
 
-        let full_commit_data = utils::BITVM_CACHE
-            .intermediate_variables
-            .values()
-            .map(|len| vec![1u8; *len])
-            .collect::<Vec<_>>();
-
         // try to sign everything for all operators
         let thread_handles: Vec<_> = operators
             .iter_mut()
@@ -700,7 +685,6 @@ mod tests {
             .map(|(operator_idx, operator_rpc)| {
                 let txs_operator_can_sign = txs_operator_can_sign.clone();
                 let deposit_params = deposit_params.clone();
-                let full_commit_data = full_commit_data.clone();
                 let mut operator_rpc = operator_rpc.clone();
                 async move {
                     for round_idx in 0..config.num_round_txs {
@@ -717,21 +701,6 @@ mod tests {
                                         deposit_params: deposit_params.clone().into(),
                                         transaction_type: Some((*tx_type).into()),
                                         kickoff_id: Some(kickoff_id),
-                                        commit_data: if let TransactionType::MiniAssert(
-                                            assert_idx,
-                                        ) = tx_type
-                                        {
-                                            full_commit_data[*assert_idx].clone()
-                                        } else if *tx_type == TransactionType::Kickoff {
-                                            vec![
-                                                1u8;
-                                                KICKOFF_BLOCKHASH_COMMIT_LENGTH as usize
-                                                    * WINTERNITZ_LOG_D as usize
-                                                    / 8
-                                            ]
-                                        } else {
-                                            vec![]
-                                        },
                                     })
                                     .await
                                     .unwrap();
@@ -749,7 +718,6 @@ mod tests {
                                     .internal_create_assert_commitment_txs(AssertRequest {
                                         deposit_params: deposit_params.clone().into(),
                                         kickoff_id: Some(kickoff_id),
-                                        commit_data: full_commit_data.clone(),
                                     })
                                     .await
                                     .unwrap()
@@ -791,13 +759,6 @@ mod tests {
                                                 .into(),
                                         ),
                                         kickoff_id: Some(kickoff_id),
-                                        commit_data: vec![
-                                            1u8;
-                                            WATCHTOWER_CHALLENGE_MESSAGE_LENGTH
-                                                as usize
-                                                * WINTERNITZ_LOG_D as usize
-                                                / 8
-                                        ],
                                     })
                                     .await
                                     .unwrap();
@@ -846,7 +807,6 @@ mod tests {
                                             deposit_params: deposit_params.clone().into(),
                                             transaction_type: Some((*tx_type).into()),
                                             kickoff_id: Some(kickoff_id),
-                                            commit_data: vec![],
                                         })
                                         .await
                                         .unwrap();
