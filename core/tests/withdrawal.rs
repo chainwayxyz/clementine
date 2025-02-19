@@ -1,13 +1,14 @@
 use async_trait::async_trait;
 use bitcoin::Network;
 use citrea_e2e::{
-    config::{TestCaseConfig, TestCaseDockerConfig},
+    config::{BitcoinConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
 use clementine_core::{
-    config::BridgeConfig, database::Database, extended_rpc::ExtendedRpc, utils::initialize_logger,
+    config::BridgeConfig, database::Database, extended_rpc::ExtendedRpc, operator::Operator,
+    utils::initialize_logger,
 };
 use common::start_citrea;
 
@@ -16,6 +17,13 @@ mod common;
 struct DepositOnCitrea;
 #[async_trait]
 impl TestCase for DepositOnCitrea {
+    fn bitcoin_config() -> BitcoinConfig {
+        BitcoinConfig {
+            extra_args: vec!["-fallbackfee", "-fallbackfee=0.00001"],
+            ..Default::default()
+        }
+    }
+
     fn test_config() -> TestCaseConfig {
         TestCaseConfig {
             with_batch_prover: false,
@@ -30,7 +38,7 @@ impl TestCase for DepositOnCitrea {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (_sequencer, _full_node, da) = start_citrea(Self::sequencer_config(), f).await?;
+        let (_sequencer, full_node, da) = start_citrea(Self::sequencer_config(), f).await?;
 
         let mut config = create_test_config_with_thread_name!(None);
         config.bitcoin_rpc_password = da.config.rpc_password.clone();
@@ -42,13 +50,21 @@ impl TestCase for DepositOnCitrea {
             Network::Bitcoin // citrea-e2e internal.
         );
 
-        let extended_rpc = ExtendedRpc::connect(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
-        extended_rpc.mine_blocks(101).await?;
+        rpc.mine_blocks(101).await?; // TODO: remove; only for checking network availability
+
+        let citrea_url = format!(
+            "http://{}:{}",
+            full_node.config.rollup.rpc.bind_host, full_node.config.rollup.rpc.bind_port
+        );
+        config.citrea_rpc_url = citrea_url;
+
+        let _operator = Operator::new(config, rpc).await?;
 
         Ok(())
     }
