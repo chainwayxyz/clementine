@@ -264,10 +264,165 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
-    use crate::{create_test_config_with_thread_name, database::Database};
+    use super::*;
+    use crate::config::BridgeConfig;
+    use crate::utils::initialize_logger;
+
+    use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
     use bitcoin::hashes::Hash;
-    use bitcoin::{BlockHash, Txid};
+    use bitcoin::BlockHash;
+
+    async fn setup_test_db() -> Database {
+        let config = create_test_config_with_thread_name!(None);
+        Database::new(&config).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_event_handling() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        // Create a test block
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+
+        let block_id = db
+            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+
+        // Add new block event
+        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+            .await
+            .unwrap();
+
+        // Test event consumption
+        let consumer_handle = "test_consumer";
+        let event = db
+            .get_event_and_update(&mut dbtx, consumer_handle)
+            .await
+            .unwrap();
+
+        assert!(matches!(event, Some(BitcoinSyncerEvent::NewBlock(id)) if id == block_id));
+
+        // Test that the same event is not returned twice
+        let event = db
+            .get_event_and_update(&mut dbtx, consumer_handle)
+            .await
+            .unwrap();
+        assert!(event.is_none());
+
+        // Add reorg event
+        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+            .await
+            .unwrap();
+
+        // Test that new event is received
+        let event = db
+            .get_event_and_update(&mut dbtx, consumer_handle)
+            .await
+            .unwrap();
+        assert!(matches!(event, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
+
+        dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_multiple_event_consumers() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        // Create a test block
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+
+        let block_id = db
+            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+
+        // Add events
+        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+            .await
+            .unwrap();
+        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+            .await
+            .unwrap();
+
+        // Test with multiple consumers
+        let consumer1 = "consumer1";
+        let consumer2 = "consumer2";
+
+        // First consumer gets both events in order
+        let event1 = db.get_event_and_update(&mut dbtx, consumer1).await.unwrap();
+        assert!(matches!(event1, Some(BitcoinSyncerEvent::NewBlock(id)) if id == block_id));
+
+        let event2 = db.get_event_and_update(&mut dbtx, consumer1).await.unwrap();
+        assert!(matches!(event2, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
+
+        // Second consumer also gets both events independently
+        let event1 = db.get_event_and_update(&mut dbtx, consumer2).await.unwrap();
+        assert!(matches!(event1, Some(BitcoinSyncerEvent::NewBlock(id)) if id == block_id));
+
+        let event2 = db.get_event_and_update(&mut dbtx, consumer2).await.unwrap();
+        assert!(matches!(event2, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
+
+        dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_non_canonical_blocks() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        // Create a chain of blocks
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let heights = [1, 2, 3, 4, 5];
+        let mut last_hash = prev_block_hash;
+
+        let mut block_ids = Vec::new();
+        for height in heights {
+            let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
+            let block_id = db
+                .add_block_info(Some(&mut dbtx), &block_hash, &last_hash, height)
+                .await
+                .unwrap();
+            block_ids.push(block_id);
+            last_hash = block_hash;
+        }
+
+        // Mark blocks above height 2 as non-canonical
+        let non_canonical_blocks = db
+            .set_non_canonical_block_hashes(Some(&mut dbtx), 2)
+            .await
+            .unwrap();
+        assert_eq!(non_canonical_blocks.len(), 3); // blocks at height 3, 4, and 5
+
+        // Verify blocks above height 2 are not returned
+        for height in heights {
+            let block_hash =
+                BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
+            let block_info = db
+                .get_block_info_from_hash(Some(&mut dbtx), block_hash)
+                .await
+                .unwrap();
+
+            if height <= 2 {
+                assert!(block_info.is_some());
+            } else {
+                assert!(block_info.is_none());
+            }
+        }
+
+        // Verify max height is now 2
+        let max_height = db.get_max_height(Some(&mut dbtx)).await.unwrap().unwrap();
+        assert_eq!(max_height, 2);
+
+        dbtx.commit().await.unwrap();
+    }
+
 
     #[tokio::test]
     async fn add_get_block_info() {
