@@ -82,6 +82,7 @@ macro_rules! create_regtest_rpc {
                     self.2.display()
                 );
                 let _ = self.0.kill();
+                let _ = self.rpc(); // To get away from "unused" warnings
             }
         }
 
@@ -305,13 +306,6 @@ macro_rules! initialize_database {
 #[macro_export]
 macro_rules! create_actors {
     ($config:expr) => {{
-        let regtest = create_regtest_rpc!($config);
-        let rpc = regtest.rpc();
-
-        // replace config with new rpc
-        let mut config = $config.clone();
-        config.bitcoin_rpc_url = rpc.url.clone();
-
         let all_verifiers_secret_keys =
             $config
                 .all_verifiers_secret_keys
@@ -332,7 +326,7 @@ macro_rules! create_actors {
                 let port = get_available_port!();
                 // println!("Port: {}", port);
                 let i = i.to_string();
-                let mut config_with_new_db = config.clone();
+                let mut config_with_new_db = $config.clone();
                 async move {
                     config_with_new_db.db_name += &i;
                     initialize_database!(&config_with_new_db);
@@ -465,7 +459,7 @@ macro_rules! create_actors {
         ))
         .await;
 
-        (verifiers, operators, aggregator, watchtowers, regtest)
+        (verifiers, operators, aggregator, watchtowers)
     }};
 }
 

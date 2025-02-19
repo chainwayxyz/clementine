@@ -718,8 +718,9 @@ mod tests {
 
     async fn test_deposit_and_sign_txs() {
         let mut config = create_test_config_with_thread_name!(None);
+        let _regtest = create_regtest_rpc!(config);
 
-        let (mut verifiers, mut operators, mut aggregator, mut watchtowers, _regtest) =
+        let (mut verifiers, mut operators, mut aggregator, mut watchtowers) =
             create_actors!(config);
 
         tracing::info!("Setting up aggregator");

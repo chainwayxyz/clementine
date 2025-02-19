@@ -21,6 +21,7 @@ impl TestCase for DockerIntegrationTest {
             with_batch_prover: false,
             with_sequencer: true,
             with_full_node: true,
+            n_nodes: 0,
             docker: TestCaseDockerConfig {
                 bitcoin: false,
                 citrea: true,
@@ -30,12 +31,12 @@ impl TestCase for DockerIntegrationTest {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        tracing::error!("hayda");
         let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let _rpc = regtest.rpc().clone();
 
         let sequencer = f.sequencer.as_ref().expect("Sequencer is present");
-        let batch_prover = f.batch_prover.as_ref().expect("Batch prover is present");
         let full_node = f.full_node.as_ref().expect("Full node is present");
 
         let port: u16 = config
@@ -56,6 +57,7 @@ impl TestCase for DockerIntegrationTest {
         };
         let da = BitcoinNode::new(&config, Arc::new(None)).await?;
 
+        tracing::error!("hayda");
         let min_soft_confirmations_per_commitment =
             Self::sequencer_config().min_soft_confirmations_per_commitment;
 
@@ -67,11 +69,6 @@ impl TestCase for DockerIntegrationTest {
         da.wait_mempool_len(1, None).await?;
 
         da.generate(DEFAULT_FINALITY_DEPTH).await?;
-        let finalized_height = da.get_finalized_height(None).await?;
-
-        batch_prover
-            .wait_for_l1_height(finalized_height, None)
-            .await?;
 
         full_node
             .wait_for_l2_height(min_soft_confirmations_per_commitment, None)

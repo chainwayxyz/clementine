@@ -8,8 +8,8 @@ mod common;
 
 #[tokio::test]
 async fn test_deposit() {
-    let config = create_test_config_with_thread_name!(None);
-    run_single_deposit(config).await.unwrap();
+    let mut config = create_test_config_with_thread_name!(None);
+    run_single_deposit(&mut config).await.unwrap();
 }
 
 //     #[ignore = "We are switching to gRPC"]

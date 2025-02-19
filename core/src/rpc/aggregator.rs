@@ -826,8 +826,9 @@ mod tests {
     #[tokio::test]
     async fn aggregator_double_setup_fail() {
         let mut config = create_test_config_with_thread_name!(None);
+        let _regtest = create_regtest_rpc!(config);
 
-        let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
+        let (_, _, mut aggregator, _) = create_actors!(config);
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -844,8 +845,9 @@ mod tests {
     #[ignore = "This test is also done during the deposit phase of test_deposit_and_sign_txs test"]
     async fn aggregator_setup_and_deposit() {
         let mut config = create_test_config_with_thread_name!(None);
+        let _regtest = create_regtest_rpc!(config);
 
-        let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
+        let (_, _, mut aggregator, _) = create_actors!(config);
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();
@@ -882,9 +884,10 @@ mod tests {
     #[tokio::test]
     async fn aggregator_deposit_movetx_lands_onchain() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
-            create_actors!(config);
+        let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc();
+
+        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config);
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(

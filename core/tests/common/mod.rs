@@ -250,7 +250,7 @@ use tonic::Request;
 // }
 
 pub async fn run_single_deposit(
-    mut config: BridgeConfig,
+    config: &mut BridgeConfig,
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -267,7 +267,7 @@ pub async fn run_single_deposit(
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address!(config, evm_address)?;
 
-    let (verifiers, operators, mut aggregator, watchtowers, _regtest) = create_actors!(config);
+    let (verifiers, operators, mut aggregator, watchtowers) = create_actors!(config);
 
     aggregator.setup(Request::new(Empty {})).await?;
 
