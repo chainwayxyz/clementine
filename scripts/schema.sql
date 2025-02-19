@@ -190,7 +190,7 @@ create table if not exists bitcoin_syncer (
     id serial primary key,
     blockhash text not null unique,
     prev_blockhash text not null,
-    height bigint not null,
+    height int not null,
     is_canonical boolean not null default true
 );
 

@@ -15,18 +15,18 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: &BlockHash,
         prev_block_hash: &BlockHash,
-        block_height: i64,
+        block_height: u32,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
             "INSERT INTO bitcoin_syncer (blockhash, prev_blockhash, height) VALUES ($1, $2, $3) RETURNING id",
         )
         .bind(BlockHashDB(*block_hash))
         .bind(BlockHashDB(*prev_block_hash))
-        .bind(block_height);
+        .bind(i32::try_from(block_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        Ok(id as u32)
+        u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
     }
     /// # Returns
     ///
@@ -44,10 +44,17 @@ impl Database {
         )
         .bind(BlockHashDB(block_hash));
 
-        let ret: Option<(BlockHashDB, i64)> =
+        let ret: Option<(BlockHashDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        Ok(ret.map(|(prev_hash, height)| (prev_hash.0, height as u32)))
+        ret.map(
+            |(prev_hash, height)| -> Result<(BlockHash, u32), BridgeError> {
+                let height = u32::try_from(height)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                Ok((prev_hash.0, height))
+            },
+        )
+        .transpose()
     }
 
     pub async fn get_block_info_from_id(
@@ -58,31 +65,42 @@ impl Database {
         let query = sqlx::query_as(
             "SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1 AND is_canonical = true",
         )
-        .bind(block_id as i32);
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
-        let ret: Option<(BlockHashDB, i64)> =
+        let ret: Option<(BlockHashDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        Ok(ret.map(|(block_hash, height)| (block_hash.0, height as u32)))
+        ret.map(
+            |(block_hash, height)| -> Result<(BlockHash, u32), BridgeError> {
+                let height = u32::try_from(height)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                Ok((block_hash.0, height))
+            },
+        )
+        .transpose()
     }
 
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<u64>, BridgeError> {
+    ) -> Result<Option<u32>, BridgeError> {
         let query =
             sqlx::query_as("SELECT height FROM bitcoin_syncer WHERE is_canonical = true ORDER BY height DESC LIMIT 1");
-        let result: Option<(i64,)> =
+        let result: Option<(i32,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        Ok(result.map(|(height,)| height as u64))
+        result
+            .map(|(height,)| {
+                u32::try_from(height).map_err(|e| BridgeError::ConversionError(e.to_string()))
+            })
+            .transpose()
     }
 
     /// Gets the block hashes that have height bigger then the given height and deletes them.
     pub async fn set_non_canonical_block_hashes(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        height: u64,
+        height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let query = sqlx::query_as(
             "WITH deleted AS (
@@ -92,13 +110,15 @@ impl Database {
                 RETURNING id
             ) SELECT id FROM deleted",
         )
-        .bind(height as i64);
+        .bind(i32::try_from(height).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let block_ids: Vec<(i32,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-        Ok(block_ids
+        block_ids
             .into_iter()
-            .map(|(block_id,)| block_id as u32)
-            .collect())
+            .map(|(block_id,)| {
+                u32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
     }
 
     pub async fn add_txid_to_block(
@@ -108,7 +128,7 @@ impl Database {
         txid: &bitcoin::Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO bitcoin_syncer_txs (block_id, txid) VALUES ($1, $2)")
-            .bind(block_id as i32)
+            .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
             .bind(super::wrapper::TxidDB(*txid));
 
         execute_query_with_tx!(self.connection, Some(tx), query, execute)?;
@@ -120,8 +140,9 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_id: u32,
     ) -> Result<Vec<Txid>, BridgeError> {
-        let query = sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1")
-            .bind(block_id as i32);
+        let query = sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1").bind(
+            i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+        );
 
         let txids: Vec<(TxidDB,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
@@ -160,18 +181,16 @@ impl Database {
         let spent_utxos: Vec<(i64, TxidDB, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        Ok(spent_utxos
+        spent_utxos
             .into_iter()
-            .map(|(block_id, txid, vout)| {
-                (
-                    block_id,
-                    OutPoint {
-                        txid: txid.0,
-                        vout: vout as u32,
-                    },
-                )
-            })
-            .collect())
+            .map(
+                |(block_id, txid, vout)| -> Result<(i64, OutPoint), BridgeError> {
+                    let vout = u32::try_from(vout)
+                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                    Ok((block_id, OutPoint { txid: txid.0, vout }))
+                },
+            )
+            .collect::<Result<Vec<_>, BridgeError>>()
     }
 
     pub async fn add_event(
@@ -183,11 +202,11 @@ impl Database {
             BitcoinSyncerEvent::NewBlock(block_id) => sqlx::query(
                 "INSERT INTO bitcoin_syncer_events (block_id, event_type) VALUES ($1, 'new_block'::bitcoin_syncer_event_type)",
             )
-            .bind(block_id as i32),
+            .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?),
             BitcoinSyncerEvent::ReorgedBlock(block_id) => sqlx::query(
                 "INSERT INTO bitcoin_syncer_events (block_id, event_type) VALUES ($1, 'reorged_block'::bitcoin_syncer_event_type)",
             )
-            .bind(block_id as i32),
+            .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?),
         };
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -242,8 +261,12 @@ impl Database {
 
         let event = event.expect("should exist since we checked is_none()");
         let event_type = match event.2.as_str() {
-            "new_block" => BitcoinSyncerEvent::NewBlock(event.1 as u32),
-            "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(event.1 as u32),
+            "new_block" => BitcoinSyncerEvent::NewBlock(
+                u32::try_from(event.1).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+            ),
+            "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(
+                u32::try_from(event.1).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+            ),
             _ => return Err(BridgeError::Error("Invalid event type".to_string())),
         };
         let event_id = event.0;
@@ -450,8 +473,8 @@ mod tests {
             .unwrap();
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
         assert_eq!(block_info.0, prev_block_hash);
-        assert_eq!(block_info.1, height as u32);
-        assert_eq!(max_height, height as u64);
+        assert_eq!(block_info.1, height);
+        assert_eq!(max_height, height);
 
         db.add_block_info(
             None,
@@ -462,7 +485,7 @@ mod tests {
         .await
         .unwrap();
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
-        assert_eq!(max_height, height as u64);
+        assert_eq!(max_height, height);
 
         db.add_block_info(
             None,
@@ -473,8 +496,8 @@ mod tests {
         .await
         .unwrap();
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
-        assert_ne!(max_height, height as u64);
-        assert_eq!(max_height, height as u64 + 1);
+        assert_ne!(max_height, height);
+        assert_eq!(max_height, height + 1);
     }
 
     #[tokio::test]

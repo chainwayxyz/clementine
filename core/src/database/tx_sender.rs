@@ -18,7 +18,7 @@ impl Database {
     pub async fn confirm_transactions(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        block_id: i32,
+        block_id: u32,
     ) -> Result<(), BridgeError> {
         // Common CTEs for reuse
         let common_ctes = r#"
@@ -49,7 +49,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(block_id)
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -62,7 +62,7 @@ impl Database {
             AND ctt.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(block_id)
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -75,7 +75,7 @@ impl Database {
             AND cto.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(block_id)
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -88,7 +88,7 @@ impl Database {
             AND fpu.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(block_id)
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -101,7 +101,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(block_id)
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -114,7 +114,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(block_id)
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -124,7 +124,7 @@ impl Database {
     pub async fn unconfirm_transactions(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        block_id: i32,
+        block_id: u32,
     ) -> Result<(), BridgeError> {
         // Unconfirm tx_sender_fee_payer_utxos
         sqlx::query(
@@ -155,7 +155,7 @@ impl Database {
             WHERE txs.seen_block_id = $1;
             "#,
         )
-        .bind(block_id)
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -173,21 +173,23 @@ impl Database {
     pub async fn save_fee_payer_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        bumped_id: i32,
+        bumped_id: u32,
         fee_payer_txid: Txid,
         vout: u32,
         amount: Amount,
-        replacement_of_id: Option<i32>,
+        replacement_of_id: Option<u32>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO tx_sender_fee_payer_utxos (bumped_id, fee_payer_txid, vout, amount, replacement_of_id) 
              VALUES ($1, $2, $3, $4, $5)",
         )
-        .bind(bumped_id)
+        .bind(i32::try_from(bumped_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .bind(TxidDB(fee_payer_txid))
-        .bind(vout as i32)
-        .bind(amount.to_sat() as i64)
-        .bind(replacement_of_id);
+        .bind(i32::try_from(vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i64::try_from(amount.to_sat()).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(replacement_of_id.map(|id| -> Result<i32, BridgeError> {
+            i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
+        }).transpose()?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -200,8 +202,8 @@ impl Database {
     pub async fn get_bumpable_fee_payer_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        bumped_id: i32,
-    ) -> Result<Vec<(i32, Txid, u32, Amount)>, BridgeError> {
+        bumped_id: u32,
+    ) -> Result<Vec<(u32, Txid, u32, Amount)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB, i32, i64)>(
             "
             SELECT fpu.id, fpu.fee_payer_txid, fpu.vout, fpu.amount
@@ -215,76 +217,88 @@ impl Database {
               )
             ",
         )
-        .bind(bumped_id);
+        .bind(i32::try_from(bumped_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let results: Vec<(i32, TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        Ok(results
+        results
             .iter()
             .map(|(id, fee_payer_txid, vout, amount)| {
-                (
-                    *id,
+                Ok((
+                    u32::try_from(*id).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
                     fee_payer_txid.0,
-                    *vout as u32,
-                    Amount::from_sat(*amount as u64),
-                )
+                    u32::try_from(*vout)
+                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    Amount::from_sat(
+                        u64::try_from(*amount)
+                            .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    ),
+                ))
             })
-            .collect())
+            .collect::<Result<Vec<_>, BridgeError>>()
     }
 
     pub async fn get_confirmed_fee_payer_utxos(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        id: i32,
+        id: u32,
     ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
             "SELECT fee_payer_txid, vout, amount 
              FROM tx_sender_fee_payer_utxos fpu
              WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NOT NULL",
         )
-        .bind(id);
+        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let results: Vec<(TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        Ok(results
+        results
             .iter()
             .map(|(fee_payer_txid, vout, amount)| {
-                (
+                Ok((
                     fee_payer_txid.0,
-                    *vout as u32,
-                    Amount::from_sat(*amount as u64),
-                )
+                    u32::try_from(*vout)
+                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    Amount::from_sat(
+                        u64::try_from(*amount)
+                            .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    ),
+                ))
             })
-            .collect())
+            .collect::<Result<Vec<_>, BridgeError>>()
     }
 
     pub async fn get_unconfirmed_fee_payer_utxos(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        id: i32,
+        id: u32,
     ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
             "SELECT fee_payer_txid, vout, amount 
              FROM tx_sender_fee_payer_utxos fpu
              WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NULL",
         )
-        .bind(id);
+        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let results: Vec<(TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        Ok(results
+        results
             .iter()
             .map(|(fee_payer_txid, vout, amount)| {
-                (
+                Ok((
                     fee_payer_txid.0,
-                    *vout as u32,
-                    Amount::from_sat(*amount as u64),
-                )
+                    u32::try_from(*vout)
+                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    Amount::from_sat(
+                        u64::try_from(*amount)
+                            .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    ),
+                ))
             })
-            .collect())
+            .collect::<Result<Vec<_>, BridgeError>>()
     }
 
     pub async fn save_tx(
@@ -292,7 +306,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
-    ) -> Result<i32, BridgeError> {
+    ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
             "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type) VALUES ($1, $2::fee_paying_type) RETURNING id"
         )
@@ -300,17 +314,17 @@ impl Database {
         .bind(fee_paying_type);
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        Ok(id)
+        u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
     }
 
     pub async fn save_rbf_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        id: i32,
+        id: u32,
         txid: Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO tx_sender_rbf_txids (id, txid) VALUES ($1, $2)")
-            .bind(id)
+            .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
             .bind(TxidDB(txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -320,15 +334,15 @@ impl Database {
     pub async fn save_cancelled_outpoint(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        cancelled_id: i32,
+        cancelled_id: u32,
         outpoint: bitcoin::OutPoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, txid, vout) VALUES ($1, $2, $3)"
         )
-        .bind(cancelled_id)
+        .bind(i32::try_from(cancelled_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .bind(TxidDB(outpoint.txid))
-        .bind(outpoint.vout as i32);
+        .bind(i32::try_from(outpoint.vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -337,13 +351,13 @@ impl Database {
     pub async fn save_cancelled_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        cancelled_id: i32,
+        cancelled_id: u32,
         txid: bitcoin::Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO tx_sender_cancel_try_to_send_txids (cancelled_id, txid) VALUES ($1, $2)",
         )
-        .bind(cancelled_id)
+        .bind(i32::try_from(cancelled_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .bind(TxidDB(txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -353,15 +367,15 @@ impl Database {
     pub async fn save_activated_prerequisite_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        activated_id: i32,
+        activated_id: u32,
         prerequisite_tx: &PrerequisiteTx,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO tx_sender_activate_prerequisite_txs (activated_id, txid, timelock) VALUES ($1, $2, $3)"
         )
-        .bind(activated_id)
+        .bind(i32::try_from(activated_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .bind(TxidDB(prerequisite_tx.txid))
-        .bind(prerequisite_tx.timelock.0 as i64);
+        .bind(i32::try_from(prerequisite_tx.timelock.0).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -371,8 +385,8 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         fee_rate: FeeRate,
-        current_tip_height: u64,
-    ) -> Result<Vec<i32>, BridgeError> {
+        current_tip_height: u32,
+    ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
             "WITH valid_activated_txs AS (
                     -- Select all tx_sender_try_to_send_txs IDs
@@ -406,14 +420,15 @@ impl Database {
                     AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
                     AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1);",
         )
-        .bind(fee_rate.to_sat_per_vb_ceil() as i64)
-        .bind(current_tip_height as i64);
+        .bind(i64::try_from(fee_rate.to_sat_per_vb_ceil())
+            .map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(current_tip_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let results = execute_query_with_tx!(self.connection, tx, select_query, fetch_all)?;
 
         let txs = results
             .into_iter()
-            .map(|(id,)| Ok(id))
+            .map(|(id,)| u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string())))
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         Ok(txs)
@@ -422,14 +437,17 @@ impl Database {
     pub async fn update_effective_fee_rate(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        id: i32,
+        id: u32,
         effective_fee_rate: FeeRate,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "UPDATE tx_sender_try_to_send_txs SET effective_fee_rate = $1 WHERE id = $2",
         )
-        .bind(effective_fee_rate.to_sat_per_vb_ceil() as i64)
-        .bind(id);
+        .bind(
+            i64::try_from(effective_fee_rate.to_sat_per_vb_ceil())
+                .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+        )
+        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -439,14 +457,14 @@ impl Database {
     pub async fn get_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        id: i32,
+        id: u32,
     ) -> Result<(Transaction, FeePayingType, Option<i32>), BridgeError> {
         let query = sqlx::query_as::<_, (Vec<u8>, FeePayingType, Option<i32>)>(
             "SELECT raw_tx, fee_paying_type::fee_paying_type, seen_block_id
              FROM tx_sender_try_to_send_txs 
              WHERE id = $1 LIMIT 1",
         )
-        .bind(id);
+        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
@@ -579,9 +597,7 @@ mod tests {
             .unwrap();
 
         // Confirm transactions
-        db.confirm_transactions(&mut dbtx, block_id as i32)
-            .await
-            .unwrap();
+        db.confirm_transactions(&mut dbtx, block_id).await.unwrap();
 
         // Verify confirmation
         let unconfirmed = db

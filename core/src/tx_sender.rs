@@ -86,7 +86,7 @@ impl TxSender {
                         Ok::<bool, BridgeError>(match event {
                             Some(event) => match event {
                                 BitcoinSyncerEvent::NewBlock(block_id) => {
-                                    db.confirm_transactions(&mut dbtx, block_id as i32).await?;
+                                    db.confirm_transactions(&mut dbtx, block_id).await?;
                                     current_tip_height = db
                                         .get_block_info_from_id(Some(&mut dbtx), block_id)
                                         .await?
@@ -105,8 +105,7 @@ impl TxSender {
                                         "TXSENDER: Unconfirming transactions for block {}",
                                         block_id
                                     );
-                                    db.unconfirm_transactions(&mut dbtx, block_id as i32)
-                                        .await?;
+                                    db.unconfirm_transactions(&mut dbtx, block_id).await?;
                                     dbtx.commit().await?;
                                     true
                                 }
@@ -124,7 +123,7 @@ impl TxSender {
                     tracing::info!("TXSENDER: Getting fee rate");
                     let fee_rate = this.get_fee_rate().await?;
                     tracing::info!("TXSENDER: Trying to send unconfirmed txs");
-                    this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height as u64)
+                    this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height)
                         .await?;
 
                     Ok(())
@@ -157,7 +156,7 @@ impl TxSender {
         cancel_outpoints: &[OutPoint],
         cancel_txids: &[Txid],
         activate_prerequisite_txs: &[PrerequisiteTx],
-    ) -> Result<i32, BridgeError> {
+    ) -> Result<u32, BridgeError> {
         let try_to_send_id = self
             .db
             .save_tx(Some(dbtx), signed_tx, fee_paying_type)
@@ -194,7 +193,7 @@ impl TxSender {
     /// The fee paying type can be either CPFP or RBF.
     async fn create_fee_payer_utxo(
         &self,
-        bumped_id: i32,
+        bumped_id: u32,
         tx: &Transaction,
         fee_rate: FeeRate,
         fee_paying_type: FeePayingType,
@@ -500,7 +499,7 @@ impl TxSender {
     }
 
     /// Sends the tx with the given fee_rate.
-    async fn send_tx(&self, id: i32, fee_rate: FeeRate) -> Result<(), BridgeError> {
+    async fn send_tx(&self, id: u32, fee_rate: FeeRate) -> Result<(), BridgeError> {
         let unconfirmed_fee_payer_utxos = self.db.get_unconfirmed_fee_payer_utxos(None, id).await?;
         if !unconfirmed_fee_payer_utxos.is_empty() {
             return Err(BridgeError::UnconfirmedFeePayerUTXOsLeft);
@@ -580,7 +579,7 @@ impl TxSender {
     /// Tries to bump fees of fee payer txs with the given fee_rate.
     async fn bump_fees_of_fee_payer_txs(
         &self,
-        bumped_id: i32,
+        bumped_id: u32,
         fee_rate: FeeRate,
     ) -> Result<(), BridgeError> {
         let bumpable_fee_payer_txs = self.db.get_bumpable_fee_payer_txs(None, bumped_id).await?;
@@ -615,7 +614,7 @@ impl TxSender {
     async fn try_to_send_unconfirmed_txs(
         &self,
         new_fee_rate: FeeRate,
-        current_tip_height: u64,
+        current_tip_height: u32,
     ) -> Result<(), BridgeError> {
         let txs = self
             .db

@@ -223,6 +223,9 @@ pub enum BridgeError {
     #[error("Can't read proof assumption receipt from file {0}: {1}")]
     WrongProofAssumption(PathBuf, std::io::Error),
 
+    #[error("ConversionError: {0}")]
+    ConversionError(String),
+
     #[error("ERROR: {0}")]
     Error(String),
 
