@@ -15,6 +15,35 @@ The repository includes:
 
 ## Instructions
 
+### Rust-Analyzer Configuration
+
+Due to our tests setup, the `test` feature must be enabled for Rust-Analyzer to
+work with integration tests. To do so, you can add the following to your VS Code configuration
+
+```json
+{
+   // ...
+  "rust-analyzer.cargo.features": [
+    "test",
+  ]
+  // ...
+}
+```
+
+When working with the binary targets, you may suppress the compile error with the following configuration:
+
+```json
+{
+  // ...
+  "rust-analyzer.cargo.extraEnv": {
+    "RUSTFLAGS": "--cfg rust_analyzer"
+  }
+  // ...
+}
+```
+
+### Setup
+
 Clementine requires a Bitcoin node up and running on the client. Please install
 and configure Bitcoin Core if you haven't already.
 
@@ -78,29 +107,6 @@ More information, use `--help` flag:
    cargo install cargo-risczero
    ```
 
-#### Bitcoin Regtest Setup
-
-To simulate deposits, withdrawals, proof generation on the Bitcoin Regtest
-network, some configuration is needed.
-
-Start the regtest server with the following command:
-
-```sh
-bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1
-```
-
-Create a wallet for the operator:
-
-```sh
-bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
-```
-
-Mine some blocks to the wallet: 
-
-```sh
-bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
-```
-
 #### [Optional] Docker
 
 A docker image is provided in
@@ -140,10 +146,10 @@ export TEST_CONFIG=/path/to/configuration.toml
 
 #### Run Tests
 
-To run all tests:
+To run all tests (requires `test` feature):
 
 ```sh
-cargo test
+cargo test --all-features
 ```
 
 ## License
