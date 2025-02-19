@@ -3,7 +3,7 @@ use crate::builder::script::{PreimageRevealScript, SpendPath, TimelockScript, Wi
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
-use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
+use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, OPERATOR_CHALLENGE_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, WatchtowerSignatureKind};
 use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
@@ -233,7 +233,7 @@ pub fn create_challenge_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
-            value: Amount::from_int_btc(2),
+            value: OPERATOR_CHALLENGE_AMOUNT,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
         .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
