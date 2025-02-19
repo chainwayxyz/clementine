@@ -327,6 +327,7 @@ macro_rules! create_actors {
                 // println!("Port: {}", port);
                 let i = i.to_string();
                 let mut config_with_new_db = $config.clone();
+
                 async move {
                     config_with_new_db.db_name += &i;
                     initialize_database!(&config_with_new_db);
