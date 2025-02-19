@@ -28,7 +28,9 @@ pub mod utils;
 pub mod verifier;
 pub mod watchtower;
 
-#[cfg(any(feature = "test", test))]
+#[cfg(test)]
+pub mod itest;
+#[cfg(test)]
 pub mod test_utils;
 
 macro_rules! impl_try_from_vec_u8 {

@@ -15,33 +15,6 @@ The repository includes:
 
 ## Instructions
 
-### Rust-Analyzer Configuration
-
-Due to our tests setup, the `test` feature must be enabled for Rust-Analyzer to
-work with integration tests. To do so, you can add the following to your VS Code configuration
-
-```json
-{
-   // ...
-  "rust-analyzer.cargo.features": [
-    "test",
-  ]
-  // ...
-}
-```
-
-When working with the binary targets, you may suppress the compile error with the following configuration:
-
-```json
-{
-  // ...
-  "rust-analyzer.cargo.extraEnv": {
-    "RUSTFLAGS": "--cfg rust_analyzer"
-  }
-  // ...
-}
-```
-
 ### Setup
 
 Clementine requires a Bitcoin node up and running on the client. Please install
@@ -146,10 +119,10 @@ export TEST_CONFIG=/path/to/configuration.toml
 
 #### Run Tests
 
-To run all tests (requires `test` feature):
+To run all tests:
 
 ```sh
-cargo test --all-features
+cargo test
 ```
 
 ## License

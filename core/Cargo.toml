@@ -44,39 +44,10 @@ bitcoin-script = { workspace = true }
 
 [features]
 default = []
-test = []
 
 [[bin]]
 name = "server"
 path = "src/bin/server.rs"
 
-[[test]]
-name = "deposit"
-path = "tests/deposit.rs"
-required-features = ["test"]
-
-[[test]]
-name = "misc"
-path = "tests/misc.rs"
-required-features = ["test"]
-
-[[test]]
-name = "musig2"
-path = "tests/musig2.rs"
-required-features = ["test"]
-
-[[test]]
-name = "rpc"
-path = "tests/rpc.rs"
-required-features = ["test"]
-
-[[test]]
-name = "taproot"
-path = "tests/taproot.rs"
-required-features = ["test"]
-
 [lints.clippy]
 unwrap_used = { level = "deny" }
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rust_analyzer)'] }

@@ -7,9 +7,6 @@
 
 #[tokio::main]
 async fn main() {
-    #[cfg(all(not(rust_analyzer), feature = "test", not(test)))]
-    compile_error!("Binaries should not be compiled with the test feature.");
-
     println!("grpc switch in progress. please inform us if you get this error.");
     // let (mut config, args) = get_configuration_for_binaries();
 

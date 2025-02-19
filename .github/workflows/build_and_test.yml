@@ -4,7 +4,7 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
-  CARGOFLAGS: --workspace --all-targets
+  CARGOFLAGS: --workspace --all-targets --all-features
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
 
@@ -78,7 +78,7 @@ jobs:
         shared-key: "debug-build"
 
     - name: Run tests
-      run: cargo test --all-features
+      run: cargo test
 
   release_build_test:
     name: Test code with release build
@@ -113,4 +113,4 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests
-      run: cargo test --release --all-features
+      run: cargo test --release

@@ -1,9 +1,8 @@
-use crate::common::run_single_deposit;
+use super::common::run_single_deposit;
 use bitcoincore_rpc::RpcApi;
-use clementine_core::extended_rpc::ExtendedRpc;
+use crate::extended_rpc::ExtendedRpc;
 
-mod common;
-use clementine_core::test_utils::*;
+use crate::test_utils::*;
 
 #[tokio::test]
 async fn test_deposit() {

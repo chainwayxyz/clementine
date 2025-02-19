@@ -2,24 +2,24 @@
 
 #![allow(unused)]
 
-use bitcoin::OutPoint;
-use clementine_core::actor::Actor;
-use clementine_core::config::BridgeConfig;
-use clementine_core::database::Database;
-use clementine_core::errors::BridgeError;
-use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use clementine_core::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use clementine_core::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use clementine_core::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-use clementine_core::rpc::clementine::{DepositParams, Empty};
-use clementine_core::servers::{
+use crate::actor::Actor;
+use crate::config::BridgeConfig;
+use crate::database::Database;
+use crate::errors::BridgeError;
+use crate::extended_rpc::ExtendedRpc;
+use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
+use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+use crate::rpc::clementine::{DepositParams, Empty};
+use crate::servers::{
     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
     create_watchtower_grpc_server,
 };
-use clementine_core::test_utils::*;
-use clementine_core::EVMAddress;
-use clementine_core::{builder, musig2::AggregateFromPublicKeys};
+use crate::test_utils::*;
+use crate::EVMAddress;
+use crate::{builder, musig2::AggregateFromPublicKeys};
+use bitcoin::OutPoint;
 use tonic::transport::Channel;
 use tonic::Request;
 

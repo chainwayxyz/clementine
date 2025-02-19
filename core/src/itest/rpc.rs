@@ -3,13 +3,12 @@
 //! This tests checks if typical RPC flows works or not.
 
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use clementine_core::rpc::clementine::NewWithdrawalSigParams;
-use clementine_core::utils::SECP;
-use common::run_single_deposit;
+use crate::rpc::clementine::NewWithdrawalSigParams;
+use crate::utils::SECP;
+use super::common::run_single_deposit;
 use tonic::Request;
 
-use clementine_core::test_utils::*;
-mod common;
+use crate::test_utils::*;
 
 #[ignore = "Design changes in progress"]
 #[tokio::test]
