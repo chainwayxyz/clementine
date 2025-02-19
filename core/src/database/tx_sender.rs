@@ -12,7 +12,7 @@ use bitcoin::{
     consensus::{deserialize, serialize},
     Amount, FeeRate, Transaction, Txid,
 };
-use std::ops::DerefMut;
+use std::ops::DerefMut; // Add this at the top with other imports
 
 impl Database {
     pub async fn confirm_transactions(
@@ -457,115 +457,246 @@ impl Database {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     // Imports required for create_test_config_with_thread_name macro.
-//     use crate::config::BridgeConfig;
-//     use crate::utils::initialize_logger;
-//     use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
+    use crate::{create_test_config_with_thread_name, database::Database};
+    use bitcoin::absolute::Height;
+    use bitcoin::hashes::Hash;
+    use bitcoin::transaction::Version;
+    use bitcoin::{Block, OutPoint, Txid};
 
-//     use super::*;
-//     use bitcoin::hashes::Hash;
+    async fn setup_test_db() -> Database {
+        let config = create_test_config_with_thread_name!(None);
+        Database::new(&config).await.unwrap()
+    }
 
-//     #[tokio::test]
-//     async fn test_fee_payer_tx_operations() {
-//         let config = create_test_config_with_thread_name!(None);
-//         let db = Database::new(&config).await.unwrap();
+    #[tokio::test]
+    async fn test_save_and_get_tx() {
+        let db = setup_test_db().await;
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
+            input: vec![],
+            output: vec![],
+        };
 
-//         let bumped_id = 1;
-//         let fee_payer_txid = Txid::hash(&[2u8; 32]);
-//         let vout = 1;
-//         let amount = 50000;
+        // Test saving tx
+        let id = db.save_tx(None, &tx, FeePayingType::CPFP).await.unwrap();
 
-//         // Save fee payer tx
-//         db.save_fee_payer_tx(
-//             None,
-//             bumped_id,
-//             fee_payer_txid,
-//             vout,
-//             Amount::from_sat(amount),
-//             None,
-//         )
-//         .await
-//         .unwrap();
+        // Test retrieving tx
+        let (retrieved_tx, fee_paying_type, seen_block_id) = db.get_tx(None, id).await.unwrap();
+        assert_eq!(tx.version, retrieved_tx.version);
+        assert_eq!(fee_paying_type, FeePayingType::CPFP);
+        assert_eq!(seen_block_id, None);
+    }
 
-//         // get
+    #[tokio::test]
+    async fn test_fee_payer_utxo_operations() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
 
-//         let fee_payer_txs = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
-//         assert_eq!(fee_payer_txs.len(), 1);
-//         assert_eq!(fee_payer_txs[0].0, fee_payer_txid);
-//         assert_eq!(fee_payer_txs[0].1, vout);
-//         assert_eq!(fee_payer_txs[0].2, Amount::from_sat(amount));
-//         assert!(!fee_payer_txs[0].3);
+        // First create a transaction that will be bumped
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
+            input: vec![],
+            output: vec![],
+        };
 
-//         // // Check unconfirmed txs
-//         // let unconfirmed = db.get_unconfirmed_fee_payer_txs(None).await.unwrap();
-//         // assert_eq!(unconfirmed.len(), 1);
-//         // assert_eq!(
-//         //     unconfirmed[0],
-//         //     (bumped_txid, fee_payer_txid, vout, script_pubkey, amount)
-//         // );
+        // Save the transaction first
+        let tx_id = db
+            .save_tx(Some(&mut dbtx), &tx, FeePayingType::CPFP)
+            .await
+            .unwrap();
 
-//         // // Confirm tx
-//         // let blockhash = Txid::hash(&[3u8; 32]);
-//         // db.confirm_fee_payer_tx(None, fee_payer_txid, blockhash)
-//         //     .await
-//         //     .unwrap();
+        // Now we can use this tx_id as bumped_id
+        let fee_payer_txid = Txid::hash(&[1u8; 32]);
+        db.save_fee_payer_tx(
+            Some(&mut dbtx),
+            tx_id,
+            fee_payer_txid,
+            0,
+            Amount::from_sat(50000),
+            None,
+        )
+        .await
+        .unwrap();
 
-//         // // Check unconfirmed txs again
-//         // let unconfirmed = db.get_unconfirmed_fee_payer_txs(None).await.unwrap();
-//         // assert_eq!(unconfirmed.len(), 0);
-//     }
+        // Test getting unconfirmed UTXOs
+        let unconfirmed = db
+            .get_unconfirmed_fee_payer_utxos(Some(&mut dbtx), tx_id)
+            .await
+            .unwrap();
+        assert_eq!(unconfirmed.len(), 1);
 
-//     #[tokio::test]
-//     async fn test_get_fee_payer_tx() {
-//         let config = create_test_config_with_thread_name!(None);
-//         let db = Database::new(&config).await.unwrap();
+        dbtx.commit().await.unwrap();
+    }
 
-//         let bumped_id = 1;
-//         let fee_payer_txid = Txid::hash(&[2u8; 32]);
-//         let vout = 1;
-//         let amount = 50000;
+    #[tokio::test]
+    async fn test_confirm_and_unconfirm_transactions() {
+        const BLOCK_HEX: &str = "0200000035ab154183570282ce9afc0b494c9fc6a3cfea05aa8c1add2ecc56490000000038ba3d78e4500a5a7570dbe61960398add4410d278b21cd9708e6d9743f374d544fc055227f1001c29c1ea3b0101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff3703a08601000427f1001c046a510100522cfabe6d6d0000000000000000000068692066726f6d20706f6f6c7365727665726aac1eeeed88ffffffff0100f2052a010000001976a914912e2b234f941f30b18afbb4fa46171214bf66c888ac00000000";
+        let block: Block = deserialize(&hex::decode(BLOCK_HEX).unwrap()).unwrap();
 
-//         // Save fee payer tx
-//         db.save_fee_payer_tx(
-//             None,
-//             bumped_id,
-//             fee_payer_txid,
-//             vout,
-//             Amount::from_sat(amount),
-//             None,
-//         )
-//         .await
-//         .unwrap();
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
 
-//         // Get and verify the fee payer tx details
-//         let result = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
+        // Create a block to use for confirmation
+        let block_id = crate::bitcoin_syncer::save_block(&db, &mut dbtx, &block, 100)
+            .await
+            .unwrap();
 
-//         assert_eq!(result.len(), 1);
-//         let (result_txid, result_vout, result_amount, is_confirmed) = result[0];
-//         assert_eq!(result_txid, fee_payer_txid);
-//         assert_eq!(result_vout, vout);
-//         assert_eq!(result_amount, Amount::from_sat(amount));
-//         assert!(!is_confirmed);
+        // Create a transaction
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
+            input: vec![],
+            output: vec![],
+        };
+        let tx_id = db
+            .save_tx(Some(&mut dbtx), &tx, FeePayingType::CPFP)
+            .await
+            .unwrap();
 
-//         // Confirm the transaction
-//         let blockhash = bitcoin::BlockHash::all_zeros();
-//         db.confirm_fee_payer_tx(None, fee_payer_txid, blockhash)
-//             .await
-//             .unwrap();
+        // Save fee payer UTXO
+        let fee_payer_txid = Txid::hash(&[1u8; 32]);
+        db.save_fee_payer_tx(
+            Some(&mut dbtx),
+            tx_id,
+            fee_payer_txid,
+            0,
+            Amount::from_sat(50000),
+            None,
+        )
+        .await
+        .unwrap();
 
-//         // Check confirmed transaction
-//         let result = db.get_fee_payer_tx(None, bumped_id).await.unwrap();
-//         assert_eq!(result.len(), 1);
-//         let (_, _, _, is_confirmed) = result[0];
-//         assert!(is_confirmed);
+        // Save the transaction in the block
+        db.add_txid_to_block(&mut dbtx, block_id, &fee_payer_txid)
+            .await
+            .unwrap();
 
-//         // Test non-existent tx
-//         assert!(db
-//             .get_fee_payer_tx(None, bumped_id + 1)
-//             .await
-//             .unwrap()
-//             .is_empty());
-//     }
-// }
+        // Confirm transactions
+        db.confirm_transactions(&mut dbtx, block_id as i32)
+            .await
+            .unwrap();
+
+        // Verify confirmation
+        let unconfirmed = db
+            .get_unconfirmed_fee_payer_utxos(Some(&mut dbtx), tx_id)
+            .await
+            .unwrap();
+        assert!(unconfirmed.is_empty());
+
+        dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_cancelled_outpoints_and_txids() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        // First create a transaction to cancel
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
+            input: vec![],
+            output: vec![],
+        };
+
+        // Save the transaction first
+        let tx_id = db
+            .save_tx(Some(&mut dbtx), &tx, FeePayingType::CPFP)
+            .await
+            .unwrap();
+
+        // Now we can use this tx_id as cancelled_id
+        let txid = Txid::hash(&[0u8; 32]);
+        let vout = 0;
+
+        // Test cancelling by outpoint
+        db.save_cancelled_outpoint(Some(&mut dbtx), tx_id, OutPoint { txid, vout })
+            .await
+            .unwrap();
+
+        // Test cancelling by txid
+        db.save_cancelled_txid(Some(&mut dbtx), tx_id, txid)
+            .await
+            .unwrap();
+
+        dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_sendable_txs() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        // Create and save test transactions
+        let tx1 = Transaction {
+            version: Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
+            input: vec![],
+            output: vec![],
+        };
+        let tx2 = Transaction {
+            version: Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
+            input: vec![],
+            output: vec![],
+        };
+
+        let id1 = db
+            .save_tx(Some(&mut dbtx), &tx1, FeePayingType::CPFP)
+            .await
+            .unwrap();
+        let id2 = db
+            .save_tx(Some(&mut dbtx), &tx2, FeePayingType::RBF)
+            .await
+            .unwrap();
+
+        // Test getting sendable txs
+        let fee_rate = FeeRate::from_sat_per_vb(2).unwrap();
+        let current_tip_height = 100;
+        let sendable_txs = db
+            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
+            .await
+            .unwrap();
+
+        // Both transactions should be sendable as they have no prerequisites or cancellations
+        assert_eq!(sendable_txs.len(), 2);
+        assert!(sendable_txs.contains(&id1));
+        assert!(sendable_txs.contains(&id2));
+
+        // Test updating effective fee rate for tx1 with a fee rate equal to the query fee rate
+        // This should still make tx1 sendable since the condition is "effective_fee_rate <= fee_rate"
+        db.update_effective_fee_rate(Some(&mut dbtx), id1, fee_rate)
+            .await
+            .unwrap();
+
+        let sendable_txs = db
+            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
+            .await
+            .unwrap();
+        assert_eq!(sendable_txs.len(), 2);
+        assert!(sendable_txs.contains(&id1));
+        assert!(sendable_txs.contains(&id2));
+
+        // Update tx1's effective fee rate to be higher than the query fee rate
+        let higher_fee_rate = FeeRate::from_sat_per_vb(3).unwrap();
+        db.update_effective_fee_rate(Some(&mut dbtx), id1, higher_fee_rate)
+            .await
+            .unwrap();
+
+        // Now only tx2 should be sendable since tx1's effective fee rate is higher than the query fee rate
+        let sendable_txs = db
+            .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
+            .await
+            .unwrap();
+        assert_eq!(sendable_txs.len(), 1);
+        assert!(sendable_txs.contains(&id2));
+
+        dbtx.commit().await.unwrap();
+    }
+}

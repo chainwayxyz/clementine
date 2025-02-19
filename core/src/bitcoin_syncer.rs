@@ -44,7 +44,7 @@ async fn fetch_block_info_from_height(
 }
 
 /// Saves a Bitcoin block's metadata and it's transactions into the database.
-async fn save_block(
+pub(crate) async fn save_block(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
     block: &bitcoin::Block,
