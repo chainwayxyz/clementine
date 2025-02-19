@@ -53,9 +53,9 @@ macro_rules! create_regtest_rpc {
             "-txindex=1".to_string(),
             "-fallbackfee=0.00001".to_string(),
             "-rpcallowip=0.0.0.0/0".to_string(),
-            "-minrelaytxfee=0".to_string(), // TODO: remove for authentic fee testing
-            "-debug=mempool".to_string(),
-            "-debug=net".to_string(),
+            // enable for debugging
+            // "-debug=mempool".to_string(),
+            // "-debug=net".to_string(),
         ];
 
         // Create log file in temp directory
