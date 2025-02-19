@@ -8,6 +8,10 @@ mod test_utils;
 use crate::initialize_database;
 use crate::{create_actors, create_regtest_rpc, get_available_port, get_deposit_address};
 use bitcoin::OutPoint;
+use citrea_e2e::bitcoin::BitcoinNode;
+use citrea_e2e::config::{EmptyConfig, SequencerConfig};
+use citrea_e2e::framework::TestFramework;
+use citrea_e2e::node::Node;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
 use clementine_core::database::Database;
@@ -298,4 +302,34 @@ pub async fn run_single_deposit(
         watchtowers,
         deposit_outpoint,
     ))
+}
+
+pub async fn start_citrea(
+    sequencer_config: SequencerConfig,
+    f: &mut TestFramework,
+) -> citrea_e2e::Result<(&Node<SequencerConfig>, &mut Node<EmptyConfig>, &BitcoinNode)> {
+    let sequencer: &Node<SequencerConfig> = f.sequencer.as_ref().expect("Sequencer is present");
+    let full_node: &mut Node<citrea_e2e::config::EmptyConfig> =
+        f.full_node.as_mut().expect("Full node is present");
+    let da: &citrea_e2e::bitcoin::BitcoinNode =
+        f.bitcoin_nodes.get(0).expect("There is a bitcoin node");
+
+    let min_soft_confirmations_per_commitment =
+        sequencer_config.min_soft_confirmations_per_commitment;
+
+    for _ in 0..min_soft_confirmations_per_commitment {
+        sequencer.client.send_publish_batch_request().await?;
+    }
+
+    // Wait for blob inscribe tx to be in mempool
+    da.wait_mempool_len(1, None).await?;
+
+    da.generate(citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH)
+        .await?;
+
+    full_node
+        .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
+        .await?;
+
+    Ok((sequencer, full_node, da))
 }
