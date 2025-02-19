@@ -440,9 +440,9 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: i32,
-    ) -> Result<(Transaction, FeePayingType), BridgeError> {
-        let query = sqlx::query_as::<_, (Vec<u8>, FeePayingType)>(
-            "SELECT raw_tx, fee_paying_type::fee_paying_type
+    ) -> Result<(Transaction, FeePayingType, Option<i32>), BridgeError> {
+        let query = sqlx::query_as::<_, (Vec<u8>, FeePayingType, Option<i32>)>(
+            "SELECT raw_tx, fee_paying_type::fee_paying_type, seen_block_id
              FROM tx_sender_try_to_send_txs 
              WHERE id = $1 LIMIT 1",
         )
@@ -452,6 +452,7 @@ impl Database {
         Ok((
             deserialize(&result.0).expect("Failed to deserialize tx"),
             result.1,
+            result.2,
         ))
     }
 }

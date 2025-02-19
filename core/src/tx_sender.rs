@@ -533,7 +533,7 @@ impl TxSender {
             })
             .collect();
 
-        let (tx, fee_paying_type) = self.db.get_tx(None, id).await?;
+        let (tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
 
         let package = self.create_package(tx, fee_rate, fee_payer_utxos, fee_paying_type)?;
         let package_refs: Vec<&Transaction> = package.iter().collect();
@@ -644,7 +644,7 @@ impl TxSender {
                         }
                         BridgeError::InsufficientFeePayerAmount => {
                             tracing::info!("TXSENDER: Insufficient fee payer amount, creating new fee payer UTXO");
-                            let (tx, fee_paying_type) = self.db.get_tx(None, id).await?;
+                            let (tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
                             let fee_payer_utxos =
                                 self.db.get_confirmed_fee_payer_utxos(None, id).await?;
                             let total_fee_payer_amount = fee_payer_utxos
@@ -796,7 +796,7 @@ mod tests {
             .unwrap();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
-        let tx_id = tx_sender
+        let tx_id1 = tx_sender
             .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[])
             .await
             .unwrap();
@@ -820,6 +820,17 @@ mod tests {
 
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
+
+        // sleep 2 seconds to make sure the tx is seen by the bitcoin_syncer
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let (_, _, tx_id2_seen_block_id) = db.get_tx(None, tx_id2).await.unwrap();
+
+        assert!(tx_id2_seen_block_id.is_some());
+
+        let (_, _, tx_id1_seen_block_id) = db.get_tx(None, tx_id1).await.unwrap();
+
+        assert!(tx_id1_seen_block_id.is_none());
 
         let tx2 = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::RBF)
             .await
