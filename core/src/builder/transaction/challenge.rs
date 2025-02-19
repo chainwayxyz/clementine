@@ -6,7 +6,7 @@ use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, OPERATOR_CHALLENGE_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, WatchtowerSignatureKind};
-use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
+use bitcoin::{ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
 
 /// Creates a "simplified "[`TxHandler`] for the `watchtower_challenge_kickoff_tx`. The purpose of the simplification
