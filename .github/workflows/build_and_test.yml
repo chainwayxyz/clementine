@@ -4,7 +4,7 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
-  CARGOFLAGS: --workspace --lib --tests --benches --examples --all-features
+  CARGOFLAGS: --workspace --all-targets
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
 
