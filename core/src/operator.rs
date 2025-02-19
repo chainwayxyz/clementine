@@ -19,7 +19,6 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -52,8 +51,6 @@ impl Operator {
         let db = Database::new(&config).await?;
 
         let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
-
-        let _operator_handle = tx_sender.run("operator", Duration::from_secs(1)).await?; // TODO: Make this a unique handle
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;

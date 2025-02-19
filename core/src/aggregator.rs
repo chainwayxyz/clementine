@@ -26,7 +26,6 @@ use bitcoin::{
 };
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
-use std::time::Duration;
 use tonic::Status;
 
 /// Aggregator struct.
@@ -94,7 +93,6 @@ impl Aggregator {
         )
         .await?;
         let tx_sender = TxSender::new(signer, rpc, db.clone(), config.network);
-        let _tx_sender_handle = tx_sender.run("aggregator", Duration::from_secs(1)).await?;
 
         Ok(Aggregator {
             db,
