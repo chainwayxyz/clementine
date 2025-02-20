@@ -678,8 +678,7 @@ mod tests {
         txs_operator_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeAck));
         txs_operator_can_sign.extend(
-            (0..utils::COMBINED_ASSERT_DATA.num_steps.len())
-                .map(TransactionType::AssertTimeout),
+            (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
 
         // try to sign everything for all operators
@@ -801,8 +800,7 @@ mod tests {
         txs_verifier_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
         txs_verifier_can_sign.extend(
-            (0..utils::COMBINED_ASSERT_DATA.num_steps.len())
-                .map(TransactionType::AssertTimeout),
+            (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
 
         // try to sign everything for all verifiers
