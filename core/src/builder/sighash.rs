@@ -248,14 +248,12 @@ pub fn create_operator_sighash_stream(
 mod tests {
     use crate::builder::sighash::create_nofn_sighash_stream;
     use crate::builder::transaction::DepositData;
-    use crate::extended_rpc::ExtendedRpc;
+
+    use crate::builder;
     use crate::operator::Operator;
     use crate::utils::BITVM_CACHE;
     use crate::watchtower::Watchtower;
-    use crate::{builder, create_regtest_rpc, create_test_config_with_thread_name};
-    use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
+    use crate::{database::Database, test::common::*};
     use bitcoin::hashes::Hash;
     use bitcoin::{OutPoint, ScriptBuf, TapSighash, Txid, XOnlyPublicKey};
     use futures::StreamExt;
@@ -264,9 +262,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "Not needed because checks are already done in stream functions now"]
     async fn calculate_num_required_nofn_sigs() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
-        let regtest = create_regtest_rpc!(config);
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();

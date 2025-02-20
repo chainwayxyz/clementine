@@ -42,7 +42,7 @@ impl Database {
 
         // Update tx_sender_activate_try_to_send_txids
         sqlx::query(&format!(
-            "{} 
+            "{}
             UPDATE tx_sender_activate_try_to_send_txids AS tap
             SET seen_block_id = $1
             WHERE tap.txid IN (SELECT txid FROM relevant_txs)
@@ -55,7 +55,7 @@ impl Database {
 
         // Update tx_sender_activate_try_to_send_outpoints
         sqlx::query(&format!(
-            "{} 
+            "{}
             UPDATE tx_sender_activate_try_to_send_outpoints AS tap
             SET seen_block_id = $1
             WHERE (tap.txid, tap.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
@@ -68,7 +68,7 @@ impl Database {
 
         // Update tx_sender_cancel_try_to_send_txids
         sqlx::query(&format!(
-            "{} 
+            "{}
             UPDATE tx_sender_cancel_try_to_send_txids AS ctt
             SET seen_block_id = $1
             WHERE ctt.txid IN (SELECT txid FROM relevant_txs)
@@ -81,7 +81,7 @@ impl Database {
 
         // Update tx_sender_cancel_try_to_send_outpoints
         sqlx::query(&format!(
-            "{} 
+            "{}
             UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
             SET seen_block_id = $1
             WHERE (cto.txid, cto.vout) IN (SELECT txid, vout FROM relevant_spent_utxos)
@@ -94,7 +94,7 @@ impl Database {
 
         // Update tx_sender_fee_payer_utxos
         sqlx::query(&format!(
-            "{} 
+            "{}
             UPDATE tx_sender_fee_payer_utxos AS fpu
             SET seen_block_id = $1
             WHERE fpu.fee_payer_txid IN (SELECT txid FROM relevant_txs)
@@ -107,7 +107,7 @@ impl Database {
 
         // Update tx_sender_try_to_send_txs for CPFP txid confirmation
         sqlx::query(&format!(
-            "{} 
+            "{}
             UPDATE tx_sender_try_to_send_txs AS txs
             SET seen_block_id = $1
             WHERE txs.txid IN (SELECT txid FROM relevant_txs)
@@ -120,7 +120,7 @@ impl Database {
 
         // Update tx_sender_try_to_send_txs for RBF txid confirmation
         sqlx::query(&format!(
-            "{} 
+            "{}
             UPDATE tx_sender_try_to_send_txs AS txs
             SET seen_block_id = $1
             WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
@@ -198,7 +198,7 @@ impl Database {
         replacement_of_id: Option<u32>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_fee_payer_utxos (bumped_id, fee_payer_txid, vout, amount, replacement_of_id) 
+            "INSERT INTO tx_sender_fee_payer_utxos (bumped_id, fee_payer_txid, vout, amount, replacement_of_id)
              VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(i32::try_from(bumped_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
@@ -263,7 +263,7 @@ impl Database {
         id: u32,
     ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
-            "SELECT fee_payer_txid, vout, amount 
+            "SELECT fee_payer_txid, vout, amount
              FROM tx_sender_fee_payer_utxos fpu
              WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NOT NULL",
         )
@@ -294,7 +294,7 @@ impl Database {
         id: u32,
     ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
-            "SELECT fee_payer_txid, vout, amount 
+            "SELECT fee_payer_txid, vout, amount
              FROM tx_sender_fee_payer_utxos fpu
              WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NULL",
         )
@@ -436,7 +436,7 @@ impl Database {
                     LEFT JOIN bitcoin_syncer AS syncer_outpoint
                         ON activate_outpoint.seen_block_id = syncer_outpoint.id
                     GROUP BY txs.id
-                    HAVING 
+                    HAVING
                         -- If the transaction has no prerequisites, it is valid
                         (COUNT(activate_txid.txid) = 0 AND COUNT(activate_outpoint.txid) = 0)
                         -- If it has txid-based prerequisites, all must be activated
@@ -504,7 +504,7 @@ impl Database {
     ) -> Result<(Transaction, FeePayingType, Option<u32>), BridgeError> {
         let query = sqlx::query_as::<_, (Vec<u8>, FeePayingType, Option<i32>)>(
             "SELECT raw_tx, fee_paying_type::fee_paying_type, seen_block_id
-             FROM tx_sender_try_to_send_txs 
+             FROM tx_sender_try_to_send_txs
              WHERE id = $1 LIMIT 1",
         )
         .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
@@ -526,16 +526,18 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+
+    use crate::test::common::*;
+
     use super::*;
-    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
-    use crate::{create_test_config_with_thread_name, database::Database};
+    use crate::database::Database;
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
     use bitcoin::{Block, OutPoint, Txid};
 
     async fn setup_test_db() -> Database {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         Database::new(&config).await.unwrap()
     }
 

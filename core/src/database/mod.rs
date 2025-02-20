@@ -118,13 +118,12 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::create_test_config_with_thread_name;
+    use crate::test::common::*;
     use crate::{config::BridgeConfig, database::Database};
-    use crate::{initialize_database, utils::initialize_logger};
 
     #[tokio::test]
     async fn valid_database_connection() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
 
         Database::new(&config).await.unwrap();
     }

@@ -1,23 +1,20 @@
+use crate::actor::Actor;
+use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
+use crate::builder::transaction::input::SpendableTxIn;
+use crate::builder::transaction::output::UnspentTxOut;
+use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::{self};
+use crate::rpc::clementine::NormalSignatureKind;
+use crate::test::common::*;
+use crate::utils::SECP;
 use bitcoin::{Amount, TxOut};
 use bitcoincore_rpc::RpcApi;
-use clementine_core::actor::Actor;
-use clementine_core::builder::script::{CheckSig, SpendPath, SpendableScript};
-use clementine_core::builder::transaction::input::SpendableTxIn;
-use clementine_core::builder::transaction::output::UnspentTxOut;
-use clementine_core::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-use clementine_core::builder::{self};
-use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::rpc::clementine::NormalSignatureKind;
-use clementine_core::utils::SECP;
-use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use std::sync::Arc;
-
-mod common;
 
 #[tokio::test]
 async fn create_address_and_transaction_then_sign_transaction() {
-    let mut config = create_test_config_with_thread_name!(None);
-    let regtest = create_regtest_rpc!(config);
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();

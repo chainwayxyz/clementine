@@ -798,29 +798,10 @@ impl ClementineAggregator for Aggregator {
 mod tests {
     use crate::actor::Actor;
     use crate::musig2::AggregateFromPublicKeys;
-    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-    use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+
+    use crate::rpc::clementine::{self};
     use crate::{builder, EVMAddress};
-    use crate::{
-        config::BridgeConfig,
-        create_test_config_with_thread_name,
-        database::Database,
-        errors::BridgeError,
-        initialize_database,
-        rpc::clementine::DepositParams,
-        servers::{
-            create_aggregator_grpc_server, create_operator_grpc_server,
-            create_verifier_grpc_server, create_watchtower_grpc_server,
-        },
-        utils::initialize_logger,
-    };
-    use crate::{
-        create_actors, create_regtest_rpc,
-        extended_rpc::ExtendedRpc,
-        get_available_port,
-        rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
-    };
+    use crate::{rpc::clementine::DepositParams, test::common::*};
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
     use std::str::FromStr;
@@ -829,9 +810,9 @@ mod tests {
 
     #[tokio::test]
     async fn aggregator_double_setup_fail() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
 
-        let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
+        let (_, _, mut aggregator, _, _regtest) = create_actors(&config).await;
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -847,9 +828,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "This test is also done during the deposit phase of test_deposit_and_sign_txs test"]
     async fn aggregator_setup_and_deposit() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
 
-        let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
+        let (_, _, mut aggregator, _, _regtest) = create_actors(&config).await;
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();
@@ -883,11 +864,11 @@ mod tests {
         tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn aggregator_deposit_movetx_lands_onchain() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
-            create_actors!(config);
+            create_actors(&config).await;
         let rpc = regtest.rpc();
 
         let evm_address = EVMAddress([1u8; 20]);
