@@ -1,7 +1,6 @@
 use crate::actor::Actor;
 use crate::builder::transaction::TransactionType;
 use crate::config::BridgeConfig;
-use crate::constants::ANCHOR_AMOUNT;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::RawSignedTx;
 use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest, WithdrawParams};
@@ -580,12 +579,12 @@ async fn fund_tx(
     );
     Ok(())
 }
-pub fn has_anchor_out(tx: &Transaction) -> bool {
-    let anchor_sk = ScriptBuf::from_hex("51024e73").expect("...");
-    tx.output
-        .iter()
-        .any(|out| out.value == ANCHOR_AMOUNT && out.script_pubkey == anchor_sk)
-}
+// pub fn has_anchor_out(tx: &Transaction) -> bool {
+//     let anchor_sk = ScriptBuf::from_hex("51024e73").expect("...");
+//     tx.output
+//         .iter()
+//         .any(|out| out.value == ANCHOR_AMOUNT && out.script_pubkey == anchor_sk)
+// }
 
 pub async fn send_confirm(
     rpc: &ExtendedRpc,

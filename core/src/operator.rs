@@ -949,8 +949,7 @@ mod tests {
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name(None).await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc();
+        let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::new(config.clone()).await.unwrap();
 
@@ -966,7 +965,7 @@ mod tests {
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
         let mut config = create_test_config_with_thread_name(None).await;
-        let regtest = create_regtest_rpc(&mut config).await;
+        let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::new(config.clone()).await.unwrap();
 
@@ -979,7 +978,7 @@ mod tests {
     #[tokio::test]
     async fn operator_get_params() {
         let mut config = create_test_config_with_thread_name(None).await;
-        let regtest = create_regtest_rpc(&mut config).await;
+        let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::new(config.clone()).await.unwrap();
         let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
