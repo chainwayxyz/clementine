@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{bitcoin_syncer::BitcoinSyncerEvent, errors::BridgeError, execute_query_with_tx};
 use bitcoin::{BlockHash, OutPoint, Txid};
-use std::{ops::DerefMut, str::FromStr};
+use std::ops::DerefMut;
 
 impl Database {
     /// # Returns
@@ -15,18 +15,18 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: &BlockHash,
         prev_block_hash: &BlockHash,
-        block_height: i64,
+        block_height: u32,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
             "INSERT INTO bitcoin_syncer (blockhash, prev_blockhash, height) VALUES ($1, $2, $3) RETURNING id",
         )
         .bind(BlockHashDB(*block_hash))
         .bind(BlockHashDB(*prev_block_hash))
-        .bind(block_height);
+        .bind(i32::try_from(block_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        Ok(id as u32)
+        u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
     }
     /// # Returns
     ///
@@ -44,45 +44,81 @@ impl Database {
         )
         .bind(BlockHashDB(block_hash));
 
-        let ret: Option<(BlockHashDB, i64)> =
+        let ret: Option<(BlockHashDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        Ok(ret.map(|(prev_hash, height)| (prev_hash.0, height as u32)))
+        ret.map(
+            |(prev_hash, height)| -> Result<(BlockHash, u32), BridgeError> {
+                let height = u32::try_from(height)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                Ok((prev_hash.0, height))
+            },
+        )
+        .transpose()
     }
+
+    pub async fn get_block_info_from_id(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_id: u32,
+    ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1 AND is_canonical = true",
+        )
+        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+
+        let ret: Option<(BlockHashDB, i32)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        ret.map(
+            |(block_hash, height)| -> Result<(BlockHash, u32), BridgeError> {
+                let height = u32::try_from(height)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                Ok((block_hash.0, height))
+            },
+        )
+        .transpose()
+    }
+
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<u64>, BridgeError> {
+    ) -> Result<Option<u32>, BridgeError> {
         let query =
             sqlx::query_as("SELECT height FROM bitcoin_syncer WHERE is_canonical = true ORDER BY height DESC LIMIT 1");
-        let result: Option<(i64,)> =
+        let result: Option<(i32,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        Ok(result.map(|(height,)| height as u64))
+        result
+            .map(|(height,)| {
+                u32::try_from(height).map_err(|e| BridgeError::ConversionError(e.to_string()))
+            })
+            .transpose()
     }
 
     /// Gets the block hashes that have height bigger then the given height and deletes them.
     pub async fn set_non_canonical_block_hashes(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        height: u64,
-    ) -> Result<Vec<BlockHash>, BridgeError> {
+        height: u32,
+    ) -> Result<Vec<u32>, BridgeError> {
         let query = sqlx::query_as(
             "WITH deleted AS (
                 UPDATE bitcoin_syncer 
                 SET is_canonical = false 
                 WHERE height > $1 
-                RETURNING blockhash
-            ) SELECT blockhash FROM deleted",
+                RETURNING id
+            ) SELECT id FROM deleted",
         )
-        .bind(height as i64);
+        .bind(i32::try_from(height).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
-        let block_hashes: Vec<(String,)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-        Ok(block_hashes
+        let block_ids: Vec<(i32,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        block_ids
             .into_iter()
-            .map(|(hash,)| BlockHash::from_str(&hash))
-            .collect::<Result<Vec<_>, _>>()?)
+            .map(|(block_id,)| {
+                u32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
     }
 
     pub async fn add_txid_to_block(
@@ -92,7 +128,7 @@ impl Database {
         txid: &bitcoin::Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO bitcoin_syncer_txs (block_id, txid) VALUES ($1, $2)")
-            .bind(block_id as i32)
+            .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
             .bind(super::wrapper::TxidDB(*txid));
 
         execute_query_with_tx!(self.connection, Some(tx), query, execute)?;
@@ -104,8 +140,9 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_id: u32,
     ) -> Result<Vec<Txid>, BridgeError> {
-        let query = sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1")
-            .bind(block_id as i32);
+        let query = sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1").bind(
+            i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+        );
 
         let txids: Vec<(TxidDB,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
@@ -144,18 +181,16 @@ impl Database {
         let spent_utxos: Vec<(i64, TxidDB, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        Ok(spent_utxos
+        spent_utxos
             .into_iter()
-            .map(|(block_id, txid, vout)| {
-                (
-                    block_id,
-                    OutPoint {
-                        txid: txid.0,
-                        vout: vout as u32,
-                    },
-                )
-            })
-            .collect())
+            .map(
+                |(block_id, txid, vout)| -> Result<(i64, OutPoint), BridgeError> {
+                    let vout = u32::try_from(vout)
+                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                    Ok((block_id, OutPoint { txid: txid.0, vout }))
+                },
+            )
+            .collect::<Result<Vec<_>, BridgeError>>()
     }
 
     pub async fn add_event(
@@ -164,98 +199,16 @@ impl Database {
         event_type: BitcoinSyncerEvent,
     ) -> Result<(), BridgeError> {
         let query = match event_type {
-            BitcoinSyncerEvent::NewBlock(block_hash) => sqlx::query(
-                "INSERT INTO bitcoin_syncer_events (blockhash, event_type) VALUES ($1, 'new_block'::bitcoin_syncer_event_type)",
+            BitcoinSyncerEvent::NewBlock(block_id) => sqlx::query(
+                "INSERT INTO bitcoin_syncer_events (block_id, event_type) VALUES ($1, 'new_block'::bitcoin_syncer_event_type)",
             )
-            .bind(BlockHashDB(block_hash)),
-            BitcoinSyncerEvent::ReorgedBlock(block_hash) => sqlx::query(
-                "INSERT INTO bitcoin_syncer_events (blockhash, event_type) VALUES ($1, 'reorged_block'::bitcoin_syncer_event_type)",
+            .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?),
+            BitcoinSyncerEvent::ReorgedBlock(block_id) => sqlx::query(
+                "INSERT INTO bitcoin_syncer_events (block_id, event_type) VALUES ($1, 'reorged_block'::bitcoin_syncer_event_type)",
             )
-            .bind(BlockHashDB(block_hash)),
+            .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?),
         };
         execute_query_with_tx!(self.connection, tx, query, execute)?;
-        Ok(())
-    }
-
-    pub async fn confirm_transactions(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        block_hash: &bitcoin::BlockHash,
-    ) -> Result<(), BridgeError> {
-        // Update tx_sender_fee_payer_utxos
-        sqlx::query(
-            r#"
-            UPDATE tx_sender_fee_payer_utxos utxos
-            SET 
-                is_confirmed = true,
-                confirmed_blockhash = bs.blockhash
-            FROM bitcoin_syncer_txs bstx
-            JOIN bitcoin_syncer bs ON bstx.block_id = bs.id
-            WHERE utxos.fee_payer_txid = bstx.txid
-              AND bs.blockhash = $1
-            "#,
-        )
-        .bind(BlockHashDB(*block_hash))
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Update tx_sender_txs
-        sqlx::query(
-            r#"
-            UPDATE tx_sender_txs txs
-            SET 
-                is_confirmed = true,
-                confirmed_blockhash = bs.blockhash
-            FROM bitcoin_syncer_txs bstx
-            JOIN bitcoin_syncer bs ON bstx.block_id = bs.id
-            WHERE txs.txid = bstx.txid
-              AND bs.blockhash = $1
-            "#,
-        )
-        .bind(BlockHashDB(*block_hash))
-        .execute(tx.deref_mut())
-        .await?;
-        Ok(())
-    }
-
-    pub async fn unconfirm_transactions(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        block_hash: &bitcoin::BlockHash,
-    ) -> Result<(), BridgeError> {
-        // Unconfirm tx_sender_fee_payer_utxos
-        sqlx::query(
-            r#"
-            UPDATE tx_sender_fee_payer_utxos utxos
-            SET 
-                is_confirmed = false,
-                confirmed_blockhash = NULL
-            FROM bitcoin_syncer_txs bstx
-            JOIN bitcoin_syncer bs ON bstx.block_id = bs.id
-            WHERE utxos.fee_payer_txid = bstx.txid
-              AND bs.blockhash = $1
-            "#,
-        )
-        .bind(BlockHashDB(*block_hash))
-        .execute(tx.deref_mut())
-        .await?;
-
-        // Unconfirm tx_sender_txs
-        sqlx::query(
-            r#"
-            UPDATE tx_sender_txs txs
-            SET 
-                is_confirmed = false,
-                confirmed_blockhash = NULL
-            FROM bitcoin_syncer_txs bstx
-            JOIN bitcoin_syncer bs ON bstx.block_id = bs.id
-            WHERE txs.txid = bstx.txid
-              AND bs.blockhash = $1
-            "#,
-        )
-        .bind(BlockHashDB(*block_hash))
-        .execute(tx.deref_mut())
-        .await?;
         Ok(())
     }
 
@@ -289,9 +242,9 @@ impl Database {
         .await?;
 
         // Step 3: Retrieve the next event that hasn't been processed yet
-        let event = sqlx::query_as::<_, (i32, BlockHashDB, String)>(
+        let event = sqlx::query_as::<_, (i32, i32, String)>(
             r#"
-            SELECT id, blockhash, event_type::text
+            SELECT id, block_id, event_type::text
             FROM bitcoin_syncer_events
             WHERE id > $1
             ORDER BY id ASC
@@ -308,8 +261,12 @@ impl Database {
 
         let event = event.expect("should exist since we checked is_none()");
         let event_type = match event.2.as_str() {
-            "new_block" => BitcoinSyncerEvent::NewBlock(event.1 .0),
-            "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(event.1 .0),
+            "new_block" => BitcoinSyncerEvent::NewBlock(
+                u32::try_from(event.1).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+            ),
+            "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(
+                u32::try_from(event.1).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+            ),
             _ => return Err(BridgeError::Error("Invalid event type".to_string())),
         };
         let event_id = event.0;
@@ -333,10 +290,163 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
-    use crate::{create_test_config_with_thread_name, database::Database};
+    use super::*;
+    use crate::config::BridgeConfig;
+    use crate::utils::initialize_logger;
+
+    use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
     use bitcoin::hashes::Hash;
-    use bitcoin::{BlockHash, Txid};
+    use bitcoin::BlockHash;
+
+    async fn setup_test_db() -> Database {
+        let config = create_test_config_with_thread_name!(None);
+        Database::new(&config).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_event_handling() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        // Create a test block
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+
+        let block_id = db
+            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+
+        // Add new block event
+        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+            .await
+            .unwrap();
+
+        // Test event consumption
+        let consumer_handle = "test_consumer";
+        let event = db
+            .get_event_and_update(&mut dbtx, consumer_handle)
+            .await
+            .unwrap();
+
+        assert!(matches!(event, Some(BitcoinSyncerEvent::NewBlock(id)) if id == block_id));
+
+        // Test that the same event is not returned twice
+        let event = db
+            .get_event_and_update(&mut dbtx, consumer_handle)
+            .await
+            .unwrap();
+        assert!(event.is_none());
+
+        // Add reorg event
+        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+            .await
+            .unwrap();
+
+        // Test that new event is received
+        let event = db
+            .get_event_and_update(&mut dbtx, consumer_handle)
+            .await
+            .unwrap();
+        assert!(matches!(event, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
+
+        dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_multiple_event_consumers() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        // Create a test block
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+
+        let block_id = db
+            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+
+        // Add events
+        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+            .await
+            .unwrap();
+        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::ReorgedBlock(block_id))
+            .await
+            .unwrap();
+
+        // Test with multiple consumers
+        let consumer1 = "consumer1";
+        let consumer2 = "consumer2";
+
+        // First consumer gets both events in order
+        let event1 = db.get_event_and_update(&mut dbtx, consumer1).await.unwrap();
+        assert!(matches!(event1, Some(BitcoinSyncerEvent::NewBlock(id)) if id == block_id));
+
+        let event2 = db.get_event_and_update(&mut dbtx, consumer1).await.unwrap();
+        assert!(matches!(event2, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
+
+        // Second consumer also gets both events independently
+        let event1 = db.get_event_and_update(&mut dbtx, consumer2).await.unwrap();
+        assert!(matches!(event1, Some(BitcoinSyncerEvent::NewBlock(id)) if id == block_id));
+
+        let event2 = db.get_event_and_update(&mut dbtx, consumer2).await.unwrap();
+        assert!(matches!(event2, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
+
+        dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_non_canonical_blocks() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        // Create a chain of blocks
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let heights = [1, 2, 3, 4, 5];
+        let mut last_hash = prev_block_hash;
+
+        let mut block_ids = Vec::new();
+        for height in heights {
+            let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
+            let block_id = db
+                .add_block_info(Some(&mut dbtx), &block_hash, &last_hash, height)
+                .await
+                .unwrap();
+            block_ids.push(block_id);
+            last_hash = block_hash;
+        }
+
+        // Mark blocks above height 2 as non-canonical
+        let non_canonical_blocks = db
+            .set_non_canonical_block_hashes(Some(&mut dbtx), 2)
+            .await
+            .unwrap();
+        assert_eq!(non_canonical_blocks.len(), 3); // blocks at height 3, 4, and 5
+
+        // Verify blocks above height 2 are not returned
+        for height in heights {
+            let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
+            let block_info = db
+                .get_block_info_from_hash(Some(&mut dbtx), block_hash)
+                .await
+                .unwrap();
+
+            if height <= 2 {
+                assert!(block_info.is_some());
+            } else {
+                assert!(block_info.is_none());
+            }
+        }
+
+        // Verify max height is now 2
+        let max_height = db.get_max_height(Some(&mut dbtx)).await.unwrap().unwrap();
+        assert_eq!(max_height, 2);
+
+        dbtx.commit().await.unwrap();
+    }
 
     #[tokio::test]
     async fn add_get_block_info() {
@@ -363,8 +473,8 @@ mod tests {
             .unwrap();
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
         assert_eq!(block_info.0, prev_block_hash);
-        assert_eq!(block_info.1, height as u32);
-        assert_eq!(max_height, height as u64);
+        assert_eq!(block_info.1, height);
+        assert_eq!(max_height, height);
 
         db.add_block_info(
             None,
@@ -375,7 +485,7 @@ mod tests {
         .await
         .unwrap();
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
-        assert_eq!(max_height, height as u64);
+        assert_eq!(max_height, height);
 
         db.add_block_info(
             None,
@@ -386,8 +496,8 @@ mod tests {
         .await
         .unwrap();
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
-        assert_ne!(max_height, height as u64);
-        assert_eq!(max_height, height as u64 + 1);
+        assert_ne!(max_height, height);
+        assert_eq!(max_height, height + 1);
     }
 
     #[tokio::test]

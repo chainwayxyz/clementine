@@ -46,6 +46,9 @@ pub enum BridgeError {
     /// Returned when it fails to find the txid in the block
     #[error("TxidNotFound")]
     TxidNotFound,
+    /// Returned when there are unconfirmed fee payer UTXOs left
+    #[error("UnconfirmedFeePayerUTXOsLeft")]
+    UnconfirmedFeePayerUTXOsLeft,
     /// Returned in RPC error
     #[error("BitcoinCoreRPCError: {0}")]
     BitcoinRpcError(#[from] bitcoincore_rpc::Error),
@@ -220,6 +223,9 @@ pub enum BridgeError {
     #[error("Can't read proof assumption receipt from file {0}: {1}")]
     WrongProofAssumption(PathBuf, std::io::Error),
 
+    #[error("ConversionError: {0}")]
+    ConversionError(String),
+
     #[error("ERROR: {0}")]
     Error(String),
 
@@ -314,6 +320,7 @@ pub enum BridgeError {
 
     #[error("Can't bump fee for Txid of {0} and feerate of {1}: {2}")]
     BumpFeeError(Txid, FeeRate, String),
+
     #[error("Cannot bump fee - UTXO is already spent")]
     BumpFeeUTXOSpent(OutPoint),
 
