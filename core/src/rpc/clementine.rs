@@ -141,7 +141,7 @@ pub struct OperatorConfig {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorParams {
-    #[prost(oneof = "operator_params::Response", tags = "1, 2")]
+    #[prost(oneof = "operator_params::Response", tags = "1, 2, 3")]
     pub response: ::core::option::Option<operator_params::Response>,
 }
 /// Nested message and enum types in `OperatorParams`.
@@ -154,6 +154,9 @@ pub mod operator_params {
         /// Winternitz pubkeys for each kickoff utxo (to commit blockhash).
         #[prost(message, tag = "2")]
         WinternitzPubkeys(super::WinternitzPubkey),
+        /// unspent kickoff signatures
+        #[prost(message, tag = "3")]
+        UnspentKickoffSig(super::SchnorrSig),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -184,7 +187,7 @@ pub struct OperatorKeys {
     pub challenge_ack_digests: ::prost::alloc::vec::Vec<ChallengeAckDigest>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OperatorBurnSig {
+pub struct SchnorrSig {
     #[prost(bytes = "vec", tag = "1")]
     pub schnorr_sig: ::prost::alloc::vec::Vec<u8>,
 }
@@ -820,7 +823,7 @@ pub mod clementine_operator_client {
             &mut self,
             request: impl tonic::IntoRequest<super::DepositSignSession>,
         ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::OperatorBurnSig>>,
+            tonic::Response<tonic::codec::Streaming<super::SchnorrSig>>,
             tonic::Status,
         > {
             self.inner
@@ -1664,7 +1667,7 @@ pub mod clementine_operator_server {
         ) -> std::result::Result<tonic::Response<Self::GetParamsStream>, tonic::Status>;
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::OperatorBurnSig, tonic::Status>,
+                Item = std::result::Result<super::SchnorrSig, tonic::Status>,
             >
             + std::marker::Send
             + 'static;
@@ -1990,7 +1993,7 @@ pub mod clementine_operator_server {
                         T: ClementineOperator,
                     > tonic::server::ServerStreamingService<super::DepositSignSession>
                     for DepositSignSvc<T> {
-                        type Response = super::OperatorBurnSig;
+                        type Response = super::SchnorrSig;
                         type ResponseStream = T::DepositSignStream;
                         type Future = BoxFuture<
                             tonic::Response<Self::ResponseStream>,

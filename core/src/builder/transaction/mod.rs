@@ -31,7 +31,7 @@ use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 pub use txhandler::Unsigned;
 
 mod challenge;
-mod creator;
+pub mod creator;
 pub mod deposit_signature_owner;
 pub mod input;
 mod operator_assert;

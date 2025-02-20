@@ -1,6 +1,8 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
-use crate::builder::sighash::create_operator_sighash_stream;
-use crate::builder::transaction::DepositData;
+use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
+use crate::builder::transaction::creator::{create_round_txhandlers, KickoffWinternitzKeys};
+use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
@@ -11,6 +13,7 @@ use crate::utils::SECP;
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
@@ -130,23 +133,41 @@ impl Operator {
     ///   [`PublicHash`] and size of operator's challenge ack preimages & hashes
     ///   count
     ///
-    pub async fn get_params(&self) -> Result<mpsc::Receiver<winternitz::PublicKey>, BridgeError> {
+    pub async fn get_params(
+        &self,
+    ) -> Result<
+        (
+            mpsc::Receiver<winternitz::PublicKey>,
+            mpsc::Receiver<schnorr::Signature>,
+        ),
+        BridgeError,
+    > {
         let wpks = self.generate_kickoff_winternitz_pubkeys()?;
-        let wpk_channel = mpsc::channel(wpks.len());
+        let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
+        let kickoff_wpks =
+            KickoffWinternitzKeys::new(wpks.clone(), self.config.num_kickoffs_per_round);
+        let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
+        let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(async move {
             for wpk in wpks {
-                wpk_channel
-                    .0
+                wpk_tx
                     .send(wpk)
                     .await
                     .map_err(|e| BridgeError::SendError("winternitz public key", e.to_string()))?;
             }
 
+            for sig in kickoff_sigs {
+                sig_tx
+                    .send(sig)
+                    .await
+                    .map_err(|e| BridgeError::SendError("kickoff signature", e.to_string()))?;
+            }
+
             Ok::<(), BridgeError>(())
         });
 
-        Ok(wpk_channel.1)
+        Ok((wpk_rx, sig_rx))
     }
 
     pub async fn deposit_sign(
@@ -849,6 +870,51 @@ impl Operator {
         Ok(winternitz_pubkeys)
     }
 
+    pub fn generate_unspent_kickoff_sigs(
+        &self,
+        kickoff_wpks: &KickoffWinternitzKeys,
+    ) -> Result<Vec<Signature>, BridgeError> {
+        let mut sigs: Vec<Signature> =
+            Vec::with_capacity(self.config.num_kickoffs_per_round * self.config.num_round_txs * 2);
+        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+        let operator_data = OperatorData {
+            xonly_pk: self.signer.xonly_public_key,
+            collateral_funding_outpoint: self.collateral_funding_outpoint,
+            reimburse_addr: self.reimburse_addr.clone(),
+        };
+        for idx in 0..self.config.num_round_txs {
+            let txhandlers = create_round_txhandlers(
+                &self.config,
+                idx,
+                &operator_data,
+                &kickoff_wpks,
+                prev_ready_to_reimburse.clone(),
+            )?;
+            for txhandler in txhandlers {
+                if let TransactionType::UnspentKickoff(kickoff_idx) =
+                    txhandler.get_transaction_type()
+                {
+                    let partial = PartialSignatureInfo {
+                        operator_idx: self.idx,
+                        round_idx: idx,
+                        kickoff_utxo_idx: kickoff_idx,
+                    };
+                    let sighashes = txhandler
+                        .calculate_all_txins_sighash(EntityType::OperatorDuringSetup, partial)?;
+                    sigs.extend(
+                        sighashes
+                            .into_iter()
+                            .map(|sighash| self.signer.sign(sighash.0)),
+                    );
+                }
+                if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
+                    prev_ready_to_reimburse = Some(txhandler);
+                }
+            }
+        }
+        Ok(sigs)
+    }
+
     pub fn generate_challenge_ack_preimages_and_hashes(
         &self,
         deposit_txid: Txid,
@@ -868,6 +934,7 @@ impl Operator {
 
 #[cfg(test)]
 mod tests {
+    use crate::builder::transaction::creator::KickoffWinternitzKeys;
     use crate::create_regtest_rpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
@@ -877,7 +944,6 @@ mod tests {
     };
     use bitcoin::hashes::Hash;
     use bitcoin::Txid;
-
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name!(None);
@@ -987,8 +1053,14 @@ mod tests {
 
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
         let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
+        let actual_sigs = operator
+            .generate_unspent_kickoff_sigs(&KickoffWinternitzKeys::new(
+                actual_wpks.clone(),
+                operator.config.num_kickoffs_per_round,
+            ))
+            .unwrap();
 
-        let mut wpk_rx = operator.get_params().await.unwrap();
+        let (mut wpk_rx, _) = operator.get_params().await.unwrap();
         let mut idx = 0;
         while let Some(wpk) = wpk_rx.recv().await {
             assert_eq!(actual_wpks[idx], wpk);

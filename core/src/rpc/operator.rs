@@ -1,8 +1,8 @@
 use super::clementine::{
     clementine_operator_server::ClementineOperator, AssertRequest, ChallengeAckDigest,
     DepositParams, DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse,
-    OperatorBurnSig, OperatorKeys, OperatorParams, RawSignedTxs, SignedTxWithType,
-    SignedTxsWithType, WithdrawalFinalizedParams,
+    OperatorKeys, OperatorParams, RawSignedTxs, SchnorrSig, SignedTxWithType, SignedTxsWithType,
+    WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::{create_and_sign_all_txs, create_assert_commitment_txs};
@@ -17,7 +17,7 @@ use tonic::{async_trait, Request, Response, Status};
 
 #[async_trait]
 impl ClementineOperator for Operator {
-    type DepositSignStream = ReceiverStream<Result<OperatorBurnSig, Status>>;
+    type DepositSignStream = ReceiverStream<Result<SchnorrSig, Status>>;
     type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -29,7 +29,7 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
-        let mut wpk_receiver = operator.get_params().await?;
+        let (mut wpk_receiver, mut sighash_receiver) = operator.get_params().await?;
 
         tokio::spawn(async move {
             let operator_config: OperatorParams = operator.clone().into();
@@ -40,6 +40,13 @@ impl ClementineOperator for Operator {
             while let Some(winternitz_public_key) = wpk_receiver.recv().await {
                 let operator_winternitz_pubkey: OperatorParams = winternitz_public_key.into();
                 tx.send(Ok(operator_winternitz_pubkey))
+                    .await
+                    .map_err(output_stream_ended_prematurely)?;
+            }
+
+            while let Some(operator_sig) = sighash_receiver.recv().await {
+                let operator_sighash: OperatorParams = operator_sig.into();
+                tx.send(Ok(operator_sighash))
                     .await
                     .map_err(output_stream_ended_prematurely)?;
             }
@@ -63,7 +70,7 @@ impl ClementineOperator for Operator {
         let mut deposit_signatures_rx = self.deposit_sign(deposit_data).await?;
 
         while let Some(sig) = deposit_signatures_rx.recv().await {
-            let operator_burn_sig = OperatorBurnSig {
+            let operator_burn_sig = SchnorrSig {
                 schnorr_sig: sig.serialize().to_vec(),
             };
 

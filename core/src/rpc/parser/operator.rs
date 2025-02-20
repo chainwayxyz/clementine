@@ -1,4 +1,4 @@
-use crate::rpc::clementine::Outpoint;
+use crate::rpc::clementine::{Outpoint, SchnorrSig};
 use crate::{
     fetch_next_message_from_stream,
     operator::Operator,
@@ -46,6 +46,16 @@ impl From<winternitz::PublicKey> for OperatorParams {
             response: Some(operator_params::Response::WinternitzPubkeys(
                 winternitz_pubkey.into(),
             )),
+        }
+    }
+}
+
+impl From<Signature> for OperatorParams {
+    fn from(sig: Signature) -> Self {
+        OperatorParams {
+            response: Some(operator_params::Response::UnspentKickoffSig(SchnorrSig {
+                schnorr_sig: sig.serialize().to_vec(),
+            })),
         }
     }
 }
@@ -113,6 +123,18 @@ pub async fn parse_winternitz_public_keys(
     let operator_param = fetch_next_message_from_stream!(stream, response)?;
 
     if let operator_params::Response::WinternitzPubkeys(wpk) = operator_param {
+        Ok(wpk.try_into()?)
+    } else {
+        Err(expected_msg_got_none("WinternitzPubkeys")())
+    }
+}
+
+pub async fn parse_schnorr_sig(
+    stream: &mut tonic::Streaming<OperatorParams>,
+) -> Result<Signature, Status> {
+    let operator_param = fetch_next_message_from_stream!(stream, response)?;
+
+    if let operator_params::Response::UnspentKickoffSig(wpk) = operator_param {
         Ok(wpk.try_into()?)
     } else {
         Err(expected_msg_got_none("WinternitzPubkeys")())
