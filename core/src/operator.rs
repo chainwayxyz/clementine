@@ -900,7 +900,7 @@ impl Operator {
                         kickoff_utxo_idx: kickoff_idx,
                     };
                     let sighashes = txhandler
-                        .calculate_all_txins_sighash(EntityType::OperatorDuringSetup, partial)?;
+                        .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
                     sigs.extend(
                         sighashes
                             .into_iter()
@@ -934,17 +934,8 @@ impl Operator {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::transaction::creator::KickoffWinternitzKeys;
     use crate::operator::Operator;
     use crate::test::common::*;
-    use crate::builder::transaction::creator::KickoffWinternitzKeys;
-    use crate::create_regtest_rpc;
-    use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
-    use crate::{
-        create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator,
-    };
     use bitcoin::hashes::Hash;
     use bitcoin::Txid;
     // #[tokio::test]
@@ -1056,12 +1047,6 @@ mod tests {
 
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
         let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
-        let actual_sigs = operator
-            .generate_unspent_kickoff_sigs(&KickoffWinternitzKeys::new(
-                actual_wpks.clone(),
-                operator.config.num_kickoffs_per_round,
-            ))
-            .unwrap();
 
         let (mut wpk_rx, _) = operator.get_params().await.unwrap();
         let mut idx = 0;

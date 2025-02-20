@@ -229,11 +229,17 @@ impl<T: State> TxHandler<T> {
             let sig_id = self.txins[idx].get_signature_id();
             let sig_owner = sig_id.get_deposit_sig_owner()?;
             match (sig_owner, needed_entity) {
-                (DepositSigKeyOwner::OperatorSharedDeposit(sighash_type), EntityType::OperatorDeposit)
-                | (DepositSigKeyOwner::NofnSharedDeposit(sighash_type), EntityType::VerifierDeposit)
+                (
+                    DepositSigKeyOwner::OperatorSharedDeposit(sighash_type),
+                    EntityType::OperatorDeposit,
+                )
                 | (
-                    DepositSigKeyOwner::OperatorDBDuringSetup(sighash_type),
-                    EntityType::OperatorDuringSetup,
+                    DepositSigKeyOwner::NofnSharedDeposit(sighash_type),
+                    EntityType::VerifierDeposit,
+                )
+                | (
+                    DepositSigKeyOwner::OperatorSharedSetup(sighash_type),
+                    EntityType::OperatorSetup,
                 ) => {
                     sighashes.push((
                         self.calculate_sighash_txin(idx, sighash_type)?,

@@ -69,8 +69,8 @@ impl ClementineVerifier for Verifier {
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
         }
 
-        let mut unspent_kickoff_sigds =
-            Vec::with_capacity(self.config.num_round_txs * self.config.num_kickoffs_per_round * 2);
+        // let mut unspent_kickoff_sigs =
+        //     Vec::with_capacity(self.config.num_round_txs * self.config.num_kickoffs_per_round * 2);
 
         self.set_operator(
             operator_index,
