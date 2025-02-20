@@ -1,3 +1,13 @@
+use crate::actor::Actor;
+use crate::builder::transaction::TransactionType;
+use crate::config::BridgeConfig;
+use crate::constants::ANCHOR_AMOUNT;
+use crate::extended_rpc::ExtendedRpc;
+use crate::rpc::clementine::RawSignedTx;
+use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest, WithdrawParams};
+use crate::test::common::*;
+use crate::utils::SECP;
+use crate::EVMAddress;
 use bitcoin::consensus::encode::serialize;
 use bitcoin::consensus::{self, Decodable as _, Encodable};
 use bitcoin::hashes::Hash;
@@ -8,38 +18,12 @@ use bitcoin::{
     Txid, Witness,
 };
 use bitcoincore_rpc::RpcApi;
-use clementine_core::builder::script::SpendPath;
-use clementine_core::builder::transaction::TransactionType;
-use clementine_core::config::BridgeConfig;
-use clementine_core::constants::ANCHOR_AMOUNT;
-use clementine_core::database::Database;
-use clementine_core::errors::BridgeError;
-use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use clementine_core::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use clementine_core::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use clementine_core::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-use clementine_core::rpc::clementine::{
-    DepositParams, Empty, KickoffId, TransactionRequest, WithdrawParams,
-};
-use clementine_core::rpc::clementine::{NormalSignatureKind, RawSignedTx};
-use clementine_core::servers::{
-    create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
-    create_watchtower_grpc_server,
-};
-use clementine_core::utils::initialize_logger;
-use clementine_core::utils::SECP;
-use clementine_core::EVMAddress;
-use clementine_core::UTXO;
-use clementine_core::{actor::Actor, builder, musig2::AggregateFromPublicKeys};
 use eyre::{Context, OptionExt, Result};
 use secp256k1::rand::rngs::ThreadRng;
 use tonic::Request;
 
-mod common;
-
 #[cfg(test)]
-pub async fn run_happy_path(mut config: BridgeConfig) -> Result<()> {
+pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     // use std::time::Duration;
 
     // use clementine_core::bitcoin_syncer;
@@ -48,7 +32,8 @@ pub async fn run_happy_path(mut config: BridgeConfig) -> Result<()> {
 
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, _watchtowers, regtest) = create_actors!(config);
+    let (_verifiers, mut operators, mut aggregator, _watchtowers, regtest) =
+        create_actors(&config).await;
 
     let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
@@ -72,7 +57,7 @@ pub async fn run_happy_path(mut config: BridgeConfig) -> Result<()> {
     // };
 
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address!(config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
     let withdrawal_address =
@@ -91,12 +76,13 @@ pub async fn run_happy_path(mut config: BridgeConfig) -> Result<()> {
             .to_sat());
     tracing::info!("Withdrawal amount set to: {} sats", withdrawal_amount);
 
-    let (empty_utxo, withdrawal_tx_out, user_sig) = generate_withdrawal_transaction_and_signature!(
-        config,
-        rpc,
-        withdrawal_address,
-        Amount::from_sat(withdrawal_amount)
-    );
+    let (empty_utxo, withdrawal_tx_out, user_sig) = generate_withdrawal_transaction_and_signature(
+        &config,
+        &rpc,
+        &withdrawal_address,
+        Amount::from_sat(withdrawal_amount),
+    )
+    .await;
 
     // 2. Setup Aggregator
     tracing::info!("Setting up aggregator");
@@ -238,13 +224,13 @@ pub async fn run_happy_path(mut config: BridgeConfig) -> Result<()> {
     Ok(())
 }
 
-async fn run_happy_path_2(mut config: BridgeConfig) -> Result<()> {
+async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
     tracing::info!("Starting happy path test");
 
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, mut watchtowers, regtest) =
-        create_actors!(config);
+        create_actors(&config).await;
     let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
@@ -267,7 +253,7 @@ async fn run_happy_path_2(mut config: BridgeConfig) -> Result<()> {
     // };
 
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address!(config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
     let withdrawal_address =
@@ -286,12 +272,13 @@ async fn run_happy_path_2(mut config: BridgeConfig) -> Result<()> {
             .to_sat());
     tracing::info!("Withdrawal amount set to: {} sats", withdrawal_amount);
 
-    let (_, _, _) = generate_withdrawal_transaction_and_signature!(
-        config,
-        rpc,
-        withdrawal_address,
-        Amount::from_sat(withdrawal_amount)
-    );
+    let (_, _, _) = generate_withdrawal_transaction_and_signature(
+        &config,
+        &rpc,
+        &withdrawal_address,
+        Amount::from_sat(withdrawal_amount),
+    )
+    .await;
 
     // 2. Setup Aggregator
     tracing::info!("Setting up aggregator");
@@ -669,19 +656,18 @@ pub async fn send_confirm(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::create_test_config_with_thread_name;
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "Design changes in progress"]
     async fn test_happy_path_1() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         run_happy_path(config).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "Design changes in progress"]
     async fn test_happy_path_2() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         run_happy_path_2(config).await.unwrap();
     }
 }
