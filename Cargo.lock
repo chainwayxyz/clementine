@@ -704,7 +704,6 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=9f1e8c9#9f1e8c93a113df86013be39da972b0176f27b5c9"
 dependencies = [
  "async-trait",
  "bitcoincore-rpc-json",
@@ -719,7 +718,6 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc-json"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=9f1e8c9#9f1e8c93a113df86013be39da972b0176f27b5c9"
 dependencies = [
  "bitcoin",
  "serde",
@@ -4739,3 +4737,8 @@ source = "git+https://github.com/arkworks-rs/r1cs-std/#c8c51a393b11dc91e47ce7a2b
 name = "ark-snark"
 version = "0.5.1"
 source = "git+https://github.com/arkworks-rs/snark/#f632770319e1aeca64524fbeb279ce6171923d9b"
+
+[[patch.unused]]
+name = "bitcoincore-rpc"
+version = "0.18.0"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=9f1e8c9#9f1e8c93a113df86013be39da972b0176f27b5c9"

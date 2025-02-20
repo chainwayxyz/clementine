@@ -51,20 +51,22 @@ pub fn create_sequential_collateral_txhandler(
     pubkeys: &[bitvm::signatures::winternitz::PublicKey],
 ) -> Result<TxHandler, BridgeError> {
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
-    let mut builder = TxHandlerBuilder::new(TransactionType::SequentialCollateral).add_input(
-        NormalSignatureKind::NotStored,
-        SpendableTxIn::new(
-            input_outpoint,
-            TxOut {
-                value: input_amount,
-                script_pubkey: op_address.script_pubkey(),
-            },
-            vec![],
-            Some(op_spend.clone()),
-        ),
-        SpendPath::KeySpend,
-        DEFAULT_SEQUENCE,
-    );
+    let mut builder = TxHandlerBuilder::new(TransactionType::SequentialCollateral)
+        .with_version(Version::non_standard(3))
+        .add_input(
+            NormalSignatureKind::NotStored,
+            SpendableTxIn::new(
+                input_outpoint,
+                TxOut {
+                    value: input_amount,
+                    script_pubkey: op_address.script_pubkey(),
+                },
+                vec![],
+                Some(op_spend.clone()),
+            ),
+            SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        );
 
     let timeout_block_count_locked_script = Arc::new(TimelockScript::new(
         None,
@@ -123,6 +125,7 @@ pub fn create_reimburse_generator_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let prevout = ready_to_reimburse_txhandler.get_spendable_output(0)?;
     let mut builder = TxHandlerBuilder::new(TransactionType::ReimburseGenerator)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             prevout.clone(),

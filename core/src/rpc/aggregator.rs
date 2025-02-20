@@ -359,7 +359,7 @@ impl Aggregator {
         Ok(operator_sigs)
     }
 
-    async fn create_movetx_check_sig(
+    async fn send_movetx(
         &self,
         partial_sigs: Vec<Vec<u8>>,
         movetx_agg_nonce: MusigAggNonce,
@@ -786,7 +786,7 @@ impl ClementineAggregator for Aggregator {
         // Create the final move transaction and check the signatures
         let movetx_agg_nonce = nonce_agg_handle.await?;
         let signed_movetx_handler = self
-            .create_movetx_check_sig(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
+            .send_movetx(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
             .await?;
         let txid = *signed_movetx_handler.get_txid();
 

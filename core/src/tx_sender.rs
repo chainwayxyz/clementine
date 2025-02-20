@@ -3,7 +3,7 @@ use std::time::Duration;
 use bitcoin::{
     transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
 };
-use bitcoincore_rpc::{json::EstimateMode, RpcApi};
+use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
 use tokio::task::JoinHandle;
 
 use crate::{
@@ -556,7 +556,15 @@ impl TxSender {
                 .save_rbf_txid(None, id, package[0].compute_txid())
                 .await?;
         }
-        let submit_package_result = self.rpc.client.submit_package(&package_refs[..]).await?;
+        tracing::debug!("Submitting package: {:?}", package_refs);
+        let submit_package_result = self
+            .rpc
+            .client
+            .submit_package(&package_refs[..])
+            .await
+            .inspect_err(|e| {
+                tracing::error!("TXSENDER: failed to submit package with error {:?}", e);
+            })?;
 
         tracing::debug!("Submit package result: {:?}", submit_package_result);
 
@@ -569,7 +577,19 @@ impl TxSender {
             .tx_results
             .iter()
             .next()
-            .map(|(_, result)| result.fees.effective_feerate)
+            .and_then(|(_, result)| match result {
+                PackageTransactionResult::Success{fees,..} => {
+                    Some(fees.effective_feerate)
+                }
+                PackageTransactionResult::SuccessAlreadyInMempool { txid, other_wtxid } => {
+                    tracing::warn!("TXSENDER: transaction {txid} is already in mempool, skipping");
+                    None
+                }
+                PackageTransactionResult::Failure{txid, error} => {
+                    tracing::warn!("TXSENDER: failed to send the transaction {txid} with error {error}, skipping");
+                    None
+                }
+            })
             .expect("Effective fee rate should be present")
             .expect("Effective fee rate should be present");
 
@@ -614,7 +634,10 @@ impl TxSender {
                         tracing::error!("Fee payer UTXO is spent, skipping : {:?}", outpoint);
                         continue;
                     }
-                    _ => return Err(e),
+                    e => {
+                        tracing::error!("TXSENDER: failed to bump fee for fee payer tx {fee_payer_txid} with error {e}, skipping");
+                        continue;
+                    }
                 },
             }
         }

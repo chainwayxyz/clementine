@@ -8,7 +8,7 @@ tonic-build = "0.12"
 
 [dependencies]
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
-bitcoincore-rpc = { workspace = true }
+bitcoincore-rpc = { path = "../../rust-bitcoincore-rpc/client" }
 hex = { workspace = true, features = ["serde"] }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }

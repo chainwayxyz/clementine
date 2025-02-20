@@ -460,7 +460,7 @@ impl Database {
                     txs.id IN (SELECT activated_id FROM valid_activated_txs)
                     AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
                     AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate <= $1);
+                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);
 ",
         )
         .bind(i64::try_from(fee_rate.to_sat_per_vb_ceil())

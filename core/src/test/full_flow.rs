@@ -1,12 +1,14 @@
 use crate::actor::Actor;
 use crate::builder::transaction::TransactionType;
 use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::RawSignedTx;
 use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest, WithdrawParams};
 use crate::test::common::*;
+use crate::tx_sender::{FeePayingType, TxSender};
 use crate::utils::SECP;
-use crate::EVMAddress;
+use crate::{bitcoin_syncer, EVMAddress};
 use bitcoin::consensus::encode::serialize;
 use bitcoin::consensus::{self, Decodable as _, Encodable};
 use bitcoin::hashes::Hash;
@@ -17,11 +19,10 @@ use bitcoin::{
     Txid, Witness,
 };
 use bitcoincore_rpc::RpcApi;
-use eyre::{Context, OptionExt, Result};
+use eyre::{bail, eyre, Context, OptionExt, Result};
 use secp256k1::rand::rngs::ThreadRng;
 use tonic::Request;
 
-#[cfg(test)]
 pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     // use std::time::Duration;
 
@@ -37,23 +38,25 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
-    // let tx_sender = {
-    //     let actor = Actor::new(keypair.secret_key(), None, config.network);
-    //     let db = Database::new(&config)
-    //         .await
-    //         .expect("failed to create database");
+    let verifier_0_config = {
+        let mut config = config.clone();
+        config.db_name += "0";
+        config
+    };
+    let tx_sender_db = Database::new(&verifier_0_config)
+        .await
+        .expect("failed to create database");
+    let tx_sender = {
+        let actor = Actor::new(keypair.secret_key(), None, config.network);
 
-    //     bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
-    //         .await
-    //         .unwrap();
-
-    //     let sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), config.network);
-    //     sender
-    //         .run("tx_sender", Duration::from_secs(0))
-    //         .await
-    //         .unwrap();
-    //     sender
-    // };
+        // This tx sender will be adding txs using verifier 0's tx sender loop
+        TxSender::new(
+            actor.clone(),
+            rpc.clone(),
+            tx_sender_db.clone(),
+            config.network,
+        )
+    };
 
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
@@ -147,9 +150,9 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         })
         .await?
         .into_inner();
-    rpc.client
-        .send_raw_transaction(&op_seq_collat.raw_tx)
-        .await?;
+    send_tx(&tx_sender, &tx_sender_db, &rpc, op_seq_collat)
+        .await
+        .context("failed to send sequential collateral transaction")?;
 
     tracing::info!("Sending kickoff transaction");
     let kickoff_tx = operators[0]
@@ -201,7 +204,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         })
         .await?
         .into_inner();
-    send_confirm(&rpc, reimburse_gen)
+    send_tx(&tx_sender, &tx_sender_db, &rpc, reimburse_gen)
         .await
         .context("failed to send reimburse generator transaction")?;
 
@@ -214,7 +217,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         })
         .await?
         .into_inner();
-    send_confirm(&rpc, happy_reimburse_tx)
+    send_tx(&tx_sender, &tx_sender_db, &rpc, happy_reimburse_tx)
         .await
         .context("failed to send happy reimburse transaction")?;
 
@@ -230,26 +233,27 @@ async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, mut watchtowers, regtest) =
         create_actors(&config).await;
+    let verifier_0_config = {
+        let mut config = config.clone();
+        config.db_name += "0";
+        config
+    };
     let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
+    let tx_sender_db = Database::new(&verifier_0_config)
+        .await
+        .expect("failed to create database");
+    let tx_sender = {
+        let actor = Actor::new(keypair.secret_key(), None, config.network);
 
-    // let tx_sender = {
-    //     let actor = Actor::new(keypair.secret_key(), None, config.network);
-    //     let db = Database::new(&config)
-    //         .await
-    //         .expect("failed to create database");
-
-    //     bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
-    //         .await
-    //         .context("failed to start bitcoin syncer")?;
-
-    //     let sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), config.network);
-    //     sender
-    //         .run("tx_sender", Duration::from_secs(0))
-    //         .await
-    //         .context("failed to start tx sender")?;
-    //     sender
-    // };
+        // This tx sender will be adding txs using verifier 0's tx sender loop
+        TxSender::new(
+            actor.clone(),
+            rpc.clone(),
+            tx_sender_db.clone(),
+            config.network,
+        )
+    };
 
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
@@ -327,9 +331,9 @@ async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         })
         .await?
         .into_inner();
-    rpc.client
-        .send_raw_transaction(&op_seq_collat.raw_tx)
-        .await?;
+    send_tx(&tx_sender, &tx_sender_db, &rpc, op_seq_collat)
+        .await
+        .context("failed to send sequential collateral transaction")?;
 
     // 4. Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
@@ -340,7 +344,7 @@ async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         })
         .await?
         .into_inner();
-    send_confirm(&rpc, kickoff_tx)
+    send_tx(&tx_sender, &tx_sender_db, &rpc, kickoff_tx)
         .await
         .context("failed to send kickoff transaction")?;
 
@@ -354,20 +358,7 @@ async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         })
         .await?
         .into_inner();
-    let mut challenge_tx =
-        Transaction::consensus_decode(&mut &challenge_txorig.raw_tx[..]).expect("valid");
-
-    rpc.mine_blocks(1).await?;
-
-    let amount = Amount::from_int_btc(2) + Amount::from_sat(10000);
-    fund_tx(&rpc, keypair, &mut challenge_tx, amount).await?;
-
-    let mut encoded_tx = vec![];
-    tracing::info!(?challenge_tx);
-    challenge_tx
-        .consensus_encode(&mut encoded_tx)
-        .expect("failed to encode");
-    send_confirm(&rpc, RawSignedTx { raw_tx: encoded_tx })
+    send_tx(&tx_sender, &tx_sender_db, &rpc, challenge_txorig)
         .await
         .context("failed to send challenge transaction")?;
 
@@ -585,7 +576,40 @@ async fn fund_tx(
 //         .iter()
 //         .any(|out| out.value == ANCHOR_AMOUNT && out.script_pubkey == anchor_sk)
 // }
+pub async fn send_tx(
+    tx_sender: &TxSender,
+    db: &Database,
+    rpc: &ExtendedRpc,
+    raw_tx: RawSignedTx,
+) -> Result<()> {
+    let tx: Transaction = consensus::deserialize(&raw_tx.raw_tx).context("expected valid tx")?;
+    let mut dbtx = db.begin_transaction().await?;
+    tx_sender
+        .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[], &[])
+        .await?;
+    dbtx.commit().await?;
+    rpc.mine_blocks(1).await?;
+    let mut timeout_counter = 30;
 
+    while rpc
+        .client
+        .get_raw_transaction_info(&tx.compute_txid(), None)
+        .await
+        .ok()
+        .and_then(|s| s.blockhash)
+        .is_none()
+    {
+        rpc.mine_blocks(1).await?;
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        timeout_counter -= 1;
+
+        if timeout_counter == 0 {
+            bail!("timeout while trying to send tx with txid {:?}", tx.compute_txid());
+        }
+    }
+
+    Ok(())
+}
 pub async fn send_confirm(
     rpc: &ExtendedRpc,
     raw_tx: RawSignedTx,
@@ -657,14 +681,14 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
-    #[ignore = "Design changes in progress"]
+    // #[ignore = "Design changes in progress"]
     async fn test_happy_path_1() {
         let config = create_test_config_with_thread_name(None).await;
         run_happy_path(config).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    #[ignore = "Design changes in progress"]
+    // #[ignore = "Design changes in progress"]
     async fn test_happy_path_2() {
         let config = create_test_config_with_thread_name(None).await;
         run_happy_path_2(config).await.unwrap();

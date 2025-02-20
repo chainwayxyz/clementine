@@ -15,6 +15,7 @@ use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::transaction::Version;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{Network, Sequence, TxOut, Txid};
 use std::sync::Arc;
@@ -175,7 +176,8 @@ pub fn create_happy_reimburse_txhandler(
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new(TransactionType::HappyReimburse);
+    let mut builder = TxHandlerBuilder::new(TransactionType::HappyReimburse)
+        .with_version(Version::non_standard(3));
     builder = builder
         .add_input(
             NormalSignatureKind::HappyReimburse1,
