@@ -7,7 +7,7 @@
 
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
-    create_txhandlers, DepositData, DepositDbCache, OperatorData, TransactionType, TxHandler,
+    create_txhandlers, DepositData, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -114,7 +114,7 @@ pub fn create_nofn_sighash_stream(
             operators.iter().enumerate()
         {
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = DepositDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
+            let mut tx_db_data = ReimburseDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
 
             let mut last_ready_to_reimburse: Option<TxHandler> = None;
 
@@ -191,7 +191,7 @@ pub fn create_operator_sighash_stream(
             collateral_funding_outpoint,
         };
 
-        let mut tx_db_data = DepositDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
+        let mut tx_db_data = ReimburseDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
 
         let mut last_reimburse_generator: Option<TxHandler> = None;
 

@@ -56,8 +56,9 @@ impl KickoffWinternitzKeys {
 }
 
 /// Struct to retrieve and cache data from DB for creating TxHandlers on demand
+/// It can only store information for one reimbursement (i.e. one kickoff)
 #[derive(Debug, Clone)]
-pub struct DepositDbCache {
+pub struct ReimburseDbCache {
     pub db: Database,
     pub operator_idx: u32,
     pub deposit_data: DepositData,
@@ -74,7 +75,7 @@ pub struct DepositDbCache {
     challenge_ack_hashes: Option<Vec<PublicHash>>,
 }
 
-impl DepositDbCache {
+impl ReimburseDbCache {
     pub fn new(
         db: Database,
         operator_idx: u32,
@@ -215,11 +216,11 @@ pub async fn create_txhandlers(
     kickoff_id: KickoffId,
     operator_data: OperatorData,
     prev_ready_to_reimburse: Option<TxHandler>,
-    db_data: &mut DepositDbCache,
+    db_data: &mut ReimburseDbCache,
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
     let mut txhandlers = BTreeMap::new();
 
-    let DepositDbCache {
+    let ReimburseDbCache {
         deposit_data,
         config,
         ..
