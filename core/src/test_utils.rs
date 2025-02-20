@@ -262,7 +262,7 @@ macro_rules! initialize_database {
 
 /// Starts operators, verifiers, aggregator and watchtower servers.
 ///
-/// Depends on create_regtest_rpc! and get_available_port! for dynamic port allocation.
+/// Depends on get_available_port! for dynamic port allocation.
 ///
 /// # Returns
 ///
@@ -525,6 +525,7 @@ macro_rules! get_deposit_address {
 /// use crate::{actor::Actor, builder, UTXO};
 /// use crate::builder::script::SpendPath;
 /// use crate::rpc::clementine::NormalSignatureKind;
+/// use crate::builder::transaction::TransactionType;
 /// ```
 ///
 /// ## Integration Tests And Binaries
@@ -533,6 +534,7 @@ macro_rules! get_deposit_address {
 /// use clementine_core::{actor::Actor, builder, UTXO};
 /// use clementine_core::builder::script::SpendPath;
 /// use clementine_core::rpc::clementine::NormalSignatureKind;
+/// use clementine_core::builder::transaction::TransactionType;
 /// ```
 #[macro_export]
 macro_rules! generate_withdrawal_transaction_and_signature {
