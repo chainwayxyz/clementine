@@ -18,22 +18,23 @@ use tokio::{task::JoinHandle, time::sleep};
 struct BlockInfo {
     hash: BlockHash,
     _header: Header,
-    height: u64,
+    height: u32,
 }
 
 /// Events emitted by the Bitcoin syncer.
+/// It emits the block_id of the block in the db that was saved.
 #[derive(Clone, Debug)]
 pub enum BitcoinSyncerEvent {
-    NewBlock(BlockHash),
-    ReorgedBlock(BlockHash),
+    NewBlock(u32),
+    ReorgedBlock(u32),
 }
 
 /// Fetches the [`BlockInfo`] for a given height from Bitcoin.
 async fn fetch_block_info_from_height(
     rpc: &ExtendedRpc,
-    height: u64,
+    height: u32,
 ) -> Result<BlockInfo, BridgeError> {
-    let hash = rpc.client.get_block_hash(height).await?;
+    let hash = rpc.client.get_block_hash(height as u64).await?;
     let header = rpc.client.get_block_header(&hash).await?;
 
     Ok(BlockInfo {
@@ -44,11 +45,11 @@ async fn fetch_block_info_from_height(
 }
 
 /// Saves a Bitcoin block's metadata and it's transactions into the database.
-async fn save_block(
+pub(crate) async fn save_block(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
     block: &bitcoin::Block,
-    block_height: i64,
+    block_height: u32,
 ) -> Result<u32, BridgeError> {
     let block_hash = block.block_hash();
     tracing::debug!(
@@ -100,7 +101,7 @@ async fn _get_block_info_from_hash(
     let block_info = BlockInfo {
         hash,
         _header: block.header,
-        height: block_height as u64,
+        height: block_height,
     };
 
     Ok((block_info, block_utxos))
@@ -149,18 +150,16 @@ pub async fn set_initial_block_info_if_not_exists(
         return Ok(());
     }
 
-    let current_height = rpc.client.get_block_count().await?;
+    let current_height = u32::try_from(rpc.client.get_block_count().await?)
+        .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
     let block_info = fetch_block_info_from_height(rpc, current_height).await?;
     let block = rpc.client.get_block(&block_info.hash).await?;
 
     let mut dbtx = db.begin_transaction().await?;
 
-    save_block(db, &mut dbtx, &block, current_height as i64).await?;
-    db.add_event(
-        Some(&mut dbtx),
-        BitcoinSyncerEvent::NewBlock(block_info.hash),
-    )
-    .await?;
+    let block_id = save_block(db, &mut dbtx, &block, current_height).await?;
+    db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+        .await?;
 
     dbtx.commit().await?;
 
@@ -180,12 +179,12 @@ pub async fn set_initial_block_info_if_not_exists(
 async fn fetch_new_blocks(
     db: &Database,
     rpc: &ExtendedRpc,
-    current_height: u64,
+    current_height: u32,
 ) -> Result<Option<Vec<BlockInfo>>, BridgeError> {
     let next_height = current_height + 1;
 
     // Try to fetch the block hash for the next height.
-    let block_hash = match rpc.client.get_block_hash(next_height).await {
+    let block_hash = match rpc.client.get_block_hash(next_height as u64).await {
         Ok(hash) => hash,
         Err(_) => return Ok(None),
     };
@@ -214,7 +213,7 @@ async fn fetch_new_blocks(
         });
 
         if new_blocks.len() >= 100 {
-            return Err(BridgeError::BlockgazerTooDeep(new_height));
+            return Err(BridgeError::BlockgazerTooDeep(new_height as u64));
         }
     }
 
@@ -228,14 +227,14 @@ async fn fetch_new_blocks(
 async fn handle_reorg_events(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
-    common_ancestor_height: u64,
+    common_ancestor_height: u32,
 ) -> Result<(), BridgeError> {
     let reorg_blocks = db
         .set_non_canonical_block_hashes(Some(dbtx), common_ancestor_height)
         .await?;
 
-    for reorg_hash in reorg_blocks {
-        db.add_event(Some(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_hash))
+    for reorg_block_id in reorg_blocks {
+        db.add_event(Some(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_block_id))
             .await?;
     }
 
@@ -252,8 +251,8 @@ async fn process_new_blocks(
     for block_info in new_blocks {
         let block = rpc.client.get_block(&block_info.hash).await?;
 
-        save_block(db, dbtx, &block, block_info.height as i64).await?;
-        db.add_event(Some(dbtx), BitcoinSyncerEvent::NewBlock(block_info.hash))
+        let block_id = save_block(db, dbtx, &block, block_info.height).await?;
+        db.add_event(Some(dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await?;
     }
 
@@ -276,33 +275,61 @@ pub async fn start_bitcoin_syncer(
 
     let handle = tokio::spawn(async move {
         loop {
-            // Try to fetch new blocks (if any) from the RPC.
-            let maybe_new_blocks = fetch_new_blocks(&db, &rpc, current_height).await?;
+            let result: Result<(), BridgeError> = async {
+                tracing::info!("BitcoinSyncer: Fetching new blocks");
+                // Try to fetch new blocks (if any) from the RPC.
+                let maybe_new_blocks = fetch_new_blocks(&db, &rpc, current_height).await?;
 
-            // If there are no new blocks, wait for a while and continue.
-            let new_blocks = match maybe_new_blocks {
-                Some(blocks) if !blocks.is_empty() => blocks,
-                _ => {
-                    sleep(poll_delay).await;
-                    continue;
-                }
-            };
+                tracing::info!(
+                    "BitcoinSyncer: Maybe new blocks: {:?}",
+                    maybe_new_blocks.is_some()
+                );
 
-            // The common ancestor is the block preceding the first new block.
-            let common_ancestor_height = new_blocks[0].height - 1;
-            let mut dbtx = db.begin_transaction().await?;
+                // If there are no new blocks, wait for a while and continue.
+                let new_blocks = match maybe_new_blocks {
+                    Some(blocks) if !blocks.is_empty() => {
+                        tracing::info!("BitcoinSyncer: New blocks: {:?}", blocks.len());
+                        blocks
+                    }
+                    _ => {
+                        sleep(poll_delay).await;
+                        return Ok(());
+                    }
+                };
 
-            // Mark reorg blocks (if any) as non-canonical.
-            handle_reorg_events(&db, &mut dbtx, common_ancestor_height).await?;
-            // Process and insert the new blocks.
-            process_new_blocks(&db, &rpc, &mut dbtx, &new_blocks).await?;
+                tracing::info!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
 
-            dbtx.commit().await?;
+                // The common ancestor is the block preceding the first new block.
+                let common_ancestor_height = new_blocks[0].height - 1;
+                tracing::info!(
+                    "BitcoinSyncer: Common ancestor height: {:?}",
+                    common_ancestor_height
+                );
+                let mut dbtx = db.begin_transaction().await?;
+                tracing::info!("BitcoinSyncer: Beginning transaction");
 
-            // Update the current height to the tip of the new chain.
-            current_height = new_blocks.last().expect("new_blocks is not empty").height;
+                // Mark reorg blocks (if any) as non-canonical.
+                handle_reorg_events(&db, &mut dbtx, common_ancestor_height).await?;
+                tracing::info!("BitcoinSyncer: Marked reorg blocks as non-canonical");
 
-            sleep(poll_delay).await;
+                // Process and insert the new blocks.
+                tracing::info!("BitcoinSyncer: Processing new blocks");
+                tracing::info!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
+                process_new_blocks(&db, &rpc, &mut dbtx, &new_blocks).await?;
+
+                dbtx.commit().await?;
+
+                // Update the current height to the tip of the new chain.
+                tracing::info!("BitcoinSyncer: Updating current height");
+                current_height = new_blocks.last().expect("new_blocks is not empty").height;
+                tracing::info!("BitcoinSyncer: Current height: {:?}", current_height);
+
+                sleep(poll_delay).await;
+                Ok(())
+            }
+            .await;
+
+            tracing::info!("BitcoinSyncer: Result: {:?}", result);
         }
     });
 
@@ -329,8 +356,8 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         rpc.mine_blocks(1).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
+        let hash = rpc.client.get_block_hash(height as u64).await.unwrap();
         let header = rpc.client.get_block_header(&hash).await.unwrap();
 
         let block_info = super::fetch_block_info_from_height(&rpc, height)
@@ -341,7 +368,7 @@ mod tests {
         assert_eq!(block_info.height, height);
 
         rpc.mine_blocks(1).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
+        let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
 
         let block_info = super::fetch_block_info_from_height(&rpc, height)
             .await
@@ -362,10 +389,10 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
+        let hash = rpc.client.get_block_hash(height as u64).await.unwrap();
         let block = rpc.client.get_block(&hash).await.unwrap();
-        let block_id = super::save_block(&db, &mut dbtx, &block, height as i64)
+        let block_id = super::save_block(&db, &mut dbtx, &block, height)
             .await
             .unwrap();
 
@@ -421,11 +448,11 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
+        let hash = rpc.client.get_block_hash(height as u64).await.unwrap();
         let block = rpc.client.get_block(&hash).await.unwrap();
 
-        super::save_block(&db, &mut dbtx, &block, height as i64)
+        super::save_block(&db, &mut dbtx, &block, height)
             .await
             .unwrap();
 
@@ -455,8 +482,8 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
+        let hash = rpc.client.get_block_hash(height as u64).await.unwrap();
         let block = rpc.client.get_block(&hash).await.unwrap();
 
         assert!(super::_get_block_info_from_hash(&db, &mut dbtx, &rpc, hash)
@@ -491,10 +518,10 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
+        let hash = rpc.client.get_block_hash(height as u64).await.unwrap();
         let block = rpc.client.get_block(&hash).await.unwrap();
-        super::save_block(&db, &mut dbtx, &block, height as i64)
+        super::save_block(&db, &mut dbtx, &block, height)
             .await
             .unwrap();
         dbtx.commit().await.unwrap();
@@ -503,7 +530,7 @@ mod tests {
         assert!(new_blocks.is_none());
 
         let new_block_hashes = rpc.mine_blocks(1).await.unwrap();
-        let new_height = rpc.client.get_block_count().await.unwrap();
+        let new_height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
         let new_blocks = super::fetch_new_blocks(&db, &rpc, height)
             .await
             .unwrap()
@@ -526,13 +553,13 @@ mod tests {
 
         // Prepare chain.
         rpc.mine_blocks(1).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
+        let hash = rpc.client.get_block_hash(height as u64).await.unwrap();
         let block = rpc.client.get_block(&hash).await.unwrap();
 
         // Save the tip.
         let mut dbtx = db.begin_transaction().await.unwrap();
-        super::save_block(&db, &mut dbtx, &block, height as i64)
+        super::save_block(&db, &mut dbtx, &block, height)
             .await
             .unwrap();
         dbtx.commit().await.unwrap();
@@ -541,24 +568,24 @@ mod tests {
         assert!(new_blocks.is_none());
 
         // Mine new blocks without saving them.
-        let mine_count = 12;
-        let new_block_hashes = rpc.mine_blocks(mine_count).await.unwrap();
-        let new_height = rpc.client.get_block_count().await.unwrap();
+        let mine_count: u32 = 12;
+        let new_block_hashes = rpc.mine_blocks(mine_count as u64).await.unwrap();
+        let new_height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
 
         let new_blocks = super::fetch_new_blocks(&db, &rpc, new_height - 1)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(new_blocks.len() as u64, mine_count);
+        assert_eq!(new_blocks.len(), mine_count as usize);
         for (index, block) in new_blocks.iter().enumerate() {
-            assert_eq!(block.height, new_height - mine_count + index as u64 + 1);
+            assert_eq!(block.height, new_height - mine_count + index as u32 + 1);
             assert_eq!(block.hash, new_block_hashes[index]);
         }
 
         // Mine too many blocks.
-        let mine_count = 101;
-        rpc.mine_blocks(mine_count).await.unwrap();
-        let new_height = rpc.client.get_block_count().await.unwrap();
+        let mine_count: u32 = 101;
+        rpc.mine_blocks(mine_count as u64).await.unwrap();
+        let new_height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
 
         assert!(super::fetch_new_blocks(&db, &rpc, new_height - 1)
             .await
@@ -574,7 +601,7 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         let hashes = rpc.mine_blocks(4).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
+        let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
 
         super::set_initial_block_info_if_not_exists(&db, &rpc)
             .await
@@ -620,8 +647,8 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         rpc.mine_blocks(1).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap();
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
+        let hash = rpc.client.get_block_hash(height as u64).await.unwrap();
 
         super::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(0))
             .await
