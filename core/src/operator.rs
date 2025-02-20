@@ -56,8 +56,6 @@ impl Operator {
         )
         .await?;
 
-        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
-
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
         let idx = config
@@ -68,6 +66,14 @@ impl Operator {
                 "{} is not found in operator x-only public keys",
                 signer.xonly_public_key
             ))))?;
+
+        let tx_sender = TxSender::new(
+            signer.clone(),
+            rpc.clone(),
+            db.clone(),
+            &format!("operator_{}", idx).to_string(),
+            config.network,
+        );
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);

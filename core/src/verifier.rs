@@ -114,13 +114,14 @@ impl Verifier {
         )
         .await?;
 
-        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
-        let _tx_sender_handle = tx_sender
-            .run(
-                &format!("verifier_{}", idx).to_string(),
-                Duration::from_secs(1),
-            )
-            .await?;
+        let tx_sender = TxSender::new(
+            signer.clone(),
+            rpc.clone(),
+            db.clone(),
+            &format!("verifier_{}", idx).to_string(),
+            config.network,
+        );
+        let _tx_sender_handle = tx_sender.run(Duration::from_millis(10)).await?;
 
         let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
@@ -146,7 +147,7 @@ impl Verifier {
 
         bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc).await?;
         let _handle =
-            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
+            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_millis(10))
                 .await?;
 
         Ok(Verifier {

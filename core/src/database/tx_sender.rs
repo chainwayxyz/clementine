@@ -288,37 +288,6 @@ impl Database {
             .collect::<Result<Vec<_>, BridgeError>>()
     }
 
-    pub async fn get_unconfirmed_fee_payer_utxos(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        id: u32,
-    ) -> Result<Vec<(Txid, u32, Amount)>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB, i32, i64)>(
-            "SELECT fee_payer_txid, vout, amount
-             FROM tx_sender_fee_payer_utxos fpu
-             WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NULL",
-        )
-        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
-
-        let results: Vec<(TxidDB, i32, i64)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-
-        results
-            .iter()
-            .map(|(fee_payer_txid, vout, amount)| {
-                Ok((
-                    fee_payer_txid.0,
-                    u32::try_from(*vout)
-                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
-                    Amount::from_sat(
-                        u64::try_from(*amount)
-                            .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
-                    ),
-                ))
-            })
-            .collect::<Result<Vec<_>, BridgeError>>()
-    }
-
     pub async fn save_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -593,12 +562,6 @@ mod tests {
         .await
         .unwrap();
 
-        // Test getting unconfirmed UTXOs
-        let unconfirmed = db
-            .get_unconfirmed_fee_payer_utxos(Some(&mut dbtx), tx_id)
-            .await
-            .unwrap();
-        assert_eq!(unconfirmed.len(), 1);
 
         dbtx.commit().await.unwrap();
     }
@@ -649,12 +612,6 @@ mod tests {
         // Confirm transactions
         db.confirm_transactions(&mut dbtx, block_id).await.unwrap();
 
-        // Verify confirmation
-        let unconfirmed = db
-            .get_unconfirmed_fee_payer_utxos(Some(&mut dbtx), tx_id)
-            .await
-            .unwrap();
-        assert!(unconfirmed.is_empty());
 
         dbtx.commit().await.unwrap();
     }

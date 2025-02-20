@@ -60,6 +60,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 
     // Get available ports for RPC
     let rpc_port = get_available_port();
+    let rpc_port = 18443;
     config.bitcoin_rpc_url = format!("http://127.0.0.1:{}/wallet/admin", rpc_port);
 
     // Bitcoin node configuration
@@ -126,12 +127,12 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .expect("Failed to get network info");
     tracing::info!("Using bitcoind version: {}", network_info.version);
 
-    // Create wallet
-    client
-        .client
-        .create_wallet("admin", None, None, None, None)
-        .await
-        .expect("Failed to create wallet");
+    // // Create wallet
+    // client
+    //     .client
+    //     .create_wallet("admin", None, None, None, None)
+    //     .await
+    //     .expect("Failed to create wallet");
 
     // Generate blocks
     let address = client

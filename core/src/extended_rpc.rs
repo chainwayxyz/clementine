@@ -199,9 +199,12 @@ impl ExtendedRpc {
             Err(e) => match e {
                 bitcoincore_rpc::Error::JsonRpc(json_rpc_error) => match json_rpc_error {
                     bitcoincore_rpc::RpcError::Rpc(rpc_error) => {
-                        if let Some(outpoint_str) =
-                            rpc_error.message.split(" is already spent").next()
-                        {
+                        if rpc_error.message.ends_with(" is already spent") {
+                            let outpoint_str = rpc_error
+                                .message
+                                .split(" is already spent")
+                                .next()
+                                .expect("Outpoint string should be present");
                             let outpoint = OutPoint::from_str(outpoint_str).map_err(|e| {
                                 BridgeError::BumpFeeError(
                                     txid,

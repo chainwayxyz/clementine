@@ -43,6 +43,9 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         config.db_name += "0";
         config
     };
+
+    tracing::info!("verifier_0_config: {:#?}", verifier_0_config);
+
     let tx_sender_db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
@@ -54,6 +57,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
             actor.clone(),
             rpc.clone(),
             tx_sender_db.clone(),
+            "run_happy_path_1",
             config.network,
         )
     };
@@ -251,6 +255,7 @@ async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
             actor.clone(),
             rpc.clone(),
             tx_sender_db.clone(),
+            "run_happy_path_2",
             config.network,
         )
     };
@@ -604,7 +609,10 @@ pub async fn send_tx(
         timeout_counter -= 1;
 
         if timeout_counter == 0 {
-            bail!("timeout while trying to send tx with txid {:?}", tx.compute_txid());
+            bail!(
+                "timeout while trying to send tx with txid {:?}",
+                tx.compute_txid()
+            );
         }
     }
 
