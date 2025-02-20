@@ -7,7 +7,7 @@
 
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
-    create_txhandlers, DepositData, OperatorData, TransactionType, TxHandler, TxHandlerDbData,
+    create_txhandlers, DepositData, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -19,43 +19,30 @@ use async_stream::try_stream;
 use bitcoin::{Address, OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
-/// Returns the number of required signatures for N-of-N signing session.
-pub fn calculate_num_required_nofn_sigs(config: &BridgeConfig) -> usize {
-    let &BridgeConfig {
-        num_operators,
-        num_round_txs,
-        num_kickoffs_per_round,
-        ..
-    } = config;
-    num_operators
-        * num_round_txs
-        * num_kickoffs_per_round
-        * calculate_num_required_nofn_sigs_per_kickoff(config)
-}
+impl BridgeConfig {
+    /// Returns the number of required signatures for N-of-N signing session.
+    pub fn get_num_required_nofn_sigs(&self) -> usize {
+        self.num_operators
+            * self.num_round_txs
+            * self.num_kickoffs_per_round
+            * self.get_num_required_nofn_sigs_per_kickoff()
+    }
 
-// WIP: For now, this is equal to the number of sighashes we yield in create_operator_sighash_stream.
-// This will change as we implement the system design.
-pub fn calculate_num_required_operator_sigs(config: &BridgeConfig) -> usize {
-    let &BridgeConfig {
-        num_round_txs,
-        num_kickoffs_per_round,
-        ..
-    } = config;
-    num_round_txs
-        * num_kickoffs_per_round
-        * calculate_num_required_operator_sigs_per_kickoff(config)
-}
+    // WIP: For now, this is equal to the number of sighashes we yield in create_operator_sighash_stream.
+    // This will change as we implement the system design.
+    pub fn get_num_required_operator_sigs(&self) -> usize {
+        self.num_round_txs
+            * self.num_kickoffs_per_round
+            * self.get_num_required_operator_sigs_per_kickoff()
+    }
 
-pub fn calculate_num_required_nofn_sigs_per_kickoff(
-    &BridgeConfig {
-        num_watchtowers, ..
-    }: &BridgeConfig,
-) -> usize {
-    7 + 2 * num_watchtowers + utils::COMBINED_ASSERT_DATA.num_steps.len() * 2
-}
+    pub fn get_num_required_nofn_sigs_per_kickoff(&self) -> usize {
+        7 + 2 * self.num_watchtowers + utils::COMBINED_ASSERT_DATA.num_steps.len() * 2
+    }
 
-pub fn calculate_num_required_operator_sigs_per_kickoff(config: &BridgeConfig) -> usize {
-    2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + config.num_watchtowers
+    pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {
+        2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + self.num_watchtowers
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -127,7 +114,7 @@ pub fn create_nofn_sighash_stream(
             operators.iter().enumerate()
         {
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = TxHandlerDbData::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
+            let mut tx_db_data = ReimburseDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
 
             let mut last_ready_to_reimburse: Option<TxHandler> = None;
 
@@ -171,8 +158,8 @@ pub fn create_nofn_sighash_stream(
                         }
                     }
 
-                    if sum != calculate_num_required_nofn_sigs_per_kickoff(&config) {
-                        Err(BridgeError::NofNSighashMismatch(calculate_num_required_nofn_sigs_per_kickoff(&config), sum))?;
+                    if sum != config.get_num_required_nofn_sigs_per_kickoff() {
+                        Err(BridgeError::NofNSighashMismatch(config.get_num_required_nofn_sigs_per_kickoff(), sum))?;
                     }
                     last_ready_to_reimburse = txhandlers.remove(&TransactionType::ReadyToReimburse);
                 }
@@ -204,7 +191,7 @@ pub fn create_operator_sighash_stream(
             collateral_funding_outpoint,
         };
 
-        let mut tx_db_data = TxHandlerDbData::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
+        let mut tx_db_data = ReimburseDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
 
         let mut last_reimburse_generator: Option<TxHandler> = None;
 
@@ -234,8 +221,8 @@ pub fn create_operator_sighash_stream(
                         yield sighash;
                     }
                 }
-                if sum != calculate_num_required_operator_sigs_per_kickoff(&config) {
-                    Err(BridgeError::OperatorSighashMismatch(calculate_num_required_operator_sigs_per_kickoff(&config), sum))?;
+                if sum != config.get_num_required_operator_sigs_per_kickoff() {
+                    Err(BridgeError::OperatorSighashMismatch(config.get_num_required_operator_sigs_per_kickoff(), sum))?;
                 }
                 last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
             }

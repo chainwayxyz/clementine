@@ -4,8 +4,6 @@ use crate::builder::address::{
 };
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
-    calculate_num_required_nofn_sigs, calculate_num_required_nofn_sigs_per_kickoff,
-    calculate_num_required_operator_sigs, calculate_num_required_operator_sigs_per_kickoff,
     create_nofn_sighash_stream, create_operator_sighash_stream, SignatureInfo,
 };
 use crate::builder::transaction::{
@@ -282,10 +280,11 @@ impl Verifier {
                 },
                 verifier.nofn_xonly_pk,
             ));
-            let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
+            let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
 
-            assert!(
-                num_required_sigs + 1 == session.nonces.len(),
+            assert_eq!(
+                num_required_sigs + 1,
+                session.nonces.len(),
                 "Expected nonce count to be num_required_sigs + 1 (movetx)"
             );
 
@@ -359,12 +358,12 @@ impl Verifier {
             self.nofn_xonly_pk,
         ));
 
-        let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
+        let num_required_nofn_sigs = self.config.get_num_required_nofn_sigs();
         let num_required_nofn_sigs_per_kickoff =
-            calculate_num_required_nofn_sigs_per_kickoff(&self.config);
-        let num_required_op_sigs = calculate_num_required_operator_sigs(&self.config);
+            self.config.get_num_required_nofn_sigs_per_kickoff();
+        let num_required_op_sigs = self.config.get_num_required_operator_sigs();
         let num_required_op_sigs_per_kickoff =
-            calculate_num_required_operator_sigs_per_kickoff(&self.config);
+            self.config.get_num_required_operator_sigs_per_kickoff();
         let &BridgeConfig {
             num_operators,
             num_round_txs,

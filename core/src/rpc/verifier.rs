@@ -5,9 +5,6 @@ use super::clementine::{
     WatchtowerParams,
 };
 use super::error;
-use crate::builder::sighash::{
-    calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
-};
 use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::parser::parse_transaction_request;
@@ -204,7 +201,7 @@ impl ClementineVerifier for Verifier {
                 .await?;
 
             let mut nonce_idx = 0;
-            let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
+            let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
             while let Some(partial_sig) = partial_sig_receiver.recv().await {
                 tx.send(Ok(PartialSig {
                     partial_sig: partial_sig.serialize().to_vec(),
@@ -280,7 +277,7 @@ impl ClementineVerifier for Verifier {
         // Start parsing inputs and send them to deposit finalize job.
         let verifier = self.clone();
         tokio::spawn(async move {
-            let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&verifier.config);
+            let num_required_nofn_sigs = verifier.config.get_num_required_nofn_sigs();
             let mut nonce_idx = 0;
             while let Some(sig) =
                 parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
@@ -317,7 +314,7 @@ impl ClementineVerifier for Verifier {
                 .await
                 .map_err(error::output_stream_ended_prematurely)?;
 
-            let num_required_op_sigs = calculate_num_required_operator_sigs(&verifier.config);
+            let num_required_op_sigs = verifier.config.get_num_required_operator_sigs();
             let num_required_total_op_sigs = num_required_op_sigs * verifier.config.num_operators;
             let mut total_op_sig_count = 0;
             let num_operators = verifier.db.get_operators(None).await?.len();
