@@ -20,7 +20,6 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
 use crate::tx_sender::TxSender;
-use crate::utils::{self, BITVM_CACHE, SECP};
 use crate::utils::{self, SECP};
 use crate::{bitcoin_syncer, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
