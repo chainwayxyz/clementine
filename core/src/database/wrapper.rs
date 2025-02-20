@@ -265,12 +265,10 @@ impl_text_wrapper_custom!(
 mod tests {
     use super::*;
     use crate::{
-        config::BridgeConfig,
-        create_test_config_with_thread_name,
         database::Database,
-        initialize_database,
         rpc::clementine::TaggedSignature,
-        utils::{self, initialize_logger, SECP},
+        test::common::*,
+        utils::{self, SECP},
         EVMAddress,
     };
     use bitcoin::{
@@ -285,7 +283,7 @@ mod tests {
         ($db_type:ty, $inner:ty, $db_wrapper:expr, $table_name:expr, $column_type:expr) => {
             let db_wrapper = $db_wrapper;
 
-            let config = create_test_config_with_thread_name!(None);
+            let config = create_test_config_with_thread_name(None).await;
             let database = Database::new(&config).await.unwrap();
 
             // Create table if it doesn't exist

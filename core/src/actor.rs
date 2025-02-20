@@ -482,13 +482,10 @@ mod tests {
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandler, TxHandlerBuilder};
-    use crate::config::BridgeConfig;
+
     use crate::rpc::clementine::NormalSignatureKind;
-    use crate::utils::{initialize_logger, SECP};
-    use crate::{
-        actor::WinternitzDerivationPath, create_test_config_with_thread_name, database::Database,
-        initialize_database,
-    };
+    use crate::utils::SECP;
+    use crate::{actor::WinternitzDerivationPath, test::common::*};
     use bitcoin::secp256k1::{schnorr, Message, SecretKey};
 
     use bitcoin::sighash::TapSighashType;
@@ -739,7 +736,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_uniqueness() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let actor = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
@@ -758,7 +755,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_fixed_pk() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let actor = Actor::new(
             config.secret_key,
             Some(
@@ -815,7 +812,7 @@ mod tests {
 
     #[tokio::test]
     async fn sign_winternitz_signature() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let actor = Actor::new(
             config.secret_key,
             Some(

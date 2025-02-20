@@ -7,7 +7,7 @@
 
 #[tokio::main]
 async fn main() {
-    println!("grpc switch in progress. please inform us if you get this error.")
+    println!("grpc switch in progress. please inform us if you get this error.");
     // let (mut config, args) = get_configuration_for_binaries();
 
     // if !args.verifier_server && !args.operator_server && !args.aggregator_server {

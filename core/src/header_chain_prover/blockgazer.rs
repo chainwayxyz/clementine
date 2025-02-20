@@ -201,17 +201,11 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::create_regtest_rpc;
-    use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
-    use crate::{
-        create_test_config_with_thread_name,
-        extended_rpc::ExtendedRpc,
-        header_chain_prover::{
-            blockgazer::{BlockFetchStatus, BATCH_DEEPNESS, BATCH_DEEPNESS_SAFETY_BARRIER},
-            HeaderChainProver,
-        },
+    use crate::test::common::*;
+
+    use crate::header_chain_prover::{
+        blockgazer::{BlockFetchStatus, BATCH_DEEPNESS, BATCH_DEEPNESS_SAFETY_BARRIER},
+        HeaderChainProver,
     };
     use bitcoin::BlockHash;
     use bitcoincore_rpc::RpcApi;
@@ -256,8 +250,8 @@ mod tests {
     #[tokio::test]
 
     async fn check_for_new_blocks_uptodate() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
@@ -288,8 +282,8 @@ mod tests {
     #[tokio::test]
 
     async fn check_for_new_blocks_fallen_behind_single() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
@@ -327,8 +321,8 @@ mod tests {
     #[tokio::test]
 
     async fn check_for_new_blocks_fallen_behind_multiple() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
@@ -356,8 +350,8 @@ mod tests {
     #[tokio::test]
 
     async fn check_for_new_blocks_fork_and_mine_new() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
@@ -386,8 +380,8 @@ mod tests {
     #[tokio::test]
 
     async fn sync_blockchain_single_block() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
@@ -418,8 +412,8 @@ mod tests {
     #[tokio::test]
 
     async fn sync_blockchain_multiple_blocks() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
@@ -450,8 +444,8 @@ mod tests {
     #[tokio::test]
 
     async fn sync_blockchain_multiple_blocks_with_fork() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
