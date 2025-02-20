@@ -299,4 +299,24 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     primary key (activated_id, txid, vout)
 );
 
+
+-------- ROUND MANAGMENT FOR OPERATOR --------
+
+create table if not exists used_kickoff_connectors (
+    round_idx int not null,
+    kickoff_connector_idx int not null,
+    kickoff_txid text not null check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
+    created_at timestamp not null default now(),
+    primary key (round_idx, kickoff_connector_idx)
+)
+
+create table if not exists current_round_index (
+    id int primary key,
+    round_idx int not null
+)
+
+INSERT INTO current_round_index (id, round_idx)
+VALUES (1, 0)
+ON CONFLICT DO NOTHING;
+
 COMMIT;
