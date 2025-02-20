@@ -7,7 +7,7 @@ mod test_utils;
 
 use crate::initialize_database;
 use crate::{create_actors, create_regtest_rpc, get_available_port, get_deposit_address};
-use bitcoin::OutPoint;
+use bitcoin::{OutPoint, Txid};
 use citrea_e2e::bitcoin::BitcoinNode;
 use citrea_e2e::config::{EmptyConfig, SequencerConfig};
 use citrea_e2e::framework::TestFramework;
@@ -255,6 +255,7 @@ use tonic::Request;
 
 pub async fn run_single_deposit(
     config: &mut BridgeConfig,
+    rpc: ExtendedRpc,
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -262,12 +263,10 @@ pub async fn run_single_deposit(
         ClementineAggregatorClient<Channel>,
         Vec<ClementineWatchtowerClient<Channel>>,
         OutPoint,
+        Txid,
     ),
     BridgeError,
 > {
-    let regtest = create_regtest_rpc!(config);
-    let rpc = regtest.rpc().clone();
-
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address!(config, evm_address)?;
 
@@ -280,7 +279,7 @@ pub async fn run_single_deposit(
         .await?;
     rpc.mine_blocks(18).await?;
 
-    let _move_tx = aggregator
+    let move_txid = aggregator
         .new_deposit(DepositParams {
             deposit_outpoint: Some(deposit_outpoint.into()),
             evm_address: evm_address.0.to_vec(),
@@ -289,18 +288,13 @@ pub async fn run_single_deposit(
         .await?
         .into_inner();
 
-    // let move_tx: Transaction =
-    //     Transaction::consensus_decode(&mut move_tx.raw_tx.as_slice())?;
-    // let move_txid = rpc.client.send_raw_transaction(&move_tx).await?;
-    // println!("Move txid: {:?}", move_txid);
-    // println!("Move tx weight: {:?}", move_tx.weight());
-
     Ok((
         verifiers,
         operators,
         aggregator,
         watchtowers,
         deposit_outpoint,
+        move_txid.try_into().expect("Valid Txid"),
     ))
 }
 

@@ -9,7 +9,9 @@ mod common;
 #[tokio::test]
 async fn test_deposit() {
     let mut config = create_test_config_with_thread_name!(None);
-    run_single_deposit(&mut config).await.unwrap();
+    let regtest = create_regtest_rpc!(config);
+    let rpc = regtest.rpc().clone();
+    run_single_deposit(&mut config, rpc).await.unwrap();
 }
 
 //     #[ignore = "We are switching to gRPC"]

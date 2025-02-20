@@ -400,11 +400,11 @@ impl TxSender {
             .await?;
 
         // Sanity check to make sure the fee rate is equal to the required fee rate
-        // assert_eq!(
-        //     effective_fee_rate, fee_rate,
-        //     "Effective fee rate is not equal to the required fee rate: {:?} to {:?} != {:?}",
-        //     effective_fee_rate_btc_per_kvb, effective_fee_rate, fee_rate
-        // );
+        assert_eq!(
+            effective_fee_rate, fee_rate,
+            "Effective fee rate is not equal to the required fee rate: {:?} to {:?} != {:?}",
+            effective_fee_rate_btc_per_kvb, effective_fee_rate, fee_rate
+        );
 
         Ok(())
     }

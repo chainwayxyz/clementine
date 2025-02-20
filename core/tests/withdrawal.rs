@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use bitcoin::Network;
+use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
     config::{BitcoinConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
@@ -7,10 +8,9 @@ use citrea_e2e::{
     Result,
 };
 use clementine_core::{
-    config::BridgeConfig, database::Database, extended_rpc::ExtendedRpc, operator::Operator,
-    utils::initialize_logger,
+    config::BridgeConfig, database::Database, extended_rpc::ExtendedRpc, utils::initialize_logger,
 };
-use common::start_citrea;
+use common::{run_single_deposit, start_citrea};
 
 mod common;
 
@@ -19,7 +19,7 @@ struct DepositOnCitrea;
 impl TestCase for DepositOnCitrea {
     fn bitcoin_config() -> BitcoinConfig {
         BitcoinConfig {
-            extra_args: vec!["-fallbackfee", "-fallbackfee=0.00001"],
+            extra_args: vec!["-txindex=1", "-fallbackfee=0.000001"],
             ..Default::default()
         }
     }
@@ -56,6 +56,7 @@ impl TestCase for DepositOnCitrea {
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
+        tracing::error!("rpcport: {} {}", da.config.rpc_port, config.bitcoin_rpc_url);
         rpc.mine_blocks(101).await?; // TODO: remove; only for checking network availability
 
         let citrea_url = format!(
@@ -64,7 +65,11 @@ impl TestCase for DepositOnCitrea {
         );
         config.citrea_rpc_url = citrea_url;
 
-        let _operator = Operator::new(config, rpc).await?;
+        let (_verifiers, _operators, _aggregator, _watchtowers, _deposit_outpoint, move_txid) =
+            run_single_deposit(&mut config, rpc.clone()).await.unwrap();
+
+        let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
+        tracing::error!("tx---: {:?}", tx);
 
         Ok(())
     }
