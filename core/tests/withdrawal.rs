@@ -69,7 +69,7 @@ impl TestCase for DepositOnCitrea {
         config.citrea_rpc_url = citrea_url;
 
         let (_verifiers, _operators, _aggregator, _watchtowers, _deposit_outpoint, move_txid) =
-            run_single_deposit(&mut config, rpc.clone()).await.unwrap();
+            run_single_deposit(&mut config, rpc.clone()).await?;
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
         tracing::info!("Move tx: {:?}", tx);

@@ -296,9 +296,8 @@ pub async fn run_single_deposit(
         })
         .await?
         .into_inner()
-        .try_into()
-        .expect("Valid Txid");
-    rpc.mine_blocks(1).await.unwrap();
+        .try_into()?;
+    rpc.mine_blocks(1).await?;
     sleep(Duration::from_secs(3)).await;
 
     let start = std::time::Instant::now();
@@ -307,7 +306,7 @@ pub async fn run_single_deposit(
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
             panic!("MoveTx did not land onchain within {timeout} seconds");
         }
-        rpc.mine_blocks(1).await.unwrap();
+        rpc.mine_blocks(1).await?;
 
         let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
 
