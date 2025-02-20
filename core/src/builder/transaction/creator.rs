@@ -58,10 +58,10 @@ impl KickoffWinternitzKeys {
 /// Struct to retrieve and store DB data for creating TxHandlers on demand
 #[derive(Debug, Clone)]
 pub struct TxHandlerDbData {
-    db: Database,
-    operator_idx: u32,
-    deposit_data: DepositData,
-    config: BridgeConfig,
+    pub db: Database,
+    pub operator_idx: u32,
+    pub deposit_data: DepositData,
+    pub config: BridgeConfig,
     /// watchtower challenge addresses
     watchtower_challenge_addr: Option<Vec<ScriptBuf>>,
     /// winternitz keys to sign the kickoff tx with the blockhash
@@ -210,8 +210,6 @@ impl TxHandlerDbData {
 }
 
 pub async fn create_txhandlers(
-    config: BridgeConfig,
-    deposit: DepositData,
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_type: TransactionType,
     kickoff_id: KickoffId,
@@ -221,12 +219,18 @@ pub async fn create_txhandlers(
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
     let mut txhandlers = BTreeMap::new();
 
+    let TxHandlerDbData {
+        deposit_data,
+        config,
+        ..
+    } = db_data.clone();
+
     // Create move_tx handler. This is unique for each deposit tx.
     // Technically this can be also given as a parameter because it is calculated repeatedly in streams
     let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
-        deposit.deposit_outpoint,
-        deposit.evm_address,
-        &deposit.recovery_taproot_address,
+        deposit_data.deposit_outpoint,
+        deposit_data.evm_address,
+        &deposit_data.recovery_taproot_address,
         nofn_xonly_pk,
         config.user_takes_after,
         config.bridge_amount_sats,
@@ -274,13 +278,19 @@ pub async fn create_txhandlers(
         }
     };
 
+    txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
+    txhandlers.insert(
+        ready_to_reimburse_txhandler.get_transaction_type(),
+        ready_to_reimburse_txhandler,
+    );
+
     // get the next round txhandler (because reimburse connectors will be in it)
     let next_round_txhandler = create_round_txhandler(
         operator_data.xonly_pk,
-        *ready_to_reimburse_txhandler
+        *get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
             .get_spendable_output(0)?
             .get_prev_outpoint(),
-        ready_to_reimburse_txhandler
+        get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
             .get_spendable_output(0)?
             .get_prevout()
             .value,
@@ -288,12 +298,6 @@ pub async fn create_txhandlers(
         config.network,
         kickoff_winternitz_keys.get_keys_for_round(kickoff_id.round_idx as usize + 1),
     )?;
-
-    txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
-    txhandlers.insert(
-        ready_to_reimburse_txhandler.get_transaction_type(),
-        ready_to_reimburse_txhandler,
-    );
 
     let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
 
@@ -311,8 +315,8 @@ pub async fn create_txhandlers(
             Vec::with_capacity(utils::COMBINED_ASSERT_DATA.num_steps.len());
 
         for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
-            let (paths, sizes) =
-                utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(idx, deposit.deposit_outpoint.txid);
+            let (paths, sizes) = utils::COMBINED_ASSERT_DATA
+                .get_paths_and_sizes(idx, deposit_data.deposit_outpoint.txid);
             let pks = paths
                 .into_iter()
                 .map(|path| actor.derive_winternitz_pk(path))
@@ -329,7 +333,7 @@ pub async fn create_txhandlers(
             kickoff_id.kickoff_idx as usize,
             nofn_xonly_pk,
             operator_data.xonly_pk,
-            deposit.deposit_outpoint.txid,
+            deposit_data.deposit_outpoint.txid,
             kickoff_id.operator_idx as usize,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_data.get_bitvm_disprove_root_hash().await?,
@@ -352,7 +356,7 @@ pub async fn create_txhandlers(
             kickoff_id.kickoff_idx as usize,
             nofn_xonly_pk,
             operator_data.xonly_pk,
-            deposit.deposit_outpoint.txid,
+            deposit_data.deposit_outpoint.txid,
             kickoff_id.operator_idx as usize,
             AssertScripts::AssertScriptTapNodeHash(db_data.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
@@ -360,7 +364,7 @@ pub async fn create_txhandlers(
         )?
     };
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
-    tracing::warn!("Kickoff txhandler created in {:?}", start_time.elapsed());
+    tracing::debug!("Kickoff txhandler created in {:?}", start_time.elapsed());
 
     // Creates the challenge_tx handler.
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
@@ -400,7 +404,7 @@ pub async fn create_txhandlers(
             | TransactionType::OperatorChallengeNack(_)
             | TransactionType::OperatorChallengeAck(_)
     ) {
-        tracing::warn!("Generating watchtower txs");
+        tracing::debug!("Generating watchtower txs");
         let start_time = std::time::Instant::now();
         let needed_watchtower_idx: i32 =
             if let TransactionType::WatchtowerChallenge(idx) = transaction_type {
@@ -447,8 +451,10 @@ pub async fn create_txhandlers(
                 )?
             } else {
                 // generate with actual scripts if we want to specifically create a watchtower challenge tx
-                let path =
-                    WatchtowerChallenge(kickoff_id.operator_idx, deposit.deposit_outpoint.txid);
+                let path = WatchtowerChallenge(
+                    kickoff_id.operator_idx,
+                    deposit_data.deposit_outpoint.txid,
+                );
 
                 let actor = Actor::new(
                     config.secret_key,
@@ -491,26 +497,21 @@ pub async fn create_txhandlers(
                 operator_challenge_nack_txhandler,
             );
 
-            if let TransactionType::OperatorChallengeAck(index) = transaction_type {
-                // only create this if we specifically want to generate the Operator Challenge ACK tx
-                if index == watchtower_idx {
-                    let operator_challenge_ack_txhandler =
-                        builder::transaction::create_operator_challenge_ack_txhandler(
-                            get_txhandler(
-                                &txhandlers,
-                                TransactionType::WatchtowerChallenge(watchtower_idx),
-                            )?,
-                            watchtower_idx,
-                        )?;
+            let operator_challenge_ack_txhandler =
+                builder::transaction::create_operator_challenge_ack_txhandler(
+                    get_txhandler(
+                        &txhandlers,
+                        TransactionType::WatchtowerChallenge(watchtower_idx),
+                    )?,
+                    watchtower_idx,
+                )?;
 
-                    txhandlers.insert(
-                        operator_challenge_ack_txhandler.get_transaction_type(),
-                        operator_challenge_ack_txhandler,
-                    );
-                }
-            }
+            txhandlers.insert(
+                operator_challenge_ack_txhandler.get_transaction_type(),
+                operator_challenge_ack_txhandler,
+            );
         }
-        tracing::warn!("Watchtower txs created in {:?}", start_time.elapsed());
+        tracing::debug!("Watchtower txs created in {:?}", start_time.elapsed());
         if transaction_type != TransactionType::AllNeededForDeposit {
             // We do not need other txhandlers, exit early
             return Ok(txhandlers);
@@ -524,7 +525,7 @@ pub async fn create_txhandlers(
         num_asserts,
     )?;
 
-    tracing::warn!(
+    tracing::debug!(
         "Assert timeout txhandlers created in {:?}, num asserts: {}",
         start_time.elapsed(),
         num_asserts
@@ -576,7 +577,7 @@ pub async fn create_txhandlers(
         }
         _ => {}
     }
-    tracing::warn!("Remaining txhandlers created in {:?}", start_time.elapsed());
+    tracing::debug!("Remaining txhandlers created in {:?}", start_time.elapsed());
 
     Ok(txhandlers)
 }
@@ -597,6 +598,7 @@ mod tests {
             create_aggregator_grpc_server, create_operator_grpc_server,
             create_verifier_grpc_server, create_watchtower_grpc_server,
         },
+        utils,
         utils::initialize_logger,
         EVMAddress,
     };
@@ -611,7 +613,7 @@ mod tests {
     use std::panic;
 
     use crate::builder::transaction::TransactionType;
-    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
+    use crate::rpc::clementine::{AssertRequest, GrpcTransactionId, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
     #[tokio::test(flavor = "multi_thread")]
@@ -669,14 +671,16 @@ mod tests {
             //TransactionType::Disprove, TODO: add when we add actual disprove scripts
             TransactionType::DisproveTimeout,
             TransactionType::Reimburse,
-            TransactionType::AssertTimeout(0),
-            TransactionType::MiniAssert(0),
             TransactionType::ChallengeTimeout,
         ];
         txs_operator_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
         txs_operator_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeAck));
+        txs_operator_can_sign.extend(
+            (0..utils::COMBINED_ASSERT_DATA.num_steps.len())
+                .map(TransactionType::AssertTimeout),
+        );
 
         // try to sign everything for all operators
         let thread_handles: Vec<_> = operators
@@ -694,23 +698,37 @@ mod tests {
                                 round_idx: round_idx as u32,
                                 kickoff_idx: kickoff_idx as u32,
                             };
+                            let start_time = std::time::Instant::now();
+                            let raw_tx = operator_rpc
+                                .internal_create_signed_txs(TransactionRequest {
+                                    deposit_params: deposit_params.clone().into(),
+                                    transaction_type: Some(
+                                        TransactionType::AllNeededForDeposit.into(),
+                                    ),
+                                    kickoff_id: Some(kickoff_id),
+                                })
+                                .await
+                                .unwrap()
+                                .into_inner();
+                            // test if all needed tx's are signed
                             for tx_type in &txs_operator_can_sign {
-                                let start_time = std::time::Instant::now();
-                                let _raw_tx = operator_rpc
-                                    .internal_create_signed_tx(TransactionRequest {
-                                        deposit_params: deposit_params.clone().into(),
-                                        transaction_type: Some((*tx_type).into()),
-                                        kickoff_id: Some(kickoff_id),
-                                    })
-                                    .await
-                                    .unwrap();
-                                tracing::warn!(
-                                    "Operator signed tx {:?} from rpc call in time {:?}",
-                                    tx_type,
-                                    start_time.elapsed()
+                                assert!(
+                                    raw_tx.signed_txs.iter().any(|signed_tx| signed_tx
+                                        .transaction_type
+                                        == Some(
+                                            <TransactionType as Into<GrpcTransactionId>>::into(
+                                                *tx_type
+                                            )
+                                        )),
+                                    "Tx type: {:?} not found in signed txs for operator",
+                                    tx_type
                                 );
-                                tracing::info!("Operator Signed tx: {:?}", tx_type);
                             }
+                            tracing::trace!(
+                                "Operator signed txs {:?} from rpc call in time {:?}",
+                                TransactionType::AllNeededForDeposit,
+                                start_time.elapsed()
+                            );
                             // TODO: run with release after bitvm optimization? all raw tx's don't fit 4mb (grpc limit) for now
                             #[cfg(debug_assertions)]
                             {
@@ -723,7 +741,7 @@ mod tests {
                                     .unwrap()
                                     .into_inner()
                                     .raw_txs;
-                                tracing::info!(
+                                tracing::trace!(
                                     "Operator Signed Assert txs of size: {}",
                                     _raw_assert_txs.len()
                                 );
@@ -752,7 +770,7 @@ mod tests {
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 let _raw_tx = watchtower_rpc
-                                    .internal_create_signed_tx(TransactionRequest {
+                                    .internal_create_watchtower_challenge(TransactionRequest {
                                         deposit_params: deposit_params.clone().into(),
                                         transaction_type: Some(
                                             TransactionType::WatchtowerChallenge(watchtower_idx)
@@ -776,13 +794,16 @@ mod tests {
 
         let mut txs_verifier_can_sign = vec![
             TransactionType::Challenge,
-            TransactionType::AssertTimeout(0),
             TransactionType::KickoffNotFinalized,
             TransactionType::WatchtowerChallengeKickoff,
             //TransactionType::Disprove,
         ];
         txs_verifier_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
+        txs_verifier_can_sign.extend(
+            (0..utils::COMBINED_ASSERT_DATA.num_steps.len())
+                .map(TransactionType::AssertTimeout),
+        );
 
         // try to sign everything for all verifiers
         // try signing verifier transactions
@@ -801,17 +822,37 @@ mod tests {
                                     round_idx: round_idx as u32,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
+                                let start_time = std::time::Instant::now();
+                                let raw_tx = verifier_rpc
+                                    .internal_create_signed_txs(TransactionRequest {
+                                        deposit_params: deposit_params.clone().into(),
+                                        transaction_type: Some(
+                                            TransactionType::AllNeededForDeposit.into(),
+                                        ),
+                                        kickoff_id: Some(kickoff_id),
+                                    })
+                                    .await
+                                    .unwrap()
+                                    .into_inner();
+                                // test if all needed tx's are signed
                                 for tx_type in &txs_verifier_can_sign {
-                                    let _raw_tx = verifier_rpc
-                                        .internal_create_signed_tx(TransactionRequest {
-                                            deposit_params: deposit_params.clone().into(),
-                                            transaction_type: Some((*tx_type).into()),
-                                            kickoff_id: Some(kickoff_id),
-                                        })
-                                        .await
-                                        .unwrap();
-                                    tracing::info!("Verifier Signed tx: {:?}", tx_type);
+                                    assert!(
+                                        raw_tx.signed_txs.iter().any(|signed_tx| signed_tx
+                                            .transaction_type
+                                            == Some(<TransactionType as Into<
+                                                GrpcTransactionId,
+                                            >>::into(
+                                                *tx_type
+                                            ))),
+                                        "Tx type: {:?} not found in signed txs for verifier",
+                                        tx_type
+                                    );
                                 }
+                                tracing::trace!(
+                                    "Verifier signed txs {:?} from rpc call in time {:?}",
+                                    TransactionType::AllNeededForDeposit,
+                                    start_time.elapsed()
+                                );
                             }
                         }
                     }

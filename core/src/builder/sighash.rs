@@ -126,6 +126,7 @@ pub fn create_nofn_sighash_stream(
         for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_outpoint)) in
             operators.iter().enumerate()
         {
+            // need to create new TxHandlerDbData for each operator
             let mut tx_db_data = TxHandlerDbData::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
 
             let mut last_ready_to_reimburse: Option<TxHandler> = None;
@@ -150,8 +151,6 @@ pub fn create_nofn_sighash_stream(
 
                     let start_time = std::time::Instant::now();
                     let mut txhandlers = create_txhandlers(
-                        config.clone(),
-                        deposit_data.clone(),
                         nofn_xonly_pk,
                         TransactionType::AllNeededForDeposit,
                         KickoffId {
@@ -163,7 +162,7 @@ pub fn create_nofn_sighash_stream(
                         last_ready_to_reimburse,
                         &mut tx_db_data,
                     ).await?;
-                    tracing::warn!("create_txhandlers for nofn sighash finished in {:?}", start_time.elapsed());
+                    tracing::trace!("create_txhandlers for nofn sighash finished in {:?}", start_time.elapsed());
 
                     let mut sum = 0;
                     for (_, txhandler) in txhandlers.iter() {
@@ -218,8 +217,6 @@ pub fn create_operator_sighash_stream(
 
                 let start_time = std::time::Instant::now();
                 let mut txhandlers = create_txhandlers(
-                    config.clone(),
-                    deposit_data.clone(),
                     nofn_xonly_pk,
                     TransactionType::AllNeededForDeposit,
                     KickoffId {
@@ -231,7 +228,7 @@ pub fn create_operator_sighash_stream(
                     last_reimburse_generator,
                     &mut tx_db_data,
                 ).await?;
-                tracing::warn!("create_txhandlers for nofn sighash finished in {:?}", start_time.elapsed());
+                tracing::trace!("create_txhandlers for operator sighash finished in {:?}", start_time.elapsed());
 
                 let mut sum = 0;
                 for (_, txhandler) in txhandlers.iter() {

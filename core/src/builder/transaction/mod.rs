@@ -114,29 +114,29 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
                 }
             }
-            grpc_transaction_id::Id::WatchtowerTransaction(watchtower_tx) => {
-                let tx_type = NumberedTransactionType::try_from(watchtower_tx.transaction_type)?;
+            grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
+                let tx_type = NumberedTransactionType::try_from(transaction_id.transaction_type)?;
                 match tx_type {
                     Numbered::WatchtowerChallenge => {
-                        Ok(Self::WatchtowerChallenge(watchtower_tx.index as usize))
+                        Ok(Self::WatchtowerChallenge(transaction_id.index as usize))
                     }
                     Numbered::OperatorChallengeNack => {
-                        Ok(Self::OperatorChallengeNack(watchtower_tx.index as usize))
+                        Ok(Self::OperatorChallengeNack(transaction_id.index as usize))
                     }
                     Numbered::OperatorChallengeAck => {
-                        Ok(Self::OperatorChallengeAck(watchtower_tx.index as usize))
+                        Ok(Self::OperatorChallengeAck(transaction_id.index as usize))
                     }
                     Numbered::AssertTimeout => {
-                        Ok(Self::AssertTimeout(watchtower_tx.index as usize))
+                        Ok(Self::AssertTimeout(transaction_id.index as usize))
                     }
                     Numbered::UnspentKickoff => {
-                        Ok(Self::UnspentKickoff(watchtower_tx.index as usize))
+                        Ok(Self::UnspentKickoff(transaction_id.index as usize))
                     }
                     NumberedTransactionType::MiniAssert => {
-                        Ok(Self::MiniAssert(watchtower_tx.index as usize))
+                        Ok(Self::MiniAssert(transaction_id.index as usize))
                     }
                     Numbered::UnspecifiedIndexedTransactionType => {
-                        Err(::prost::UnknownEnumValue(watchtower_tx.transaction_type))
+                        Err(::prost::UnknownEnumValue(transaction_id.transaction_type))
                     }
                 }
             }
@@ -178,41 +178,39 @@ impl From<TransactionType> for GrpcTransactionId {
                     NormalTransaction(Normal::ChallengeTimeout as i32)
                 }
                 TransactionType::WatchtowerChallenge(index) => {
-                    WatchtowerTransaction(NumberedTransactionId {
+                    NumberedTransaction(NumberedTransactionId {
                         transaction_type: Numbered::WatchtowerChallenge as i32,
                         index: index as i32,
                     })
                 }
                 TransactionType::OperatorChallengeNack(index) => {
-                    WatchtowerTransaction(NumberedTransactionId {
+                    NumberedTransaction(NumberedTransactionId {
                         transaction_type: Numbered::OperatorChallengeNack as i32,
                         index: index as i32,
                     })
                 }
                 TransactionType::OperatorChallengeAck(index) => {
-                    WatchtowerTransaction(NumberedTransactionId {
+                    NumberedTransaction(NumberedTransactionId {
                         transaction_type: Numbered::OperatorChallengeAck as i32,
                         index: index as i32,
                     })
                 }
                 TransactionType::AssertTimeout(index) => {
-                    WatchtowerTransaction(NumberedTransactionId {
+                    NumberedTransaction(NumberedTransactionId {
                         transaction_type: Numbered::AssertTimeout as i32,
                         index: index as i32,
                     })
                 }
                 TransactionType::UnspentKickoff(index) => {
-                    WatchtowerTransaction(NumberedTransactionId {
+                    NumberedTransaction(NumberedTransactionId {
                         transaction_type: Numbered::UnspentKickoff as i32,
                         index: index as i32,
                     })
                 }
-                TransactionType::MiniAssert(index) => {
-                    WatchtowerTransaction(NumberedTransactionId {
-                        transaction_type: Numbered::MiniAssert as i32,
-                        index: index as i32,
-                    })
-                }
+                TransactionType::MiniAssert(index) => NumberedTransaction(NumberedTransactionId {
+                    transaction_type: Numbered::MiniAssert as i32,
+                    index: index as i32,
+                }),
             }),
         }
     }

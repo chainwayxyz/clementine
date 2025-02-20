@@ -2,10 +2,11 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::transaction::creator::TxHandlerDbData;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::config::BridgeConfig;
-use crate::constants::{KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH};
+use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
+use crate::watchtower::Watchtower;
 use crate::{builder, utils};
 use bitcoin::XOnlyPublicKey;
 
@@ -20,14 +21,17 @@ pub struct AssertRequestData {
     pub kickoff_id: KickoffId,
 }
 
-/// Creates a transaction type for a kickoff Id, signs it and returns the raw signed transaction
-pub async fn create_and_sign_tx(
+/// Signs all txes that are created and possible to be signed for the entity and returns them.
+/// Tx's that are not possible to be signed: MiniAsserts, WatchtowerChallenge, Disprove, do not use
+/// this for them
+pub async fn create_and_sign_all_txs(
     db: Database,
     signer: &Actor,
     config: BridgeConfig,
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_data: TransactionRequestData,
-) -> Result<RawSignedTx, BridgeError> {
+    block_hash: Option<[u8; 20]>, //to sign kickoff
+) -> Result<Vec<(TransactionType, RawSignedTx)>, BridgeError> {
     // get operator data
     let operator_data = db
         .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
@@ -37,9 +41,7 @@ pub async fn create_and_sign_tx(
         ))?;
 
     let start_time = std::time::Instant::now();
-    let mut txhandlers = builder::transaction::create_txhandlers(
-        config.clone(),
-        transaction_data.deposit_data.clone(),
+    let txhandlers = builder::transaction::create_txhandlers(
         nofn_xonly_pk,
         transaction_data.transaction_type,
         transaction_data.kickoff_id,
@@ -53,7 +55,7 @@ pub async fn create_and_sign_tx(
         ),
     )
     .await?;
-    tracing::warn!(
+    tracing::trace!(
         "create_txhandlers for {:?} finished in {:?}",
         transaction_data.transaction_type,
         start_time.elapsed()
@@ -70,64 +72,112 @@ pub async fn create_and_sign_tx(
         .await?;
     let signatures = sig_query.unwrap_or_default();
 
-    let mut requested_txhandler = txhandlers
-        .remove(&transaction_data.transaction_type)
-        .ok_or(BridgeError::TxHandlerNotFound(
-            transaction_data.transaction_type,
-        ))?;
+    let mut signed_txs = Vec::with_capacity(txhandlers.len());
 
-    signer.tx_sign_and_fill_sigs(&mut requested_txhandler, &signatures)?;
+    for (tx_type, mut txhandler) in txhandlers.into_iter() {
+        let _ = signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures);
 
-    if let TransactionType::OperatorChallengeAck(watchtower_idx) = transaction_data.transaction_type
-    {
-        let path = WinternitzDerivationPath::ChallengeAckHash(
-            watchtower_idx as u32,
-            transaction_data.deposit_data.deposit_outpoint.txid,
-        );
-        let preimage = signer.generate_preimage_from_path(path)?;
-        signer.tx_sign_preimage(&mut requested_txhandler, preimage)?;
+        if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
+            let path = WinternitzDerivationPath::ChallengeAckHash(
+                watchtower_idx as u32,
+                transaction_data.deposit_data.deposit_outpoint.txid,
+            );
+            let preimage = signer.generate_preimage_from_path(path)?;
+            let _ = signer.tx_sign_preimage(&mut txhandler, preimage);
+        }
+
+        if let TransactionType::Kickoff = tx_type {
+            if let Some(block_hash) = block_hash {
+                // need to commit blockhash to start kickoff
+                let path = WinternitzDerivationPath::Kickoff(
+                    transaction_data.kickoff_id.round_idx,
+                    transaction_data.kickoff_id.kickoff_idx,
+                );
+                signer.tx_sign_winternitz(&mut txhandler, &[block_hash.to_vec()], &[path])?;
+            }
+            // do not give err if blockhash was not given
+        }
+
+        let checked_txhandler = txhandler.promote();
+
+        match checked_txhandler {
+            Ok(checked_txhandler) => {
+                signed_txs.push((tx_type, checked_txhandler.encode_tx()));
+            }
+            Err(e) => {
+                tracing::trace!(
+                    "Couldn't sign transaction {:?} in create_and_sign_all_txs: {:?}",
+                    tx_type,
+                    e
+                );
+            }
+        }
     }
-    if let TransactionType::MiniAssert(assert_idx) = transaction_data.transaction_type {
-        let (paths, sizes) = utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(
-            assert_idx,
-            transaction_data.deposit_data.deposit_outpoint.txid,
+
+    Ok(signed_txs)
+}
+
+impl Watchtower {
+    /// Creates and signs the watchtower challenge
+    pub async fn create_and_sign_watchtower_challenge(
+        &self,
+        nofn_xonly_pk: XOnlyPublicKey,
+        transaction_data: TransactionRequestData,
+        commit_data: &[u8],
+    ) -> Result<RawSignedTx, BridgeError> {
+        if commit_data.len() != WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize / 2usize {
+            return Err(BridgeError::InvalidWatchtowerChallengeData);
+        }
+        // get operator data
+        let operator_data = self
+            .db
+            .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
+            .await?
+            .ok_or(BridgeError::OperatorNotFound(
+                transaction_data.kickoff_id.operator_idx,
+            ))?;
+
+        let start_time = std::time::Instant::now();
+        let mut txhandlers = builder::transaction::create_txhandlers(
+            nofn_xonly_pk,
+            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            transaction_data.kickoff_id,
+            operator_data,
+            None,
+            &mut TxHandlerDbData::new(
+                self.db.clone(),
+                transaction_data.kickoff_id.operator_idx,
+                transaction_data.deposit_data.clone(),
+                self.config.clone(),
+            ),
+        )
+        .await?;
+        tracing::trace!(
+            "create_txhandlers for {:?} finished in {:?}",
+            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            start_time.elapsed()
         );
-        signer.tx_sign_winternitz(
-            &mut requested_txhandler,
-            &sizes
-                .iter()
-                .map(|size| vec![0u8; *size as usize / 2])
-                .collect::<Vec<Vec<u8>>>(), // dummy assert
-            &paths,
-        )?;
-    }
-    if let TransactionType::WatchtowerChallenge(_) = transaction_data.transaction_type {
+
+        let mut requested_txhandler = txhandlers
+            .remove(&transaction_data.transaction_type)
+            .ok_or(BridgeError::TxHandlerNotFound(
+                transaction_data.transaction_type,
+            ))?;
+
         let path = WinternitzDerivationPath::WatchtowerChallenge(
             transaction_data.kickoff_id.operator_idx,
             transaction_data.deposit_data.deposit_outpoint.txid,
         );
-        signer.tx_sign_winternitz(
+        self.signer.tx_sign_winternitz(
             &mut requested_txhandler,
-            &[vec![1u8; WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize / 2]], // dummy challenge
+            &[commit_data.to_vec()],
             &[path],
         )?;
-    }
-    if let TransactionType::Kickoff = transaction_data.transaction_type {
-        // need to commit blockhash to start kickoff
-        let path = WinternitzDerivationPath::Kickoff(
-            transaction_data.kickoff_id.round_idx,
-            transaction_data.kickoff_id.kickoff_idx,
-        );
-        signer.tx_sign_winternitz(
-            &mut requested_txhandler,
-            &[vec![1u8; KICKOFF_BLOCKHASH_COMMIT_LENGTH as usize / 2]], // dummy blockhash
-            &[path],
-        )?;
-    }
 
-    let checked_txhandler = requested_txhandler.promote()?;
+        let checked_txhandler = requested_txhandler.promote()?;
 
-    Ok(checked_txhandler.encode_tx())
+        Ok(checked_txhandler.encode_tx())
+    }
 }
 
 pub async fn create_assert_commitment_txs(
@@ -146,8 +196,6 @@ pub async fn create_assert_commitment_txs(
         ))?;
 
     let mut txhandlers = builder::transaction::create_txhandlers(
-        config.clone(),
-        assert_data.deposit_data.clone(),
         nofn_xonly_pk,
         TransactionType::MiniAssert(0),
         assert_data.kickoff_id,

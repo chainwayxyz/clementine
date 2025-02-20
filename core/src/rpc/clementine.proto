@@ -126,7 +126,7 @@ message NumberedTransactionId {
 message GrpcTransactionId {
   oneof id {
     NormalTransactionId normal_transaction = 1;
-    NumberedTransactionId watchtower_transaction = 2;
+    NumberedTransactionId numbered_transaction = 2;
   }
 }
 
@@ -223,7 +223,8 @@ service ClementineOperator {
   // Returns an operator's deposit keys.
   // Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
   rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
-  // Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
+  // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+  // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
   // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
   //
   // # Parameters
@@ -232,8 +233,8 @@ service ClementineOperator {
   // - kickoff_id: Operator's kickoff ID
   //
   // # Returns
-  // - Raw signed transaction
-  rpc InternalCreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+  // - Raw signed transactions that the entity can possibly sign (no asserts and watchtower challenge)
+  rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
 
   // Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
   // in the same order.
@@ -342,8 +343,9 @@ service ClementineVerifier {
   rpc SetWatchtowerKeys(WatchtowerKeysWithDeposit) returns (Empty) {}
   // Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
   rpc SetOperatorKeys(OperatorKeysWithDeposit)  returns (Empty) {}
-  // Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-  // It will create the transaction and sign it with saved nofn signatures.
+  // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+  // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
+  // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
   //
   // # Parameters
   // - deposit_params: User's deposit information
@@ -351,8 +353,8 @@ service ClementineVerifier {
   // - kickoff_id: Operator's kickoff ID
   //
   // # Returns
-  // - Raw signed transaction
-  rpc InternalCreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+  // - Raw signed transactions that the entity can possibly sign (no asserts and watchtower challenge)
+  rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
 
@@ -412,7 +414,7 @@ service ClementineWatchtower {
   //
   // # Returns
   // - Raw signed transaction
-  rpc InternalCreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (RawSignedTx) {}
   // Returns every operator's winternitz public keys.
   rpc GetParams(Empty) returns (stream WatchtowerParams) {}
 }
@@ -425,6 +427,15 @@ message RawSignedTx {
 
 message RawSignedTxs {
   repeated RawSignedTx raw_txs = 1;
+}
+
+message SignedTxWithType {
+  GrpcTransactionId transaction_type = 1;
+  bytes raw_tx = 2;
+}
+
+message SignedTxsWithType {
+  repeated SignedTxWithType signed_txs = 1;
 }
 
 service ClementineAggregator {

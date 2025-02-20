@@ -253,6 +253,10 @@ pub enum BridgeError {
     #[error("Operator sighash count does not match. Expected: {0} Found: {1}")]
     OperatorSighashMismatch(usize, usize),
 
+    #[error(
+        "The length of watchtower challenge commit data does not match expected number of bytes"
+    )]
+    InvalidWatchtowerChallengeData,
     #[error("The length of full assert commit data does not match the number of steps")]
     InvalidCommitData,
     #[error(

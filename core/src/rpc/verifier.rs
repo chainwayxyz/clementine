@@ -1,6 +1,6 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, PartialSig, RawSignedTx, TransactionRequest, VerifierDepositFinalizeParams,
+    OperatorParams, PartialSig, SignedTxWithType, SignedTxsWithType, VerifierDepositFinalizeParams,
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerKeysWithDeposit,
     WatchtowerParams,
 };
@@ -8,7 +8,7 @@ use super::error;
 use crate::builder::sighash::{
     calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
 };
-use crate::builder::transaction::sign::create_and_sign_tx;
+use crate::builder::transaction::sign::create_and_sign_all_txs;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::parser::parse_transaction_request;
 use crate::{
@@ -363,26 +363,6 @@ impl ClementineVerifier for Verifier {
         Ok(Response::new(partial_sig.into()))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn internal_create_signed_tx(
-        &self,
-        request: Request<TransactionRequest>,
-    ) -> Result<Response<RawSignedTx>, Status> {
-        let transaction_request = request.into_inner();
-        let transaction_data = parse_transaction_request(transaction_request)?;
-
-        let raw_tx = create_and_sign_tx(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            self.nofn_xonly_pk,
-            transaction_data,
-        )
-        .await?;
-
-        Ok(Response::new(raw_tx))
-    }
-
     async fn set_operator_keys(
         &self,
         request: tonic::Request<super::OperatorKeysWithDeposit>,
@@ -406,5 +386,32 @@ impl ClementineVerifier for Verifier {
         self.set_watchtower_keys(deposit_params, wt_keys, watchtower_idx)
             .await?;
         Ok(Response::new(Empty {}))
+    }
+
+    async fn internal_create_signed_txs(
+        &self,
+        request: tonic::Request<super::TransactionRequest>,
+    ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
+        let transaction_request = request.into_inner();
+        let transaction_data = parse_transaction_request(transaction_request)?;
+        let raw_txs = create_and_sign_all_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+            None, // empty blockhash, will not sign this
+        )
+        .await?;
+
+        Ok(Response::new(SignedTxsWithType {
+            signed_txs: raw_txs
+                .into_iter()
+                .map(|(tx_type, signed_tx)| SignedTxWithType {
+                    transaction_type: Some(tx_type.into()),
+                    raw_tx: signed_tx.raw_tx,
+                })
+                .collect(),
+        }))
     }
 }
