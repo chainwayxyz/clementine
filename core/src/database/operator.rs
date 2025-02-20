@@ -772,7 +772,7 @@ mod tests {
         DepositSignatures, NormalSignatureKind, TaggedSignature, WatchtowerSignatureKind,
     };
     use crate::UTXO;
-    use crate::{database::Database, test_utils::*};
+    use crate::{database::Database, test::common::*};
     use std::str::FromStr;
 
     #[tokio::test]

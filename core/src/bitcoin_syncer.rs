@@ -313,7 +313,7 @@ pub async fn start_bitcoin_syncer(
 mod tests {
     use crate::builder::transaction::DEFAULT_SEQUENCE;
 
-    use crate::{database::Database, test_utils::*};
+    use crate::{database::Database, test::common::*};
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;

@@ -797,7 +797,7 @@ mod tests {
 
     use crate::rpc::clementine::{self};
     use crate::{builder, EVMAddress};
-    use crate::{rpc::clementine::DepositParams, test_utils::*};
+    use crate::{rpc::clementine::DepositParams, test::common::*};
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
     use std::str::FromStr;

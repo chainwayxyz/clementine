@@ -1,4 +1,4 @@
-mod common;
+pub mod common;
 mod deposit;
 mod misc;
 mod musig2;

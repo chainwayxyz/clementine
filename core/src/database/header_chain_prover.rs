@@ -176,7 +176,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use crate::database::Database;
-    use crate::test_utils::*;
+    use crate::test::common::*;
     use bitcoin::block::{self, Header, Version};
     use bitcoin::hashes::Hash;
     use bitcoin::{BlockHash, CompactTarget, TxMerkleNode};

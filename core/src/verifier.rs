@@ -1398,7 +1398,7 @@ impl Verifier {
 // use crate::EVMAddress;
 // use crate::{actor::Actor, create_test_config_with_thread_name};
 // use crate::{
-//     config::BridgeConfig, database::Database, test_utils::*, utils::initialize_logger,
+//     config::BridgeConfig, database::Database, test::common::*, utils::initialize_logger,
 // };
 // use bitcoin::secp256k1:: rand;
 // use std::{env, thread};

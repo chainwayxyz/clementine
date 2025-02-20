@@ -490,7 +490,7 @@ mod tests {
     use crate::builder::script::{CheckSig, SpendableScript};
     use crate::builder::transaction::TransactionType;
     use crate::utils::SECP;
-    use crate::{database::Database, test_utils::*};
+    use crate::{database::Database, test::common::*};
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
     use secp256k1::rand;

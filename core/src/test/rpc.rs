@@ -8,7 +8,7 @@ use crate::utils::SECP;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use tonic::Request;
 
-use crate::test_utils::*;
+use crate::test::common::*;
 
 #[ignore = "Design changes in progress"]
 #[tokio::test]

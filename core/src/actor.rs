@@ -484,7 +484,7 @@ mod tests {
 
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::utils::SECP;
-    use crate::{actor::WinternitzDerivationPath, test_utils::*};
+    use crate::{actor::WinternitzDerivationPath, test::common::*};
     use bitcoin::secp256k1::{schnorr, Message, SecretKey};
 
     use bitcoin::sighash::TapSighashType;

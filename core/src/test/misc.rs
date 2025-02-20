@@ -2,7 +2,7 @@ use super::common::run_single_deposit;
 use crate::extended_rpc::ExtendedRpc;
 use bitcoincore_rpc::RpcApi;
 
-use crate::test_utils::*;
+use crate::test::common::*;
 
 #[tokio::test]
 async fn test_deposit() {

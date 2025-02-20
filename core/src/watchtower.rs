@@ -115,7 +115,7 @@ impl Watchtower {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::*;
+    use crate::test::common::*;
 
     use crate::watchtower::Watchtower;
 

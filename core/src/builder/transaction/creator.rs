@@ -681,7 +681,7 @@ pub async fn create_txhandlers(
 mod tests {
 
     use crate::rpc::clementine::{self};
-    use crate::{rpc::clementine::DepositParams, test_utils::*, utils, EVMAddress};
+    use crate::{rpc::clementine::DepositParams, test::common::*, utils, EVMAddress};
     use bitcoin::Txid;
     use futures::future::try_join_all;
 

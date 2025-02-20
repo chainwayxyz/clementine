@@ -253,7 +253,7 @@ mod tests {
     use crate::operator::Operator;
     use crate::utils::BITVM_CACHE;
     use crate::watchtower::Watchtower;
-    use crate::{database::Database, test_utils::*};
+    use crate::{database::Database, test::common::*};
     use bitcoin::hashes::Hash;
     use bitcoin::{OutPoint, ScriptBuf, TapSighash, Txid, XOnlyPublicKey};
     use futures::StreamExt;

@@ -201,7 +201,7 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::*;
+    use crate::test::common::*;
 
     use crate::header_chain_prover::{
         blockgazer::{BlockFetchStatus, BATCH_DEEPNESS, BATCH_DEEPNESS_SAFETY_BARRIER},

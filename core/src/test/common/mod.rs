@@ -16,13 +16,14 @@ use crate::servers::{
     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
     create_watchtower_grpc_server,
 };
-use crate::test_utils::*;
 use crate::EVMAddress;
 use crate::{builder, musig2::AggregateFromPublicKeys};
 use bitcoin::OutPoint;
+pub use test_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
 
+mod test_utils;
 // pub async fn run_multiple_deposits(test_config_name: &str) {
 //     let config = create_test_config_with_thread_name(test_config_name, None);
 //     let rpc = ExtendedRpc::connect(

@@ -334,7 +334,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use crate::database::Database;
-    use crate::test_utils::*;
+    use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::{BlockHash, Txid};
 

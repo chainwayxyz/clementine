@@ -102,7 +102,7 @@ impl HeaderChainProver {
 #[cfg(test)]
 mod tests {
     use crate::header_chain_prover::HeaderChainProver;
-    use crate::test_utils::*;
+    use crate::test::common::*;
     use bitcoin::{hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;

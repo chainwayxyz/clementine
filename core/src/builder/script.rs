@@ -566,7 +566,7 @@ mod tests {
         (builder, address)
     }
 
-    use crate::test_utils::*;
+    use crate::test::common::*;
 
     #[tokio::test]
 

@@ -168,7 +168,7 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::*;
+    use crate::test::common::*;
     use crate::{extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver};
     use bitcoin::{
         block::{Header, Version},

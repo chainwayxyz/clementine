@@ -179,7 +179,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::test_utils::*;
+    use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::key::{Keypair, Secp256k1};
     use bitcoin::{ScriptBuf, Txid, XOnlyPublicKey};

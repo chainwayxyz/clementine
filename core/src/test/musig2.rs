@@ -7,7 +7,7 @@ use crate::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::test_utils::*;
+use crate::test::common::*;
 use crate::utils::SECP;
 use crate::{
     builder::{self},

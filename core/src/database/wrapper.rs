@@ -267,7 +267,7 @@ mod tests {
     use crate::{
         database::Database,
         rpc::clementine::TaggedSignature,
-        test_utils::*,
+        test::common::*,
         utils::{self, SECP},
         EVMAddress,
     };

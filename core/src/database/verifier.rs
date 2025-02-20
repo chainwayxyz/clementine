@@ -273,7 +273,7 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::*;
+    use crate::test::common::*;
     use crate::{database::Database, musig2::nonce_pair, utils::SECP, EVMAddress, UTXO};
     use bitcoin::{
         hashes::Hash, key::Keypair, secp256k1::SecretKey, Address, Amount, OutPoint, ScriptBuf,

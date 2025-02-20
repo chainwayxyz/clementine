@@ -5,7 +5,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::builder::{self};
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::test_utils::*;
+use crate::test::common::*;
 use crate::utils::SECP;
 use bitcoin::{Amount, TxOut};
 use bitcoincore_rpc::RpcApi;
