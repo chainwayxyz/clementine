@@ -45,7 +45,6 @@ bitcoin-script = { workspace = true }
 
 [features]
 default = []
-testing = []
 
 [[bin]]
 name = "server"

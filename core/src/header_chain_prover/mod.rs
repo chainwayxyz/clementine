@@ -101,14 +101,8 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
-    use crate::create_regtest_rpc;
-    use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
-    use crate::{
-        create_test_config_with_thread_name, extended_rpc::ExtendedRpc,
-        header_chain_prover::HeaderChainProver,
-    };
+    use crate::header_chain_prover::HeaderChainProver;
+    use crate::test::common::*;
     use bitcoin::{hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
@@ -118,8 +112,8 @@ mod tests {
 
     #[tokio::test]
     async fn new() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
         let _should_not_panic = HeaderChainProver::new(&config, rpc).await.unwrap();
@@ -128,8 +122,8 @@ mod tests {
     #[tokio::test]
 
     async fn new_with_proof_assumption() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
         // First block's assumption will be added to db: Make sure block exists
@@ -152,8 +146,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await

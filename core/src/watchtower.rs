@@ -115,23 +115,23 @@ impl Watchtower {
 
 #[cfg(test)]
 mod tests {
-    use crate::create_test_config_with_thread_name;
-    use crate::utils::initialize_logger;
+    use crate::test::common::*;
+
     use crate::watchtower::Watchtower;
-    use crate::{config::BridgeConfig, database::Database, initialize_database};
+
     use bitcoin::hashes::Hash;
     use bitcoin::Txid;
 
     #[tokio::test]
     async fn new_watchtower() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
 
         let _should_not_panic = Watchtower::new(config.clone()).await.unwrap();
     }
 
     #[tokio::test]
     async fn get_watchtower_winternitz_public_keys() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
 
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
         let watchtower_winternitz_public_keys = watchtower
@@ -146,7 +146,7 @@ mod tests {
 
     #[tokio::test]
     async fn watchtower_get_params() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
 
         let (watchtower_id, xonly_pk) = watchtower.get_params().await.unwrap();

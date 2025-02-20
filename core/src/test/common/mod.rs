@@ -2,33 +2,30 @@
 
 #![allow(unused)]
 
-#[path = "../../src/test_utils.rs"]
-mod test_utils;
-
-use crate::initialize_database;
-pub use crate::{create_actors, create_regtest_rpc, get_available_port, get_deposit_address};
-use bitcoin::OutPoint;
-use clementine_core::actor::Actor;
-use clementine_core::config::BridgeConfig;
-use clementine_core::database::Database;
-use clementine_core::errors::BridgeError;
-use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use clementine_core::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use clementine_core::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use clementine_core::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-use clementine_core::rpc::clementine::{DepositParams, Empty};
-use clementine_core::servers::{
+use crate::actor::Actor;
+use crate::config::BridgeConfig;
+use crate::database::Database;
+use crate::errors::BridgeError;
+use crate::extended_rpc::ExtendedRpc;
+use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
+use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+use crate::rpc::clementine::{DepositParams, Empty};
+use crate::servers::{
     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
     create_watchtower_grpc_server,
 };
-use clementine_core::EVMAddress;
-use clementine_core::{builder, musig2::AggregateFromPublicKeys};
+use crate::EVMAddress;
+use crate::{builder, musig2::AggregateFromPublicKeys};
+use bitcoin::OutPoint;
+pub use test_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
 
+mod test_utils;
 // pub async fn run_multiple_deposits(test_config_name: &str) {
-//     let config = create_test_config_with_thread_name!(test_config_name, None);
+//     let config = create_test_config_with_thread_name(test_config_name, None);
 //     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
@@ -51,7 +48,7 @@ use tonic::Request;
 //     let user = User::new(rpc.clone_inner().await.unwrap(), secret_key, config.clone());
 
 //     let evm_address = EVMAddress([1u8; 20]);
-//     let deposit_address = user.get_deposit_address(evm_address).unwrap(); This line needs to be converted into get_deposit_address!
+//     let deposit_address = user.get_deposit_address(evm_address).unwrap(); This line needs to be converted into get_deposit_address
 //     let mut deposit_outpoints = Vec::new();
 //     for _ in 0..config.operator_num_kickoff_utxos_per_tx + 1 {
 //         let deposit_outpoint = rpc
@@ -179,7 +176,7 @@ use tonic::Request;
 //             ),
 //         )
 //         .await
-//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature!
+//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature
 //     let withdrawal_provide_txid = operators[0]
 //         .0
 //         .new_withdrawal_sig_rpc(0, user_sig, user_utxo, user_txout)
@@ -201,7 +198,7 @@ use tonic::Request;
 //             ),
 //         )
 //         .await
-//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature!
+//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature
 //     let withdrawal_provide_txid = operators[1]
 //         .0
 //         .new_withdrawal_sig_rpc(
@@ -231,7 +228,7 @@ use tonic::Request;
 //             ),
 //         )
 //         .await
-//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature!
+//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature
 //     let withdrawal_provide_txid = operators[0]
 //         .0
 //         .new_withdrawal_sig_rpc(2, user_sig, user_utxo, user_txout)
@@ -261,13 +258,14 @@ pub async fn run_single_deposit(
     ),
     BridgeError,
 > {
-    let regtest = create_regtest_rpc!(config);
+    let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address!(config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
 
-    let (verifiers, operators, mut aggregator, watchtowers, _regtest) = create_actors!(config);
+    let (verifiers, operators, mut aggregator, watchtowers, _regtest) =
+        create_actors(&config).await;
 
     aggregator.setup(Request::new(Empty {})).await?;
 

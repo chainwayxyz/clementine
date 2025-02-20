@@ -179,8 +179,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::create_test_config_with_thread_name;
-    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
+    use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::key::{Keypair, Secp256k1};
     use bitcoin::{ScriptBuf, Txid, XOnlyPublicKey};
@@ -189,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_winternitz_public_key() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let database = Database::new(&config).await.unwrap();
 
         // Assuming there are 2 sequential collateral txs.
@@ -211,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_watchtower_challenge_address() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let database = Database::new(&config).await.unwrap();
 
         // Assuming there are 2 time_txs.
@@ -243,7 +242,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_watchtower_xonly_pk() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let database = Database::new(&config).await.unwrap();
 
         let secp = Secp256k1::new();
