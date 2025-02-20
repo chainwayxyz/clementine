@@ -864,7 +864,7 @@ mod tests {
         tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn aggregator_deposit_movetx_lands_onchain() {
         let config = create_test_config_with_thread_name(None).await;
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
