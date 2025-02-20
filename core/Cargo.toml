@@ -37,6 +37,8 @@ futures-util = { workspace = true }
 futures-core = { workspace = true }
 bitvm = { workspace = true }
 tempfile = { workspace = true }
+merkle = { workspace = true }
+ring = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
