@@ -359,7 +359,7 @@ impl TxSender {
             self.signer.address.clone(),
         )?;
 
-        tracing::error!(
+        tracing::info!(
             "Sending package: '[\"{}\", \"{}\"']",
             hex::encode(serialize(&tx)),
             hex::encode(serialize(&child_tx))
@@ -371,7 +371,7 @@ impl TxSender {
             .test_mempool_accept(&[&tx, &child_tx])
             .await?;
 
-        tracing::error!(
+        tracing::info!(
             "Test mempool accept result: {:?}",
             test_mempool_accept_result
         );
@@ -441,7 +441,7 @@ impl TxSender {
                 }
                 Err(e) => match e {
                     BridgeError::BumpFeeUTXOSpent(outpoint) => {
-                        tracing::error!("Fee payer UTXO is spent, skipping : {:?}", outpoint);
+                        tracing::info!("Fee payer UTXO is spent, skipping : {:?}", outpoint);
                         continue;
                     }
                     _ => return Err(e),
@@ -471,7 +471,7 @@ impl TxSender {
                 Ok(_) => {}
                 Err(e) => match e {
                     BridgeError::ConfirmedFeePayerTxNotFound => {
-                        tracing::error!("TXSENDER: Confirmed fee payer tx not found, skipping");
+                        tracing::info!("TXSENDER: Confirmed fee payer tx not found, skipping");
                         continue;
                     }
                     _ => return Err(e),

@@ -19,7 +19,11 @@ struct DepositOnCitrea;
 impl TestCase for DepositOnCitrea {
     fn bitcoin_config() -> BitcoinConfig {
         BitcoinConfig {
-            extra_args: vec!["-txindex=1", "-fallbackfee=0.000001"],
+            extra_args: vec![
+                "-txindex=1",
+                "-fallbackfee=0.000001",
+                "-rpcallowip=0.0.0.0/0",
+            ],
             ..Default::default()
         }
     }
@@ -56,7 +60,6 @@ impl TestCase for DepositOnCitrea {
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
-        tracing::error!("rpcport: {} {}", da.config.rpc_port, config.bitcoin_rpc_url);
         rpc.mine_blocks(101).await?; // TODO: remove; only for checking network availability
 
         let citrea_url = format!(
@@ -69,7 +72,7 @@ impl TestCase for DepositOnCitrea {
             run_single_deposit(&mut config, rpc.clone()).await.unwrap();
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
-        tracing::error!("tx---: {:?}", tx);
+        tracing::info!("Move tx: {:?}", tx);
 
         Ok(())
     }
