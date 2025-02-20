@@ -887,10 +887,14 @@ impl Verifier {
                     .iter()
                     .map(|(_, intermediate_step_size)| **intermediate_step_size as u32 * 2)
                     .collect();
+
                 let script = WinternitzCommit::new(
-                    &winternitz_keys[steps.0..steps.1],
+                    winternitz_keys[steps.0..steps.1]
+                        .iter()
+                        .zip(sizes.iter())
+                        .map(|(k, s)| (k.clone(), *s))
+                        .collect::<Vec<_>>(),
                     operator_data.xonly_pk,
-                    &sizes,
                 );
                 let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
                 taproot_builder
@@ -958,8 +962,7 @@ impl Verifier {
                 .await?;
             let challenge_addr = derive_challenge_address_from_xonlypk_and_wpk(
                 &watchtower_xonly_pk,
-                &[winternitz_key.clone()],
-                &[WATCHTOWER_CHALLENGE_MESSAGE_LENGTH],
+                vec![(winternitz_key.clone(), WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
                 self.config.network,
             )
             .script_pubkey();
@@ -1422,14 +1425,14 @@ impl Verifier {
 // use crate::EVMAddress;
 // use crate::{actor::Actor, create_test_config_with_thread_name};
 // use crate::{
-//     config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+//     config::BridgeConfig, database::Database, test::common::*, utils::initialize_logger,
 // };
 // use bitcoin::secp256k1:: rand;
 // use std::{env, thread};
 
 // #[tokio::test]
 // async fn verifier_new_public_key_check() {
-//     let mut config = create_test_config_with_thread_name!(None);
+//     let mut config = create_test_config_with_thread_name(None).await;
 //     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
@@ -1448,7 +1451,7 @@ impl Verifier {
 // #[tokio::test]
 //
 // async fn new_deposit_nonce_checks() {
-//     let mut config = create_test_config_with_thread_name!(None);
+//     let mut config = create_test_config_with_thread_name(None).await;
 //     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
@@ -1458,7 +1461,7 @@ impl Verifier {
 //     let verifier = Verifier::new(rpc.clone_inner().await.unwrap(), config.clone()).await.unwrap();
 
 //     let evm_address = EVMAddress([1u8; 20]);
-//     let deposit_address = get_deposit_address(config, evm_address).unwrap(); This line needs to be converted into get_deposit_address!
+//     let deposit_address = get_deposit_address(config, evm_address).unwrap(); This line needs to be converted into get_deposit_address
 
 //     let signer_address = Actor::new(
 //         config.secret_key,

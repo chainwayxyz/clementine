@@ -219,7 +219,7 @@ impl<T: State> TxHandler<T> {
         }
     }
 
-    pub fn calculate_all_txins_sighash(
+    pub fn calculate_shared_txins_sighash(
         &self,
         needed_entity: EntityType,
         partial_signature_info: PartialSignatureInfo,
@@ -229,8 +229,8 @@ impl<T: State> TxHandler<T> {
             let sig_id = self.txins[idx].get_signature_id();
             let sig_owner = sig_id.get_deposit_sig_owner()?;
             match (sig_owner, needed_entity) {
-                (DepositSigKeyOwner::OperatorDB(sighash_type), EntityType::Operator)
-                | (DepositSigKeyOwner::NofnDB(sighash_type), EntityType::Verifier)
+                (DepositSigKeyOwner::OperatorSharedDeposit(sighash_type), EntityType::OperatorDeposit)
+                | (DepositSigKeyOwner::NofnSharedDeposit(sighash_type), EntityType::VerifierDeposit)
                 | (
                     DepositSigKeyOwner::OperatorDBDuringSetup(sighash_type),
                     EntityType::OperatorDuringSetup,

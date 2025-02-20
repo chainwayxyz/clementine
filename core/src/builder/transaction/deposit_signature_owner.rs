@@ -5,9 +5,9 @@ use bitcoin::TapSighashType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntityType {
-    Operator,
+    OperatorDeposit,
     Watchtower,
-    Verifier,
+    VerifierDeposit,
     OperatorDuringSetup,
 }
 
@@ -16,8 +16,8 @@ pub enum EntityType {
 pub enum DepositSigKeyOwner {
     NotOwned,
     /// this type is for operator's signatures that need to be saved during deposit
-    OperatorDB(TapSighashType),
-    NofnDB(TapSighashType),
+    OperatorSharedDeposit(TapSighashType),
+    NofnSharedDeposit(TapSighashType),
     /// this type is for signatures that is needed for Operator themselves to spend the utxo
     /// So verifiers do not need this signature info, thus it is not saved to DB.
     /// Added to help define different sighash types for operator's own signatures.
@@ -45,16 +45,16 @@ impl SignatureId {
                 match normal_sig_type {
                     OperatorSighashDefault => Ok(Operator(SighashDefault)),
                     NormalSignatureUnknown => Ok(NotOwned),
-                    WatchtowerChallengeKickoff => Ok(NofnDB(SighashDefault)),
-                    Challenge => Ok(NofnDB(SinglePlusAnyoneCanPay)),
-                    DisproveTimeout2 => Ok(NofnDB(SighashDefault)),
-                    Disprove2 => Ok(OperatorDB(SighashNone)),
-                    Reimburse1 => Ok(NofnDB(SighashDefault)),
-                    KickoffNotFinalized1 => Ok(NofnDB(SighashDefault)),
-                    KickoffNotFinalized2 => Ok(OperatorDB(SighashDefault)),
-                    Reimburse2 => Ok(NofnDB(SighashDefault)),
+                    WatchtowerChallengeKickoff => Ok(NofnSharedDeposit(SighashDefault)),
+                    Challenge => Ok(NofnSharedDeposit(SinglePlusAnyoneCanPay)),
+                    DisproveTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
+                    Disprove2 => Ok(OperatorSharedDeposit(SighashNone)),
+                    Reimburse1 => Ok(NofnSharedDeposit(SighashDefault)),
+                    KickoffNotFinalized1 => Ok(NofnSharedDeposit(SighashDefault)),
+                    KickoffNotFinalized2 => Ok(OperatorSharedDeposit(SighashDefault)),
+                    Reimburse2 => Ok(NofnSharedDeposit(SighashDefault)),
                     NoSignature => Ok(NotOwned),
-                    ChallengeTimeout2 => Ok(NofnDB(SighashDefault)),
+                    ChallengeTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                     MiniAssert1 => Ok(Operator(SinglePlusAnyoneCanPay)),
                     OperatorChallengeAck1 => Ok(Operator(SinglePlusAnyoneCanPay)),
                     NotStored => Ok(NotOwned),
@@ -70,16 +70,16 @@ impl SignatureId {
                     })?;
                 use NumberedSignatureKind::*;
                 match numbered_sig_type {
-                    OperatorChallengeNack1 => Ok(NofnDB(SighashDefault)),
-                    OperatorChallengeNack2 => Ok(NofnDB(SighashDefault)),
+                    OperatorChallengeNack1 => Ok(NofnSharedDeposit(SighashDefault)),
+                    OperatorChallengeNack2 => Ok(NofnSharedDeposit(SighashDefault)),
                     NumberedSignatureUnknown => Ok(NotOwned),
                     NumberedNotStored => Ok(Operator(SighashDefault)),
-                    OperatorChallengeNack3 => Ok(OperatorDB(SighashDefault)),
-                    AssertTimeout1 => Ok(NofnDB(SighashDefault)),
-                    AssertTimeout2 => Ok(NofnDB(SighashDefault)),
-                    AssertTimeout3 => Ok(OperatorDB(SighashDefault)),
-                    UnspentKickoff1 => Ok(OperatorDBDuringSetup(SighashDefault)),
-                    UnspentKickoff2 => Ok(OperatorDBDuringSetup(SighashDefault)),
+                    OperatorChallengeNack3 => Ok(OperatorSharedDeposit(SighashDefault)),
+                    AssertTimeout1 => Ok(NofnSharedDeposit(SighashDefault)),
+                    AssertTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
+                    AssertTimeout3 => Ok(OperatorSharedDeposit(SighashDefault)),
+                    UnspentKickoff1 => Ok(OperatorDuringSetup(SighashDefault)),
+                    UnspentKickoff2 => Ok(OperatorDuringSetup(SighashDefault)),
                 }
             }
         }

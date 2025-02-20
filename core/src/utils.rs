@@ -180,7 +180,7 @@ impl CombinedAssertData {
         &self,
         assert_idx: usize,
         txid: Txid,
-    ) -> (Vec<WinternitzDerivationPath>, Vec<u32>) {
+    ) -> Vec<(WinternitzDerivationPath, u32)> {
         BITVM_CACHE
             .intermediate_variables
             .iter()
@@ -197,8 +197,6 @@ impl CombinedAssertData {
                 )
             })
             .collect::<Vec<_>>()
-            .into_iter()
-            .unzip()
     }
 }
 

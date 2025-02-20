@@ -713,7 +713,7 @@ pub mod clementine_operator_client {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transactions that the entity can possibly sign (no asserts and watchtower challenge)
+        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
         pub async fn internal_create_signed_txs(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
@@ -1060,7 +1060,7 @@ pub mod clementine_verifier_client {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transactions that the entity can possibly sign (no asserts and watchtower challenge)
+        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
         pub async fn internal_create_signed_txs(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
@@ -1627,7 +1627,7 @@ pub mod clementine_operator_server {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transactions that the entity can possibly sign (no asserts and watchtower challenge)
+        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
         async fn internal_create_signed_txs(
             &self,
             request: tonic::Request<super::TransactionRequest>,
@@ -2202,7 +2202,7 @@ pub mod clementine_verifier_server {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transactions that the entity can possibly sign (no asserts and watchtower challenge)
+        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
         async fn internal_create_signed_txs(
             &self,
             request: tonic::Request<super::TransactionRequest>,

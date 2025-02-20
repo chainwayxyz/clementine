@@ -935,6 +935,9 @@ impl Operator {
 #[cfg(test)]
 mod tests {
     use crate::builder::transaction::creator::KickoffWinternitzKeys;
+    use crate::operator::Operator;
+    use crate::test::common::*;
+    use crate::builder::transaction::creator::KickoffWinternitzKeys;
     use crate::create_regtest_rpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
@@ -946,7 +949,7 @@ mod tests {
     use bitcoin::Txid;
     // #[tokio::test]
     // async fn set_funding_utxo() {
-    //     let mut config = create_test_config_with_thread_name!(None);
+    //     let mut config = create_test_config_with_thread_name(None).await;
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -979,7 +982,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn is_profitable() {
-    //     let mut config = create_test_config_with_thread_name!(None);
+    //     let mut config = create_test_config_with_thread_name(None).await;
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -1016,8 +1019,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
@@ -1033,8 +1036,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
@@ -1047,8 +1050,8 @@ mod tests {
 
     #[tokio::test]
     async fn operator_get_params() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
         let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();

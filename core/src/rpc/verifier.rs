@@ -8,7 +8,7 @@ use super::error;
 use crate::builder::sighash::{
     calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
 };
-use crate::builder::transaction::sign::create_and_sign_all_txs;
+use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::parser::parse_transaction_request;
 use crate::{
@@ -217,7 +217,7 @@ impl ClementineVerifier for Verifier {
                 })?;
 
                 nonce_idx += 1;
-                tracing::debug!(
+                tracing::trace!(
                     "Verifier {} signed and sent sighash {} of {} through rpc deposit_sign",
                     verifier.idx,
                     nonce_idx,
@@ -397,7 +397,7 @@ impl ClementineVerifier for Verifier {
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
         let transaction_data = parse_transaction_request(transaction_request)?;
-        let raw_txs = create_and_sign_all_txs(
+        let raw_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),

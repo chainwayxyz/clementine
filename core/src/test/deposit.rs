@@ -16,7 +16,7 @@
 // #[tokio::test]
 //
 // async fn deposit_with_retry_checks() {
-// let mut config = create_test_config_with_thread_name!(None);
+// let mut config = create_test_config_with_thread_name(None).await;
 // let rpc = ExtendedRpc::connect(
 //     config.bitcoin_rpc_url.clone(),
 //     config.bitcoin_rpc_user.clone(),
@@ -32,7 +32,7 @@
 // let user = User::new(rpc.clone_inner().await.unwrap(), secret_key, config.clone());
 
 // let evm_address: EVMAddress = EVMAddress([1u8; 20]);
-// let deposit_address = user.get_deposit_address(evm_address).unwrap(); This line needs to be converted into get_deposit_address!
+// let deposit_address = user.get_deposit_address(evm_address).unwrap(); This line needs to be converted into get_deposit_address
 
 // let deposit_outpoint = rpc
 //     .send_to_address(&deposit_address, config.bridge_amount_sats)

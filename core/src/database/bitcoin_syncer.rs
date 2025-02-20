@@ -104,9 +104,9 @@ impl Database {
     ) -> Result<Vec<u32>, BridgeError> {
         let query = sqlx::query_as(
             "WITH deleted AS (
-                UPDATE bitcoin_syncer 
-                SET is_canonical = false 
-                WHERE height > $1 
+                UPDATE bitcoin_syncer
+                SET is_canonical = false
+                WHERE height > $1
                 RETURNING id
             ) SELECT id FROM deleted",
         )
@@ -291,15 +291,14 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::BridgeConfig;
-    use crate::utils::initialize_logger;
+    use crate::database::Database;
+    use crate::test::common::*;
 
-    use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
     use bitcoin::hashes::Hash;
     use bitcoin::BlockHash;
 
     async fn setup_test_db() -> Database {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         Database::new(&config).await.unwrap()
     }
 
@@ -450,7 +449,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_get_block_info() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
 
         let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
@@ -502,7 +501,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_and_get_txids_from_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
         let mut dbtx = db.begin_transaction().await.unwrap();
 
@@ -545,7 +544,7 @@ mod tests {
 
     #[tokio::test]
     async fn insert_get_spent_utxos() {
-        let config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
         let mut dbtx = db.begin_transaction().await.unwrap();
 

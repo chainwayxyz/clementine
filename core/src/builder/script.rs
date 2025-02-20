@@ -122,7 +122,7 @@ impl CheckSig {
 /// Contains the Winternitz PK, CheckSig PK, message length respectively
 /// can contain multiple different Winternitz public keys for different messages
 #[derive(Clone)]
-pub struct WinternitzCommit(Vec<PublicKey>, pub(crate) XOnlyPublicKey, Vec<u32>);
+pub struct WinternitzCommit(Vec<(PublicKey, u32)>, pub(crate) XOnlyPublicKey);
 impl SpendableScript for WinternitzCommit {
     fn as_any(&self) -> &dyn Any {
         self
@@ -135,9 +135,8 @@ impl SpendableScript for WinternitzCommit {
     fn to_script_buf(&self) -> ScriptBuf {
         let winternitz_pubkey = &self.0;
         let xonly_pubkey = self.1;
-        let message_lengths = &self.2;
         let mut total_script = ScriptBuf::new();
-        for (index, (pubkey, size)) in winternitz_pubkey.iter().zip(message_lengths).enumerate() {
+        for (index, (pubkey, size)) in winternitz_pubkey.iter().enumerate() {
             let params = self.get_params(index);
             let mut a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
                 .checksig_verify(&params, pubkey);
@@ -155,17 +154,16 @@ impl SpendableScript for WinternitzCommit {
 
 impl WinternitzCommit {
     pub fn get_params(&self, index: usize) -> Parameters {
-        Parameters::new(self.2[index], WINTERNITZ_LOG_D)
+        Parameters::new(self.0[index].1, WINTERNITZ_LOG_D)
     }
     pub fn generate_script_inputs(
         &self,
-        commit_data: &[Vec<u8>],
-        secret_key: &[SecretKey],
+        commit_data: &[(Vec<u8>, SecretKey)],
         signature: &schnorr::Signature,
     ) -> Witness {
         let mut witness = Witness::new();
         witness.push(signature.serialize());
-        for (index, (data, secret_key)) in commit_data.iter().zip(secret_key).enumerate().rev() {
+        for (index, (data, secret_key)) in commit_data.iter().enumerate().rev() {
             bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
                 .sign(&self.get_params(index), secret_key, data)
                 .into_iter()
@@ -174,8 +172,9 @@ impl WinternitzCommit {
         witness
     }
 
-    pub fn new(pubkey: &[PublicKey], xonly_pubkey: XOnlyPublicKey, msg_len: &[u32]) -> Self {
-        Self(pubkey.to_vec(), xonly_pubkey, msg_len.to_vec())
+    /// winternitz_params is a Vec winternitz public key and message length tuple
+    pub fn new(winternitz_params: Vec<(PublicKey, u32)>, xonly_pubkey: XOnlyPublicKey) -> Self {
+        Self(winternitz_params, xonly_pubkey)
     }
 }
 
@@ -365,7 +364,7 @@ fn get_script_from_arr<T: SpendableScript>(
 mod tests {
     use crate::actor::{Actor, WinternitzDerivationPath};
     use crate::extended_rpc::ExtendedRpc;
-    use crate::{create_regtest_rpc, create_test_config_with_thread_name, utils};
+    use crate::utils;
     use std::sync::Arc;
 
     use super::*;
@@ -405,9 +404,8 @@ mod tests {
             Box::new(OtherSpendable::new(dummy_scriptbuf())),
             Box::new(CheckSig::new(dummy_xonly())),
             Box::new(WinternitzCommit::new(
-                &[vec![[0u8; 20]; 32]],
+                vec![(vec![[0u8; 20]; 32], 32)],
                 dummy_xonly(),
-                &[32],
             )),
             Box::new(TimelockScript::new(Some(dummy_xonly()), 10)),
             Box::new(PreimageRevealScript::new(dummy_xonly(), [0; 20])),
@@ -469,9 +467,8 @@ mod tests {
             (
                 "WinternitzCommit",
                 Arc::new(WinternitzCommit::new(
-                    &[vec![[0u8; 20]; 32]],
+                    vec![(vec![[0u8; 20]; 32], 32)],
                     dummy_xonly(),
-                    &[32],
                 )),
             ),
             (
@@ -572,15 +569,13 @@ mod tests {
         (builder, address)
     }
 
-    use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
+    use crate::test::common::*;
 
     #[tokio::test]
 
     async fn test_checksig_spendable() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
@@ -618,8 +613,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_winternitz_commit_spendable() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
@@ -635,11 +630,13 @@ mod tests {
         );
 
         let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
-            &[signer
-                .derive_winternitz_pk(derivation.clone())
-                .expect("failed to derive Winternitz public key")],
+            vec![(
+                signer
+                    .derive_winternitz_pk(derivation.clone())
+                    .expect("failed to derive Winternitz public key"),
+                64,
+            )],
             xonly_pk,
-            &[64],
         ));
 
         let scripts = vec![script];
@@ -653,7 +650,7 @@ mod tests {
         let mut tx = builder.finalize();
 
         signer
-            .tx_sign_winternitz(&mut tx, &[vec![0; 32]], &[derivation])
+            .tx_sign_winternitz(&mut tx, &[(vec![0; 32], derivation)])
             .expect("failed to partially sign commitments");
 
         let tx = tx
@@ -668,8 +665,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_timelock_script_spendable() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
@@ -713,8 +710,8 @@ mod tests {
     #[tokio::test]
 
     async fn test_preimage_reveal_script_spendable() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
@@ -756,8 +753,8 @@ mod tests {
     #[tokio::test]
 
     async fn test_deposit_script_spendable() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());

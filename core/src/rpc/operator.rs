@@ -5,7 +5,7 @@ use super::clementine::{
     WithdrawalFinalizedParams,
 };
 use super::error::*;
-use crate::builder::transaction::sign::{create_and_sign_all_txs, create_assert_commitment_txs};
+use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::rpc::parser;
 use crate::rpc::parser::{parse_assert_request, parse_deposit_params, parse_transaction_request};
 use crate::{errors::BridgeError, operator::Operator};
@@ -138,14 +138,9 @@ impl ClementineOperator for Operator {
         let assert_request = request.into_inner();
         let assert_data = parse_assert_request(assert_request)?;
 
-        let raw_txs = create_assert_commitment_txs(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            self.nofn_xonly_pk,
-            assert_data,
-        )
-        .await?;
+        let raw_txs = self
+            .create_assert_commitment_txs(self.nofn_xonly_pk, assert_data)
+            .await?;
 
         Ok(Response::new(raw_txs))
     }
@@ -181,7 +176,7 @@ impl ClementineOperator for Operator {
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let transaction_request = request.into_inner();
         let transaction_data = parse_transaction_request(transaction_request)?;
-        let raw_txs = create_and_sign_all_txs(
+        let raw_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),

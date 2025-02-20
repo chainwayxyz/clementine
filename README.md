@@ -15,6 +15,8 @@ The repository includes:
 
 ## Instructions
 
+### Setup
+
 Clementine requires a Bitcoin node up and running on the client. Please install
 and configure Bitcoin Core if you haven't already.
 
@@ -77,29 +79,6 @@ More information, use `--help` flag:
    ```bash
    cargo install cargo-risczero
    ```
-
-#### Bitcoin Regtest Setup
-
-To simulate deposits, withdrawals, proof generation on the Bitcoin Regtest
-network, some configuration is needed.
-
-Start the regtest server with the following command:
-
-```sh
-bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1
-```
-
-Create a wallet for the operator:
-
-```sh
-bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
-```
-
-Mine some blocks to the wallet: 
-
-```sh
-bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
-```
 
 #### [Optional] Docker
 
