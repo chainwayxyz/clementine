@@ -43,7 +43,7 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
             deepest_layer_depth - is_node_in_last_minus_one_depth,
             scripts[i].clone(),
         )
-            .expect("algorithm tested to be correct")
+        .expect("algorithm tested to be correct")
     })
 }
 
@@ -288,7 +288,7 @@ mod tests {
             bitcoin::Network::Regtest,
             200,
         )
-            .unwrap();
+        .unwrap();
 
         // Comparing it to the taproot address generated in bridge backend.
         assert_eq!(

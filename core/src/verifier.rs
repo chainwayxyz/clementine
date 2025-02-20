@@ -889,7 +889,11 @@ impl Verifier {
                     .collect();
 
                 let script = WinternitzCommit::new(
-                    winternitz_keys[steps.0..steps.1].iter().zip(sizes.iter()).map(|(k, s)| (k.clone(), *s)).collect::<Vec<_>>(),
+                    winternitz_keys[steps.0..steps.1]
+                        .iter()
+                        .zip(sizes.iter())
+                        .map(|(k, s)| (k.clone(), *s))
+                        .collect::<Vec<_>>(),
                     operator_data.xonly_pk,
                 );
                 let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
@@ -961,7 +965,7 @@ impl Verifier {
                 vec![(winternitz_key.clone(), WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
                 self.config.network,
             )
-                .script_pubkey();
+            .script_pubkey();
             self.db
                 .set_watchtower_challenge_address(
                     None,

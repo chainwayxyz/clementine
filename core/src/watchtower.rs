@@ -1,3 +1,4 @@
+use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
@@ -9,7 +10,6 @@ use crate::{
 };
 use bitcoin::{ScriptBuf, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 
 #[derive(Debug, Clone)]
 pub struct Watchtower {

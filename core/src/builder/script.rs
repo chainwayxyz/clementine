@@ -632,9 +632,12 @@ mod tests {
         );
 
         let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
-            vec![(signer
-                .derive_winternitz_pk(derivation.clone())
-                .expect("failed to derive Winternitz public key"), 64)],
+            vec![(
+                signer
+                    .derive_winternitz_pk(derivation.clone())
+                    .expect("failed to derive Winternitz public key"),
+                64,
+            )],
             xonly_pk,
         ));
 

@@ -149,7 +149,6 @@ pub fn create_nofn_sighash_stream(
                 for kickoff_idx in 0..config.num_kickoffs_per_round {
                     let partial = PartialSignatureInfo::new(operator_idx, round_iidx, kickoff_idx);
 
-                    let start_time = std::time::Instant::now();
                     let mut txhandlers = create_txhandlers(
                         nofn_xonly_pk,
                         TransactionType::AllNeededForDeposit,
@@ -162,11 +161,10 @@ pub fn create_nofn_sighash_stream(
                         last_ready_to_reimburse,
                         &mut tx_db_data,
                     ).await?;
-                    tracing::trace!("create_txhandlers for nofn sighash finished in {:?}", start_time.elapsed());
 
                     let mut sum = 0;
                     for (_, txhandler) in txhandlers.iter() {
-                        let sighashes = txhandler.calculate_all_txins_sighash(EntityType::Verifier, partial)?;
+                        let sighashes = txhandler.calculate_shared_txins_sighash(EntityType::VerifierDeposit, partial)?;
                         sum += sighashes.len();
                         for sighash in sighashes {
                             yield sighash;
@@ -215,7 +213,6 @@ pub fn create_operator_sighash_stream(
             for kickoff_idx in 0..config.num_kickoffs_per_round {
                 let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
-                let start_time = std::time::Instant::now();
                 let mut txhandlers = create_txhandlers(
                     nofn_xonly_pk,
                     TransactionType::AllNeededForDeposit,
@@ -228,11 +225,10 @@ pub fn create_operator_sighash_stream(
                     last_reimburse_generator,
                     &mut tx_db_data,
                 ).await?;
-                tracing::trace!("create_txhandlers for operator sighash finished in {:?}", start_time.elapsed());
 
                 let mut sum = 0;
                 for (_, txhandler) in txhandlers.iter() {
-                    let sighashes = txhandler.calculate_all_txins_sighash(EntityType::Operator, partial)?;
+                    let sighashes = txhandler.calculate_shared_txins_sighash(EntityType::OperatorDeposit, partial)?;
                     sum += sighashes.len();
                     for sighash in sighashes {
                         yield sighash;

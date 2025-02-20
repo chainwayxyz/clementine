@@ -301,7 +301,6 @@ pub async fn create_txhandlers(
 
     let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
 
-    let start_time = std::time::Instant::now();
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
         // the actual scripts to be able to spend
@@ -363,7 +362,6 @@ pub async fn create_txhandlers(
         )?
     };
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
-    tracing::debug!("Kickoff txhandler created in {:?}", start_time.elapsed());
 
     // Creates the challenge_tx handler.
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
@@ -403,8 +401,6 @@ pub async fn create_txhandlers(
             | TransactionType::OperatorChallengeNack(_)
             | TransactionType::OperatorChallengeAck(_)
     ) {
-        tracing::debug!("Generating watchtower txs");
-        let start_time = std::time::Instant::now();
         let needed_watchtower_idx: i32 =
             if let TransactionType::WatchtowerChallenge(idx) = transaction_type {
                 idx as i32
@@ -509,31 +505,22 @@ pub async fn create_txhandlers(
                 operator_challenge_ack_txhandler,
             );
         }
-        tracing::debug!("Watchtower txs created in {:?}", start_time.elapsed());
         if transaction_type != TransactionType::AllNeededForDeposit {
             // We do not need other txhandlers, exit early
             return Ok(txhandlers);
         }
     }
 
-    let start_time = std::time::Instant::now();
     let assert_timeouts = create_assert_timeout_txhandlers(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         get_txhandler(&txhandlers, TransactionType::Round)?,
         num_asserts,
     )?;
 
-    tracing::debug!(
-        "Assert timeout txhandlers created in {:?}, num asserts: {}",
-        start_time.elapsed(),
-        num_asserts
-    );
-
     for assert_timeout in assert_timeouts.into_iter() {
         txhandlers.insert(assert_timeout.get_transaction_type(), assert_timeout);
     }
 
-    let start_time = std::time::Instant::now();
     // Creates the disprove_timeout_tx handler.
     let disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
@@ -575,7 +562,6 @@ pub async fn create_txhandlers(
         }
         _ => {}
     }
-    tracing::debug!("Remaining txhandlers created in {:?}", start_time.elapsed());
 
     Ok(txhandlers)
 }
@@ -611,7 +597,7 @@ mod tests {
     use std::panic;
 
     use crate::builder::transaction::TransactionType;
-    use crate::rpc::clementine::{AssertRequest, GrpcTransactionId, KickoffId, TransactionRequest};
+    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
     #[tokio::test(flavor = "multi_thread")]
@@ -637,13 +623,13 @@ mod tests {
             txid: Txid::from_str(
                 "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
             )
-                .unwrap(),
+            .unwrap(),
             vout: 0,
         };
         let recovery_taproot_address = bitcoin::Address::from_str(
             "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa",
         )
-            .unwrap();
+        .unwrap();
         let recovery_addr_checked = recovery_taproot_address.assume_checked();
         let evm_address = EVMAddress([1u8; 20]);
 
@@ -680,7 +666,7 @@ mod tests {
         );
 
         // try to sign everything for all operators
-        let thread_handles: Vec<_> = operators
+        let operator_task_handles: Vec<_> = operators
             .iter_mut()
             .enumerate()
             .map(|(operator_idx, operator_rpc)| {
@@ -710,13 +696,11 @@ mod tests {
                             // test if all needed tx's are signed
                             for tx_type in &txs_operator_can_sign {
                                 assert!(
-                                    raw_tx.signed_txs.iter().any(|signed_tx| signed_tx
-                                        .transaction_type
-                                        == Some(
-                                        <TransactionType as Into<GrpcTransactionId>>::into(
-                                            *tx_type
-                                        )
-                                    )),
+                                    raw_tx
+                                        .signed_txs
+                                        .iter()
+                                        .any(|signed_tx| signed_tx.transaction_type
+                                            == Some((*tx_type).into())),
                                     "Tx type: {:?} not found in signed txs for operator",
                                     tx_type
                                 );
@@ -751,7 +735,7 @@ mod tests {
             .collect();
 
         // try signing watchtower challenges for all watchtowers
-        let watchtower_thread_handles: Vec<_> = watchtowers
+        let watchtower_task_handles: Vec<_> = watchtowers
             .iter_mut()
             .enumerate()
             .map(|(watchtower_idx, watchtower_rpc)| {
@@ -803,7 +787,7 @@ mod tests {
 
         // try to sign everything for all verifiers
         // try signing verifier transactions
-        let verifier_thread_handles: Vec<_> = verifiers
+        let verifier_task_handles: Vec<_> = verifiers
             .iter_mut()
             .map(|verifier_rpc| {
                 let txs_verifier_can_sign = txs_verifier_can_sign.clone();
@@ -833,13 +817,11 @@ mod tests {
                                 // test if all needed tx's are signed
                                 for tx_type in &txs_verifier_can_sign {
                                     assert!(
-                                        raw_tx.signed_txs.iter().any(|signed_tx| signed_tx
-                                            .transaction_type
-                                            == Some(<TransactionType as Into<
-                                            GrpcTransactionId,
-                                        >>::into(
-                                            *tx_type
-                                        ))),
+                                        raw_tx
+                                            .signed_txs
+                                            .iter()
+                                            .any(|signed_tx| signed_tx.transaction_type
+                                                == Some((*tx_type).into())),
                                         "Tx type: {:?} not found in signed txs for verifier",
                                         tx_type
                                     );
@@ -857,8 +839,8 @@ mod tests {
             .map(tokio::task::spawn)
             .collect();
 
-        try_join_all(thread_handles).await.unwrap();
-        try_join_all(watchtower_thread_handles).await.unwrap();
-        try_join_all(verifier_thread_handles).await.unwrap();
+        try_join_all(operator_task_handles).await.unwrap();
+        try_join_all(watchtower_task_handles).await.unwrap();
+        try_join_all(verifier_task_handles).await.unwrap();
     }
 }
