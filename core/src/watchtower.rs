@@ -1,4 +1,3 @@
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
@@ -10,6 +9,7 @@ use crate::{
 };
 use bitcoin::{ScriptBuf, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 
 #[derive(Debug, Clone)]
 pub struct Watchtower {
@@ -87,8 +87,7 @@ impl Watchtower {
         for winternitz_pubkey in winternitz_pubkeys {
             let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
                 &self.signer.xonly_public_key,
-                &[winternitz_pubkey],
-                &[WATCHTOWER_CHALLENGE_MESSAGE_LENGTH],
+                vec![(winternitz_pubkey, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
                 self.config.network,
             );
             challenge_addresses.push(challenge_address.script_pubkey());

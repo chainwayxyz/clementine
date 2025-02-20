@@ -887,10 +887,10 @@ impl Verifier {
                     .iter()
                     .map(|(_, intermediate_step_size)| **intermediate_step_size as u32 * 2)
                     .collect();
+
                 let script = WinternitzCommit::new(
-                    &winternitz_keys[steps.0..steps.1],
+                    winternitz_keys[steps.0..steps.1].iter().zip(sizes.iter()).map(|(k, s)| (k.clone(), *s)).collect::<Vec<_>>(),
                     operator_data.xonly_pk,
-                    &sizes,
                 );
                 let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
                 taproot_builder
@@ -958,11 +958,10 @@ impl Verifier {
                 .await?;
             let challenge_addr = derive_challenge_address_from_xonlypk_and_wpk(
                 &watchtower_xonly_pk,
-                &[winternitz_key.clone()],
-                &[WATCHTOWER_CHALLENGE_MESSAGE_LENGTH],
+                vec![(winternitz_key.clone(), WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
                 self.config.network,
             )
-            .script_pubkey();
+                .script_pubkey();
             self.db
                 .set_watchtower_challenge_address(
                     None,

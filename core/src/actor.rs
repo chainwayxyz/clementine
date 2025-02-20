@@ -308,8 +308,7 @@ impl Actor {
     pub fn tx_sign_winternitz(
         &self,
         txhandler: &mut TxHandler,
-        data: &[Vec<u8>],
-        path: &[WinternitzDerivationPath],
+        data: &[(Vec<u8>, WinternitzDerivationPath)],
     ) -> Result<(), BridgeError> {
         let mut signed_winternitz = false;
 
@@ -338,12 +337,13 @@ impl Actor {
                                 if script.1 != self.xonly_public_key {
                                     return Err(BridgeError::NotOwnedScriptPath);
                                 }
+                                let mut script_data = Vec::with_capacity(data.len());
+                                for (data, path) in data {
+                                    let secret_key = self.get_derived_winternitz_sk(path.clone())?;
+                                    script_data.push((data.clone(), secret_key));
+                                }
                                 script.generate_script_inputs(
-                                    data,
-                                    &path
-                                        .iter()
-                                        .map(|path| self.get_derived_winternitz_sk(path.clone()))
-                                        .collect::<Result<Vec<_>, _>>()?,
+                                    &script_data,
                                     &self.sign(calc_sighash()?),
                                 )
                             }

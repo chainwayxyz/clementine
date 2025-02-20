@@ -93,7 +93,7 @@ pub async fn create_and_sign_all_txs(
                     transaction_data.kickoff_id.round_idx,
                     transaction_data.kickoff_id.kickoff_idx,
                 );
-                signer.tx_sign_winternitz(&mut txhandler, &[block_hash.to_vec()], &[path])?;
+                signer.tx_sign_winternitz(&mut txhandler, &[(block_hash.to_vec(), path)])?;
             }
             // do not give err if blockhash was not given
         }
@@ -170,8 +170,7 @@ impl Watchtower {
         );
         self.signer.tx_sign_winternitz(
             &mut requested_txhandler,
-            &[commit_data.to_vec()],
-            &[path],
+            &[(commit_data.to_vec(), path)],
         )?;
 
         let checked_txhandler = requested_txhandler.promote()?;
@@ -213,19 +212,17 @@ pub async fn create_assert_commitment_txs(
     let mut signed_txhandlers = Vec::new();
 
     for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
-        let (paths, sizes) = utils::COMBINED_ASSERT_DATA
+        let paths_with_size = utils::COMBINED_ASSERT_DATA
             .get_paths_and_sizes(idx, assert_data.deposit_data.deposit_outpoint.txid);
         let mut mini_assert_txhandler =
             txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
                 BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),
             )?;
+        let dummy_data = paths_with_size.into_iter()
+            .map(|(path, size)| (vec![0u8; size as usize / 2], path)).collect::<Vec<_>>();
         signer.tx_sign_winternitz(
             &mut mini_assert_txhandler,
-            &sizes
-                .iter()
-                .map(|size| vec![0u8; *size as usize / 2])
-                .collect::<Vec<Vec<u8>>>(), // dummy assert
-            &paths,
+            &dummy_data
         )?;
         signed_txhandlers.push(mini_assert_txhandler.promote()?);
     }

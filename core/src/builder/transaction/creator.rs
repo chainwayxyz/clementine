@@ -315,16 +315,15 @@ pub async fn create_txhandlers(
             Vec::with_capacity(utils::COMBINED_ASSERT_DATA.num_steps.len());
 
         for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
-            let (paths, sizes) = utils::COMBINED_ASSERT_DATA
+            let paths = utils::COMBINED_ASSERT_DATA
                 .get_paths_and_sizes(idx, deposit_data.deposit_outpoint.txid);
-            let pks = paths
-                .into_iter()
-                .map(|path| actor.derive_winternitz_pk(path))
-                .collect::<Result<Vec<_>, _>>()?;
+            let mut param = Vec::with_capacity(paths.len());
+            for (path, size) in paths {
+                param.push((actor.derive_winternitz_pk(path)?, size));
+            }
             assert_scripts.push(Arc::new(WinternitzCommit::new(
-                &pks,
+                param,
                 operator_data.xonly_pk,
-                &sizes,
             )));
         }
 
@@ -471,9 +470,8 @@ pub async fn create_txhandlers(
                     operator_data.xonly_pk,
                     config.network,
                     Some(Arc::new(WinternitzCommit::new(
-                        &[public_key],
+                        vec![(public_key, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
                         actor.xonly_public_key,
-                        &[WATCHTOWER_CHALLENGE_MESSAGE_LENGTH],
                     ))),
                 )?
             };
@@ -639,13 +637,13 @@ mod tests {
             txid: Txid::from_str(
                 "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
             )
-            .unwrap(),
+                .unwrap(),
             vout: 0,
         };
         let recovery_taproot_address = bitcoin::Address::from_str(
             "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa",
         )
-        .unwrap();
+            .unwrap();
         let recovery_addr_checked = recovery_taproot_address.assume_checked();
         let evm_address = EVMAddress([1u8; 20]);
 
@@ -715,10 +713,10 @@ mod tests {
                                     raw_tx.signed_txs.iter().any(|signed_tx| signed_tx
                                         .transaction_type
                                         == Some(
-                                            <TransactionType as Into<GrpcTransactionId>>::into(
-                                                *tx_type
-                                            )
-                                        )),
+                                        <TransactionType as Into<GrpcTransactionId>>::into(
+                                            *tx_type
+                                        )
+                                    )),
                                     "Tx type: {:?} not found in signed txs for operator",
                                     tx_type
                                 );
@@ -838,10 +836,10 @@ mod tests {
                                         raw_tx.signed_txs.iter().any(|signed_tx| signed_tx
                                             .transaction_type
                                             == Some(<TransactionType as Into<
-                                                GrpcTransactionId,
-                                            >>::into(
-                                                *tx_type
-                                            ))),
+                                            GrpcTransactionId,
+                                        >>::into(
+                                            *tx_type
+                                        ))),
                                         "Tx type: {:?} not found in signed txs for verifier",
                                         tx_type
                                     );

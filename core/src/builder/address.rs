@@ -43,7 +43,7 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
             deepest_layer_depth - is_node_in_last_minus_one_depth,
             scripts[i].clone(),
         )
-        .expect("algorithm tested to be correct")
+            .expect("algorithm tested to be correct")
     })
 }
 
@@ -162,11 +162,10 @@ pub fn create_checksig_address(
 
 pub fn derive_challenge_address_from_xonlypk_and_wpk(
     xonly_pk: &XOnlyPublicKey,
-    winternitz_pk: &[winternitz::PublicKey],
-    message_length: &[u32],
+    pk_with_size: Vec<(winternitz::PublicKey, u32)>,
     network: Network,
 ) -> Address {
-    let winternitz_commit = WinternitzCommit::new(winternitz_pk, *xonly_pk, message_length);
+    let winternitz_commit = WinternitzCommit::new(pk_with_size, *xonly_pk);
     let (address, _) = create_taproot_address(&[winternitz_commit.to_script_buf()], None, network);
     address
 }
@@ -289,7 +288,7 @@ mod tests {
             bitcoin::Network::Regtest,
             200,
         )
-        .unwrap();
+            .unwrap();
 
         // Comparing it to the taproot address generated in bridge backend.
         assert_eq!(

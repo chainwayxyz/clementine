@@ -233,7 +233,7 @@ service ClementineOperator {
   // - kickoff_id: Operator's kickoff ID
   //
   // # Returns
-  // - Raw signed transactions that the entity can possibly sign (no asserts and watchtower challenge)
+  // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
   rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
 
   // Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
@@ -353,7 +353,7 @@ service ClementineVerifier {
   // - kickoff_id: Operator's kickoff ID
   //
   // # Returns
-  // - Raw signed transactions that the entity can possibly sign (no asserts and watchtower challenge)
+  // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
   rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}

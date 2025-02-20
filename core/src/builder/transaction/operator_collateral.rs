@@ -77,9 +77,8 @@ pub fn create_round_txhandler(
     // add kickoff utxos
     for pubkey in pubkeys.iter().take(num_kickoffs_per_round) {
         let blockhash_commit = Arc::new(WinternitzCommit::new(
-            &[pubkey.clone()],
+            vec![(pubkey.clone(), KICKOFF_BLOCKHASH_COMMIT_LENGTH)],
             operator_xonly_pk,
-            &[KICKOFF_BLOCKHASH_COMMIT_LENGTH],
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
