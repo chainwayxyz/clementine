@@ -1,7 +1,6 @@
 //! # Deposit Tests
 
 use async_trait::async_trait;
-use bitcoin::Network;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
     config::{BitcoinConfig, TestCaseConfig, TestCaseDockerConfig},
@@ -12,7 +11,10 @@ use citrea_e2e::{
 use clementine_core::{
     config::BridgeConfig, database::Database, extended_rpc::ExtendedRpc, utils::initialize_logger,
 };
-use common::{run_single_deposit, start_citrea};
+use common::{
+    citrea::{start_citrea, update_config_with_citrea_e2e_da},
+    run_single_deposit,
+};
 
 mod common;
 
@@ -47,14 +49,7 @@ impl TestCase for DepositOnCitrea {
         let (_sequencer, full_node, da) = start_citrea(Self::sequencer_config(), f).await?;
 
         let mut config = create_test_config_with_thread_name!(None);
-        config.bitcoin_rpc_password = da.config.rpc_password.clone();
-        config.bitcoin_rpc_user = da.config.rpc_user.clone();
-        config.bitcoin_rpc_password = da.config.rpc_password.clone();
-        config.bitcoin_rpc_url = format!(
-            "http://127.0.0.1:{}/wallet/{}",
-            da.config.rpc_port,
-            Network::Bitcoin // citrea-e2e internal.
-        );
+        update_config_with_citrea_e2e_da(&mut config, da);
 
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
