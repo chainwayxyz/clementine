@@ -1,5 +1,5 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
-use crate::builder::transaction::creator::TxHandlerDbData;
+use crate::builder::transaction::creator::DepositDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::config::BridgeConfig;
 use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
@@ -48,7 +48,7 @@ pub async fn create_and_sign_txs(
         transaction_data.kickoff_id,
         operator_data,
         None,
-        &mut TxHandlerDbData::new(
+        &mut DepositDbCache::new(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
             transaction_data.deposit_data.clone(),
@@ -145,7 +145,7 @@ impl Watchtower {
             transaction_data.kickoff_id,
             operator_data,
             None,
-            &mut TxHandlerDbData::new(
+            &mut DepositDbCache::new(
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
                 transaction_data.deposit_data.clone(),
@@ -199,7 +199,7 @@ impl Operator {
             assert_data.kickoff_id,
             operator_data,
             None,
-            &mut TxHandlerDbData::new(
+            &mut DepositDbCache::new(
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,
                 assert_data.deposit_data.clone(),

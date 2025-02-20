@@ -13,10 +13,7 @@ use crate::rpc::parser;
 use crate::tx_sender::FeePayingType;
 use crate::{
     aggregator::Aggregator,
-    builder::sighash::{
-        calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
-        create_nofn_sighash_stream,
-    },
+    builder::sighash::create_nofn_sighash_stream,
     errors::BridgeError,
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
@@ -386,7 +383,7 @@ impl Aggregator {
             }))
                 .await?;
         // calculate number of signatures needed from each operator
-        let needed_sigs = calculate_num_required_operator_sigs(&config);
+        let needed_sigs = config.get_num_required_operator_sigs();
         // get signatures from each operator's signature streams
         let operator_sigs = try_join_all(operator_sigs_streams.iter_mut().map(|stream| async {
             let mut sigs: Vec<Signature> = Vec::with_capacity(needed_sigs);
@@ -661,7 +658,7 @@ impl ClementineAggregator for Aggregator {
         self.collect_and_distribute_keys(&deposit_params).await?;
 
         // Generate nonce streams for all verifiers.
-        let num_required_sigs = calculate_num_required_nofn_sigs(&self.config);
+        let num_required_sigs = self.config.get_num_required_nofn_sigs();
         let (first_responses, nonce_streams) =
             create_nonce_streams(self.verifier_clients.clone(), num_required_sigs as u32 + 1)
                 .await?; // ask for +1 for the final movetx signature, but don't send it on deposit_sign stage

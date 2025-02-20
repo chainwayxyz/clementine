@@ -55,9 +55,9 @@ impl KickoffWinternitzKeys {
     }
 }
 
-/// Struct to retrieve and store DB data for creating TxHandlers on demand
+/// Struct to retrieve and cache data from DB for creating TxHandlers on demand
 #[derive(Debug, Clone)]
-pub struct TxHandlerDbData {
+pub struct DepositDbCache {
     pub db: Database,
     pub operator_idx: u32,
     pub deposit_data: DepositData,
@@ -74,7 +74,7 @@ pub struct TxHandlerDbData {
     challenge_ack_hashes: Option<Vec<PublicHash>>,
 }
 
-impl TxHandlerDbData {
+impl DepositDbCache {
     pub fn new(
         db: Database,
         operator_idx: u32,
@@ -215,11 +215,11 @@ pub async fn create_txhandlers(
     kickoff_id: KickoffId,
     operator_data: OperatorData,
     prev_ready_to_reimburse: Option<TxHandler>,
-    db_data: &mut TxHandlerDbData,
+    db_data: &mut DepositDbCache,
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
     let mut txhandlers = BTreeMap::new();
 
-    let TxHandlerDbData {
+    let DepositDbCache {
         deposit_data,
         config,
         ..
