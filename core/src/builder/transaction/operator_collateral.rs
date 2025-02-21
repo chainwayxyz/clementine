@@ -72,7 +72,9 @@ pub fn create_round_txhandler(
         Arc::new(TimelockScript::new(Some(operator_xonly_pk), 1u16));
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
-        input_amount - KICKOFF_AMOUNT * (num_kickoffs_per_round as u64) - ANCHOR_AMOUNT,
+        input_amount
+            - (KICKOFF_AMOUNT + MIN_TAPROOT_AMOUNT) * (num_kickoffs_per_round as u64)
+            - ANCHOR_AMOUNT,
         vec![],
         Some(operator_xonly_pk),
         network,

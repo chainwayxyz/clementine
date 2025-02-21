@@ -18,6 +18,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::taproot::TaprootBuilder;
+use bitcoin::transaction::Version;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{Address, Network, TapNodeHash, TxOut, Txid};
 use std::sync::Arc;
@@ -41,7 +42,8 @@ pub fn create_kickoff_txhandler(
     disprove_root_hash: &[u8; 32],
     network: Network,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new(TransactionType::Kickoff);
+    let mut builder =
+        TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(3));
     builder = builder.add_input(
         NormalSignatureKind::OperatorSighashDefault,
         round_txhandler.get_spendable_output(1 + kickoff_idx)?,
@@ -217,6 +219,7 @@ pub fn create_reimburse_txhandler(
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new(TransactionType::Reimburse)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::Reimburse1,
             move_txhandler.get_spendable_output(0)?,

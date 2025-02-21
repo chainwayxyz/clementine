@@ -53,7 +53,7 @@ header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "
 bitvm = { git = "https://github.com/BitVM/BitVM", rev = "89558b3a50e7d08a5eb42aa7de266e7912df3f98" }
 
 [patch.crates-io]
-bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "e0a59fa" }
+bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "44f9bba" }
 secp256k1 = { git = "https://github.com/jlest01/rust-secp256k1", rev = "1cc7410df436b73d06db3c8ff7cbb29a78916b06" }
 
 

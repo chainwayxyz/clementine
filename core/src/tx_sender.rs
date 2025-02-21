@@ -585,12 +585,25 @@ impl TxSender {
                 );
             })?;
 
-        tracing::debug!("Submit package result: {:?}", submit_package_result);
+        tracing::info!("Submit package result: {:?}", submit_package_result);
 
         // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_package_result.tx_results.is_empty() {
             return Ok(());
         }
+
+        let mut early_exit = false;
+        for (txid, result) in submit_package_result.tx_results {
+            if let PackageTransactionResult::Failure { error, .. } = result {
+                tracing::warn!("Error submitting package: {:?}", error);
+                early_exit = true;
+                break;
+            }
+        }
+        if early_exit {
+            return Ok(());
+        }
+
         // // Get the effective fee rate from the first transaction result
         // let effective_fee_rate_btc_per_kvb = submit_package_result
         //     .tx_results

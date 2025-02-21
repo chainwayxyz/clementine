@@ -426,6 +426,23 @@ impl TxHandlerBuilder {
             output: self.txouts.iter().map(|s| s.txout().clone()).collect(), // TODO: Get rid of .clone()
         };
         let txid = tx.compute_txid();
+
+        // #[cfg(debug_assertions)]
+        // {
+        //     // txins >= txouts
+        //     assert!(
+        //         self.txins
+        //             .iter()
+        //             .map(|s| s.get_spendable().get_prevout().value)
+        //             .sum::<bitcoin::Amount>()
+        //             >= self
+        //                 .txouts
+        //                 .iter()
+        //                 .map(|s| s.txout().value)
+        //                 .sum::<bitcoin::Amount>(),
+        //                 "Txins should be bigger than txouts"
+        //     );
+        // }
         TxHandler::<Unsigned> {
             transaction_type: self.transaction_type,
             txins: self.txins,

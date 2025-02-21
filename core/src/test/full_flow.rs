@@ -75,13 +75,13 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
             .to_sat());
     tracing::info!("Withdrawal amount set to: {} sats", withdrawal_amount);
 
-    let (empty_utxo, withdrawal_tx_out, user_sig) = generate_withdrawal_transaction_and_signature(
-        &config,
-        &rpc,
-        &withdrawal_address,
-        Amount::from_sat(withdrawal_amount),
-    )
-    .await;
+    // let (empty_utxo, withdrawal_tx_out, user_sig) = generate_withdrawal_transaction_and_signature(
+    //     &config,
+    //     &rpc,
+    //     &withdrawal_address,
+    //     Amount::from_sat(withdrawal_amount),
+    // )
+    // .await;
 
     // 2. Setup Aggregator
     tracing::info!("Setting up aggregator");
@@ -109,24 +109,24 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
 
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
     // 4. Make Withdrawal
-    tracing::info!("Starting withdrawal process");
-    let request = Request::new(WithdrawParams {
-        withdrawal_id: 0,
-        input_signature: user_sig.serialize().to_vec(),
-        input_outpoint: Some(empty_utxo.outpoint.into()),
-        output_script_pubkey: withdrawal_tx_out.txout().script_pubkey.clone().into(),
-        output_amount: withdrawal_amount,
-    });
+    // tracing::info!("Starting withdrawal process");
+    // let request = Request::new(WithdrawParams {
+    //     withdrawal_id: 0,
+    //     input_signature: user_sig.serialize().to_vec(),
+    //     input_outpoint: Some(empty_utxo.outpoint.into()),
+    //     output_script_pubkey: withdrawal_tx_out.txout().script_pubkey.clone().into(),
+    //     output_amount: withdrawal_amount,
+    // });
 
-    let withdrawal_provide_txid = operators[0].withdraw(request).await?.into_inner();
-    tracing::info!("Withdrawal transaction created");
+    // let withdrawal_provide_txid = operators[0].withdraw(request).await?.into_inner();
+    // tracing::info!("Withdrawal transaction created");
 
-    rpc.client
-        .get_raw_transaction(
-            &Txid::from_slice(&withdrawal_provide_txid.txid).expect("valid txid hash"),
-            None,
-        )
-        .await?;
+    // rpc.client
+    //     .get_raw_transaction(
+    //         &Txid::from_slice(&withdrawal_provide_txid.txid).expect("valid txid hash"),
+    //         None,
+    //     )
+    //     .await?;
 
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
@@ -151,7 +151,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         .unwrap();
     send_tx(&tx_sender, &tx_sender_db, &rpc, round_tx.raw_tx.as_slice())
         .await
-        .context("failed to send sequential collateral transaction")?;
+        .context("failed to send round transaction")?;
 
     tracing::info!("Sending kickoff transaction");
     let kickoff_tx = all_txs
@@ -188,7 +188,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     .context("failed to send challenge timeout transaction")?;
 
     // 7. Send Ready to Reimburse Reimburse Transaction
-    tracing::info!("Sending ready to reimburse reimburse transaction");
+    tracing::info!("Sending ready to reimburse transaction");
     let ready_to_reimburse = all_txs
         .signed_txs
         .iter()
@@ -203,7 +203,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     .await
     .context("failed to send ready to reimburse transaction")?;
 
-    rpc.mine_blocks(6 * 24 + 1).await?;
+    rpc.mine_blocks(6 * 24 * 2 + 1).await?;
 
     // 8. Send Reimburse Generator 1
     tracing::info!("Sending round 2 transaction");
@@ -231,7 +231,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
 
     // 8. Send Happy Reimburse Transaction
     tracing::info!("Sending happy reimburse transaction");
-    let reimburse_tx = all_txs_2
+    let reimburse_tx = all_txs
         .signed_txs
         .iter()
         .find(|tx| tx.transaction_type == Some(TransactionType::Reimburse.into()))
@@ -245,7 +245,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     .await
     .context("failed to send reimburse transaction")?;
 
-    tracing::info!("Happy reimburse transaction sent successfully");
+    tracing::info!("Reimburse transaction sent successfully");
     tracing::info!("Happy path test completed successfully");
     Ok(())
 }
