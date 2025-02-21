@@ -160,16 +160,6 @@ pub fn create_checksig_address(
     create_taproot_address(&[script.to_script_buf()], None, network)
 }
 
-pub fn derive_challenge_address_from_xonlypk_and_wpk(
-    xonly_pk: &XOnlyPublicKey,
-    pk_with_size: Vec<(winternitz::PublicKey, u32)>,
-    network: Network,
-) -> Address {
-    let winternitz_commit = WinternitzCommit::new(pk_with_size, *xonly_pk);
-    let (address, _) = create_taproot_address(&[winternitz_commit.to_script_buf()], None, network);
-    address
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{

@@ -2,9 +2,11 @@ use super::input::SpendableTxIn;
 use super::txhandler::DEFAULT_SEQUENCE;
 use super::Signed;
 use super::TransactionType;
+use crate::builder::script::PreimageRevealScript;
 use crate::builder::script::{CheckSig, SpendableScript, TimelockScript, WithdrawalScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
+use crate::config::BridgeConfig;
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
@@ -14,7 +16,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{Address, Amount, Network, TapNodeHash, TxOut, Txid};
+use bitcoin::{Address, Amount, TapNodeHash, TxOut, Txid};
 use bitcoin::{Witness, XOnlyPublicKey};
 use std::sync::Arc;
 
@@ -35,7 +37,9 @@ pub fn create_kickoff_txhandler(
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
     disprove_root_hash: &[u8; 32],
-    network: Network,
+    config: &BridgeConfig,
+    watchtower_challenge_root_hashes: &[[u8; 32]],
+    operator_unlock_hashes: &[[u8; 20]],
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new(TransactionType::Kickoff);
     builder = builder.add_input(
@@ -58,28 +62,28 @@ pub fn create_kickoff_txhandler(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone()],
             None,
-            network,
+            config.network,
         ))
         // goes to challenge tx or no challenge tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone(), operator_1week],
             None,
-            network,
+            config.network,
         ))
         // kickoff finalizer connector
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone()],
             None,
-            network,
+            config.network,
         ))
         // UTXO to reimburse tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone()],
             None,
-            network,
+            config.network,
         ));
 
     // Add disprove utxo
@@ -100,7 +104,7 @@ pub fn create_kickoff_txhandler(
         &SECP,
         *UNSPENDABLE_XONLY_PUBKEY,
         disprove_taproot_spend_info.merkle_root(),
-        network,
+        config.network,
     );
 
     builder = builder.add_output(UnspentTxOut::new(
@@ -138,7 +142,7 @@ pub fn create_kickoff_txhandler(
                     &SECP,
                     *UNSPENDABLE_XONLY_PUBKEY,
                     assert_spend_info.merkle_root(),
-                    network,
+                    config.network,
                 );
 
                 builder = builder.add_output(UnspentTxOut::new(
@@ -157,11 +161,66 @@ pub fn create_kickoff_txhandler(
                     MIN_TAPROOT_AMOUNT,
                     vec![nofn_4week.clone(), script],
                     None,
-                    network,
+                    config.network,
                 ));
             }
         }
     }
+
+    // create watchtower challenges
+    if config.num_watchtowers != watchtower_challenge_root_hashes.len() {
+        return Err(BridgeError::ConfigError(format!(
+            "Number of watchtowers in config ({}) does not match number of watchtower challenge addresses ({})",
+            config.num_watchtowers,
+            watchtower_challenge_root_hashes.len()
+        )));
+    }
+
+    if config.num_watchtowers != operator_unlock_hashes.len() {
+        return Err(BridgeError::ConfigError(format!(
+            "Number of watchtowers in config ({}) does not match number of operator unlock addresses ({})",
+            config.num_watchtowers,
+            operator_unlock_hashes.len()
+        )));
+    }
+
+    for script in watchtower_challenge_root_hashes.iter() {
+        let nofn_2week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 2 * BLOCKS_PER_WEEK));
+        let wt_challenge_spendinfo = TaprootBuilder::new()
+            .add_leaf(1, nofn_2week.to_script_buf())
+            .expect("taptree with one node at depth 1 will accept a script node")
+            .add_hidden_node(1, TapNodeHash::from_byte_array(*script))
+            .expect("empty taptree will accept a node at depth 1")
+            .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+            .expect("Taproot with 2 nodes at depth 1 should be valid for challenge");
+        let wt_challenge_addr = Address::p2tr(
+            &SECP,
+            *UNSPENDABLE_XONLY_PUBKEY,
+            wt_challenge_spendinfo.merkle_root(),
+            config.network,
+        );
+        // UTXO for watchtower challenge or watchtower challenge timeouts
+        builder = builder.add_output(UnspentTxOut::new(
+            TxOut {
+                value: MIN_TAPROOT_AMOUNT,
+                script_pubkey: wt_challenge_addr.script_pubkey(),
+            },
+            vec![nofn_2week.clone()],
+            Some(wt_challenge_spendinfo),
+        ));
+
+        // UTXO for operator challenge ack, nack, and watchtower challenge timeouts
+        let nofn_3week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 3 * BLOCKS_PER_WEEK));
+        for hash in operator_unlock_hashes  {
+            let operator_with_preimage = Arc::new(PreimageRevealScript::new(operator_xonly_pk, hash.clone()));
+            builder = builder.add_output(UnspentTxOut::from_scripts(
+                MIN_TAPROOT_AMOUNT,
+                vec![nofn_3week.clone(), nofn_2week.clone(), operator_with_preimage],
+                None,
+                config.network,
+            ));
+        }
+    } 
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
     op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));

@@ -19,18 +19,17 @@ enum NormalSignatureKind {
   // by the operator on the fly.
   OperatorSighashDefault = 1;
   Challenge = 2;
-  WatchtowerChallengeKickoff = 3;
-  DisproveTimeout2 = 4;
-  Disprove2 = 5;
-  Reimburse1 = 6;
-  KickoffNotFinalized1 = 7;
-  KickoffNotFinalized2 = 8;
-  Reimburse2 = 9;
-  NoSignature = 10;
-  ChallengeTimeout2 = 11;
-  MiniAssert1 = 12;
-  OperatorChallengeAck1 = 13;
-  NotStored = 14;
+  DisproveTimeout2 = 3;
+  Disprove2 = 4;
+  Reimburse1 = 5;
+  KickoffNotFinalized1 = 6;
+  KickoffNotFinalized2 = 7;
+  Reimburse2 = 8;
+  NoSignature = 9;
+  ChallengeTimeout2 = 10;
+  MiniAssert1 = 11;
+  OperatorChallengeAck1 = 12;
+  NotStored = 13;
 }
 
 // Signatures that are needed multiple times per an operators kickoff.
@@ -49,6 +48,8 @@ enum NumberedSignatureKind {
   AssertTimeout3 = 7;
   UnspentKickoff1 = 8;
   UnspentKickoff2 = 9;
+  WatchtowerChallengeTimeout1 = 10;
+  WatchtowerChallengeTimeout2 = 11;
 }
 
 message NormalSignatureId {
@@ -97,15 +98,14 @@ enum NormalTransactionId {
     MOVE_TO_VAULT = 3;
     PAYOUT = 4;
     CHALLENGE = 5;
-    WATCHTOWER_CHALLENGE_KICKOFF = 6;
-    DISPROVE = 7;
-    DISPROVE_TIMEOUT = 8;
-    REIMBURSE = 9;
-    ALL_NEEDED_FOR_DEPOSIT = 10;
-    DUMMY = 11;
-    READY_TO_REIMBURSE = 12;
-    KICKOFF_NOT_FINALIZED = 13;
-    CHALLENGE_TIMEOUT = 14;
+    DISPROVE = 6;
+    DISPROVE_TIMEOUT = 7;
+    REIMBURSE = 8;
+    ALL_NEEDED_FOR_DEPOSIT = 9;
+    DUMMY = 10;
+    READY_TO_REIMBURSE = 11;
+    KICKOFF_NOT_FINALIZED = 12;
+    CHALLENGE_TIMEOUT = 13;
 }
 
 enum NumberedTransactionType {
@@ -116,6 +116,7 @@ enum NumberedTransactionType {
     ASSERT_TIMEOUT = 4;
     UNSPENT_KICKOFF = 5;
     MINI_ASSERT = 6;
+    WATCHTOWER_CHALLENGE_TIMEOUT = 7;
 }
 
 message NumberedTransactionId {

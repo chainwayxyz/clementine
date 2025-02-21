@@ -70,6 +70,7 @@ pub enum TransactionType {
     Challenge,
     UnspentKickoff(usize),
     WatchtowerChallengeKickoff,
+    WatchtowerChallengeTimeout(usize),
     WatchtowerChallenge(usize),
     OperatorChallengeNack(usize),
     OperatorChallengeAck(usize),
