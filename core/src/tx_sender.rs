@@ -422,6 +422,7 @@ impl TxSender {
 
     /// Submit package returns the effective fee rate in btc/kvb.
     /// This function converts the btc/kvb to a fee rate in sat/vb.
+    #[allow(dead_code)]
     fn btc_per_kvb_to_fee_rate(btc_per_kvb: f64) -> FeeRate {
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
@@ -565,7 +566,7 @@ impl TxSender {
                 .save_rbf_txid(None, id, package[0].compute_txid())
                 .await?;
         }
-        tracing::error!(
+        tracing::info!(
             "Submitting package: {:?}",
             package
                 .iter()
@@ -578,7 +579,7 @@ impl TxSender {
             .submit_package(&package_refs[..])
             .await
             .inspect_err(|e| {
-                tracing::error!(
+                tracing::warn!(
                     "{}: failed to submit package with error {:?}",
                     self.consumer_handle,
                     e
@@ -593,7 +594,7 @@ impl TxSender {
         }
 
         let mut early_exit = false;
-        for (txid, result) in submit_package_result.tx_results {
+        for (_txid, result) in submit_package_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
                 tracing::warn!("Error submitting package: {:?}", error);
                 early_exit = true;

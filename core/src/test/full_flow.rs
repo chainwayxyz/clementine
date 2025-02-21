@@ -3,14 +3,13 @@ use crate::builder::transaction::TransactionType;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest, WithdrawParams};
+use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest};
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxSender};
 use crate::utils::SECP;
 use crate::EVMAddress;
 use bitcoin::consensus::{self};
-use bitcoin::hashes::Hash;
-use bitcoin::{Address, Amount, Transaction, Txid};
+use bitcoin::Transaction;
 use bitcoincore_rpc::RpcApi;
 use eyre::{bail, Context, Result};
 use secp256k1::rand::rngs::ThreadRng;
@@ -59,8 +58,6 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
-    let withdrawal_address =
-        Address::p2tr(&SECP, keypair.x_only_public_key().0, None, config.network);
     let recovery_taproot_address = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
