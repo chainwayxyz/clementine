@@ -144,9 +144,9 @@ impl Operator {
     > {
         let wpks = self.generate_kickoff_winternitz_pubkeys()?;
         let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
-        let kickoff_wpks =
-            KickoffWinternitzKeys::new(wpks.clone(), self.config.num_kickoffs_per_round);
+        let kickoff_wpks = KickoffWinternitzKeys::new(wpks, self.config.num_kickoffs_per_round);
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
+        let wpks = kickoff_wpks.keys;
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
         tokio::spawn(async move {

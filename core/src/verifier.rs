@@ -4,9 +4,13 @@ use crate::builder::address::{
 };
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
-    create_nofn_sighash_stream, create_operator_sighash_stream, SignatureInfo,
+    create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
-use crate::builder::transaction::{create_move_to_vault_txhandler, DepositData, OperatorData, TxHandler, Unsigned};
+use crate::builder::transaction::creator::{create_round_txhandlers, KickoffWinternitzKeys};
+use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::{
+    create_move_to_vault_txhandler, DepositData, OperatorData, TransactionType, TxHandler, Unsigned,
+};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
 use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
@@ -32,7 +36,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
-use crate::builder::transaction::creator::KickoffWinternitzKeys;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -175,22 +178,73 @@ impl Verifier {
         Ok(())
     }
 
+    /// Verifies all unspent kickoff signatures sent by the operator, converts them to TaggedSignature
+    /// as they will be saved as TaggedSignatures to the db.
     fn verify_unspent_kickoff_sigs(
         &self,
+        operator_index: u32,
         collateral_funding_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
         wallet_reimburse_address: Address,
         unspent_kickoff_sigs: Vec<Signature>,
         kickoff_wpks: &KickoffWinternitzKeys,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<Vec<TaggedSignature>, BridgeError> {
+        let mut tagged_sigs = Vec::with_capacity(unspent_kickoff_sigs.len());
         let mut prev_ready_to_reimburse: Option<TxHandler> = None;
         let operator_data = OperatorData {
             xonly_pk: operator_xonly_pk,
             collateral_funding_outpoint,
             reimburse_addr: wallet_reimburse_address.clone(),
         };
+        let mut cur_sig_index = 0;
+        for idx in 0..self.config.num_round_txs {
+            let txhandlers = create_round_txhandlers(
+                &self.config,
+                idx,
+                &operator_data,
+                kickoff_wpks,
+                prev_ready_to_reimburse.clone(),
+            )?;
+            for txhandler in txhandlers {
+                if let TransactionType::UnspentKickoff(kickoff_idx) =
+                    txhandler.get_transaction_type()
+                {
+                    let partial = PartialSignatureInfo {
+                        operator_idx: operator_index as usize,
+                        round_idx: idx,
+                        kickoff_utxo_idx: kickoff_idx,
+                    };
+                    let sighashes = txhandler
+                        .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
+                    for sighash in sighashes {
+                        let message = Message::from_digest(sighash.0.to_byte_array());
+                        utils::SECP
+                            .verify_schnorr(
+                                &unspent_kickoff_sigs[cur_sig_index],
+                                &message,
+                                &operator_xonly_pk,
+                            )
+                            .map_err(|e| {
+                                BridgeError::Error(format!(
+                                    "Unspent kickoff signature verification failed for num sig {}: {}",
+                                    cur_sig_index + 1,
+                                    e
+                                ))
+                            })?;
+                        tagged_sigs.push(TaggedSignature {
+                            signature: unspent_kickoff_sigs[cur_sig_index].serialize().to_vec(),
+                            signature_id: Some(sighash.1.signature_id),
+                        });
+                        cur_sig_index += 1;
+                    }
+                }
+                if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
+                    prev_ready_to_reimburse = Some(txhandler);
+                }
+            }
+        }
 
-        Ok(())
+        Ok(tagged_sigs)
     }
 
     pub async fn set_operator(
@@ -202,6 +256,20 @@ impl Verifier {
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
         unspent_kickoff_sigs: Vec<Signature>,
     ) -> Result<(), BridgeError> {
+        let kickoff_wpks = KickoffWinternitzKeys::new(
+            operator_winternitz_public_keys,
+            self.config.num_kickoffs_per_round,
+        );
+        let tagged_sigs = self.verify_unspent_kickoff_sigs(
+            operator_index,
+            collateral_funding_outpoint,
+            operator_xonly_pk,
+            wallet_reimburse_address.clone(),
+            unspent_kickoff_sigs,
+            &kickoff_wpks,
+        )?;
+
+        let operator_winternitz_public_keys = kickoff_wpks.keys;
         // Save the operator details to the db
         self.db
             .set_operator(
@@ -220,6 +288,18 @@ impl Verifier {
                 operator_winternitz_public_keys,
             )
             .await?;
+
+        let sigs_per_round = self.config.get_num_unspent_kickoff_sigs() / self.config.num_round_txs;
+        let tagged_sigs_per_round: Vec<Vec<TaggedSignature>> = tagged_sigs
+            .chunks(sigs_per_round)
+            .map(|chunk| chunk.to_vec())
+            .collect();
+
+        for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
+            self.db
+                .set_unspent_kickoff_sigs(None, operator_index as usize, round_idx, sigs)
+                .await?;
+        }
 
         Ok(())
     }

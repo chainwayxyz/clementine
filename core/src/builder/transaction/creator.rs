@@ -30,7 +30,7 @@ fn get_txhandler(
 #[derive(Debug, Clone)]
 /// Helper struct to get specific kickoff winternitz keys for a sequential collateral tx
 pub struct KickoffWinternitzKeys {
-    keys: Vec<bitvm::signatures::winternitz::PublicKey>,
+    pub keys: Vec<bitvm::signatures::winternitz::PublicKey>,
     num_kickoffs_per_round: usize,
 }
 
@@ -677,6 +677,9 @@ mod tests {
         txs_operator_can_sign.extend(
             (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
+        txs_operator_can_sign.extend(
+            (0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff),
+        );
 
         // try to sign everything for all operators
         let operator_task_handles: Vec<_> = operators
@@ -718,7 +721,7 @@ mod tests {
                                     tx_type
                                 );
                             }
-                            tracing::trace!(
+                            tracing::info!(
                                 "Operator signed txs {:?} from rpc call in time {:?}",
                                 TransactionType::AllNeededForDeposit,
                                 start_time.elapsed()
@@ -735,7 +738,7 @@ mod tests {
                                     .unwrap()
                                     .into_inner()
                                     .raw_txs;
-                                tracing::trace!(
+                                tracing::info!(
                                     "Operator Signed Assert txs of size: {}",
                                     _raw_assert_txs.len()
                                 );
@@ -797,6 +800,9 @@ mod tests {
         txs_verifier_can_sign.extend(
             (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
+        txs_verifier_can_sign.extend(
+            (0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff),
+        );
 
         // try to sign everything for all verifiers
         // try signing verifier transactions
@@ -839,7 +845,7 @@ mod tests {
                                         tx_type
                                     );
                                 }
-                                tracing::trace!(
+                                tracing::info!(
                                     "Verifier signed txs {:?} from rpc call in time {:?}",
                                     TransactionType::AllNeededForDeposit,
                                     start_time.elapsed()

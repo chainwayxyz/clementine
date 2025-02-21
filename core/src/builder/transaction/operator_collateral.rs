@@ -226,7 +226,7 @@ pub fn create_unspent_kickoff_txhandlers(
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff2, idx as i32),
                     round_txhandler.get_spendable_output(1 + idx)?,
-                    SpendPath::KeySpend,
+                    SpendPath::ScriptSpend(1),
                     DEFAULT_SEQUENCE,
                 )
                 .add_output(UnspentTxOut::from_partial(
