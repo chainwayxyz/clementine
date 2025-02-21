@@ -591,35 +591,35 @@ impl TxSender {
         if submit_package_result.tx_results.is_empty() {
             return Ok(());
         }
-        // Get the effective fee rate from the first transaction result
-        let effective_fee_rate_btc_per_kvb = submit_package_result
-            .tx_results
-            .iter()
-            .next()
-            .and_then(|(_, result)| match result {
-                PackageTransactionResult::Success { fees, .. } => Some(fees.effective_feerate),
-                PackageTransactionResult::SuccessAlreadyInMempool { txid, .. } => {
-                    tracing::warn!(
-                        "{}: transaction {txid} is already in mempool, skipping",
-                        self.consumer_handle
-                    );
-                    None
-                }
-                PackageTransactionResult::Failure { txid, error } => {
-                    tracing::warn!(
-                        "{}: failed to send the transaction {txid} with error {error}, skipping",
-                        self.consumer_handle
-                    );
-                    None
-                }
-            })
-            .expect("Effective fee rate should be present")
-            .expect("Effective fee rate should be present");
+        // // Get the effective fee rate from the first transaction result
+        // let effective_fee_rate_btc_per_kvb = submit_package_result
+        //     .tx_results
+        //     .iter()
+        //     .next()
+        //     .and_then(|(_, result)| match result {
+        //         PackageTransactionResult::Success { fees, .. } => Some(fees.effective_feerate),
+        //         PackageTransactionResult::SuccessAlreadyInMempool { txid, .. } => {
+        //             tracing::warn!(
+        //                 "{}: transaction {txid} is already in mempool, skipping",
+        //                 self.consumer_handle
+        //             );
+        //             None
+        //         }
+        //         PackageTransactionResult::Failure { txid, error } => {
+        //             tracing::warn!(
+        //                 "{}: failed to send the transaction {txid} with error {error}, skipping",
+        //                 self.consumer_handle
+        //             );
+        //             None
+        //         }
+        //     })
+        //     .expect("Effective fee rate should be present")
+        //     .expect("Effective fee rate should be present");
 
-        let effective_fee_rate = Self::btc_per_kvb_to_fee_rate(effective_fee_rate_btc_per_kvb);
+        // let effective_fee_rate = Self::btc_per_kvb_to_fee_rate(effective_fee_rate_btc_per_kvb);
         // Save the effective fee rate to the db
         self.db
-            .update_effective_fee_rate(None, id, effective_fee_rate)
+            .update_effective_fee_rate(None, id, fee_rate)
             .await?;
 
         // Sanity check to make sure the fee rate is equal to the required fee rate
