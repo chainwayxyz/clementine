@@ -20,11 +20,11 @@ pub struct NormalSignatureId {
     pub signature_kind: i32,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct WatchtowerSignatureId {
-    #[prost(enumeration = "WatchtowerSignatureKind", tag = "1")]
+pub struct NumberedSignatureId {
+    #[prost(enumeration = "NumberedSignatureKind", tag = "1")]
     pub signature_kind: i32,
     #[prost(int32, tag = "2")]
-    pub watchtower_idx: i32,
+    pub idx: i32,
 }
 /// A tagged signature struct that identifies the transaction-input that the signature is for.
 /// The id is left as NotStored for signatures that are created on the fly by the operator (they're also not stored).
@@ -42,7 +42,7 @@ pub mod tagged_signature {
         #[prost(message, tag = "1")]
         NormalSignature(super::NormalSignatureId),
         #[prost(message, tag = "2")]
-        WatchtowerSignature(super::WatchtowerSignatureId),
+        NumberedSignature(super::NumberedSignatureId),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -74,8 +74,8 @@ pub struct DepositParams {
     pub recovery_taproot_address: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct WatchtowerTransactionId {
-    #[prost(enumeration = "WatchtowerTransactionType", tag = "1")]
+pub struct NumberedTransactionId {
+    #[prost(enumeration = "NumberedTransactionType", tag = "1")]
     pub transaction_type: i32,
     #[prost(int32, tag = "2")]
     pub index: i32,
@@ -92,7 +92,7 @@ pub mod grpc_transaction_id {
         #[prost(enumeration = "super::NormalTransactionId", tag = "1")]
         NormalTransaction(i32),
         #[prost(message, tag = "2")]
-        WatchtowerTransaction(super::WatchtowerTransactionId),
+        NumberedTransaction(super::NumberedTransactionId),
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -100,7 +100,7 @@ pub struct KickoffId {
     #[prost(uint32, tag = "1")]
     pub operator_idx: u32,
     #[prost(uint32, tag = "2")]
-    pub sequential_collateral_idx: u32,
+    pub round_idx: u32,
     #[prost(uint32, tag = "3")]
     pub kickoff_idx: u32,
 }
@@ -112,8 +112,6 @@ pub struct TransactionRequest {
     pub transaction_type: ::core::option::Option<GrpcTransactionId>,
     #[prost(message, optional, tag = "3")]
     pub kickoff_id: ::core::option::Option<KickoffId>,
-    #[prost(bytes = "vec", tag = "4")]
-    pub commit_data: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AssertRequest {
@@ -121,8 +119,6 @@ pub struct AssertRequest {
     pub deposit_params: ::core::option::Option<DepositParams>,
     #[prost(message, optional, tag = "2")]
     pub kickoff_id: ::core::option::Option<KickoffId>,
-    #[prost(bytes = "vec", repeated, tag = "3")]
-    pub commit_data: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 /// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -237,7 +233,7 @@ pub struct VerifierParams {
     #[prost(uint32, tag = "5")]
     pub num_operators: u32,
     #[prost(uint32, tag = "6")]
-    pub num_sequential_collateral_txs: u32,
+    pub num_round_txs: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PartialSig {
@@ -341,30 +337,38 @@ pub struct RawSignedTxs {
     #[prost(message, repeated, tag = "1")]
     pub raw_txs: ::prost::alloc::vec::Vec<RawSignedTx>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SignedTxWithType {
+    #[prost(message, optional, tag = "1")]
+    pub transaction_type: ::core::option::Option<GrpcTransactionId>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub raw_tx: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SignedTxsWithType {
+    #[prost(message, repeated, tag = "1")]
+    pub signed_txs: ::prost::alloc::vec::Vec<SignedTxWithType>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum NormalSignatureKind {
     NormalSignatureUnknown = 0,
     /// Used for TxHandlers that verifiers don't care. These will have signatures created
     /// by the operator on the fly.
-    NotStored = 1,
-    AssertTimeout1 = 2,
-    AssertTimeout2 = 3,
-    Challenge = 4,
-    WatchtowerChallengeKickoff = 5,
-    StartHappyReimburse2 = 6,
-    HappyReimburse1 = 7,
-    AssertEndLast = 8,
-    DisproveTimeout1 = 9,
-    DisproveTimeout2 = 10,
-    AlreadyDisproved1 = 11,
-    AlreadyDisproved2 = 12,
-    Disprove2 = 13,
-    Reimburse1 = 14,
-    StartHappyReimburse3 = 15,
-    DisproveTimeout3 = 16,
-    KickoffNotFinalized1 = 17,
-    KickoffNotFinalized2 = 18,
+    OperatorSighashDefault = 1,
+    Challenge = 2,
+    WatchtowerChallengeKickoff = 3,
+    DisproveTimeout2 = 4,
+    Disprove2 = 5,
+    Reimburse1 = 6,
+    KickoffNotFinalized1 = 7,
+    KickoffNotFinalized2 = 8,
+    Reimburse2 = 9,
+    NoSignature = 10,
+    ChallengeTimeout2 = 11,
+    MiniAssert1 = 12,
+    OperatorChallengeAck1 = 13,
+    NotStored = 14,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -374,85 +378,95 @@ impl NormalSignatureKind {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::NormalSignatureUnknown => "NormalSignatureUnknown",
-            Self::NotStored => "NotStored",
-            Self::AssertTimeout1 => "AssertTimeout1",
-            Self::AssertTimeout2 => "AssertTimeout2",
+            Self::OperatorSighashDefault => "OperatorSighashDefault",
             Self::Challenge => "Challenge",
             Self::WatchtowerChallengeKickoff => "WatchtowerChallengeKickoff",
-            Self::StartHappyReimburse2 => "StartHappyReimburse2",
-            Self::HappyReimburse1 => "HappyReimburse1",
-            Self::AssertEndLast => "AssertEndLast",
-            Self::DisproveTimeout1 => "DisproveTimeout1",
             Self::DisproveTimeout2 => "DisproveTimeout2",
-            Self::AlreadyDisproved1 => "AlreadyDisproved1",
-            Self::AlreadyDisproved2 => "AlreadyDisproved2",
             Self::Disprove2 => "Disprove2",
             Self::Reimburse1 => "Reimburse1",
-            Self::StartHappyReimburse3 => "StartHappyReimburse3",
-            Self::DisproveTimeout3 => "DisproveTimeout3",
             Self::KickoffNotFinalized1 => "KickoffNotFinalized1",
             Self::KickoffNotFinalized2 => "KickoffNotFinalized2",
+            Self::Reimburse2 => "Reimburse2",
+            Self::NoSignature => "NoSignature",
+            Self::ChallengeTimeout2 => "ChallengeTimeout2",
+            Self::MiniAssert1 => "MiniAssert1",
+            Self::OperatorChallengeAck1 => "OperatorChallengeAck1",
+            Self::NotStored => "NotStored",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "NormalSignatureUnknown" => Some(Self::NormalSignatureUnknown),
-            "NotStored" => Some(Self::NotStored),
-            "AssertTimeout1" => Some(Self::AssertTimeout1),
-            "AssertTimeout2" => Some(Self::AssertTimeout2),
+            "OperatorSighashDefault" => Some(Self::OperatorSighashDefault),
             "Challenge" => Some(Self::Challenge),
             "WatchtowerChallengeKickoff" => Some(Self::WatchtowerChallengeKickoff),
-            "StartHappyReimburse2" => Some(Self::StartHappyReimburse2),
-            "HappyReimburse1" => Some(Self::HappyReimburse1),
-            "AssertEndLast" => Some(Self::AssertEndLast),
-            "DisproveTimeout1" => Some(Self::DisproveTimeout1),
             "DisproveTimeout2" => Some(Self::DisproveTimeout2),
-            "AlreadyDisproved1" => Some(Self::AlreadyDisproved1),
-            "AlreadyDisproved2" => Some(Self::AlreadyDisproved2),
             "Disprove2" => Some(Self::Disprove2),
             "Reimburse1" => Some(Self::Reimburse1),
-            "StartHappyReimburse3" => Some(Self::StartHappyReimburse3),
-            "DisproveTimeout3" => Some(Self::DisproveTimeout3),
             "KickoffNotFinalized1" => Some(Self::KickoffNotFinalized1),
             "KickoffNotFinalized2" => Some(Self::KickoffNotFinalized2),
+            "Reimburse2" => Some(Self::Reimburse2),
+            "NoSignature" => Some(Self::NoSignature),
+            "ChallengeTimeout2" => Some(Self::ChallengeTimeout2),
+            "MiniAssert1" => Some(Self::MiniAssert1),
+            "OperatorChallengeAck1" => Some(Self::OperatorChallengeAck1),
+            "NotStored" => Some(Self::NotStored),
             _ => None,
         }
     }
 }
+/// Signatures that are needed multiple times per an operators kickoff.
+/// Some watchtower sigs are needed once per watchtower.
+/// Asserts are needed multiple times
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum WatchtowerSignatureKind {
-    WatchtowerSignatureUnknown = 0,
+pub enum NumberedSignatureKind {
+    NumberedSignatureUnknown = 0,
     /// Used for TxHandlers that verifiers don't care. These will have signatures created
     /// by the operator on the fly.
-    WatchtowerNotStored = 1,
+    NumberedNotStored = 1,
     OperatorChallengeNack1 = 2,
     OperatorChallengeNack2 = 3,
-    OperatorChallengeAck = 4,
+    OperatorChallengeNack3 = 4,
+    AssertTimeout1 = 5,
+    AssertTimeout2 = 6,
+    AssertTimeout3 = 7,
+    UnspentKickoff1 = 8,
+    UnspentKickoff2 = 9,
 }
-impl WatchtowerSignatureKind {
+impl NumberedSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Self::WatchtowerSignatureUnknown => "WatchtowerSignatureUnknown",
-            Self::WatchtowerNotStored => "WatchtowerNotStored",
+            Self::NumberedSignatureUnknown => "NumberedSignatureUnknown",
+            Self::NumberedNotStored => "NumberedNotStored",
             Self::OperatorChallengeNack1 => "OperatorChallengeNack1",
             Self::OperatorChallengeNack2 => "OperatorChallengeNack2",
-            Self::OperatorChallengeAck => "OperatorChallengeAck",
+            Self::OperatorChallengeNack3 => "OperatorChallengeNack3",
+            Self::AssertTimeout1 => "AssertTimeout1",
+            Self::AssertTimeout2 => "AssertTimeout2",
+            Self::AssertTimeout3 => "AssertTimeout3",
+            Self::UnspentKickoff1 => "UnspentKickoff1",
+            Self::UnspentKickoff2 => "UnspentKickoff2",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "WatchtowerSignatureUnknown" => Some(Self::WatchtowerSignatureUnknown),
-            "WatchtowerNotStored" => Some(Self::WatchtowerNotStored),
+            "NumberedSignatureUnknown" => Some(Self::NumberedSignatureUnknown),
+            "NumberedNotStored" => Some(Self::NumberedNotStored),
             "OperatorChallengeNack1" => Some(Self::OperatorChallengeNack1),
             "OperatorChallengeNack2" => Some(Self::OperatorChallengeNack2),
-            "OperatorChallengeAck" => Some(Self::OperatorChallengeAck),
+            "OperatorChallengeNack3" => Some(Self::OperatorChallengeNack3),
+            "AssertTimeout1" => Some(Self::AssertTimeout1),
+            "AssertTimeout2" => Some(Self::AssertTimeout2),
+            "AssertTimeout3" => Some(Self::AssertTimeout3),
+            "UnspentKickoff1" => Some(Self::UnspentKickoff1),
+            "UnspentKickoff2" => Some(Self::UnspentKickoff2),
             _ => None,
         }
     }
@@ -461,28 +475,20 @@ impl WatchtowerSignatureKind {
 #[repr(i32)]
 pub enum NormalTransactionId {
     UnspecifiedTransactionType = 0,
-    SequentialCollateral = 1,
-    ReimburseGenerator = 2,
-    Kickoff = 3,
-    MoveToVault = 4,
-    Payout = 5,
-    Challenge = 6,
-    AssertTimeout = 7,
-    KickoffUtxoTimeout = 8,
-    WatchtowerChallengeKickoff = 9,
-    StartHappyReimburse = 10,
-    HappyReimburse = 11,
-    AssertBegin = 12,
-    AssertEnd = 13,
-    Disprove = 14,
-    DisproveTimeout = 15,
-    AlreadyDisproved = 16,
-    Reimburse = 17,
-    AllNeededForVerifierDeposit = 18,
-    AllNeededForOperatorDeposit = 19,
-    Dummy = 20,
-    ReadyToReimburse = 21,
-    KickoffNotFinalized = 22,
+    Round = 1,
+    Kickoff = 2,
+    MoveToVault = 3,
+    Payout = 4,
+    Challenge = 5,
+    WatchtowerChallengeKickoff = 6,
+    Disprove = 7,
+    DisproveTimeout = 8,
+    Reimburse = 9,
+    AllNeededForDeposit = 10,
+    Dummy = 11,
+    ReadyToReimburse = 12,
+    KickoffNotFinalized = 13,
+    ChallengeTimeout = 14,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -492,70 +498,56 @@ impl NormalTransactionId {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::UnspecifiedTransactionType => "UNSPECIFIED_TRANSACTION_TYPE",
-            Self::SequentialCollateral => "SEQUENTIAL_COLLATERAL",
-            Self::ReimburseGenerator => "REIMBURSE_GENERATOR",
+            Self::Round => "ROUND",
             Self::Kickoff => "KICKOFF",
             Self::MoveToVault => "MOVE_TO_VAULT",
             Self::Payout => "PAYOUT",
             Self::Challenge => "CHALLENGE",
-            Self::AssertTimeout => "ASSERT_TIMEOUT",
-            Self::KickoffUtxoTimeout => "KICKOFF_UTXO_TIMEOUT",
             Self::WatchtowerChallengeKickoff => "WATCHTOWER_CHALLENGE_KICKOFF",
-            Self::StartHappyReimburse => "START_HAPPY_REIMBURSE",
-            Self::HappyReimburse => "HAPPY_REIMBURSE",
-            Self::AssertBegin => "ASSERT_BEGIN",
-            Self::AssertEnd => "ASSERT_END",
             Self::Disprove => "DISPROVE",
             Self::DisproveTimeout => "DISPROVE_TIMEOUT",
-            Self::AlreadyDisproved => "ALREADY_DISPROVED",
             Self::Reimburse => "REIMBURSE",
-            Self::AllNeededForVerifierDeposit => "ALL_NEEDED_FOR_VERIFIER_DEPOSIT",
-            Self::AllNeededForOperatorDeposit => "ALL_NEEDED_FOR_OPERATOR_DEPOSIT",
+            Self::AllNeededForDeposit => "ALL_NEEDED_FOR_DEPOSIT",
             Self::Dummy => "DUMMY",
             Self::ReadyToReimburse => "READY_TO_REIMBURSE",
             Self::KickoffNotFinalized => "KICKOFF_NOT_FINALIZED",
+            Self::ChallengeTimeout => "CHALLENGE_TIMEOUT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "UNSPECIFIED_TRANSACTION_TYPE" => Some(Self::UnspecifiedTransactionType),
-            "SEQUENTIAL_COLLATERAL" => Some(Self::SequentialCollateral),
-            "REIMBURSE_GENERATOR" => Some(Self::ReimburseGenerator),
+            "ROUND" => Some(Self::Round),
             "KICKOFF" => Some(Self::Kickoff),
             "MOVE_TO_VAULT" => Some(Self::MoveToVault),
             "PAYOUT" => Some(Self::Payout),
             "CHALLENGE" => Some(Self::Challenge),
-            "ASSERT_TIMEOUT" => Some(Self::AssertTimeout),
-            "KICKOFF_UTXO_TIMEOUT" => Some(Self::KickoffUtxoTimeout),
             "WATCHTOWER_CHALLENGE_KICKOFF" => Some(Self::WatchtowerChallengeKickoff),
-            "START_HAPPY_REIMBURSE" => Some(Self::StartHappyReimburse),
-            "HAPPY_REIMBURSE" => Some(Self::HappyReimburse),
-            "ASSERT_BEGIN" => Some(Self::AssertBegin),
-            "ASSERT_END" => Some(Self::AssertEnd),
             "DISPROVE" => Some(Self::Disprove),
             "DISPROVE_TIMEOUT" => Some(Self::DisproveTimeout),
-            "ALREADY_DISPROVED" => Some(Self::AlreadyDisproved),
             "REIMBURSE" => Some(Self::Reimburse),
-            "ALL_NEEDED_FOR_VERIFIER_DEPOSIT" => Some(Self::AllNeededForVerifierDeposit),
-            "ALL_NEEDED_FOR_OPERATOR_DEPOSIT" => Some(Self::AllNeededForOperatorDeposit),
+            "ALL_NEEDED_FOR_DEPOSIT" => Some(Self::AllNeededForDeposit),
             "DUMMY" => Some(Self::Dummy),
             "READY_TO_REIMBURSE" => Some(Self::ReadyToReimburse),
             "KICKOFF_NOT_FINALIZED" => Some(Self::KickoffNotFinalized),
+            "CHALLENGE_TIMEOUT" => Some(Self::ChallengeTimeout),
             _ => None,
         }
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum WatchtowerTransactionType {
+pub enum NumberedTransactionType {
     UnspecifiedIndexedTransactionType = 0,
     WatchtowerChallenge = 1,
     OperatorChallengeNack = 2,
     OperatorChallengeAck = 3,
-    MiniAssert = 4,
+    AssertTimeout = 4,
+    UnspentKickoff = 5,
+    MiniAssert = 6,
 }
-impl WatchtowerTransactionType {
+impl NumberedTransactionType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
@@ -568,6 +560,8 @@ impl WatchtowerTransactionType {
             Self::WatchtowerChallenge => "WATCHTOWER_CHALLENGE",
             Self::OperatorChallengeNack => "OPERATOR_CHALLENGE_NACK",
             Self::OperatorChallengeAck => "OPERATOR_CHALLENGE_ACK",
+            Self::AssertTimeout => "ASSERT_TIMEOUT",
+            Self::UnspentKickoff => "UNSPENT_KICKOFF",
             Self::MiniAssert => "MINI_ASSERT",
         }
     }
@@ -580,6 +574,8 @@ impl WatchtowerTransactionType {
             "WATCHTOWER_CHALLENGE" => Some(Self::WatchtowerChallenge),
             "OPERATOR_CHALLENGE_NACK" => Some(Self::OperatorChallengeNack),
             "OPERATOR_CHALLENGE_ACK" => Some(Self::OperatorChallengeAck),
+            "ASSERT_TIMEOUT" => Some(Self::AssertTimeout),
+            "UNSPENT_KICKOFF" => Some(Self::UnspentKickoff),
             "MINI_ASSERT" => Some(Self::MiniAssert),
             _ => None,
         }
@@ -597,7 +593,7 @@ pub mod clementine_operator_client {
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     /// An operator is responsible for paying withdrawals. It has an unique ID and
-    /// chain of UTXOs named `sequential_collateral_txs`. An operator also runs a verifier. These are
+    /// chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
     /// connected to the same database and both have access to watchtowers'
     /// winternitz pubkeys.
     #[derive(Debug, Clone)]
@@ -705,7 +701,8 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+        /// Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
         ///
         /// # Parameters
@@ -714,11 +711,14 @@ pub mod clementine_operator_client {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transaction
-        pub async fn internal_create_signed_tx(
+        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+        pub async fn internal_create_signed_txs(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxsWithType>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -729,14 +729,14 @@ pub mod clementine_operator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineOperator/InternalCreateSignedTx",
+                "/clementine.ClementineOperator/InternalCreateSignedTxs",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "clementine.ClementineOperator",
-                        "InternalCreateSignedTx",
+                        "InternalCreateSignedTxs",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1046,8 +1046,9 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
-        /// It will create the transaction and sign it with saved nofn signatures.
+        /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+        /// Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
+        /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
         ///
         /// # Parameters
         /// - deposit_params: User's deposit information
@@ -1055,11 +1056,14 @@ pub mod clementine_verifier_client {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transaction
-        pub async fn internal_create_signed_tx(
+        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+        pub async fn internal_create_signed_txs(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxsWithType>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1070,14 +1074,14 @@ pub mod clementine_verifier_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineVerifier/InternalCreateSignedTx",
+                "/clementine.ClementineVerifier/InternalCreateSignedTxs",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "clementine.ClementineVerifier",
-                        "InternalCreateSignedTx",
+                        "InternalCreateSignedTxs",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1380,7 +1384,7 @@ pub mod clementine_watchtower_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
         ///
         /// # Parameters
@@ -1390,7 +1394,7 @@ pub mod clementine_watchtower_client {
         ///
         /// # Returns
         /// - Raw signed transaction
-        pub async fn internal_create_signed_tx(
+        pub async fn internal_create_watchtower_challenge(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
@@ -1404,14 +1408,14 @@ pub mod clementine_watchtower_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineWatchtower/InternalCreateSignedTx",
+                "/clementine.ClementineWatchtower/InternalCreateWatchtowerChallenge",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "clementine.ClementineWatchtower",
-                        "InternalCreateSignedTx",
+                        "InternalCreateWatchtowerChallenge",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1609,7 +1613,8 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::OperatorKeys>, tonic::Status>;
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+        /// Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
         ///
         /// # Parameters
@@ -1618,11 +1623,14 @@ pub mod clementine_operator_server {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transaction
-        async fn internal_create_signed_tx(
+        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+        async fn internal_create_signed_txs(
             &self,
             request: tonic::Request<super::TransactionRequest>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxsWithType>,
+            tonic::Status,
+        >;
         /// Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
         /// in the same order.
         /// # Parameters
@@ -1703,7 +1711,7 @@ pub mod clementine_operator_server {
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     /// An operator is responsible for paying withdrawals. It has an unique ID and
-    /// chain of UTXOs named `sequential_collateral_txs`. An operator also runs a verifier. These are
+    /// chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
     /// connected to the same database and both have access to watchtowers'
     /// winternitz pubkeys.
     #[derive(Debug)]
@@ -1828,14 +1836,14 @@ pub mod clementine_operator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineOperator/InternalCreateSignedTx" => {
+                "/clementine.ClementineOperator/InternalCreateSignedTxs" => {
                     #[allow(non_camel_case_types)]
-                    struct InternalCreateSignedTxSvc<T: ClementineOperator>(pub Arc<T>);
+                    struct InternalCreateSignedTxsSvc<T: ClementineOperator>(pub Arc<T>);
                     impl<
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::TransactionRequest>
-                    for InternalCreateSignedTxSvc<T> {
-                        type Response = super::RawSignedTx;
+                    for InternalCreateSignedTxsSvc<T> {
+                        type Response = super::SignedTxsWithType;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -1846,7 +1854,7 @@ pub mod clementine_operator_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineOperator>::internal_create_signed_tx(
+                                <T as ClementineOperator>::internal_create_signed_txs(
                                         &inner,
                                         request,
                                     )
@@ -1861,7 +1869,7 @@ pub mod clementine_operator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = InternalCreateSignedTxSvc(inner);
+                        let method = InternalCreateSignedTxsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -2176,8 +2184,9 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::OperatorKeysWithDeposit>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
-        /// It will create the transaction and sign it with saved nofn signatures.
+        /// Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+        /// Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
+        /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
         ///
         /// # Parameters
         /// - deposit_params: User's deposit information
@@ -2185,11 +2194,14 @@ pub mod clementine_verifier_server {
         /// - kickoff_id: Operator's kickoff ID
         ///
         /// # Returns
-        /// - Raw signed transaction
-        async fn internal_create_signed_tx(
+        /// - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+        async fn internal_create_signed_txs(
             &self,
             request: tonic::Request<super::TransactionRequest>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxsWithType>,
+            tonic::Status,
+        >;
         /// Returns verifiers' metadata. Needs to be called once per setup.
         async fn get_params(
             &self,
@@ -2422,14 +2434,14 @@ pub mod clementine_verifier_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineVerifier/InternalCreateSignedTx" => {
+                "/clementine.ClementineVerifier/InternalCreateSignedTxs" => {
                     #[allow(non_camel_case_types)]
-                    struct InternalCreateSignedTxSvc<T: ClementineVerifier>(pub Arc<T>);
+                    struct InternalCreateSignedTxsSvc<T: ClementineVerifier>(pub Arc<T>);
                     impl<
                         T: ClementineVerifier,
                     > tonic::server::UnaryService<super::TransactionRequest>
-                    for InternalCreateSignedTxSvc<T> {
-                        type Response = super::RawSignedTx;
+                    for InternalCreateSignedTxsSvc<T> {
+                        type Response = super::SignedTxsWithType;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2440,7 +2452,7 @@ pub mod clementine_verifier_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineVerifier>::internal_create_signed_tx(
+                                <T as ClementineVerifier>::internal_create_signed_txs(
                                         &inner,
                                         request,
                                     )
@@ -2455,7 +2467,7 @@ pub mod clementine_verifier_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = InternalCreateSignedTxSvc(inner);
+                        let method = InternalCreateSignedTxsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -2856,7 +2868,7 @@ pub mod clementine_watchtower_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::WatchtowerKeys>, tonic::Status>;
-        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
         /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
         ///
         /// # Parameters
@@ -2866,7 +2878,7 @@ pub mod clementine_watchtower_server {
         ///
         /// # Returns
         /// - Raw signed transaction
-        async fn internal_create_signed_tx(
+        async fn internal_create_watchtower_challenge(
             &self,
             request: tonic::Request<super::TransactionRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
@@ -3011,15 +3023,15 @@ pub mod clementine_watchtower_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineWatchtower/InternalCreateSignedTx" => {
+                "/clementine.ClementineWatchtower/InternalCreateWatchtowerChallenge" => {
                     #[allow(non_camel_case_types)]
-                    struct InternalCreateSignedTxSvc<T: ClementineWatchtower>(
+                    struct InternalCreateWatchtowerChallengeSvc<T: ClementineWatchtower>(
                         pub Arc<T>,
                     );
                     impl<
                         T: ClementineWatchtower,
                     > tonic::server::UnaryService<super::TransactionRequest>
-                    for InternalCreateSignedTxSvc<T> {
+                    for InternalCreateWatchtowerChallengeSvc<T> {
                         type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -3031,7 +3043,7 @@ pub mod clementine_watchtower_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineWatchtower>::internal_create_signed_tx(
+                                <T as ClementineWatchtower>::internal_create_watchtower_challenge(
                                         &inner,
                                         request,
                                     )
@@ -3046,7 +3058,7 @@ pub mod clementine_watchtower_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = InternalCreateSignedTxSvc(inner);
+                        let method = InternalCreateWatchtowerChallengeSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

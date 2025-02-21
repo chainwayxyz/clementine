@@ -527,7 +527,7 @@ mod tests {
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
         builder = builder
             .add_input(
-                NormalSignatureKind::NotStored,
+                NormalSignatureKind::OperatorSighashDefault,
                 SpendableTxIn::new(
                     utxo,
                     prevout.clone(),
@@ -635,7 +635,7 @@ mod tests {
 
         let tx_details = TxHandlerBuilder::new(TransactionType::Dummy)
             .add_input(
-                NormalSignatureKind::NotStored,
+                NormalSignatureKind::OperatorSighashDefault,
                 SpendableTxIn::new(
                     utxo,
                     prevout,

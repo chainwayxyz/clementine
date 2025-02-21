@@ -121,7 +121,7 @@ create table if not exists watchtower_xonly_public_keys (
     primary key (watchtower_id)
 );
 
--- Verifier table of watchtower Winternitz public keys for every operator and sequential collateral tx pair
+-- Verifier table of watchtower Winternitz public keys for every operator and deposit_id pair
 create table if not exists watchtower_winternitz_public_keys (
     watchtower_id int not null,
     operator_id int not null,
@@ -130,7 +130,7 @@ create table if not exists watchtower_winternitz_public_keys (
     primary key (watchtower_id, operator_id, deposit_id)
 );
 
--- Verifier table of watchtower challenge addresses for every operator, sequential_collateral_tx_idx, and kickoff_idx
+-- Verifier table of watchtower challenge addresses for every operator and deposit_id
 create table if not exists watchtower_challenge_addresses (
     watchtower_id int not null,
     operator_id int not null,
@@ -139,7 +139,7 @@ create table if not exists watchtower_challenge_addresses (
     primary key (watchtower_id, operator_id, deposit_id)
 );
 
--- Verifier table of operators Winternitz public keys for every sequential collateral tx
+-- Verifier table of operators Winternitz public keys for every kickoff utxo for committing blockhash
 create table if not exists operator_winternitz_public_keys (
     operator_id int not null,
     winternitz_public_keys bytea not null,
@@ -155,14 +155,14 @@ create table if not exists deposits (
 create table if not exists deposit_signatures (
     deposit_id int not null,
     operator_idx int not null,
-    sequential_collateral_idx int not null,
+    round_idx int not null,
     kickoff_idx int not null,
     signatures bytea not null,
-    primary key (deposit_id, operator_idx, sequential_collateral_idx, kickoff_idx)
+    primary key (deposit_id, operator_idx, round_idx, kickoff_idx)
 );
 
 -- Verifier table for BitVM setup data
-/* This table holds the BitVM setup data for each operator and sequential collateral tx pair. */
+/* This table holds the BitVM setup data for each operator and deposit_id pair. */
 create table if not exists bitvm_setups (
     operator_idx int not null,
     deposit_id int not null,
@@ -175,7 +175,7 @@ create table if not exists bitvm_setups (
 
 -- Verifier table for the operators public digests to acknowledge watchtower challenges.
 /* This table holds the public digests of the operators  to use for the watchtower
-challenges for each (operator_idx, sequential_collateral_tx_idx, kickoff_idx, watchtower_idx) tuple. */
+challenges for each (operator_idx, deposit_id) tuple. */
 create table if not exists operators_challenge_ack_hashes (
     operator_idx int not null,
     deposit_id int not null,

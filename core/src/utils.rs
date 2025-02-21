@@ -2,11 +2,13 @@ use crate::cli::Args;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use bitcoin::key::Parity;
-use bitcoin::{self};
+use bitcoin::{self, Txid};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
+use crate::actor::WinternitzDerivationPath;
+use crate::constants::WINTERNITZ_LOG_D;
 #[cfg(not(debug_assertions))]
 use bitvm::{
     chunker::{
@@ -115,9 +117,33 @@ lazy_static::lazy_static! {
                 }
             }
         };
-
         println!("BitVM initialization took: {:?}", start.elapsed());
         bitvm_cache
+    };
+
+    pub static ref COMBINED_ASSERT_DATA: CombinedAssertData = {
+        let mut current_length = 0;
+        let mut cur_steps = 0;
+        let mut last_steps = 0;
+        let mut num_steps = Vec::new();
+        for (_, step_size) in BITVM_CACHE.intermediate_variables.iter() {
+            // 4 is estimate max checksum length
+            // 499 is max digits that can be in witness because of bitcoin stack limit (1000)
+            if current_length + step_size * 8 / WINTERNITZ_LOG_D as usize + 4 > 450 {
+                num_steps.push((last_steps, last_steps + cur_steps));
+                last_steps += cur_steps;
+                current_length = 0;
+                cur_steps = 0;
+            }
+            current_length += step_size;
+            cur_steps += 1;
+        }
+        if cur_steps > 0 {
+            num_steps.push((last_steps, last_steps + cur_steps));
+        }
+        CombinedAssertData {
+            num_steps
+        }
     };
 }
 
@@ -126,6 +152,52 @@ pub struct BitvmCache {
     pub intermediate_variables: BTreeMap<String, usize>,
     pub disprove_scripts: Vec<Vec<u8>>,
     pub replacement_places: HashMap<(usize, usize), Vec<(usize, usize)>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CombinedAssertData {
+    pub num_steps: Vec<(usize, usize)>,
+}
+
+impl CombinedAssertData {
+    pub fn get_paths(&self, assert_idx: usize, txid: Txid) -> Vec<WinternitzDerivationPath> {
+        BITVM_CACHE
+            .intermediate_variables
+            .iter()
+            .skip(self.num_steps[assert_idx].0)
+            .take(self.num_steps[assert_idx].1)
+            .map(|(step_name, step_size)| {
+                WinternitzDerivationPath::BitvmAssert(
+                    *step_size as u32 * 2,
+                    step_name.to_owned(),
+                    txid,
+                )
+            })
+            .collect()
+    }
+
+    pub fn get_paths_and_sizes(
+        &self,
+        assert_idx: usize,
+        txid: Txid,
+    ) -> Vec<(WinternitzDerivationPath, u32)> {
+        BITVM_CACHE
+            .intermediate_variables
+            .iter()
+            .skip(self.num_steps[assert_idx].0)
+            .take(self.num_steps[assert_idx].1)
+            .map(|(step_name, step_size)| {
+                (
+                    WinternitzDerivationPath::BitvmAssert(
+                        *step_size as u32 * 2,
+                        step_name.to_owned(),
+                        txid,
+                    ),
+                    *step_size as u32 * 2,
+                )
+            })
+            .collect::<Vec<_>>()
+    }
 }
 
 #[cfg(not(debug_assertions))]

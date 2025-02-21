@@ -24,7 +24,7 @@ use bitvm::signatures::winternitz::{
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
-    /// sequential_collateral_tx_idx, kickoff_idx
+    /// round_idx, kickoff_idx
     /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
     Kickoff(u32, u32),
     /// operator_idx, deposit_txid
@@ -318,8 +318,7 @@ impl Actor {
     pub fn tx_sign_winternitz(
         &self,
         txhandler: &mut TxHandler,
-        data: &Vec<u8>,
-        path: WinternitzDerivationPath,
+        data: &[(Vec<u8>, WinternitzDerivationPath)],
     ) -> Result<(), BridgeError> {
         let mut signed_winternitz = false;
 
@@ -352,12 +351,16 @@ impl Actor {
                             if script.1 != self.xonly_public_key {
                                 return Err(BridgeError::NotOwnedScriptPath);
                             }
-                            let signature = self.sign(calc_sighash(sighash_type)?);
+
+                            let mut script_data = Vec::with_capacity(data.len());
+                            for (data, path) in data {
+                                let secret_key = self.get_derived_winternitz_sk(path.clone())?;
+                                script_data.push((data.clone(), secret_key));
+                            }
                             script.generate_script_inputs(
-                                data,
-                                &self.get_derived_winternitz_sk(path.clone())?,
+                                &script_data,
                                 &taproot::Signature {
-                                    signature,
+                                    signature: self.sign(calc_sighash(sighash_type)?),
                                     sighash_type,
                                 },
                             )
@@ -546,7 +549,7 @@ mod tests {
             script_pubkey: tap_addr.script_pubkey(),
         };
         let builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
-            NormalSignatureKind::AlreadyDisproved1,
+            NormalSignatureKind::Reimburse2,
             SpendableTxIn::new(
                 OutPoint::default(),
                 prevtxo.clone(),
@@ -603,7 +606,7 @@ mod tests {
         );
 
         let builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
-            NormalSignatureKind::AlreadyDisproved1,
+            NormalSignatureKind::KickoffNotFinalized1,
             spendable_input,
             SpendPath::ScriptSpend(0),
             bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,

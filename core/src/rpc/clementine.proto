@@ -17,43 +17,47 @@ enum NormalSignatureKind {
   NormalSignatureUnknown = 0;
   // Used for TxHandlers that verifiers don't care. These will have signatures created
   // by the operator on the fly.
-  NotStored = 1;
-  AssertTimeout1 = 2;
-  AssertTimeout2 = 3;
-  Challenge = 4;
-  WatchtowerChallengeKickoff = 5;
-  StartHappyReimburse2 = 6;
-  HappyReimburse1 = 7;
-  AssertEndLast = 8;
-  DisproveTimeout1 = 9;
-  DisproveTimeout2 = 10;
-  AlreadyDisproved1 = 11;
-  AlreadyDisproved2 = 12;
-  Disprove2 = 13;
-  Reimburse1 = 14;
-  StartHappyReimburse3 = 15;
-  DisproveTimeout3 = 16;
-  KickoffNotFinalized1 = 17;
-  KickoffNotFinalized2 = 18;
+  OperatorSighashDefault = 1;
+  Challenge = 2;
+  WatchtowerChallengeKickoff = 3;
+  DisproveTimeout2 = 4;
+  Disprove2 = 5;
+  Reimburse1 = 6;
+  KickoffNotFinalized1 = 7;
+  KickoffNotFinalized2 = 8;
+  Reimburse2 = 9;
+  NoSignature = 10;
+  ChallengeTimeout2 = 11;
+  MiniAssert1 = 12;
+  OperatorChallengeAck1 = 13;
+  NotStored = 14;
 }
 
-enum WatchtowerSignatureKind {
-  WatchtowerSignatureUnknown = 0;
+// Signatures that are needed multiple times per an operators kickoff.
+// Some watchtower sigs are needed once per watchtower.
+// Asserts are needed multiple times
+enum NumberedSignatureKind {
+  NumberedSignatureUnknown = 0;
   // Used for TxHandlers that verifiers don't care. These will have signatures created
   // by the operator on the fly.
-  WatchtowerNotStored = 1;
+  NumberedNotStored = 1;
   OperatorChallengeNack1 = 2;
   OperatorChallengeNack2 = 3;
-  OperatorChallengeAck = 4;
+  OperatorChallengeNack3 = 4;
+  AssertTimeout1 = 5;
+  AssertTimeout2 = 6;
+  AssertTimeout3 = 7;
+  UnspentKickoff1 = 8;
+  UnspentKickoff2 = 9;
 }
 
 message NormalSignatureId {
   NormalSignatureKind signature_kind = 1;
 }
 
-message WatchtowerSignatureId {
-  WatchtowerSignatureKind signature_kind = 1;
-  int32 watchtower_idx = 2;
+message NumberedSignatureId {
+  NumberedSignatureKind signature_kind = 1;
+  int32 idx = 2;
 }
 
 // A tagged signature struct that identifies the transaction-input that the signature is for.
@@ -61,7 +65,7 @@ message WatchtowerSignatureId {
 message TaggedSignature {
   oneof signature_id {
     NormalSignatureId normal_signature = 1;
-    WatchtowerSignatureId watchtower_signature = 2;
+    NumberedSignatureId numbered_signature = 2;
   }
   bytes signature = 3;
 }
@@ -88,53 +92,47 @@ message DepositParams {
 
 enum NormalTransactionId {
     UNSPECIFIED_TRANSACTION_TYPE = 0;
-    SEQUENTIAL_COLLATERAL = 1;
-    REIMBURSE_GENERATOR = 2;
-    KICKOFF = 3;
-    MOVE_TO_VAULT = 4;
-    PAYOUT = 5;
-    CHALLENGE = 6;
-    ASSERT_TIMEOUT = 7;
-    KICKOFF_UTXO_TIMEOUT = 8;
-    WATCHTOWER_CHALLENGE_KICKOFF = 9;
-    START_HAPPY_REIMBURSE = 10;
-    HAPPY_REIMBURSE = 11;
-    ASSERT_BEGIN = 12;
-    ASSERT_END = 13;
-    DISPROVE = 14;
-    DISPROVE_TIMEOUT = 15;
-    ALREADY_DISPROVED = 16;
-    REIMBURSE = 17;
-    ALL_NEEDED_FOR_VERIFIER_DEPOSIT = 18;
-    ALL_NEEDED_FOR_OPERATOR_DEPOSIT = 19;
-    DUMMY = 20;
-    READY_TO_REIMBURSE = 21;
-    KICKOFF_NOT_FINALIZED = 22;
+    ROUND = 1;
+    KICKOFF = 2;
+    MOVE_TO_VAULT = 3;
+    PAYOUT = 4;
+    CHALLENGE = 5;
+    WATCHTOWER_CHALLENGE_KICKOFF = 6;
+    DISPROVE = 7;
+    DISPROVE_TIMEOUT = 8;
+    REIMBURSE = 9;
+    ALL_NEEDED_FOR_DEPOSIT = 10;
+    DUMMY = 11;
+    READY_TO_REIMBURSE = 12;
+    KICKOFF_NOT_FINALIZED = 13;
+    CHALLENGE_TIMEOUT = 14;
 }
 
-enum WatchtowerTransactionType {
+enum NumberedTransactionType {
     UNSPECIFIED_INDEXED_TRANSACTION_TYPE = 0;
     WATCHTOWER_CHALLENGE = 1;
     OPERATOR_CHALLENGE_NACK = 2;
     OPERATOR_CHALLENGE_ACK = 3;
-    MINI_ASSERT = 4;
+    ASSERT_TIMEOUT = 4;
+    UNSPENT_KICKOFF = 5;
+    MINI_ASSERT = 6;
 }
 
-message WatchtowerTransactionId {
-  WatchtowerTransactionType transaction_type = 1;
+message NumberedTransactionId {
+  NumberedTransactionType transaction_type = 1;
   int32 index = 2;
 }
 
 message GrpcTransactionId {
   oneof id {
     NormalTransactionId normal_transaction = 1;
-    WatchtowerTransactionId watchtower_transaction = 2;
+    NumberedTransactionId numbered_transaction = 2;
   }
 }
 
 message KickoffId {
   uint32 operator_idx = 1;
-  uint32 sequential_collateral_idx = 2;
+  uint32 round_idx = 2;
   uint32 kickoff_idx = 3;
 }
 
@@ -142,13 +140,11 @@ message TransactionRequest {
   DepositParams deposit_params = 1;
   GrpcTransactionId transaction_type = 2;
   KickoffId kickoff_id = 3;
-  bytes commit_data = 4;
 }
 
 message AssertRequest {
   DepositParams deposit_params = 1;
   KickoffId kickoff_id = 2;
-  repeated bytes commit_data = 3;
 }
 
 // Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
@@ -223,14 +219,15 @@ message WithdrawalFinalizedParams {
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
-// chain of UTXOs named `sequential_collateral_txs`. An operator also runs a verifier. These are
+// chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
 // connected to the same database and both have access to watchtowers'
 // winternitz pubkeys.
 service ClementineOperator {
   // Returns an operator's deposit keys.
   // Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
   rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
-  // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+  // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+  // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
   // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
   //
   // # Parameters
@@ -239,8 +236,8 @@ service ClementineOperator {
   // - kickoff_id: Operator's kickoff ID
   //
   // # Returns
-  // - Raw signed transaction
-  rpc InternalCreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+  // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+  rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
 
   // Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
   // in the same order.
@@ -301,7 +298,7 @@ message VerifierParams {
   uint32 num_verifiers = 3;
   uint32 num_watchtowers = 4;
   uint32 num_operators = 5;
-  uint32 num_sequential_collateral_txs = 6;
+  uint32 num_round_txs = 6;
 }
 
 message PartialSig {
@@ -349,8 +346,9 @@ service ClementineVerifier {
   rpc SetWatchtowerKeys(WatchtowerKeysWithDeposit) returns (Empty) {}
   // Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
   rpc SetOperatorKeys(OperatorKeysWithDeposit)  returns (Empty) {}
-  // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
-  // It will create the transaction and sign it with saved nofn signatures.
+  // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+  // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
+  // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
   //
   // # Parameters
   // - deposit_params: User's deposit information
@@ -358,8 +356,8 @@ service ClementineVerifier {
   // - kickoff_id: Operator's kickoff ID
   //
   // # Returns
-  // - Raw signed transaction
-  rpc InternalCreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+  // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+  rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
 
@@ -409,7 +407,7 @@ message WatchtowerKeys {
 service ClementineWatchtower {
   // Returns watchtower's challenge winternitz keys for each operator for a deposit.
   rpc GetChallengeKeys(DepositParams) returns (WatchtowerKeys) {}
-  // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+  // Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
   // It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
   //
   // # Parameters
@@ -419,7 +417,7 @@ service ClementineWatchtower {
   //
   // # Returns
   // - Raw signed transaction
-  rpc InternalCreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (RawSignedTx) {}
   // Returns every operator's winternitz public keys.
   rpc GetParams(Empty) returns (stream WatchtowerParams) {}
 }
@@ -432,6 +430,15 @@ message RawSignedTx {
 
 message RawSignedTxs {
   repeated RawSignedTx raw_txs = 1;
+}
+
+message SignedTxWithType {
+  GrpcTransactionId transaction_type = 1;
+  bytes raw_tx = 2;
+}
+
+message SignedTxsWithType {
+  repeated SignedTxWithType signed_txs = 1;
 }
 
 service ClementineAggregator {

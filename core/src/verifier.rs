@@ -4,8 +4,6 @@ use crate::builder::address::{
 };
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
-    calculate_num_required_nofn_sigs, calculate_num_required_nofn_sigs_per_kickoff,
-    calculate_num_required_operator_sigs, calculate_num_required_operator_sigs_per_kickoff,
     create_nofn_sighash_stream, create_operator_sighash_stream, SignatureInfo,
 };
 use crate::builder::transaction::{
@@ -20,7 +18,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
 use crate::tx_sender::TxSender;
-use crate::utils::{self, BITVM_CACHE, SECP};
+use crate::utils::{self, SECP};
 use crate::{bitcoin_syncer, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -292,10 +290,11 @@ impl Verifier {
                 },
                 verifier.nofn_xonly_pk,
             ));
-            let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
+            let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
 
-            assert!(
-                num_required_sigs + 1 == session.nonces.len(),
+            assert_eq!(
+                num_required_sigs + 1,
+                session.nonces.len(),
                 "Expected nonce count to be num_required_sigs + 1 (movetx)"
             );
 
@@ -325,7 +324,7 @@ impl Verifier {
 
                 nonce_idx += 1;
                 tracing::debug!(
-                    "Verifier {} signed sighash {} of {}",
+                    "Verifier {} signed and sent sighash {} of {}",
                     verifier.idx,
                     nonce_idx,
                     num_required_sigs
@@ -369,15 +368,16 @@ impl Verifier {
             self.nofn_xonly_pk,
         ));
 
-        let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
+        let num_required_nofn_sigs = self.config.get_num_required_nofn_sigs();
         let num_required_nofn_sigs_per_kickoff =
-            calculate_num_required_nofn_sigs_per_kickoff(&self.config);
-        let num_required_op_sigs = calculate_num_required_operator_sigs(&self.config);
-        let num_required_op_sigs_per_kickoff = calculate_num_required_operator_sigs_per_kickoff();
+            self.config.get_num_required_nofn_sigs_per_kickoff();
+        let num_required_op_sigs = self.config.get_num_required_operator_sigs();
+        let num_required_op_sigs_per_kickoff =
+            self.config.get_num_required_operator_sigs_per_kickoff();
         let &BridgeConfig {
             num_operators,
-            num_sequential_collateral_txs,
-            num_kickoffs_per_sequential_collateral_tx,
+            num_round_txs,
+            num_kickoffs_per_round,
             ..
         } = &self.config;
         let mut verified_sigs = vec![
@@ -386,9 +386,9 @@ impl Verifier {
                     Vec::<TaggedSignature>::with_capacity(
                         num_required_nofn_sigs_per_kickoff + num_required_op_sigs_per_kickoff
                     );
-                    num_kickoffs_per_sequential_collateral_tx
+                    num_kickoffs_per_round
                 ];
-                num_sequential_collateral_txs
+                num_round_txs
             ];
             num_operators
         ];
@@ -401,7 +401,7 @@ impl Verifier {
                 .await
                 .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
-            tracing::debug!("Verifying Final Signature");
+            tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
             utils::SECP
                 .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
                 .map_err(|x| {
@@ -413,7 +413,7 @@ impl Verifier {
                 })?;
             let &SignatureInfo {
                 operator_idx,
-                sequential_collateral_idx,
+                round_idx,
                 kickoff_utxo_idx,
                 signature_id,
             } = &sighash.1;
@@ -421,8 +421,7 @@ impl Verifier {
                 signature: sig.serialize().to_vec(),
                 signature_id: Some(signature_id),
             };
-            verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
-                .push(tagged_sig);
+            verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
@@ -519,6 +518,12 @@ impl Verifier {
                     .await
                     .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
+                tracing::debug!(
+                    "Verifying Final operator Signature {} for operator {}",
+                    nonce_idx + 1,
+                    operator_idx
+                );
+
                 utils::SECP
                     .verify_schnorr(
                         &operator_sig,
@@ -536,7 +541,7 @@ impl Verifier {
 
                 let &SignatureInfo {
                     operator_idx,
-                    sequential_collateral_idx,
+                    round_idx,
                     kickoff_utxo_idx,
                     signature_id,
                 } = &sighash.1;
@@ -544,8 +549,7 @@ impl Verifier {
                     signature: operator_sig.serialize().to_vec(),
                     signature_id: Some(signature_id),
                 };
-                verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
-                    .push(tagged_sig);
+                verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
 
                 op_sig_count += 1;
                 total_op_sig_count += 1;
@@ -880,22 +884,34 @@ impl Verifier {
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
 
-        let assert_tx_addrs = BITVM_CACHE
-            .intermediate_variables
+        let mut steps_iter = utils::BITVM_CACHE.intermediate_variables.iter();
+
+        let assert_tx_addrs: Vec<[u8; 32]> = utils::COMBINED_ASSERT_DATA
+            .num_steps
             .iter()
-            .enumerate()
-            .map(|(idx, (_intermediate_step, intermediate_step_size))| {
+            .map(|steps| {
+                let len = steps.1 - steps.0;
+                let intermediate_steps = Vec::from_iter(steps_iter.by_ref().take(len));
+                let sizes: Vec<u32> = intermediate_steps
+                    .iter()
+                    .map(|(_, intermediate_step_size)| **intermediate_step_size as u32 * 2)
+                    .collect();
+
                 let script = WinternitzCommit::new(
-                    winternitz_keys[idx].clone(),
+                    winternitz_keys[steps.0..steps.1]
+                        .iter()
+                        .zip(sizes.iter())
+                        .map(|(k, s)| (k.clone(), *s))
+                        .collect::<Vec<_>>(),
                     operator_data.xonly_pk,
-                    *intermediate_step_size as u32 * 2,
                 );
-                let (assert_tx_addr, _) = builder::address::create_taproot_address(
-                    &[script.to_script_buf()],
-                    None,
-                    self.config.network,
-                );
-                assert_tx_addr.script_pubkey()
+                let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
+                taproot_builder
+                    .try_into_taptree()
+                    .expect("taproot builder always builds a full taptree")
+                    .root_hash()
+                    .to_raw_hash()
+                    .to_byte_array()
             })
             .collect::<Vec<_>>();
 
@@ -918,7 +934,7 @@ impl Verifier {
                 None,
                 operator_idx as i32,
                 deposit_id.deposit_outpoint,
-                assert_tx_addrs,
+                &assert_tx_addrs,
                 &root_hash_bytes,
             )
             .await?;
@@ -955,8 +971,7 @@ impl Verifier {
                 .await?;
             let challenge_addr = derive_challenge_address_from_xonlypk_and_wpk(
                 &watchtower_xonly_pk,
-                winternitz_key,
-                WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
+                vec![(winternitz_key.clone(), WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
                 self.config.network,
             )
             .script_pubkey();

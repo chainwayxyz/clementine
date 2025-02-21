@@ -2,7 +2,7 @@ use super::clementine::{
     clementine_watchtower_server::ClementineWatchtower, watchtower_params, DepositParams, Empty,
     RawSignedTx, TransactionRequest, WatchtowerKeys, WatchtowerParams,
 };
-use crate::builder::transaction::sign::create_and_sign_tx;
+use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::rpc::parser::{parse_deposit_params, parse_transaction_request};
 use crate::watchtower::Watchtower;
 use tokio::sync::mpsc::{self, error::SendError};
@@ -45,21 +45,20 @@ impl ClementineWatchtower for Watchtower {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn internal_create_signed_tx(
+    async fn internal_create_watchtower_challenge(
         &self,
         request: Request<TransactionRequest>,
     ) -> Result<Response<RawSignedTx>, Status> {
         let transaction_request = request.into_inner();
         let transaction_data = parse_transaction_request(transaction_request)?;
 
-        let raw_tx = create_and_sign_tx(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            self.nofn_xonly_pk,
-            transaction_data,
-        )
-        .await?;
+        let raw_tx = self
+            .create_and_sign_watchtower_challenge(
+                self.nofn_xonly_pk,
+                transaction_data,
+                &[0u8; WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize / 2], // dummy challenge
+            )
+            .await?;
 
         Ok(Response::new(raw_tx))
     }

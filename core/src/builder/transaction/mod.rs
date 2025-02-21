@@ -8,7 +8,7 @@ use std::sync::Arc;
 use super::script::SpendPath;
 use super::script::{CheckSig, DepositScript, TimelockScript};
 pub use crate::builder::transaction::challenge::*;
-pub use crate::builder::transaction::creator::{create_txhandlers, TxHandlerDbData};
+pub use crate::builder::transaction::creator::{create_txhandlers, ReimburseDbCache};
 use crate::builder::transaction::input::SpendableTxIn;
 pub use crate::builder::transaction::operator_assert::*;
 pub use crate::builder::transaction::operator_collateral::*;
@@ -20,7 +20,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::grpc_transaction_id;
 use crate::rpc::clementine::GrpcTransactionId;
 use crate::rpc::clementine::{
-    NormalSignatureKind, NormalTransactionId, WatchtowerTransactionId, WatchtowerTransactionType,
+    NormalSignatureKind, NormalTransactionId, NumberedTransactionId, NumberedTransactionType,
 };
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
@@ -63,32 +63,26 @@ pub struct OperatorData {
 /// multiple times per kickoff.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub enum TransactionType {
-    SequentialCollateral,
-    ReimburseGenerator,
+    Round,
     Kickoff,
     MoveToVault,
     Payout,
     Challenge,
-    AssertTimeout,
-    KickoffUtxoTimeout,
+    UnspentKickoff(usize),
     WatchtowerChallengeKickoff,
-    StartHappyReimburse,
-    HappyReimburse,
     WatchtowerChallenge(usize),
     OperatorChallengeNack(usize),
     OperatorChallengeAck(usize),
-    AssertBegin,
+    AssertTimeout(usize),
     MiniAssert(usize),
-    AssertEnd,
     Disprove,
     DisproveTimeout,
-    AlreadyDisproved,
     Reimburse,
-    AllNeededForVerifierDeposit, // this will include all tx's that is to be signed for a deposit for verifiers
-    AllNeededForOperatorDeposit, // this will include all tx's that is to be signed for a deposit for operators
-    Dummy,                       // for tests
+    AllNeededForDeposit, // this will include all tx's that is to be signed for a deposit for verifiers
+    Dummy,               // for tests
     ReadyToReimburse,
     KickoffNotFinalized,
+    ChallengeTimeout,
 }
 
 // converter from proto type to rust enum
@@ -96,53 +90,53 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
     type Error = ::prost::UnknownEnumValue;
     fn try_from(value: GrpcTransactionId) -> Result<Self, Self::Error> {
         use NormalTransactionId as Normal;
-        use WatchtowerTransactionType as Watchtower;
+        use NumberedTransactionType as Numbered;
         // return err if id is None
         let inner_id = value.id.ok_or(::prost::UnknownEnumValue(0))?;
         match inner_id {
             grpc_transaction_id::Id::NormalTransaction(idx) => {
                 let tx_type = NormalTransactionId::try_from(idx)?;
                 match tx_type {
-                    Normal::SequentialCollateral => Ok(Self::SequentialCollateral),
-                    Normal::ReimburseGenerator => Ok(Self::ReimburseGenerator),
+                    Normal::Round => Ok(Self::Round),
                     Normal::Kickoff => Ok(Self::Kickoff),
                     Normal::MoveToVault => Ok(Self::MoveToVault),
                     Normal::Payout => Ok(Self::Payout),
                     Normal::Challenge => Ok(Self::Challenge),
-                    Normal::AssertTimeout => Ok(Self::AssertTimeout),
-                    Normal::KickoffUtxoTimeout => Ok(Self::KickoffUtxoTimeout),
                     Normal::WatchtowerChallengeKickoff => Ok(Self::WatchtowerChallengeKickoff),
-                    Normal::StartHappyReimburse => Ok(Self::StartHappyReimburse),
-                    Normal::HappyReimburse => Ok(Self::HappyReimburse),
-                    Normal::AssertBegin => Ok(Self::AssertBegin),
-                    Normal::AssertEnd => Ok(Self::AssertEnd),
                     Normal::Disprove => Ok(Self::Disprove),
                     Normal::DisproveTimeout => Ok(Self::DisproveTimeout),
-                    Normal::AlreadyDisproved => Ok(Self::AlreadyDisproved),
                     Normal::Reimburse => Ok(Self::Reimburse),
-                    Normal::AllNeededForVerifierDeposit => Ok(Self::AllNeededForVerifierDeposit),
-                    Normal::AllNeededForOperatorDeposit => Ok(Self::AllNeededForOperatorDeposit),
+                    Normal::AllNeededForDeposit => Ok(Self::AllNeededForDeposit),
                     Normal::Dummy => Ok(Self::Dummy),
                     Normal::ReadyToReimburse => Ok(Self::ReadyToReimburse),
                     Normal::KickoffNotFinalized => Ok(Self::KickoffNotFinalized),
+                    Normal::ChallengeTimeout => Ok(Self::ChallengeTimeout),
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
                 }
             }
-            grpc_transaction_id::Id::WatchtowerTransaction(watchtower_tx) => {
-                let tx_type = WatchtowerTransactionType::try_from(watchtower_tx.transaction_type)?;
+            grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
+                let tx_type = NumberedTransactionType::try_from(transaction_id.transaction_type)?;
                 match tx_type {
-                    Watchtower::WatchtowerChallenge => {
-                        Ok(Self::WatchtowerChallenge(watchtower_tx.index as usize))
+                    Numbered::WatchtowerChallenge => {
+                        Ok(Self::WatchtowerChallenge(transaction_id.index as usize))
                     }
-                    Watchtower::OperatorChallengeNack => {
-                        Ok(Self::OperatorChallengeNack(watchtower_tx.index as usize))
+                    Numbered::OperatorChallengeNack => {
+                        Ok(Self::OperatorChallengeNack(transaction_id.index as usize))
                     }
-                    Watchtower::OperatorChallengeAck => {
-                        Ok(Self::OperatorChallengeAck(watchtower_tx.index as usize))
+                    Numbered::OperatorChallengeAck => {
+                        Ok(Self::OperatorChallengeAck(transaction_id.index as usize))
                     }
-                    Watchtower::MiniAssert => Ok(Self::MiniAssert(watchtower_tx.index as usize)),
-                    Watchtower::UnspecifiedIndexedTransactionType => {
-                        Err(::prost::UnknownEnumValue(watchtower_tx.transaction_type))
+                    Numbered::AssertTimeout => {
+                        Ok(Self::AssertTimeout(transaction_id.index as usize))
+                    }
+                    Numbered::UnspentKickoff => {
+                        Ok(Self::UnspentKickoff(transaction_id.index as usize))
+                    }
+                    NumberedTransactionType::MiniAssert => {
+                        Ok(Self::MiniAssert(transaction_id.index as usize))
+                    }
+                    Numbered::UnspecifiedIndexedTransactionType => {
+                        Err(::prost::UnknownEnumValue(transaction_id.transaction_type))
                     }
                 }
             }
@@ -154,45 +148,24 @@ impl From<TransactionType> for GrpcTransactionId {
     fn from(value: TransactionType) -> Self {
         use grpc_transaction_id::Id::*;
         use NormalTransactionId as Normal;
-        use WatchtowerTransactionType as Watchtower;
+        use NumberedTransactionType as Numbered;
         GrpcTransactionId {
             id: Some(match value {
-                TransactionType::SequentialCollateral => {
-                    NormalTransaction(Normal::SequentialCollateral as i32)
-                }
-                TransactionType::ReimburseGenerator => {
-                    NormalTransaction(Normal::ReimburseGenerator as i32)
-                }
+                TransactionType::Round => NormalTransaction(Normal::Round as i32),
                 TransactionType::Kickoff => NormalTransaction(Normal::Kickoff as i32),
                 TransactionType::MoveToVault => NormalTransaction(Normal::MoveToVault as i32),
                 TransactionType::Payout => NormalTransaction(Normal::Payout as i32),
                 TransactionType::Challenge => NormalTransaction(Normal::Challenge as i32),
-                TransactionType::AssertTimeout => NormalTransaction(Normal::AssertTimeout as i32),
-                TransactionType::KickoffUtxoTimeout => {
-                    NormalTransaction(Normal::KickoffUtxoTimeout as i32)
-                }
                 TransactionType::WatchtowerChallengeKickoff => {
                     NormalTransaction(Normal::WatchtowerChallengeKickoff as i32)
                 }
-                TransactionType::StartHappyReimburse => {
-                    NormalTransaction(Normal::StartHappyReimburse as i32)
-                }
-                TransactionType::HappyReimburse => NormalTransaction(Normal::HappyReimburse as i32),
-                TransactionType::AssertBegin => NormalTransaction(Normal::AssertBegin as i32),
-                TransactionType::AssertEnd => NormalTransaction(Normal::AssertEnd as i32),
                 TransactionType::Disprove => NormalTransaction(Normal::Disprove as i32),
                 TransactionType::DisproveTimeout => {
                     NormalTransaction(Normal::DisproveTimeout as i32)
                 }
-                TransactionType::AlreadyDisproved => {
-                    NormalTransaction(Normal::AlreadyDisproved as i32)
-                }
                 TransactionType::Reimburse => NormalTransaction(Normal::Reimburse as i32),
-                TransactionType::AllNeededForVerifierDeposit => {
-                    NormalTransaction(Normal::AllNeededForVerifierDeposit as i32)
-                }
-                TransactionType::AllNeededForOperatorDeposit => {
-                    NormalTransaction(Normal::AllNeededForOperatorDeposit as i32)
+                TransactionType::AllNeededForDeposit => {
+                    NormalTransaction(Normal::AllNeededForDeposit as i32)
                 }
                 TransactionType::Dummy => NormalTransaction(Normal::Dummy as i32),
                 TransactionType::ReadyToReimburse => {
@@ -201,30 +174,43 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::KickoffNotFinalized => {
                     NormalTransaction(Normal::KickoffNotFinalized as i32)
                 }
+                TransactionType::ChallengeTimeout => {
+                    NormalTransaction(Normal::ChallengeTimeout as i32)
+                }
                 TransactionType::WatchtowerChallenge(index) => {
-                    WatchtowerTransaction(WatchtowerTransactionId {
-                        transaction_type: Watchtower::WatchtowerChallenge as i32,
+                    NumberedTransaction(NumberedTransactionId {
+                        transaction_type: Numbered::WatchtowerChallenge as i32,
                         index: index as i32,
                     })
                 }
                 TransactionType::OperatorChallengeNack(index) => {
-                    WatchtowerTransaction(WatchtowerTransactionId {
-                        transaction_type: Watchtower::OperatorChallengeNack as i32,
+                    NumberedTransaction(NumberedTransactionId {
+                        transaction_type: Numbered::OperatorChallengeNack as i32,
                         index: index as i32,
                     })
                 }
                 TransactionType::OperatorChallengeAck(index) => {
-                    WatchtowerTransaction(WatchtowerTransactionId {
-                        transaction_type: Watchtower::OperatorChallengeAck as i32,
+                    NumberedTransaction(NumberedTransactionId {
+                        transaction_type: Numbered::OperatorChallengeAck as i32,
                         index: index as i32,
                     })
                 }
-                TransactionType::MiniAssert(index) => {
-                    WatchtowerTransaction(WatchtowerTransactionId {
-                        transaction_type: Watchtower::MiniAssert as i32,
+                TransactionType::AssertTimeout(index) => {
+                    NumberedTransaction(NumberedTransactionId {
+                        transaction_type: Numbered::AssertTimeout as i32,
                         index: index as i32,
                     })
                 }
+                TransactionType::UnspentKickoff(index) => {
+                    NumberedTransaction(NumberedTransactionId {
+                        transaction_type: Numbered::UnspentKickoff as i32,
+                        index: index as i32,
+                    })
+                }
+                TransactionType::MiniAssert(index) => NumberedTransaction(NumberedTransactionId {
+                    transaction_type: Numbered::MiniAssert as i32,
+                    index: index as i32,
+                }),
             }),
         }
     }

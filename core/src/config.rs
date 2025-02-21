@@ -45,9 +45,9 @@ pub struct BridgeConfig {
     /// Number of watchtowers.
     pub num_watchtowers: usize,
     /// Number of sequential collateral txs
-    pub num_sequential_collateral_txs: usize,
+    pub num_round_txs: usize,
     /// number of kickoffs per sequential collateral tx
-    pub num_kickoffs_per_sequential_collateral_tx: usize,
+    pub num_kickoffs_per_round: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
@@ -186,8 +186,8 @@ impl Default for BridgeConfig {
 
             num_operators: 3,
             num_watchtowers: 4,
-            num_sequential_collateral_txs: 2,
-            num_kickoffs_per_sequential_collateral_tx: 2,
+            num_round_txs: 2,
+            num_kickoffs_per_round: 3,
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
                     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",

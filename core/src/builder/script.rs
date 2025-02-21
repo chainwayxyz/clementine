@@ -120,8 +120,9 @@ impl CheckSig {
 
 /// Struct for scripts that commit to a message using Winternitz keys
 /// Contains the Winternitz PK, CheckSig PK, message length respectively
+/// can contain multiple different Winternitz public keys for different messages
 #[derive(Clone)]
-pub struct WinternitzCommit(PublicKey, pub(crate) XOnlyPublicKey, u32);
+pub struct WinternitzCommit(Vec<(PublicKey, u32)>, pub(crate) XOnlyPublicKey);
 impl SpendableScript for WinternitzCommit {
     fn as_any(&self) -> &dyn Any {
         self
@@ -132,52 +133,56 @@ impl SpendableScript for WinternitzCommit {
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
-        let winternitz_pubkey = self.0.clone();
-        let params = self.get_params();
+        let winternitz_pubkey = &self.0;
         let xonly_pubkey = self.1;
-
-        let mut a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
-            .checksig_verify(&params, &winternitz_pubkey);
-
-        for _ in 0..self.2 {
-            a = a.push_opcode(OP_DROP)
+        let mut total_script = ScriptBuf::new();
+        for (index, (pubkey, size)) in winternitz_pubkey.iter().enumerate() {
+            let params = self.get_params(index);
+            let mut a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+                .checksig_verify(&params, pubkey);
+            for _ in 0..*size {
+                a = a.push_opcode(OP_DROP)
+            }
+            total_script.extend(a.compile().instructions().map(|x| x.expect("just created")));
         }
 
-        a.push_x_only_key(&xonly_pubkey)
-            .push_opcode(OP_CHECKSIG)
-            .compile()
+        total_script.push_slice(xonly_pubkey.serialize());
+        total_script.push_opcode(OP_CHECKSIG);
+        total_script
     }
 }
 
 impl WinternitzCommit {
-    pub fn get_params(&self) -> Parameters {
-        Parameters::new(self.2, WINTERNITZ_LOG_D)
+    pub fn get_params(&self, index: usize) -> Parameters {
+        Parameters::new(self.0[index].1, WINTERNITZ_LOG_D)
     }
+
     pub fn generate_script_inputs(
         &self,
-        commit_data: &Vec<u8>,
-        secret_key: &SecretKey,
+        commit_data: &[(Vec<u8>, SecretKey)],
         signature: &taproot::Signature,
     ) -> Witness {
         let mut witness = Witness::new();
         witness.push(signature.serialize());
-
-        #[cfg(debug_assertions)]
-        {
-            let pk = winternitz::generate_public_key(&self.get_params(), secret_key);
-            if pk != self.0 {
-                tracing::error!("Winternitz public key mismatch");
+        for (index, (data, secret_key)) in commit_data.iter().enumerate().rev() {
+            #[cfg(debug_assertions)]
+            {
+                let pk = winternitz::generate_public_key(&self.get_params(index), secret_key);
+                if pk != self.0[index].0 {
+                    tracing::error!("Winternitz public key mismatch");
+                }
             }
+            bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+                .sign(&self.get_params(index), secret_key, data)
+                .into_iter()
+                .for_each(|x| witness.push(x));
         }
-        bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
-            .sign(&self.get_params(), secret_key, commit_data)
-            .into_iter()
-            .for_each(|x| witness.push(x));
         witness
     }
 
-    pub fn new(pubkey: PublicKey, xonly_pubkey: XOnlyPublicKey, msg_len: u32) -> Self {
-        Self(pubkey, xonly_pubkey, msg_len)
+    /// winternitz_params is a Vec winternitz public key and message length tuple
+    pub fn new(winternitz_params: Vec<(PublicKey, u32)>, xonly_pubkey: XOnlyPublicKey) -> Self {
+        Self(winternitz_params, xonly_pubkey)
     }
 }
 
@@ -414,9 +419,8 @@ mod tests {
             Box::new(OtherSpendable::new(dummy_scriptbuf())),
             Box::new(CheckSig::new(dummy_xonly())),
             Box::new(WinternitzCommit::new(
-                vec![[0u8; 20]; 32],
+                vec![(vec![[0u8; 20]; 32], 32)],
                 dummy_xonly(),
-                32,
             )),
             Box::new(TimelockScript::new(Some(dummy_xonly()), 10)),
             Box::new(PreimageRevealScript::new(dummy_xonly(), [0; 20])),
@@ -478,9 +482,8 @@ mod tests {
             (
                 "WinternitzCommit",
                 Arc::new(WinternitzCommit::new(
-                    vec![[0u8; 20]; 32],
+                    vec![(vec![[0u8; 20]; 32], 32)],
                     dummy_xonly(),
-                    32,
                 )),
             ),
             (
@@ -555,7 +558,7 @@ mod tests {
         };
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
         builder = builder.add_input(
-            crate::rpc::clementine::NormalSignatureKind::NotStored,
+            crate::rpc::clementine::NormalSignatureKind::OperatorSighashDefault,
             SpendableTxIn::new(
                 outpoint,
                 TxOut {
@@ -642,11 +645,13 @@ mod tests {
         );
 
         let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
-            signer
-                .derive_winternitz_pk(derivation.clone())
-                .expect("failed to derive Winternitz public key"),
+            vec![(
+                signer
+                    .derive_winternitz_pk(derivation.clone())
+                    .expect("failed to derive Winternitz public key"),
+                64,
+            )],
             xonly_pk,
-            64,
         ));
 
         let scripts = vec![script];
@@ -660,7 +665,7 @@ mod tests {
         let mut tx = builder.finalize();
 
         signer
-            .tx_sign_winternitz(&mut tx, &vec![0; 32], derivation)
+            .tx_sign_winternitz(&mut tx, &[(vec![0; 32], derivation)])
             .expect("failed to partially sign commitments");
 
         let tx = tx
