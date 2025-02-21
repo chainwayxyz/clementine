@@ -29,7 +29,7 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
-        let (mut wpk_receiver, mut sighash_receiver) = operator.get_params().await?;
+        let (mut wpk_receiver, mut signature_receiver) = operator.get_params().await?;
 
         tokio::spawn(async move {
             let operator_config: OperatorParams = operator.clone().into();
@@ -44,9 +44,9 @@ impl ClementineOperator for Operator {
                     .map_err(output_stream_ended_prematurely)?;
             }
 
-            while let Some(operator_sig) = sighash_receiver.recv().await {
-                let operator_sighash: OperatorParams = operator_sig.into();
-                tx.send(Ok(operator_sighash))
+            while let Some(operator_sig) = signature_receiver.recv().await {
+                let unspent_kickoff_sig: OperatorParams = operator_sig.into();
+                tx.send(Ok(unspent_kickoff_sig))
                     .await
                     .map_err(output_stream_ended_prematurely)?;
             }

@@ -560,7 +560,7 @@ pub fn create_round_txhandlers(
                     .value,
                 config.num_kickoffs_per_round,
                 config.network,
-                kickoff_winternitz_keys.get_keys_for_round(round_idx as usize),
+                kickoff_winternitz_keys.get_keys_for_round(round_idx),
             )?;
 
             let ready_to_reimburse_txhandler =
@@ -579,7 +579,7 @@ pub fn create_round_txhandlers(
                 config.collateral_funding_amount,
                 config.num_kickoffs_per_round,
                 config.network,
-                round_idx as usize,
+                round_idx,
                 kickoff_winternitz_keys,
             )?
         }

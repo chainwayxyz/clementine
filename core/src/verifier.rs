@@ -6,9 +6,7 @@ use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, SignatureInfo,
 };
-use crate::builder::transaction::{
-    create_move_to_vault_txhandler, DepositData, TxHandler, Unsigned,
-};
+use crate::builder::transaction::{create_move_to_vault_txhandler, DepositData, OperatorData, TxHandler, Unsigned};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
 use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
@@ -34,6 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
+use crate::builder::transaction::creator::KickoffWinternitzKeys;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -176,6 +175,24 @@ impl Verifier {
         Ok(())
     }
 
+    fn verify_unspent_kickoff_sigs(
+        &self,
+        collateral_funding_outpoint: OutPoint,
+        operator_xonly_pk: XOnlyPublicKey,
+        wallet_reimburse_address: Address,
+        unspent_kickoff_sigs: Vec<Signature>,
+        kickoff_wpks: &KickoffWinternitzKeys,
+    ) -> Result<(), BridgeError> {
+        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+        let operator_data = OperatorData {
+            xonly_pk: operator_xonly_pk,
+            collateral_funding_outpoint,
+            reimburse_addr: wallet_reimburse_address.clone(),
+        };
+
+        Ok(())
+    }
+
     pub async fn set_operator(
         &self,
         operator_index: u32,
@@ -183,6 +200,7 @@ impl Verifier {
         operator_xonly_pk: XOnlyPublicKey,
         wallet_reimburse_address: Address,
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
+        unspent_kickoff_sigs: Vec<Signature>,
     ) -> Result<(), BridgeError> {
         // Save the operator details to the db
         self.db
@@ -847,9 +865,15 @@ impl Verifier {
                     .map_err(|_| BridgeError::Error("Invalid hash length".to_string()))
             })
             .collect::<Result<Vec<[u8; 20]>, BridgeError>>()?;
-        if hashes.len() != self.config.num_watchtowers {
+
+        if hashes.len() != self.config.get_num_challenge_ack_hashes() {
             return Err(BridgeError::Error(
-                "Invalid number of challenge ack hashes".to_string(),
+                format!(
+                    "Invalid number of challenge ack hashes received from operator {}: got: {} expected: {}",
+                    operator_idx,
+                    hashes.len(),
+                    self.config.get_num_challenge_ack_hashes()
+                )
             ));
         }
 
@@ -873,6 +897,15 @@ impl Verifier {
             .into_iter()
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
+
+        if winternitz_keys.len() != self.config.get_num_assert_winternitz_pks() {
+            return Err(BridgeError::Error(format!(
+                "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
+                operator_idx,
+                winternitz_keys.len(),
+                self.config.get_num_assert_winternitz_pks()
+            )));
+        }
 
         let mut steps_iter = utils::BITVM_CACHE.intermediate_variables.iter();
 

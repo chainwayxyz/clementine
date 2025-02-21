@@ -43,6 +43,26 @@ impl BridgeConfig {
     pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {
         2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + self.num_watchtowers
     }
+
+    /// Returns the total number of winternitz pks used in kickoff utxos for blockhash commits
+    pub fn get_num_kickoff_winternitz_pks(&self) -> usize {
+        self.num_kickoffs_per_round * (self.num_round_txs + 1)
+    }
+
+    /// Returns the total number of unspent kickoff signatures needed from each operator
+    pub fn get_num_unspent_kickoff_sigs(&self) -> usize {
+        self.num_round_txs * self.num_kickoffs_per_round * 2
+    }
+
+    /// Returns the number of challenge ack hashes needed for a single operator for each round
+    pub fn get_num_challenge_ack_hashes(&self) -> usize {
+        self.num_watchtowers
+    }
+
+    /// Returns the number of winternitz pks needed for a single operator for each round
+    pub fn get_num_assert_winternitz_pks(&self) -> usize {
+        crate::utils::BITVM_CACHE.intermediate_variables.len()
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
