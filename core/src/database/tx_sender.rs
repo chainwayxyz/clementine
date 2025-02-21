@@ -679,7 +679,7 @@ mod tests {
             .unwrap();
 
         // Test getting sendable txs
-        let fee_rate = FeeRate::from_sat_per_vb(2).unwrap();
+        let fee_rate = FeeRate::from_sat_per_vb(3).unwrap();
         let current_tip_height = 100;
         let sendable_txs = db
             .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
@@ -692,7 +692,7 @@ mod tests {
         assert!(sendable_txs.contains(&id2));
 
         // Test updating effective fee rate for tx1 with a fee rate equal to the query fee rate
-        // This should still make tx1 sendable since the condition is "effective_fee_rate <= fee_rate"
+        // This should  make tx1 not sendable since the condition is "effective_fee_rate < fee_rate"
         db.update_effective_fee_rate(Some(&mut dbtx), id1, fee_rate)
             .await
             .unwrap();
@@ -701,8 +701,7 @@ mod tests {
             .get_sendable_txs(Some(&mut dbtx), fee_rate, current_tip_height)
             .await
             .unwrap();
-        assert_eq!(sendable_txs.len(), 2);
-        assert!(sendable_txs.contains(&id1));
+        assert_eq!(sendable_txs.len(), 1);
         assert!(sendable_txs.contains(&id2));
 
         // Update tx1's effective fee rate to be higher than the query fee rate
