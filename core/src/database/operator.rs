@@ -627,7 +627,6 @@ impl Database {
     /// process (single kickoff utxo).
     /// The signatures are tagged so that each signature can be matched with the correct
     /// txin it belongs to easily.
-
     pub async fn get_deposit_signatures(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

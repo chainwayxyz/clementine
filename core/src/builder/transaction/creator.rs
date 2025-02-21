@@ -677,9 +677,8 @@ mod tests {
         txs_operator_can_sign.extend(
             (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
-        txs_operator_can_sign.extend(
-            (0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff),
-        );
+        txs_operator_can_sign
+            .extend((0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
 
         // try to sign everything for all operators
         let operator_task_handles: Vec<_> = operators
@@ -800,9 +799,8 @@ mod tests {
         txs_verifier_can_sign.extend(
             (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
-        txs_verifier_can_sign.extend(
-            (0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff),
-        );
+        txs_verifier_can_sign
+            .extend((0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
 
         // try to sign everything for all verifiers
         // try signing verifier transactions
