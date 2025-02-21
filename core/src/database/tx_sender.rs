@@ -562,7 +562,6 @@ mod tests {
         .await
         .unwrap();
 
-
         dbtx.commit().await.unwrap();
     }
 
@@ -611,7 +610,6 @@ mod tests {
 
         // Confirm transactions
         db.confirm_transactions(&mut dbtx, block_id).await.unwrap();
-
 
         dbtx.commit().await.unwrap();
     }

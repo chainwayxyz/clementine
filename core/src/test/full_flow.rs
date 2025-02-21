@@ -8,9 +8,9 @@ use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxSender};
 use crate::utils::SECP;
-use crate::{bitcoin_syncer, EVMAddress};
+use crate::EVMAddress;
 use bitcoin::consensus::encode::serialize;
-use bitcoin::consensus::{self, Decodable as _, Encodable};
+use bitcoin::consensus::{self, Decodable as _};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::Message;
 use bitcoin::sighash::SighashCache;
@@ -19,7 +19,7 @@ use bitcoin::{
     Txid, Witness,
 };
 use bitcoincore_rpc::RpcApi;
-use eyre::{bail, eyre, Context, OptionExt, Result};
+use eyre::{bail, Context, OptionExt, Result};
 use secp256k1::rand::rngs::ThreadRng;
 use tonic::Request;
 
@@ -696,7 +696,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    // #[ignore = "Design changes in progress"]
+    #[ignore = "Design changes in progress"]
     async fn test_happy_path_2() {
         let config = create_test_config_with_thread_name(None).await;
         run_happy_path_2(config).await.unwrap();

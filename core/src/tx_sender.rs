@@ -596,7 +596,7 @@ impl TxSender {
             .next()
             .and_then(|(_, result)| match result {
                 PackageTransactionResult::Success { fees, .. } => Some(fees.effective_feerate),
-                PackageTransactionResult::SuccessAlreadyInMempool { txid, other_wtxid } => {
+                PackageTransactionResult::SuccessAlreadyInMempool { txid, .. } => {
                     tracing::warn!(
                         "{}: transaction {txid} is already in mempool, skipping",
                         self.consumer_handle
