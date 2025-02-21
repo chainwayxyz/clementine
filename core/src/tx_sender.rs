@@ -91,10 +91,10 @@ impl TxSender {
         let handle = tokio::spawn(async move {
             let mut current_tip_height = 0;
             loop {
-                let result: Result<(), BridgeError> = async {
+                let result: Result<bool, BridgeError> = async {
                     let mut dbtx = db.begin_transaction().await?;
 
-                    let is_reorg = async {
+                    let is_block_update = async {
                         let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
                         Ok::<bool, BridgeError>(match event {
                             Some(event) => match event {
@@ -111,7 +111,7 @@ impl TxSender {
                                         block_id
                                     );
                                     dbtx.commit().await?;
-                                    false
+                                    true
                                 }
                                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
                                     tracing::info!(
@@ -128,9 +128,9 @@ impl TxSender {
                     }
                     .await?;
 
-                    if is_reorg {
-                        // Don't wait in reorg, simply get the next event, there has to be a new event.
-                        return Ok(());
+                    if is_block_update {
+                        // Don't wait in new events
+                        return Ok(true);
                     }
 
                     tracing::info!("TXSENDER: Getting fee rate");
@@ -139,18 +139,20 @@ impl TxSender {
                     this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height)
                         .await?;
 
-                    Ok(())
+                    Ok(false)
                 }
                 .await;
 
                 match result {
-                    Ok(_) => {}
+                    Ok(true) => {}
+                    Ok(false) => {
+                        tokio::time::sleep(poll_delay).await;
+                    }
                     Err(e) => {
                         tracing::error!("TXSENDER: Error sending txs: {:?}", e);
+                        tokio::time::sleep(poll_delay).await;
                     }
                 }
-
-                tokio::time::sleep(poll_delay).await;
             }
         });
 

@@ -276,19 +276,19 @@ pub async fn start_bitcoin_syncer(
     let handle = tokio::spawn(async move {
         loop {
             let result: Result<(), BridgeError> = async {
-                tracing::info!("BitcoinSyncer: Fetching new blocks");
+                // tracing::info!("BitcoinSyncer: Fetching new blocks");
                 // Try to fetch new blocks (if any) from the RPC.
                 let maybe_new_blocks = fetch_new_blocks(&db, &rpc, current_height).await?;
 
-                tracing::info!(
-                    "BitcoinSyncer: Maybe new blocks: {:?}",
-                    maybe_new_blocks.is_some()
-                );
+                // tracing::info!(
+                //     "BitcoinSyncer: Maybe new blocks: {:?}",
+                //     maybe_new_blocks.is_some()
+                // );
 
                 // If there are no new blocks, wait for a while and continue.
                 let new_blocks = match maybe_new_blocks {
                     Some(blocks) if !blocks.is_empty() => {
-                        tracing::info!("BitcoinSyncer: New blocks: {:?}", blocks.len());
+                        // tracing::info!("BitcoinSyncer: New blocks: {:?}", blocks.len());
                         blocks
                     }
                     _ => {
@@ -297,34 +297,34 @@ pub async fn start_bitcoin_syncer(
                     }
                 };
 
-                tracing::info!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
+                // tracing::info!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
 
                 // The common ancestor is the block preceding the first new block.
                 let common_ancestor_height = new_blocks[0].height - 1;
-                tracing::info!(
-                    "BitcoinSyncer: Common ancestor height: {:?}",
-                    common_ancestor_height
-                );
+                // tracing::info!(
+                //     "BitcoinSyncer: Common ancestor height: {:?}",
+                //     common_ancestor_height
+                // );
                 let mut dbtx = db.begin_transaction().await?;
-                tracing::info!("BitcoinSyncer: Beginning transaction");
+                // tracing::info!("BitcoinSyncer: Beginning transaction");
 
                 // Mark reorg blocks (if any) as non-canonical.
                 handle_reorg_events(&db, &mut dbtx, common_ancestor_height).await?;
-                tracing::info!("BitcoinSyncer: Marked reorg blocks as non-canonical");
+                // tracing::info!("BitcoinSyncer: Marked reorg blocks as non-canonical");
 
                 // Process and insert the new blocks.
-                tracing::info!("BitcoinSyncer: Processing new blocks");
-                tracing::info!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
+                // tracing::info!("BitcoinSyncer: Processing new blocks");
+                // tracing::info!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
                 process_new_blocks(&db, &rpc, &mut dbtx, &new_blocks).await?;
 
                 dbtx.commit().await?;
 
                 // Update the current height to the tip of the new chain.
-                tracing::info!("BitcoinSyncer: Updating current height");
+                // tracing::info!("BitcoinSyncer: Updating current height");
                 current_height = new_blocks.last().expect("new_blocks is not empty").height;
-                tracing::info!("BitcoinSyncer: Current height: {:?}", current_height);
+                // tracing::info!("BitcoinSyncer: Current height: {:?}", current_height);
 
-                sleep(poll_delay).await;
+                // sleep(poll_delay).await;
                 Ok(())
             }
             .await;
