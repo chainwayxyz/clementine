@@ -47,9 +47,9 @@ impl TryFrom<&Verifier> for VerifierParams {
                 verifier.config.num_operators,
                 u32::try_from,
             )?,
-            num_sequential_collateral_txs: convert_int_to_another(
-                "num_sequential_collateral_txs",
-                verifier.config.num_sequential_collateral_txs,
+            num_round_txs: convert_int_to_another(
+                "num_round_txs",
+                verifier.config.num_round_txs,
                 u32::try_from,
             )?,
         })

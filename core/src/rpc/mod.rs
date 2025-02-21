@@ -23,11 +23,11 @@ impl From<NormalSignatureKind> for SignatureId {
     }
 }
 
-impl From<(WatchtowerSignatureKind, i32)> for SignatureId {
-    fn from(value: (WatchtowerSignatureKind, i32)) -> Self {
-        SignatureId::WatchtowerSignature(WatchtowerSignatureId {
+impl From<(NumberedSignatureKind, i32)> for SignatureId {
+    fn from(value: (NumberedSignatureKind, i32)) -> Self {
+        SignatureId::NumberedSignature(NumberedSignatureId {
             signature_kind: value.0 as i32,
-            watchtower_idx: value.1,
+            idx: value.1,
         })
     }
 }

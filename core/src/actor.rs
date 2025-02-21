@@ -25,7 +25,7 @@ use bitvm::signatures::winternitz::{
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
-    /// sequential_collateral_tx_idx, kickoff_idx
+    /// round_idx, kickoff_idx
     /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
     Kickoff(u32, u32),
     /// operator_idx, deposit_txid
@@ -308,68 +308,69 @@ impl Actor {
     pub fn tx_sign_winternitz(
         &self,
         txhandler: &mut TxHandler,
-        data: &Vec<u8>,
-        path: WinternitzDerivationPath,
+        data: &[(Vec<u8>, WinternitzDerivationPath)],
     ) -> Result<(), BridgeError> {
         let mut signed_winternitz = false;
 
-        let signer =
-            move |_: usize,
-                  spt: &SpentTxIn,
-                  calc_sighash: Box<dyn FnOnce() -> Result<TapSighash, BridgeError> + '_>|
-                  -> Result<Option<Witness>, BridgeError> {
-                let spendinfo = spt
-                    .get_spendable()
-                    .get_spend_info()
-                    .as_ref()
-                    .ok_or(BridgeError::MissingSpendInfo)?;
-                match spt.get_spend_path() {
-                    SpendPath::ScriptSpend(script_idx) => {
-                        let script = spt
-                            .get_spendable()
-                            .get_scripts()
-                            .get(script_idx)
-                            .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
+        let signer = move |_: usize,
+                           spt: &SpentTxIn,
+                           calc_sighash: Box<
+            dyn FnOnce() -> Result<TapSighash, BridgeError> + '_,
+        >|
+              -> Result<Option<Witness>, BridgeError> {
+            let spendinfo = spt
+                .get_spendable()
+                .get_spend_info()
+                .as_ref()
+                .ok_or(BridgeError::MissingSpendInfo)?;
+            match spt.get_spend_path() {
+                SpendPath::ScriptSpend(script_idx) => {
+                    let script = spt
+                        .get_spendable()
+                        .get_scripts()
+                        .get(script_idx)
+                        .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
 
-                        use crate::builder::script::ScriptKind as Kind;
+                    use crate::builder::script::ScriptKind as Kind;
 
-                        let mut witness = match script.kind() {
-                            Kind::WinternitzCommit(script) => {
-                                if script.1 != self.xonly_public_key {
-                                    return Err(BridgeError::NotOwnedScriptPath);
-                                }
-                                script.generate_script_inputs(
-                                    data,
-                                    &self.get_derived_winternitz_sk(path.clone())?,
-                                    &self.sign(calc_sighash()?),
-                                )
+                    let mut witness = match script.kind() {
+                        Kind::WinternitzCommit(script) => {
+                            if script.1 != self.xonly_public_key {
+                                return Err(BridgeError::NotOwnedScriptPath);
                             }
-                            Kind::PreimageRevealScript(_)
-                            | Kind::CheckSig(_)
-                            | Kind::Other(_)
-                            | Kind::DepositScript(_)
-                            | Kind::TimelockScript(_)
-                            | Kind::WithdrawalScript(_) => return Ok(None),
-                        };
-
-                        if signed_winternitz {
-                            return Err(BridgeError::MultipleWinternitzScripts);
+                            let mut script_data = Vec::with_capacity(data.len());
+                            for (data, path) in data {
+                                let secret_key = self.get_derived_winternitz_sk(path.clone())?;
+                                script_data.push((data.clone(), secret_key));
+                            }
+                            script.generate_script_inputs(&script_data, &self.sign(calc_sighash()?))
                         }
+                        Kind::PreimageRevealScript(_)
+                        | Kind::CheckSig(_)
+                        | Kind::Other(_)
+                        | Kind::DepositScript(_)
+                        | Kind::TimelockScript(_)
+                        | Kind::WithdrawalScript(_) => return Ok(None),
+                    };
 
-                        signed_winternitz = true;
-
-                        Self::add_script_path_to_witness(
-                            &mut witness,
-                            &script.to_script_buf(),
-                            spendinfo,
-                        )?;
-
-                        Ok(Some(witness))
+                    if signed_winternitz {
+                        return Err(BridgeError::MultipleWinternitzScripts);
                     }
-                    SpendPath::KeySpend => Ok(None),
-                    SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+
+                    signed_winternitz = true;
+
+                    Self::add_script_path_to_witness(
+                        &mut witness,
+                        &script.to_script_buf(),
+                        spendinfo,
+                    )?;
+
+                    Ok(Some(witness))
                 }
-            };
+                SpendPath::KeySpend => Ok(None),
+                SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+            }
+        };
 
         txhandler.sign_txins(signer)?;
         Ok(())
@@ -513,7 +514,7 @@ mod tests {
             script_pubkey: tap_addr.script_pubkey(),
         };
         let builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
-            NormalSignatureKind::AlreadyDisproved1,
+            NormalSignatureKind::Reimburse2,
             SpendableTxIn::new(
                 OutPoint::default(),
                 prevtxo.clone(),
@@ -570,7 +571,7 @@ mod tests {
         );
 
         let builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
-            NormalSignatureKind::AlreadyDisproved1,
+            NormalSignatureKind::KickoffNotFinalized1,
             spendable_input,
             SpendPath::ScriptSpend(0),
             bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,

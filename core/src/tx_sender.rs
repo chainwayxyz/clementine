@@ -357,7 +357,7 @@ impl TxSender {
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
             .with_version(Version::non_standard(3))
             .add_input(
-                NormalSignatureKind::NotStored,
+                NormalSignatureKind::OperatorSighashDefault,
                 SpendableTxIn::new_partial(p2a_anchor, builder::transaction::anchor_output()),
                 SpendPath::Unknown,
                 DEFAULT_SEQUENCE,
@@ -365,7 +365,7 @@ impl TxSender {
 
         for fee_payer_utxo in fee_payer_utxos {
             builder = builder.add_input(
-                NormalSignatureKind::NotStored,
+                NormalSignatureKind::OperatorSighashDefault,
                 fee_payer_utxo,
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
@@ -731,7 +731,7 @@ mod tests {
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
             .with_version(version)
             .add_input(
-                NormalSignatureKind::NotStored,
+                NormalSignatureKind::OperatorSighashDefault,
                 SpendableTxIn::new(
                     outpoint,
                     TxOut {

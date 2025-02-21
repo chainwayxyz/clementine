@@ -1,11 +1,11 @@
 use super::clementine::{
     clementine_operator_server::ClementineOperator, AssertRequest, ChallengeAckDigest,
     DepositParams, DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse,
-    OperatorBurnSig, OperatorKeys, OperatorParams, RawSignedTx, RawSignedTxs, TransactionRequest,
-    WithdrawalFinalizedParams,
+    OperatorBurnSig, OperatorKeys, OperatorParams, RawSignedTxs, SignedTxWithType,
+    SignedTxsWithType, WithdrawalFinalizedParams,
 };
 use super::error::*;
-use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};
+use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::rpc::parser;
 use crate::rpc::parser::{parse_assert_request, parse_deposit_params, parse_transaction_request};
 use crate::{errors::BridgeError, operator::Operator};
@@ -124,26 +124,6 @@ impl ClementineOperator for Operator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn internal_create_signed_tx(
-        &self,
-        request: Request<TransactionRequest>,
-    ) -> Result<Response<RawSignedTx>, Status> {
-        let transaction_request = request.into_inner();
-        let transaction_data = parse_transaction_request(transaction_request)?;
-
-        let raw_tx = create_and_sign_tx(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            self.nofn_xonly_pk,
-            transaction_data,
-        )
-        .await?;
-
-        Ok(Response::new(raw_tx))
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn internal_create_assert_commitment_txs(
         &self,
         request: Request<AssertRequest>,
@@ -151,14 +131,9 @@ impl ClementineOperator for Operator {
         let assert_request = request.into_inner();
         let assert_data = parse_assert_request(assert_request)?;
 
-        let raw_txs = create_assert_commitment_txs(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            self.nofn_xonly_pk,
-            assert_data,
-        )
-        .await?;
+        let raw_txs = self
+            .create_assert_commitment_txs(self.nofn_xonly_pk, assert_data)
+            .await?;
 
         Ok(Response::new(raw_txs))
     }
@@ -184,6 +159,33 @@ impl ClementineOperator for Operator {
             challenge_ack_digests: hashes
                 .into_iter()
                 .map(|hash| ChallengeAckDigest { hash: hash.into() })
+                .collect(),
+        }))
+    }
+
+    async fn internal_create_signed_txs(
+        &self,
+        request: tonic::Request<super::TransactionRequest>,
+    ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
+        let transaction_request = request.into_inner();
+        let transaction_data = parse_transaction_request(transaction_request)?;
+        let raw_txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+            Some([0u8; 20]), // dummy blockhash
+        )
+        .await?;
+
+        Ok(Response::new(SignedTxsWithType {
+            signed_txs: raw_txs
+                .into_iter()
+                .map(|(tx_type, signed_tx)| SignedTxWithType {
+                    transaction_type: Some(tx_type.into()),
+                    raw_tx: signed_tx.raw_tx,
+                })
                 .collect(),
         }))
     }

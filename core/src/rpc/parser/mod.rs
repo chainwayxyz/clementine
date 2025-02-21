@@ -197,7 +197,6 @@ pub fn parse_transaction_request(
         deposit_data,
         transaction_type,
         kickoff_id,
-        commit_data: request.commit_data,
     })
 }
 
@@ -214,7 +213,6 @@ pub fn parse_assert_request(request: AssertRequest) -> Result<AssertRequestData,
     Ok(AssertRequestData {
         deposit_data,
         kickoff_id,
-        commit_data: request.commit_data,
     })
 }
 

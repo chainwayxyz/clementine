@@ -1,14 +1,11 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, PartialSig, RawSignedTx, TransactionRequest, VerifierDepositFinalizeParams,
+    OperatorParams, PartialSig, SignedTxWithType, SignedTxsWithType, VerifierDepositFinalizeParams,
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerKeysWithDeposit,
     WatchtowerParams,
 };
 use super::error;
-use crate::builder::sighash::{
-    calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
-};
-use crate::builder::transaction::sign::create_and_sign_tx;
+use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::parser::parse_transaction_request;
 use crate::{
@@ -63,9 +60,8 @@ impl ClementineVerifier for Verifier {
         ) = parser::operator::parse_details(&mut in_stream).await?;
 
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
-        for _ in 0..self.config.num_kickoffs_per_sequential_collateral_tx
-            * self.config.num_sequential_collateral_txs
-        {
+        // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
+        for _ in 0..self.config.num_kickoffs_per_round * (self.config.num_round_txs + 1) {
             operator_kickoff_winternitz_public_keys
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
         }
@@ -202,7 +198,7 @@ impl ClementineVerifier for Verifier {
                 .await?;
 
             let mut nonce_idx = 0;
-            let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
+            let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
             while let Some(partial_sig) = partial_sig_receiver.recv().await {
                 tx.send(Ok(PartialSig {
                     partial_sig: partial_sig.serialize().to_vec(),
@@ -215,8 +211,8 @@ impl ClementineVerifier for Verifier {
                 })?;
 
                 nonce_idx += 1;
-                tracing::debug!(
-                    "Verifier {} signed sighash {} of {}",
+                tracing::trace!(
+                    "Verifier {} signed and sent sighash {} of {} through rpc deposit_sign",
                     verifier.idx,
                     nonce_idx,
                     num_required_sigs
@@ -241,6 +237,7 @@ impl ClementineVerifier for Verifier {
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
         let mut in_stream = req.into_inner();
+        tracing::debug!("In verifier {} deposit_finalize()", self.idx);
 
         let (sig_tx, sig_rx) = mpsc::channel(1280);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
@@ -253,6 +250,10 @@ impl ClementineVerifier for Verifier {
             }
             _ => Err(Status::internal("Expected DepositOutpoint"))?,
         };
+        tracing::debug!(
+            "verifier {} got DepositSignFirstParam in deposit_finalize()",
+            self.idx
+        );
 
         // Start deposit finalize job.
         let verifier = self.clone();
@@ -273,17 +274,24 @@ impl ClementineVerifier for Verifier {
         // Start parsing inputs and send them to deposit finalize job.
         let verifier = self.clone();
         tokio::spawn(async move {
-            let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&verifier.config);
+            let num_required_nofn_sigs = verifier.config.get_num_required_nofn_sigs();
             let mut nonce_idx = 0;
             while let Some(sig) =
                 parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
                     .await?
             {
+                tracing::debug!(
+                    "Received full nofn sig {} in deposit_finalize()",
+                    nonce_idx + 1
+                );
                 sig_tx
                     .send(sig)
                     .await
                     .map_err(error::output_stream_ended_prematurely)?;
-
+                tracing::debug!(
+                    "Sent full nofn sig {} to src/verifier in deposit_finalize()",
+                    nonce_idx + 1
+                );
                 nonce_idx += 1;
                 if nonce_idx == num_required_nofn_sigs {
                     break;
@@ -303,7 +311,7 @@ impl ClementineVerifier for Verifier {
                 .await
                 .map_err(error::output_stream_ended_prematurely)?;
 
-            let num_required_op_sigs = calculate_num_required_operator_sigs(&verifier.config);
+            let num_required_op_sigs = verifier.config.get_num_required_operator_sigs();
             let num_required_total_op_sigs = num_required_op_sigs * verifier.config.num_operators;
             let mut total_op_sig_count = 0;
             let num_operators = verifier.db.get_operators(None).await?.len();
@@ -314,10 +322,18 @@ impl ClementineVerifier for Verifier {
                     parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
                         .await?
                 {
+                    tracing::debug!(
+                        "Received full operator sig {} in deposit_finalize()",
+                        op_sig_count + 1
+                    );
                     operator_sig_tx
                         .send(operator_sig)
                         .await
                         .map_err(error::output_stream_ended_prematurely)?;
+                    tracing::debug!(
+                        "Sent full operator sig {} to src/verifier in deposit_finalize()",
+                        op_sig_count + 1
+                    );
 
                     op_sig_count += 1;
                     total_op_sig_count += 1;
@@ -344,26 +360,6 @@ impl ClementineVerifier for Verifier {
         Ok(Response::new(partial_sig.into()))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn internal_create_signed_tx(
-        &self,
-        request: Request<TransactionRequest>,
-    ) -> Result<Response<RawSignedTx>, Status> {
-        let transaction_request = request.into_inner();
-        let transaction_data = parse_transaction_request(transaction_request)?;
-
-        let raw_tx = create_and_sign_tx(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            self.nofn_xonly_pk,
-            transaction_data,
-        )
-        .await?;
-
-        Ok(Response::new(raw_tx))
-    }
-
     async fn set_operator_keys(
         &self,
         request: tonic::Request<super::OperatorKeysWithDeposit>,
@@ -387,5 +383,32 @@ impl ClementineVerifier for Verifier {
         self.set_watchtower_keys(deposit_params, wt_keys, watchtower_idx)
             .await?;
         Ok(Response::new(Empty {}))
+    }
+
+    async fn internal_create_signed_txs(
+        &self,
+        request: tonic::Request<super::TransactionRequest>,
+    ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
+        let transaction_request = request.into_inner();
+        let transaction_data = parse_transaction_request(transaction_request)?;
+        let raw_txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+            None, // empty blockhash, will not sign this
+        )
+        .await?;
+
+        Ok(Response::new(SignedTxsWithType {
+            signed_txs: raw_txs
+                .into_iter()
+                .map(|(tx_type, signed_tx)| SignedTxWithType {
+                    transaction_type: Some(tx_type.into()),
+                    raw_tx: signed_tx.raw_tx,
+                })
+                .collect(),
+        }))
     }
 }

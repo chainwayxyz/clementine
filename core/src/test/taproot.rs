@@ -42,7 +42,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
 
     let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
     builder = builder.add_input(
-        NormalSignatureKind::NotStored,
+        NormalSignatureKind::OperatorSighashDefault,
         SpendableTxIn::new(
             utxo,
             TxOut {
