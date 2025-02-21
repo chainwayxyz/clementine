@@ -210,7 +210,7 @@ impl ReimburseDbCache {
     }
 }
 
-#[tracing::instrument(skip_all, err, fields(?deposit, txtype = ?transaction_type, ?kickoff_id))]
+#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_data.deposit_data, txtype = ?transaction_type, ?kickoff_id))]
 pub async fn create_txhandlers(
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_type: TransactionType,

@@ -18,8 +18,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{Address,  Network, TapNodeHash, TxOut, Txid};
-use bitcoin::{ XOnlyPublicKey};
+use bitcoin::XOnlyPublicKey;
+use bitcoin::{Address, Network, TapNodeHash, TxOut, Txid};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]

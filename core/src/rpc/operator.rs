@@ -1,8 +1,8 @@
 use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
-    AssertRequest, ChallengeAckDigest, DepositParams, DepositSignSession, Empty,
-    OperatorBurnSig, OperatorKeys, OperatorParams, RawSignedTxs, SignedTxWithType,
-    SignedTxsWithType, WithdrawalFinalizedParams, WithdrawParams, WithdrawResponse,
+    AssertRequest, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, OperatorBurnSig,
+    OperatorKeys, OperatorParams, RawSignedTxs, SignedTxWithType, SignedTxsWithType,
+    WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::create_and_sign_txs;
