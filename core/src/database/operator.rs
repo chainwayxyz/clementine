@@ -718,6 +718,124 @@ impl Database {
             None => Ok(None),
         }
     }
+
+    pub async fn set_kickoff_connector_as_used(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: u32,
+        kickoff_connector_idx: u32,
+        kickoff_txid: Option<Txid>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO used_kickoff_connectors (round_idx, kickoff_connector_idx, kickoff_txid)
+             VALUES ($1, $2, $3);",
+        )
+        .bind(i32::try_from(round_idx).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(
+            i32::try_from(kickoff_connector_idx)
+                .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+        )
+        .bind(kickoff_txid.map(TxidDB));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
+    pub async fn get_kickoff_txid_for_used_kickoff_connector(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: u32,
+        kickoff_connector_idx: u32,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>(
+            "SELECT kickoff_txid FROM used_kickoff_connectors WHERE round_idx = $1 AND kickoff_connector_idx = $2;",
+        )
+        .bind(i32::try_from(round_idx).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(kickoff_connector_idx).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((txid,)) => Ok(Some(txid.0)),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_unused_and_signed_kickoff_connector(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_id: u32,
+    ) -> Result<Option<(u32, u32)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, i32)>(
+            "WITH current_round AS (
+                    SELECT round_idx 
+                    FROM current_round_index 
+                    WHERE id = 1
+                )
+                SELECT 
+                    ds.sequential_collateral_idx as round_idx,
+                    ds.kickoff_idx as kickoff_connector_idx,
+                FROM deposit_signatures ds
+                CROSS JOIN current_round cr
+                WHERE ds.deposit_id = $1  -- Parameter for deposit_id
+                    AND ds.sequential_collateral_idx >= cr.round_idx
+                    AND NOT EXISTS (
+                        SELECT 1 
+                        FROM used_kickoff_connectors ukc 
+                        WHERE ukc.round_idx = ds.sequential_collateral_idx 
+                        AND ukc.kickoff_connector_idx = ds.kickoff_idx
+                    )
+                ORDER BY ds.sequential_collateral_idx ASC
+                LIMIT 1;",
+        )
+        .bind(i32::try_from(deposit_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((round_idx, kickoff_connector_idx)) => Ok(Some((
+                u32::try_from(round_idx)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                u32::try_from(kickoff_connector_idx)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+            ))),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_current_round_index(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query =
+            sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1;");
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        match result {
+            Some((round_idx,)) => {
+                Ok(Some(u32::try_from(round_idx).map_err(|e| {
+                    BridgeError::ConversionError(e.to_string())
+                })?))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn update_current_round_index(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: u32,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("UPDATE current_round_index SET round_idx = $1 WHERE id = 1;")
+            .bind(
+                i32::try_from(round_idx)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+            );
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -184,7 +184,7 @@ impl ClementineOperator for Operator {
                 .into_iter()
                 .map(|(tx_type, signed_tx)| SignedTxWithType {
                     transaction_type: Some(tx_type.into()),
-                    raw_tx: signed_tx.raw_tx,
+                    raw_tx: bitcoin::consensus::serialize(&signed_tx),
                 })
                 .collect(),
         }))

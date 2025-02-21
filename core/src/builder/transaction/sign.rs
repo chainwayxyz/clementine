@@ -9,7 +9,7 @@ use crate::operator::Operator;
 use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
 use crate::watchtower::Watchtower;
 use crate::{builder, utils};
-use bitcoin::XOnlyPublicKey;
+use bitcoin::{Transaction, XOnlyPublicKey};
 
 pub struct TransactionRequestData {
     pub deposit_data: DepositData,
@@ -32,7 +32,7 @@ pub async fn create_and_sign_txs(
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_data: TransactionRequestData,
     block_hash: Option<[u8; 20]>, //to sign kickoff
-) -> Result<Vec<(TransactionType, RawSignedTx)>, BridgeError> {
+) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
     // get operator data
     let operator_data = db
         .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
@@ -103,7 +103,7 @@ pub async fn create_and_sign_txs(
 
         match checked_txhandler {
             Ok(checked_txhandler) => {
-                signed_txs.push((tx_type, checked_txhandler.encode_tx()));
+                signed_txs.push((tx_type, checked_txhandler.get_cached_tx().clone()));
             }
             Err(e) => {
                 tracing::trace!(
