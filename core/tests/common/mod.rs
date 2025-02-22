@@ -319,6 +319,8 @@ pub async fn run_single_deposit(
         break tx_result;
     };
 
+    tracing::info!("MoveTx landed onchain: Deposit successful");
+
     Ok((
         verifiers,
         operators,

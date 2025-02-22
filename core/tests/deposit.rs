@@ -9,7 +9,8 @@ use citrea_e2e::{
     Result,
 };
 use clementine_core::{
-    config::BridgeConfig, database::Database, extended_rpc::ExtendedRpc, utils::initialize_logger,
+    builder, config::BridgeConfig, database::Database, extended_rpc::ExtendedRpc,
+    utils::initialize_logger,
 };
 use common::{
     citrea::{start_citrea, update_config_with_citrea_e2e_da},
@@ -68,7 +69,24 @@ impl TestCase for DepositOnCitrea {
             run_single_deposit(&mut config, rpc.clone()).await?;
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
-        tracing::info!("Move tx: {:?}", tx);
+        let tx_info = rpc
+            .client
+            .get_raw_transaction_info(&move_txid, None)
+            .await?;
+        let block = rpc
+            .client
+            .get_block(&tx_info.blockhash.expect("Not None"))
+            .await?;
+        let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
+
+        let deposit = builder::citrea::deposit(
+            full_node.client.http_client().clone(),
+            block,
+            block_height.try_into().expect("Will not fail"),
+            tx,
+        )
+        .await;
+        tracing::info!("Deposit result: {:?}", deposit);
 
         Ok(())
     }
