@@ -47,30 +47,15 @@ pub fn get_deposit_transaction_params(transaction: Transaction) -> Result<Vec<u8
     let version: u32 = transaction.version.0 as u32;
     let flag: u16 = 0; // TODO
     let vin: Vec<u8> = encode_btc_params!(transaction.input);
-    let vin_count: u32 = vin
-        .len()
-        .try_into()
-        .map_err(|_| BridgeError::Error("Can't convert vin length to u32".to_string()))?;
     let vout: Vec<u8> = encode_btc_params!(transaction.output);
-    let vout_count: u32 = vout
-        .len()
-        .try_into()
-        .map_err(|_| BridgeError::Error("Can't convert vout length to u32".to_string()))?;
     let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);
-    let witness_count: u32 = witness
-        .len()
-        .try_into()
-        .map_err(|_| BridgeError::Error("Can't convert witness length to u32".to_string()))?;
     let locktime: u32 = transaction.lock_time.to_consensus_u32();
 
     let mut message = Vec::new();
     message.extend_from_slice(&version.to_be_bytes());
     message.extend_from_slice(&flag.to_be_bytes());
-    message.extend_from_slice(&vin_count.to_be_bytes());
     message.extend_from_slice(&vin);
-    message.extend_from_slice(&vout_count.to_be_bytes());
     message.extend_from_slice(&vout);
-    message.extend_from_slice(&witness_count.to_be_bytes());
     message.extend_from_slice(&witness);
     message.extend_from_slice(&locktime.to_be_bytes());
 
