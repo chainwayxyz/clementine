@@ -6,10 +6,10 @@
 //! Function selectors are defined in:
 //! https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
 
+use crate::builder::citrea::parameter::{get_deposit_block_params, get_deposit_transaction_params};
 use crate::errors::BridgeError;
-use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
-use bitcoin::{Transaction, Txid};
+use bitcoin::{Block, Transaction, Txid};
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::rpc_params;
@@ -17,77 +17,21 @@ use serde_json::json;
 
 const CITREA_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
-macro_rules! encode_btc_params {
-    ($params:expr) => {
-        $params
-            .iter()
-            .map(|param| {
-                let mut raw = Vec::new();
-                param
-                    .consensus_encode(&mut raw)
-                    .map_err(|e| BridgeError::Error(format!("Can't encode param: {}", e)))?;
-
-                Ok::<Vec<u8>, BridgeError>(raw)
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<u8>>()
-    };
-
-    ($params:expr, $inner:tt) => {
-        $params
-            .iter()
-            .map(|param| {
-                let mut raw = Vec::new();
-                param
-                    .$inner
-                    .consensus_encode(&mut raw)
-                    .map_err(|e| BridgeError::Error(format!("Can't encode param: {}", e)))?;
-
-                Ok::<Vec<u8>, BridgeError>(raw)
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<u8>>()
-    };
-}
-
-/// # Parameters
-///
-/// - `block_height`: Height of the block that the transaction is in
-/// - `index`: Index of the transaction
 pub async fn deposit(
     client: HttpClient,
-    transaction: Transaction,
-    flag: u16,
-    merkle_proof: Vec<u8>, // intermediate_nodes
+    block: Block,
     block_height: u32,
-    index: u32,
+    transaction: Transaction,
 ) -> Result<(), BridgeError> {
-    let version: u32 = transaction.version.0 as u32;
-    let vin: Vec<u8> = encode_btc_params!(transaction.input);
-    let vout: Vec<u8> = encode_btc_params!(transaction.output);
-    let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);
-    let locktime: u32 = transaction.lock_time.to_consensus_u32();
+    let txid = transaction.compute_txid();
+
+    let encoded_transaction = get_deposit_transaction_params(transaction)?;
+    let encoded_block_info = get_deposit_block_params(block, block_height, txid)?;
 
     let message = {
         let mut message = Vec::new();
-        message.extend_from_slice(&version.to_be_bytes());
-        message.extend_from_slice(&flag.to_be_bytes());
-        message.extend_from_slice(&vin.len().to_be_bytes());
-        message.extend_from_slice(&vin);
-        message.extend_from_slice(&vout.len().to_be_bytes());
-        message.extend_from_slice(&vout);
-        message.extend_from_slice(&witness.len().to_be_bytes());
-        message.extend_from_slice(&witness);
-        message.extend_from_slice(&locktime.to_be_bytes());
-        message.extend_from_slice(&merkle_proof);
-        message.extend_from_slice(&[0u8; 28]); // First 28 bytes of block height
-        message.extend_from_slice(&block_height.to_be_bytes());
-        message.extend_from_slice(&[0u8; 28]); // First 28 bytes of index
-        message.extend_from_slice(&index.to_be_bytes());
+        message.extend_from_slice(&encoded_transaction);
+        message.extend_from_slice(&encoded_block_info);
         message
     };
 
