@@ -47,6 +47,6 @@ pub fn update_config_with_citrea_e2e_da(
     config.bitcoin_rpc_url = format!(
         "http://127.0.0.1:{}/wallet/{}",
         da.config.rpc_port,
-        Network::Bitcoin // citrea-e2e internal.
+        NodeKind::Bitcoin // citrea-e2e internal.
     );
 }
