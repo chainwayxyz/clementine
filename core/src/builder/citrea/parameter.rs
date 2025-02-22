@@ -45,7 +45,7 @@ macro_rules! encode_btc_params {
 
 pub fn get_deposit_transaction_params(transaction: Transaction) -> Result<Vec<u8>, BridgeError> {
     let version: u32 = transaction.version.0 as u32;
-    let flag: u16 = 0; // TODO
+    let flag: u16 = 1; // TODO
     let vin: Vec<u8> = encode_btc_params!(transaction.input);
     let vout: Vec<u8> = encode_btc_params!(transaction.output);
     let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);

@@ -79,6 +79,8 @@ impl TestCase for DepositOnCitrea {
             .await?;
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
 
+        builder::citrea::initialized(full_node.client.http_client().clone()).await?;
+
         let deposit = builder::citrea::deposit(
             full_node.client.http_client().clone(),
             block,

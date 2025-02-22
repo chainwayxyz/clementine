@@ -17,6 +17,30 @@ use serde_json::json;
 
 const CITREA_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
+pub async fn initialized(client: HttpClient) -> Result<(), BridgeError> {
+    let params = rpc_params![
+        json!({
+            "to": CITREA_ADDRESS,
+            "data": "0x158ef93e"
+        }),
+        "latest"
+    ];
+
+    let response: String = client.request("eth_call", params).await?;
+
+    let decoded_hex = hex::decode(&response[2..]).map_err(|e| BridgeError::Error(e.to_string()))?;
+
+    if decoded_hex
+        .last()
+        .ok_or(BridgeError::Error("Empty response".to_string()))?
+        != &1u8
+    {
+        return Err(BridgeError::Error("Contract not initialized".to_string()));
+    }
+
+    Ok(())
+}
+
 pub async fn deposit(
     client: HttpClient,
     block: Block,

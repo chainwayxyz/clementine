@@ -3,7 +3,7 @@ use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{EmptyConfig, SequencerConfig},
     framework::TestFramework,
-    node::Node,
+    node::{Node, NodeKind},
 };
 use clementine_core::config::BridgeConfig;
 
@@ -11,11 +11,9 @@ pub async fn start_citrea(
     sequencer_config: SequencerConfig,
     f: &mut TestFramework,
 ) -> citrea_e2e::Result<(&Node<SequencerConfig>, &mut Node<EmptyConfig>, &BitcoinNode)> {
-    let sequencer: &Node<SequencerConfig> = f.sequencer.as_ref().expect("Sequencer is present");
-    let full_node: &mut Node<citrea_e2e::config::EmptyConfig> =
-        f.full_node.as_mut().expect("Full node is present");
-    let da: &citrea_e2e::bitcoin::BitcoinNode =
-        f.bitcoin_nodes.get(0).expect("There is a bitcoin node");
+    let sequencer = f.sequencer.as_ref().expect("Sequencer is present");
+    let full_node = f.full_node.as_mut().expect("Full node is present");
+    let da = f.bitcoin_nodes.get(0).expect("There is a bitcoin node");
 
     let min_soft_confirmations_per_commitment =
         sequencer_config.min_soft_confirmations_per_commitment;
