@@ -1,6 +1,7 @@
 //! # Parameter Builder For Citrea Requests
 
 use crate::errors::BridgeError;
+use alloy::sol_types::SolValue;
 use bitcoin::consensus::Encodable;
 use bitcoin::{Block, Transaction, Txid};
 use merkle::MerkleTree;
@@ -51,15 +52,9 @@ pub fn get_deposit_transaction_params(transaction: Transaction) -> Result<Vec<u8
     let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);
     let locktime: u32 = transaction.lock_time.to_consensus_u32();
 
-    let mut message = Vec::new();
-    message.extend_from_slice(&version.to_be_bytes());
-    message.extend_from_slice(&flag.to_be_bytes());
-    message.extend_from_slice(&vin);
-    message.extend_from_slice(&vout);
-    message.extend_from_slice(&witness);
-    message.extend_from_slice(&locktime.to_be_bytes());
+    let values = (version, flag, vin, vout, witness, locktime);
 
-    Ok(message)
+    Ok(values.abi_encode())
 }
 
 fn get_block_merkle_proof(
@@ -76,7 +71,7 @@ fn get_block_merkle_proof(
                 txid_index = i;
             }
 
-            tx.compute_txid() // or is this wtxid?
+            tx.compute_wtxid() // or is this wtxid?
         })
         .collect::<Vec<_>>();
 
@@ -85,7 +80,7 @@ fn get_block_merkle_proof(
         .gen_nth_proof(txid_index)
         .ok_or(BridgeError::Error("TODO".to_string()))?;
     let merkle_proof_leafs =
-        merkle_proof.root_hash.as_slice()[0..merkle_proof.root_hash.len() - 2].to_vec();
+        merkle_proof.root_hash.as_slice()[0..merkle_proof.root_hash.len() - 1].to_vec();
 
     // let wtxid_root = merkle_proof_with_root
     //     .root_hash
@@ -128,14 +123,15 @@ pub fn get_deposit_block_params(
 ) -> Result<Vec<u8>, BridgeError> {
     let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
 
-    let mut message = Vec::new();
-    message.extend_from_slice(&merkle_proof);
-    message.extend_from_slice(&[0u8; 28]); // First 28 bytes of block height
-    message.extend_from_slice(&block_height.to_be_bytes());
-    message.extend_from_slice(&[0u8; 28]); // First 28 bytes of index
-    message.extend_from_slice(&index.to_be_bytes());
+    let values = (
+        merkle_proof,
+        vec![0u8; 28],
+        block_height,
+        vec![0u8; 28],
+        index as u32,
+    );
 
-    Ok(message)
+    Ok(values.abi_encode())
 }
 
 #[cfg(test)]
@@ -150,7 +146,7 @@ mod tests {
 
     #[test]
     fn get_deposit_transaction_params() {
-        let base_encoded_tx_size = 22;
+        let base_encoded_tx_size = 10;
 
         let empty_transaction = Transaction {
             version: transaction::Version::TWO,

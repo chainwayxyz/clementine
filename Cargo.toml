@@ -23,6 +23,7 @@ tempfile = "3.16.0"
 citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "bd779c4078e3b99d58c1fc66e8ba860088348fb9" }
 merkle = "1.11.0"
 ring = "0.16.15"
+alloy = { version = "0.11.1", features = ["full"] }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde"] }

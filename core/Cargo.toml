@@ -39,6 +39,7 @@ bitvm = { workspace = true }
 tempfile = { workspace = true }
 merkle = { workspace = true }
 ring = { workspace = true }
+alloy = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
