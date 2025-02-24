@@ -51,16 +51,11 @@ pub async fn deposit(
 
     let params = get_deposit_params(transaction, block, block_height, txid)?;
 
-    let params = rpc_params![
-        json!({
-            "to": CITREA_ADDRESS,
-            "data": hex::encode(params),
-        }),
-        "latest"
-    ];
-
     let response: String = client
-        .request("citrea_sendRawDepositTransaction", params)
+        .request(
+            "citrea_sendRawDepositTransaction",
+            rpc_params!(hex::encode(params)),
+        )
         .await?;
 
     // TODO: should return a bool but dont know the format of the response
