@@ -529,9 +529,12 @@ impl Database {
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_as(
             "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (deposit_outpoint) DO UPDATE SET deposit_outpoint = deposits.deposit_outpoint
-            RETURNING deposit_id;",
+                VALUES ($1, $2, $3)
+                ON CONFLICT (deposit_outpoint) DO UPDATE
+                SET recovery_taproot_address = EXCLUDED.recovery_taproot_address,
+                    evm_address = EXCLUDED.evm_address
+                RETURNING deposit_id;
+            ",
         )
         .bind(OutPointDB(deposit_data.deposit_outpoint))
         .bind(AddressDB(deposit_data.recovery_taproot_address))
@@ -607,7 +610,10 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
     ) -> Result<u32, BridgeError> {
-        let query = sqlx::query_as("SELECT deposit_id FROM deposits WHERE deposit_outpoint = $1;")
+        let query = sqlx::query_as("INSERT INTO deposits (deposit_outpoint)
+            VALUES ($1)
+            ON CONFLICT (deposit_outpoint) DO UPDATE SET deposit_outpoint = deposits.deposit_outpoint
+            RETURNING deposit_id;")
             .bind(OutPointDB(deposit_outpoint));
 
         let deposit_id: Result<(i32,), sqlx::Error> =

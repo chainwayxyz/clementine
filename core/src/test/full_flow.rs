@@ -3,17 +3,103 @@ use crate::builder::transaction::TransactionType;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest};
+use crate::rpc::clementine::{
+    DepositParams, Empty, FinalizedPayoutParams, KickoffId, TransactionRequest,
+};
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxSender};
 use crate::utils::SECP;
 use crate::EVMAddress;
 use bitcoin::consensus::{self};
+use bitcoin::hashes::Hash;
 use bitcoin::Transaction;
 use bitcoincore_rpc::RpcApi;
 use eyre::{bail, Context, Result};
 use secp256k1::rand::rngs::ThreadRng;
 use tonic::Request;
+
+pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
+    // 1. Setup environment and actors
+    tracing::info!("Setting up environment and actors");
+    let (_verifiers, mut operators, mut aggregator, _watchtowers, regtest) =
+        create_actors(&config).await;
+
+    let rpc: ExtendedRpc = regtest.rpc().clone();
+
+    let evm_address = EVMAddress([1u8; 20]);
+    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    tracing::info!("Generated deposit address: {}", deposit_address);
+
+    let recovery_taproot_address = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.network,
+    )
+    .address;
+    // 2. Setup Aggregator
+    tracing::info!("Setting up aggregator");
+    aggregator.setup(Request::new(Empty {})).await?;
+
+    // 3. Make Deposit
+    tracing::info!("Making deposit transaction");
+    let deposit_outpoint = rpc
+        .send_to_address(&deposit_address, config.bridge_amount_sats)
+        .await?;
+    rpc.mine_blocks(18).await?;
+    tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
+
+    let dep_params = DepositParams {
+        deposit_outpoint: Some(deposit_outpoint.into()),
+        evm_address: evm_address.0.to_vec(),
+        recovery_taproot_address: recovery_taproot_address.to_string(),
+    };
+
+    tracing::info!("Creating move transaction");
+    let move_tx_response = aggregator
+        .new_deposit(dep_params.clone())
+        .await?
+        .into_inner();
+
+    let move_txid: bitcoin::Txid =
+        bitcoin::Txid::from_byte_array(move_tx_response.txid.try_into().unwrap());
+
+    tracing::info!("Move transaction sent, waiting for on-chain confirmation: {:x?}", move_txid);
+
+    loop {
+        tracing::info!("Checking if move tx is confirmed");
+        let spent = rpc.client.get_raw_transaction_info(&move_txid, None).await?;
+        if spent.blockhash.is_some() {
+            break;
+        }
+        rpc.mine_blocks(1).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    operators[0]
+        .internal_finalized_payout(FinalizedPayoutParams {
+            payout_blockhash: [1u8; 32].to_vec(),
+            deposit_outpoint: Some(deposit_outpoint.into()),
+        })
+        .await?;
+
+    rpc.mine_blocks(1).await?;
+
+    operators[0]
+        .internal_end_round(Request::new(Empty {}))
+        .await?;
+
+    loop {
+        tracing::info!("Checking if move tx is spent");
+        // check if the move_tx is spent
+        let spent = rpc.client.get_tx_out(&move_txid, 0, Some(true)).await?;
+        if spent.is_none() {
+            break;
+        }
+        rpc.mine_blocks(1).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Ok(())
+}
 
 pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     // use std::time::Duration;
@@ -427,5 +513,11 @@ mod tests {
     async fn test_happy_path_1() {
         let config = create_test_config_with_thread_name(None).await;
         run_happy_path(config).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_operator_end_round() {
+        let config = create_test_config_with_thread_name(None).await;
+        run_operator_end_round(config).await.unwrap();
     }
 }

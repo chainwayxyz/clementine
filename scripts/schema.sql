@@ -106,8 +106,8 @@ create table if not exists operator_winternitz_public_keys (
 create table if not exists deposits (
     deposit_id serial primary key,
     deposit_outpoint text unique not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
-    recovery_taproot_address text not null,
-    evm_address text not null check (evm_address ~ '^[a-fA-F0-9]{40}'),
+    recovery_taproot_address text,
+    evm_address text check (evm_address ~ '^[a-fA-F0-9]{40}')
 );
 
 -- Deposit signatures
@@ -275,12 +275,12 @@ create table if not exists used_kickoff_connectors (
     kickoff_txid text not null check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now(),
     primary key (round_idx, kickoff_connector_idx)
-)
+);
 
 create table if not exists current_round_index (
     id int primary key,
     round_idx int not null
-)
+);
 
 INSERT INTO current_round_index (id, round_idx)
 VALUES (1, 0)
