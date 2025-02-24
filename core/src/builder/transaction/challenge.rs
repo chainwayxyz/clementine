@@ -3,10 +3,10 @@ use crate::builder::script::{PreimageRevealScript, SpendPath, TimelockScript, Wi
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
-use crate::constants::{BLOCKS_PER_WEEK, OPERATOR_CHALLENGE_AMOUNT};
+use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, OPERATOR_CHALLENGE_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
+use bitcoin::{ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
 
 /// Creates a "simplified "[`TxHandler`] for the `watchtower_challenge_kickoff_tx`. The purpose of the simplification
@@ -26,7 +26,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     for i in 0..num_watchtowers {
         builder = builder.add_output(UnspentTxOut::new(
             TxOut {
-                value: Amount::from_sat(2000), // TODO: Hand calculate this
+                value: MIN_TAPROOT_AMOUNT * 2, // TODO: Hand calculate this
                 script_pubkey: watchtower_challenge_addresses[i as usize].clone(),
             },
             vec![],
@@ -93,7 +93,7 @@ pub fn create_watchtower_challenge_txhandler(
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
-            Amount::from_sat(1000), // TODO: Hand calculate this
+            MIN_TAPROOT_AMOUNT, // TODO: Hand calculate this
             vec![operator_with_preimage, nofn_halfweek],
             None,
             network,
@@ -217,6 +217,7 @@ pub fn create_challenge_txhandler(
             value: OPERATOR_CHALLENGE_AMOUNT,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
+        .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
         .finalize())
 }
 
@@ -226,6 +227,7 @@ pub fn create_challenge_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ChallengeTimeout)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             kickoff_txhandler.get_spendable_output(1)?,

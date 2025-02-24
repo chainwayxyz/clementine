@@ -2,14 +2,13 @@
 //!
 //! Utilities for operator and verifier servers.
 use crate::aggregator::Aggregator;
+use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
 use crate::rpc::clementine::clementine_watchtower_server::ClementineWatchtowerServer;
 use crate::watchtower::Watchtower;
-use crate::{
-    config::BridgeConfig, errors, extended_rpc::ExtendedRpc, operator, verifier::Verifier,
-};
+use crate::{config::BridgeConfig, errors, operator, verifier::Verifier};
 use errors::BridgeError;
 use operator::Operator;
 use std::thread;
@@ -26,7 +25,7 @@ fn is_test_env() -> bool {
 pub async fn create_verifier_grpc_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr,), BridgeError> {
-    let rpc = ExtendedRpc::connect(
+    let _rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
@@ -35,7 +34,7 @@ pub async fn create_verifier_grpc_server(
 
     let addr = format!("{}:{}", config.host, config.port).parse()?;
     tracing::info!("Starting verifier gRPC server with address: {}", addr);
-    let verifier = Verifier::new(rpc, config).await?;
+    let verifier = Verifier::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     // Create a channel to signal when the server is ready
@@ -66,7 +65,7 @@ pub async fn create_verifier_grpc_server(
 pub async fn create_operator_grpc_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr,), BridgeError> {
-    let rpc = ExtendedRpc::connect(
+    let _rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
@@ -80,8 +79,7 @@ pub async fn create_operator_grpc_server(
     );
     let addr = format!("{}:{}", config.host, config.port).parse()?;
     tracing::info!("Starting operator gRPC server with address: {}", addr);
-
-    let operator = Operator::new(config, rpc).await?;
+    let operator = Operator::new(config).await?;
     tracing::info!("Operator gRPC server created");
     let svc = ClementineOperatorServer::new(operator);
 

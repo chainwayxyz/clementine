@@ -2,6 +2,9 @@
 //!
 //! This crate provides testing utilities, which are not possible to be included
 //! in binaries.
+use std::net::TcpListener;
+use std::str::FromStr;
+
 use bitcoin::secp256k1::schnorr;
 use tonic::transport::Channel;
 
@@ -29,7 +32,16 @@ use crate::{
 };
 use crate::{EVMAddress, UTXO};
 
-pub struct WithProcessCleanup(pub std::process::Child, ExtendedRpc, std::path::PathBuf);
+pub struct WithProcessCleanup(
+    /// Handle to the bitcoind process
+    pub Option<std::process::Child>,
+    /// RPC client
+    pub ExtendedRpc,
+    /// Path to the bitcoind debug log file
+    pub std::path::PathBuf,
+    /// Whether to wait indefinitely after test finishes before cleanup (for RPC debugging)
+    pub bool,
+);
 impl WithProcessCleanup {
     pub fn rpc(&self) -> &ExtendedRpc {
         &self.1
@@ -42,13 +54,37 @@ impl Drop for WithProcessCleanup {
             "Test bitcoin regtest logs can be found at: {}",
             self.2.display()
         );
-        let _ = self.0.kill();
+
+        if self.3 {
+            tracing::warn!(
+                "Suspending the test to allow inspection of bitcoind. Ctrl-C to exit. {}",
+                self.2.display()
+            );
+            std::thread::sleep(std::time::Duration::from_secs(u64::MAX));
+        }
+        if let Some(ref mut child) = self.0.take() {
+            let _ = child.kill();
+        }
     }
 }
 
-/// Creates a Bitcoin regtest node for testing, waits for it to start and returns an RPC.
-/// **Beware**: **Do not drop** returned value until the end of the test
-/// otherwise ExtendedRpc will fail to connect Bitcoind.
+/// Creates a Bitcoin regtest node for testing, waits for it to start and returns an RPC client.
+///
+/// # Environment Variables
+/// - `BITCOIN_RPC_DEBUG`: If set to a non-empty value, will use port 18443 and connect to an existing
+///   bitcoind instance when available.
+///
+/// # Returns
+/// Returns a `WithProcessCleanup` which contains:
+/// - The bitcoind process handle (if a new instance was started)
+/// - An RPC client connected to the node
+/// - Path to the debug log file
+/// - A flag indicating whether to pause before cleanup
+///
+/// # Important
+/// The returned value MUST NOT be dropped until the test is complete, as dropping it will terminate
+/// the bitcoind process and invalidate the RPC connection. The cleanup is handled automatically when
+/// the returned value is dropped.
 pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup {
     use bitcoincore_rpc::RpcApi;
     use tempfile::TempDir;
@@ -57,13 +93,33 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     let data_dir = TempDir::new()
         .expect("Failed to create temporary directory")
         .into_path();
+    let bitcoin_rpc_debug = std::env::var("BITCOIN_RPC_DEBUG").map(|d| !d.is_empty()) == Ok(true);
 
     // Get available ports for RPC
-    let rpc_port = get_available_port();
+    let rpc_port = if bitcoin_rpc_debug {
+        18443
+    } else {
+        get_available_port()
+    };
+
     config.bitcoin_rpc_url = format!("http://127.0.0.1:{}/wallet/admin", rpc_port);
 
+    if bitcoin_rpc_debug && TcpListener::bind(format!("127.0.0.1:{}", rpc_port)).is_err() {
+        // Bitcoind is already running on port 18443, use existing port.
+        return WithProcessCleanup(
+            None,
+            ExtendedRpc::connect(
+                "http://127.0.0.1:18443".into(),
+                config.bitcoin_rpc_user.clone(),
+                config.bitcoin_rpc_password.clone(),
+            )
+            .await
+            .unwrap(),
+            data_dir.join("debug.log"),
+            false, // no need to wait after test
+        );
+    }
     // Bitcoin node configuration
-
     // Construct args for bitcoind
     let args = vec![
         "-regtest".to_string(),
@@ -92,6 +148,10 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .stderr(std::process::Stdio::null())
         .spawn()
         .expect("Failed to start bitcoind");
+
+    if bitcoin_rpc_debug {
+        tracing::warn!("Bitcoind logs are available at {}", log_file_path);
+    }
 
     // Create RPC client
     let rpc_url = format!("http://127.0.0.1:{}", rpc_port);
@@ -126,7 +186,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .expect("Failed to get network info");
     tracing::info!("Using bitcoind version: {}", network_info.version);
 
-    // Create wallet
+    // // Create wallet
     client
         .client
         .create_wallet("admin", None, None, None, None)
@@ -145,7 +205,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .await
         .expect("Failed to generate blocks");
 
-    WithProcessCleanup(process, client.clone(), log_file)
+    WithProcessCleanup(Some(process), client.clone(), log_file, bitcoin_rpc_debug)
 }
 
 /// Creates a temporary database for testing, using current thread's name as the

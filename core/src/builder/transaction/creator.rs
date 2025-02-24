@@ -210,6 +210,7 @@ impl ReimburseDbCache {
     }
 }
 
+#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_data.deposit_data, txtype = ?transaction_type, ?kickoff_id))]
 pub async fn create_txhandlers(
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_type: TransactionType,
@@ -580,7 +581,6 @@ mod tests {
     use std::str::FromStr;
 
     #[tokio::test(flavor = "multi_thread")]
-
     async fn test_deposit_and_sign_txs() {
         let config = create_test_config_with_thread_name(None).await;
 

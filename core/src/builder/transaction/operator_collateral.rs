@@ -19,7 +19,9 @@ use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
-use crate::constants::{BLOCKS_PER_WEEK, KICKOFF_BLOCKHASH_COMMIT_LENGTH, MIN_TAPROOT_AMOUNT};
+use crate::constants::{
+    BLOCKS_PER_WEEK, KICKOFF_AMOUNT, KICKOFF_BLOCKHASH_COMMIT_LENGTH, MIN_TAPROOT_AMOUNT,
+};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
@@ -47,20 +49,22 @@ pub fn create_round_txhandler(
     pubkeys: &[bitvm::signatures::winternitz::PublicKey],
 ) -> Result<TxHandler, BridgeError> {
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
-    let mut builder = TxHandlerBuilder::new(TransactionType::Round).add_input(
-        NormalSignatureKind::OperatorSighashDefault,
-        SpendableTxIn::new(
-            input_outpoint,
-            TxOut {
-                value: input_amount,
-                script_pubkey: op_address.script_pubkey(),
-            },
-            vec![],
-            Some(op_spend.clone()),
-        ),
-        SpendPath::KeySpend,
-        DEFAULT_SEQUENCE,
-    );
+    let mut builder = TxHandlerBuilder::new(TransactionType::Round)
+        .with_version(Version::non_standard(3))
+        .add_input(
+            NormalSignatureKind::OperatorSighashDefault,
+            SpendableTxIn::new(
+                input_outpoint,
+                TxOut {
+                    value: input_amount,
+                    script_pubkey: op_address.script_pubkey(),
+                },
+                vec![],
+                Some(op_spend.clone()),
+            ),
+            SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        );
 
     // This 1 block is to enforce that operator has to put a sequence number in the input
     // so this spending path can't be used to send kickoff tx
@@ -68,7 +72,9 @@ pub fn create_round_txhandler(
         Arc::new(TimelockScript::new(Some(operator_xonly_pk), 1u16));
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
-        input_amount, // TODO: - num_kickoffs_per_sequential_collateral_tx * kickoff_sats,
+        input_amount
+            - (KICKOFF_AMOUNT + MIN_TAPROOT_AMOUNT) * (num_kickoffs_per_round as u64)
+            - ANCHOR_AMOUNT,
         vec![],
         Some(operator_xonly_pk),
         network,
@@ -81,7 +87,7 @@ pub fn create_round_txhandler(
             operator_xonly_pk,
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            KICKOFF_AMOUNT,
             vec![blockhash_commit, timeout_block_count_locked_script.clone()],
             None,
             network,
@@ -190,6 +196,7 @@ pub fn create_ready_to_reimburse_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let prevout = round_txhandler.get_spendable_output(0)?;
     Ok(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             prevout.clone(),
@@ -197,7 +204,7 @@ pub fn create_ready_to_reimburse_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            prevout.get_prevout().value,
+            prevout.get_prevout().value - ANCHOR_AMOUNT - Amount::from_sat(330),
             vec![],
             Some(operator_xonly_pk),
             network,
