@@ -20,13 +20,19 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::constants::{
-    BLOCKS_PER_WEEK, KICKOFF_AMOUNT, KICKOFF_BLOCKHASH_COMMIT_LENGTH, MIN_TAPROOT_AMOUNT,
+    BLOCKS_PER_DAY, BLOCKS_PER_WEEK, KICKOFF_AMOUNT, KICKOFF_BLOCKHASH_COMMIT_LENGTH,
+    MIN_TAPROOT_AMOUNT,
 };
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
+
+pub enum RoundTxInput {
+    Prevout(SpendableTxIn),
+    Collateral(OutPoint, Amount),
+}
 
 /// Creates a [`TxHandler`] for `round_tx`. It will always use the first
 /// output of the  previous `ready_to_reimburse_tx` as the input. The flow is as follows:
@@ -42,29 +48,44 @@ use std::sync::Arc;
 /// 4. P2Anchor: Anchor output for CPFP
 pub fn create_round_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
-    input_outpoint: OutPoint,
-    input_amount: Amount,
+    txin: RoundTxInput,
     num_kickoffs_per_round: usize,
     network: bitcoin::Network,
     pubkeys: &[bitvm::signatures::winternitz::PublicKey],
 ) -> Result<TxHandler, BridgeError> {
-    let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
-    let mut builder = TxHandlerBuilder::new(TransactionType::Round)
-        .with_version(Version::non_standard(3))
-        .add_input(
-            NormalSignatureKind::OperatorSighashDefault,
-            SpendableTxIn::new(
-                input_outpoint,
-                TxOut {
-                    value: input_amount,
-                    script_pubkey: op_address.script_pubkey(),
-                },
-                vec![],
-                Some(op_spend.clone()),
-            ),
-            SpendPath::KeySpend,
-            DEFAULT_SEQUENCE,
-        );
+    let mut builder =
+        TxHandlerBuilder::new(TransactionType::Round).with_version(Version::non_standard(3));
+    let input_amount;
+    match txin {
+        RoundTxInput::Prevout(prevout) => {
+            input_amount = prevout.get_prevout().value;
+            builder = builder.add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                prevout,
+                SpendPath::KeySpend,
+                Sequence::from_height(BLOCKS_PER_DAY * 2),
+            );
+        }
+        RoundTxInput::Collateral(outpoint, amount) => {
+            let (op_address, op_spend) =
+                create_taproot_address(&[], Some(operator_xonly_pk), network);
+            input_amount = amount;
+            builder = builder.add_input(
+                NormalSignatureKind::OperatorSighashDefault,
+                SpendableTxIn::new(
+                    outpoint,
+                    TxOut {
+                        value: input_amount,
+                        script_pubkey: op_address.script_pubkey(),
+                    },
+                    vec![],
+                    Some(op_spend.clone()),
+                ),
+                SpendPath::KeySpend,
+                DEFAULT_SEQUENCE,
+            );
+        }
+    }
 
     // This 1 block is to enforce that operator has to put a sequence number in the input
     // so this spending path can't be used to send kickoff tx
@@ -161,8 +182,7 @@ pub fn create_round_nth_txhandler(
 ) -> Result<(TxHandler, TxHandler), BridgeError> {
     let mut round_txhandler = create_round_txhandler(
         operator_xonly_pk,
-        input_outpoint,
-        input_amount,
+        RoundTxInput::Collateral(input_outpoint, input_amount),
         num_kickoffs_per_round,
         network,
         pubkeys.get_keys_for_round(0),
@@ -172,13 +192,7 @@ pub fn create_round_nth_txhandler(
     for idx in 1..index + 1 {
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
-            *ready_to_reimburse_txhandler
-                .get_spendable_output(0)?
-                .get_prev_outpoint(),
-            ready_to_reimburse_txhandler
-                .get_spendable_output(0)?
-                .get_prevout()
-                .value,
+            RoundTxInput::Prevout(ready_to_reimburse_txhandler.get_spendable_output(0)?),
             num_kickoffs_per_round,
             network,
             pubkeys.get_keys_for_round(idx),

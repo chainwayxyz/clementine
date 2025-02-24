@@ -1,107 +1,93 @@
-use crate::builder;
-use crate::builder::script::{PreimageRevealScript, SpendPath, TimelockScript, WinternitzCommit};
+use crate::builder::script::{SpendPath, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
-use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, OPERATOR_CHALLENGE_AMOUNT};
+use crate::config::BridgeConfig;
+use crate::constants::{BLOCKS_PER_WEEK, OPERATOR_CHALLENGE_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-use bitcoin::{ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
+use crate::{builder, utils};
+use bitcoin::{Sequence, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
-
-/// Creates a "simplified "[`TxHandler`] for the `watchtower_challenge_kickoff_tx`. The purpose of the simplification
-/// is that when the verifiers are generating related sighashes, they only need to know the output addresses or the
-/// input UTXOs. They do not need to know output scripts or spendinfos.
-pub fn create_watchtower_challenge_kickoff_txhandler(
-    kickoff_tx_handler: &TxHandler,
-    num_watchtowers: u32,
-    watchtower_challenge_addresses: &[ScriptBuf],
-) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallengeKickoff).add_input(
-        NormalSignatureKind::WatchtowerChallengeKickoff,
-        kickoff_tx_handler.get_spendable_output(0)?,
-        SpendPath::ScriptSpend(0),
-        DEFAULT_SEQUENCE,
-    );
-    for i in 0..num_watchtowers {
-        builder = builder.add_output(UnspentTxOut::new(
-            TxOut {
-                value: MIN_TAPROOT_AMOUNT * 2, // TODO: Hand calculate this
-                script_pubkey: watchtower_challenge_addresses[i as usize].clone(),
-            },
-            vec![],
-            None,
-        ));
-    }
-    Ok(builder
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
-}
 
 /// Creates a [`TxHandler`] for the `watchtower_challenge_tx`. This transaction
 /// is sent by the watchtowers to reveal their Groth16 proofs with their public
 /// inputs for the longest chain proof, signed by the corresponding watchtowers
-/// using WOTS. The output of this transaction can be spend by:
-/// 1- the operator with revealing the preimage for the corresponding watchtower
-/// 2- the NofN after 0.5 week `using kickoff_tx.output[2]`, which will also prevent
-/// the operator from sending `assert_begin_tx`.
-/// The revealed preimage will later be used to send `disprove_tx` if the operator
-/// claims that the corresponding watchtower did not challenge them.
+/// using WOTS.
 pub fn create_watchtower_challenge_txhandler(
-    wck_txhandler: &TxHandler,
+    kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
-    operator_unlock_hash: &[u8; 20],
     nofn_xonly_pk: XOnlyPublicKey,
-    operator_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-    script: Option<Arc<WinternitzCommit>>,
+    config: &BridgeConfig,
+    wots_script: Arc<WinternitzCommit>,
 ) -> Result<TxHandler, BridgeError> {
-    let prevout = wck_txhandler.get_spendable_output(watchtower_idx)?;
-    let builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-        .add_input(
-            (
-                NumberedSignatureKind::NumberedNotStored,
-                watchtower_idx as i32,
-            ),
-            // if a script is not provided, that means this tx will not be signed so there doesn't need
-            // to be actual script and spendinfo inside the txin
-            // If we want to sign it we need to add the script inside the SpendableTxIn
-            match script {
-                None => prevout,
-                Some(commit_script) => SpendableTxIn::from_scripts(
+    let prevout = kickoff_txhandler.get_spendable_output(
+        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len(),
+    )?;
+    let nofn_2week = Arc::new(TimelockScript::new(
+        Some(nofn_xonly_pk),
+        BLOCKS_PER_WEEK * 2,
+    ));
+    Ok(
+        TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
+            .add_input(
+                (
+                    NumberedSignatureKind::NumberedNotStored,
+                    watchtower_idx as i32,
+                ),
+                SpendableTxIn::from_scripts(
                     *prevout.get_prev_outpoint(),
                     prevout.get_prevout().value,
-                    vec![commit_script],
+                    vec![nofn_2week, wots_script],
                     None,
-                    network,
+                    config.network,
                 ),
-            },
-            SpendPath::ScriptSpend(0),
-            DEFAULT_SEQUENCE,
-        );
+                SpendPath::ScriptSpend(1),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(UnspentTxOut::from_partial(
+                builder::transaction::anchor_output(),
+            ))
+            .finalize(),
+    )
+}
 
-    let nofn_halfweek = Arc::new(TimelockScript::new(
-        Some(nofn_xonly_pk),
-        BLOCKS_PER_WEEK / 2,
-    )); // 0.5 week
-    let operator_with_preimage = Arc::new(PreimageRevealScript::new(
-        operator_xonly_pk,
-        *operator_unlock_hash,
-    ));
-
-    Ok(builder
-        .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT, // TODO: Hand calculate this
-            vec![operator_with_preimage, nofn_halfweek],
-            None,
-            network,
-        ))
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
+/// Creates the watchtower challenge timeout txhandler.
+/// This tx needs to be sent by operators when a watchtower doesn't send a challenge,
+/// otherwise operator will be forced to reveal their preimage.
+pub fn create_watchtower_challenge_timeout_txhandler(
+    kickoff_txhandler: &TxHandler,
+    watchtower_idx: usize,
+) -> Result<TxHandler, BridgeError> {
+    let watchtower_challenge_vout =
+        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len();
+    let challenge_ack_vout =
+        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
+    Ok(
+        TxHandlerBuilder::new(TransactionType::WatchtowerChallengeTimeout(watchtower_idx))
+            .add_input(
+                (
+                    NumberedSignatureKind::WatchtowerChallengeTimeout1,
+                    watchtower_idx as i32,
+                ),
+                kickoff_txhandler.get_spendable_output(watchtower_challenge_vout)?,
+                SpendPath::ScriptSpend(0),
+                Sequence::from_height(BLOCKS_PER_WEEK * 2),
+            )
+            .add_input(
+                (
+                    NumberedSignatureKind::WatchtowerChallengeTimeout2,
+                    watchtower_idx as i32,
+                ),
+                kickoff_txhandler.get_spendable_output(challenge_ack_vout)?,
+                SpendPath::ScriptSpend(1),
+                Sequence::from_height(BLOCKS_PER_WEEK * 2),
+            )
+            .add_output(UnspentTxOut::from_partial(
+                builder::transaction::anchor_output(),
+            ))
+            .finalize(),
+    )
 }
 
 /// Creates a [`TxHandler`] for the `operator_challenge_NACK_tx`. This transaction will force
@@ -109,11 +95,12 @@ pub fn create_watchtower_challenge_txhandler(
 /// reveal the preimage, the NofN will be able to spend the output after 0.5 week, which will
 /// prevent the operator from sending `assert_begin_tx`.
 pub fn create_operator_challenge_nack_txhandler(
-    watchtower_challenge_txhandler: &TxHandler,
-    watchtower_idx: usize,
     kickoff_txhandler: &TxHandler,
+    watchtower_idx: usize,
     round_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
+    let challenge_ack_vout =
+        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
             .add_input(
@@ -121,16 +108,16 @@ pub fn create_operator_challenge_nack_txhandler(
                     NumberedSignatureKind::OperatorChallengeNack1,
                     watchtower_idx as i32,
                 ),
-                watchtower_challenge_txhandler.get_spendable_output(0)?,
-                SpendPath::ScriptSpend(1),
-                Sequence::from_height(BLOCKS_PER_WEEK / 2),
+                kickoff_txhandler.get_spendable_output(challenge_ack_vout)?,
+                SpendPath::ScriptSpend(0),
+                Sequence::from_height(BLOCKS_PER_WEEK * 3),
             )
             .add_input(
                 (
                     NumberedSignatureKind::OperatorChallengeNack2,
                     watchtower_idx as i32,
                 ),
-                kickoff_txhandler.get_spendable_output(2)?,
+                kickoff_txhandler.get_spendable_output(1)?,
                 SpendPath::ScriptSpend(0),
                 DEFAULT_SEQUENCE,
             )
@@ -155,15 +142,17 @@ pub fn create_operator_challenge_nack_txhandler(
 /// If the operator does not reveal the preimage, the NofN will be able to spend the output after 0.5 week using
 /// `operator_challenge_NACK_tx`.
 pub fn create_operator_challenge_ack_txhandler(
-    watchtower_challenge_txhandler: &TxHandler,
+    kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
 ) -> Result<TxHandler, BridgeError> {
+    let challenge_ack_vout =
+        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
             .add_input(
                 NormalSignatureKind::OperatorChallengeAck1,
-                watchtower_challenge_txhandler.get_spendable_output(0)?,
-                SpendPath::ScriptSpend(0),
+                kickoff_txhandler.get_spendable_output(challenge_ack_vout)?,
+                SpendPath::ScriptSpend(2),
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(
@@ -183,7 +172,7 @@ pub fn create_disprove_txhandler(
     Ok(TxHandlerBuilder::new(TransactionType::Disprove)
         .add_input(
             NormalSignatureKind::NoSignature,
-            kickoff_txhandler.get_spendable_output(4)?,
+            kickoff_txhandler.get_spendable_output(3)?,
             SpendPath::Unknown,
             DEFAULT_SEQUENCE,
         )
@@ -230,13 +219,13 @@ pub fn create_challenge_timeout_txhandler(
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            kickoff_txhandler.get_spendable_output(1)?,
+            kickoff_txhandler.get_spendable_output(0)?,
             SpendPath::ScriptSpend(1),
             Sequence::from_height(BLOCKS_PER_WEEK),
         )
         .add_input(
             NormalSignatureKind::ChallengeTimeout2,
-            kickoff_txhandler.get_spendable_output(2)?,
+            kickoff_txhandler.get_spendable_output(1)?,
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )

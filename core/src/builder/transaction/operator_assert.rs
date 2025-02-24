@@ -15,13 +15,13 @@ pub fn create_disprove_timeout_txhandler(
     Ok(TxHandlerBuilder::new(TransactionType::DisproveTimeout)
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            kickoff_txhandler.get_spendable_output(4)?,
+            kickoff_txhandler.get_spendable_output(3)?,
             SpendPath::ScriptSpend(0),
             Sequence::from_height(BLOCKS_PER_WEEK * 5),
         )
         .add_input(
             NormalSignatureKind::DisproveTimeout2,
-            kickoff_txhandler.get_spendable_output(2)?,
+            kickoff_txhandler.get_spendable_output(1)?,
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
@@ -39,7 +39,7 @@ pub fn create_mini_asserts(
             TxHandlerBuilder::new(TransactionType::MiniAssert(idx))
                 .add_input(
                     NormalSignatureKind::MiniAssert1,
-                    kickoff_txhandler.get_spendable_output(5 + idx)?,
+                    kickoff_txhandler.get_spendable_output(4 + idx)?,
                     SpendPath::ScriptSpend(1),
                     DEFAULT_SEQUENCE,
                 )

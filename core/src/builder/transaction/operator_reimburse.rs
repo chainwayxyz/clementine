@@ -3,11 +3,11 @@ use super::op_return_txout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use super::Signed;
 use super::TransactionType;
-use crate::builder::script::SpendPath;
-use crate::builder::script::SpendableScript;
-use crate::builder::script::{CheckSig, TimelockScript};
+use crate::builder::script::{CheckSig, SpendableScript, TimelockScript};
+use crate::builder::script::{PreimageRevealScript, SpendPath};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
+use crate::config::BridgeConfig;
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
@@ -20,7 +20,7 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::transaction::Version;
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{Address, Network, TapNodeHash, TxOut, Txid};
+use bitcoin::{Address, TapNodeHash, TxOut, Txid};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -40,7 +40,9 @@ pub fn create_kickoff_txhandler(
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
     disprove_root_hash: &[u8; 32],
-    network: Network,
+    config: &BridgeConfig,
+    watchtower_challenge_root_hashes: &[[u8; 32]],
+    operator_unlock_hashes: &[[u8; 20]],
 ) -> Result<TxHandler, BridgeError> {
     let mut builder =
         TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(3));
@@ -59,33 +61,26 @@ pub fn create_kickoff_txhandler(
     ));
 
     builder = builder
-        // goes to watchtower challenge kickoff
-        .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT * 20, // TODO: to be calculated
-            vec![nofn_script.clone()],
-            None,
-            network,
-        ))
         // goes to challenge tx or no challenge tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone(), operator_1week],
             None,
-            network,
+            config.network,
         ))
         // kickoff finalizer connector
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT * 20,
             vec![nofn_script.clone()],
             None,
-            network,
+            config.network,
         ))
         // UTXO to reimburse tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone()],
             None,
-            network,
+            config.network,
         ));
 
     // Add disprove utxo
@@ -106,7 +101,7 @@ pub fn create_kickoff_txhandler(
         &SECP,
         *UNSPENDABLE_XONLY_PUBKEY,
         disprove_taproot_spend_info.merkle_root(),
-        network,
+        config.network,
     );
 
     builder = builder.add_output(UnspentTxOut::new(
@@ -125,8 +120,8 @@ pub fn create_kickoff_txhandler(
     ));
 
     match assert_scripts {
-        AssertScripts::AssertScriptTapNodeHash(assert_script_pubkeys) => {
-            for script_hash in assert_script_pubkeys.iter() {
+        AssertScripts::AssertScriptTapNodeHash(assert_script_hashes) => {
+            for script_hash in assert_script_hashes.iter() {
                 // Add N-of-N in 4 week script to taproot, that connects to assert timeout
                 let assert_spend_info = TaprootBuilder::new()
                     .add_hidden_node(1, TapNodeHash::from_byte_array(*script_hash))
@@ -144,7 +139,7 @@ pub fn create_kickoff_txhandler(
                     &SECP,
                     *UNSPENDABLE_XONLY_PUBKEY,
                     assert_spend_info.merkle_root(),
-                    network,
+                    config.network,
                 );
 
                 builder = builder.add_output(UnspentTxOut::new(
@@ -163,10 +158,76 @@ pub fn create_kickoff_txhandler(
                     MIN_TAPROOT_AMOUNT,
                     vec![nofn_4week.clone(), script],
                     None,
-                    network,
+                    config.network,
                 ));
             }
         }
+    }
+
+    // create watchtower challenges
+    if config.num_watchtowers != watchtower_challenge_root_hashes.len() {
+        return Err(BridgeError::ConfigError(format!(
+            "Number of watchtowers in config ({}) does not match number of watchtower challenge addresses ({})",
+            config.num_watchtowers,
+            watchtower_challenge_root_hashes.len()
+        )));
+    }
+
+    if config.num_watchtowers != operator_unlock_hashes.len() {
+        return Err(BridgeError::ConfigError(format!(
+            "Number of watchtowers in config ({}) does not match number of operator unlock addresses ({})",
+            config.num_watchtowers,
+            operator_unlock_hashes.len()
+        )));
+    }
+
+    for (watchtower_idx, script) in watchtower_challenge_root_hashes.iter().enumerate() {
+        let nofn_2week = Arc::new(TimelockScript::new(
+            Some(nofn_xonly_pk),
+            2 * BLOCKS_PER_WEEK,
+        ));
+        let wt_challenge_spendinfo = TaprootBuilder::new()
+            .add_leaf(1, nofn_2week.to_script_buf())
+            .expect("taptree with one node at depth 1 will accept a script node")
+            .add_hidden_node(1, TapNodeHash::from_byte_array(*script))
+            .expect("empty taptree will accept a node at depth 1")
+            .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+            .expect("Taproot with 2 nodes at depth 1 should be valid for challenge");
+        let wt_challenge_addr = Address::p2tr(
+            &SECP,
+            *UNSPENDABLE_XONLY_PUBKEY,
+            wt_challenge_spendinfo.merkle_root(),
+            config.network,
+        );
+        // UTXO for watchtower challenge or watchtower challenge timeouts
+        builder = builder.add_output(UnspentTxOut::new(
+            TxOut {
+                value: MIN_TAPROOT_AMOUNT,
+                script_pubkey: wt_challenge_addr.script_pubkey(),
+            },
+            vec![nofn_2week.clone()],
+            Some(wt_challenge_spendinfo),
+        ));
+
+        // UTXO for operator challenge ack, nack, and watchtower challenge timeouts
+        let nofn_3week = Arc::new(TimelockScript::new(
+            Some(nofn_xonly_pk),
+            3 * BLOCKS_PER_WEEK,
+        ));
+        let operator_with_preimage = Arc::new(PreimageRevealScript::new(
+            operator_xonly_pk,
+            operator_unlock_hashes[watchtower_idx],
+        ));
+        builder = builder.add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
+            vec![
+                nofn_3week.clone(),
+                nofn_2week.clone(),
+                operator_with_preimage,
+            ],
+            None,
+            config.network,
+        ));
     }
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
@@ -228,7 +289,7 @@ pub fn create_reimburse_txhandler(
         )
         .add_input(
             NormalSignatureKind::Reimburse2,
-            kickoff_txhandler.get_spendable_output(3)?,
+            kickoff_txhandler.get_spendable_output(2)?,
             builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
