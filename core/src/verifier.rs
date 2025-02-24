@@ -1,7 +1,5 @@
 use crate::actor::Actor;
-use crate::builder::address::{
-    taproot_builder_with_scripts,
-};
+use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
@@ -1073,8 +1071,12 @@ impl Verifier {
                 )
                 .await?;
 
-            let script = WinternitzCommit::new(vec![(winternitz_key, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)], watchtower_xonly_pk).to_script_buf();
-            
+            let script = WinternitzCommit::new(
+                vec![(winternitz_key, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
+                watchtower_xonly_pk,
+            )
+            .to_script_buf();
+
             let taproot_builder = taproot_builder_with_scripts(&[script]);
             let root_hash = taproot_builder
                 .try_into_taptree()

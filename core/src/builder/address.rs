@@ -3,18 +3,17 @@
 //! Address builder provides useful functions for building typical Bitcoin
 //! addresses.
 
-use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript, WinternitzCommit};
+use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript};
 use crate::errors::BridgeError;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::Amount;
 use bitcoin::{
     secp256k1::XOnlyPublicKey,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
 };
-use bitcoin::{Amount, Network};
-use bitvm::signatures::winternitz;
 
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let builder = TaprootBuilder::new();

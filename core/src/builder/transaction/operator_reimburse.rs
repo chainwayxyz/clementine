@@ -57,13 +57,6 @@ pub fn create_kickoff_txhandler(
     ));
 
     builder = builder
-        // goes to watchtower challenge kickoff
-        .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
-            vec![nofn_script.clone()],
-            None,
-            config.network,
-        ))
         // goes to challenge tx or no challenge tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
@@ -123,8 +116,8 @@ pub fn create_kickoff_txhandler(
     ));
 
     match assert_scripts {
-        AssertScripts::AssertScriptTapNodeHash(assert_script_pubkeys) => {
-            for script_hash in assert_script_pubkeys.iter() {
+        AssertScripts::AssertScriptTapNodeHash(assert_script_hashes) => {
+            for script_hash in assert_script_hashes.iter() {
                 // Add N-of-N in 4 week script to taproot, that connects to assert timeout
                 let assert_spend_info = TaprootBuilder::new()
                     .add_hidden_node(1, TapNodeHash::from_byte_array(*script_hash))
@@ -184,8 +177,11 @@ pub fn create_kickoff_txhandler(
         )));
     }
 
-    for script in watchtower_challenge_root_hashes.iter() {
-        let nofn_2week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 2 * BLOCKS_PER_WEEK));
+    for (watchtower_idx, script) in watchtower_challenge_root_hashes.iter().enumerate() {
+        let nofn_2week = Arc::new(TimelockScript::new(
+            Some(nofn_xonly_pk),
+            2 * BLOCKS_PER_WEEK,
+        ));
         let wt_challenge_spendinfo = TaprootBuilder::new()
             .add_leaf(1, nofn_2week.to_script_buf())
             .expect("taptree with one node at depth 1 will accept a script node")
@@ -210,17 +206,25 @@ pub fn create_kickoff_txhandler(
         ));
 
         // UTXO for operator challenge ack, nack, and watchtower challenge timeouts
-        let nofn_3week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 3 * BLOCKS_PER_WEEK));
-        for hash in operator_unlock_hashes  {
-            let operator_with_preimage = Arc::new(PreimageRevealScript::new(operator_xonly_pk, hash.clone()));
-            builder = builder.add_output(UnspentTxOut::from_scripts(
-                MIN_TAPROOT_AMOUNT,
-                vec![nofn_3week.clone(), nofn_2week.clone(), operator_with_preimage],
-                None,
-                config.network,
-            ));
-        }
-    } 
+        let nofn_3week = Arc::new(TimelockScript::new(
+            Some(nofn_xonly_pk),
+            3 * BLOCKS_PER_WEEK,
+        ));
+        let operator_with_preimage = Arc::new(PreimageRevealScript::new(
+            operator_xonly_pk,
+            operator_unlock_hashes[watchtower_idx],
+        ));
+        builder = builder.add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
+            vec![
+                nofn_3week.clone(),
+                nofn_2week.clone(),
+                operator_with_preimage,
+            ],
+            None,
+            config.network,
+        ));
+    }
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
     op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
@@ -280,7 +284,7 @@ pub fn create_reimburse_txhandler(
         )
         .add_input(
             NormalSignatureKind::Reimburse2,
-            kickoff_txhandler.get_spendable_output(3)?,
+            kickoff_txhandler.get_spendable_output(2)?,
             builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
