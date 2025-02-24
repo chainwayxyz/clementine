@@ -704,7 +704,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=9f1e8c9#9f1e8c93a113df86013be39da972b0176f27b5c9"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=44f9bba#44f9bbacaad5413e713b9d339f96196f6ea9612f"
 dependencies = [
  "async-trait",
  "bitcoincore-rpc-json",
@@ -719,7 +719,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc-json"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=9f1e8c9#9f1e8c93a113df86013be39da972b0176f27b5c9"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=44f9bba#44f9bbacaad5413e713b9d339f96196f6ea9612f"
 dependencies = [
  "bitcoin",
  "serde",
@@ -1002,6 +1002,7 @@ dependencies = [
  "borsh",
  "clap",
  "crypto-bigint",
+ "eyre",
  "futures",
  "futures-core",
  "futures-util",
@@ -1358,6 +1359,16 @@ name = "event-listener"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
+
+[[package]]
+name = "eyre"
+version = "0.6.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
+dependencies = [
+ "indenter",
+ "once_cell",
+]
 
 [[package]]
 name = "fastrand"
@@ -2028,6 +2039,12 @@ dependencies = [
  "icu_normalizer",
  "icu_properties",
 ]
+
+[[package]]
+name = "indenter"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 
 [[package]]
 name = "indexmap"
