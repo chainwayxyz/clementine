@@ -47,7 +47,7 @@ impl TestCase for DepositOnCitrea {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (_sequencer, full_node, da) = start_citrea(Self::sequencer_config(), f).await?;
+        let (sequencer, _full_node, da) = start_citrea(Self::sequencer_config(), f).await?;
 
         let mut config = create_test_config_with_thread_name!(None);
         update_config_with_citrea_e2e_da(&mut config, da);
@@ -61,7 +61,7 @@ impl TestCase for DepositOnCitrea {
 
         let citrea_url = format!(
             "http://{}:{}",
-            full_node.config.rollup.rpc.bind_host, full_node.config.rollup.rpc.bind_port
+            sequencer.config.rollup.rpc.bind_host, sequencer.config.rollup.rpc.bind_port
         );
         config.citrea_rpc_url = citrea_url;
 
@@ -79,10 +79,10 @@ impl TestCase for DepositOnCitrea {
             .await?;
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
 
-        builder::citrea::initialized(full_node.client.http_client().clone()).await?;
+        builder::citrea::initialized(sequencer.client.http_client().clone()).await?;
 
         let deposit = builder::citrea::deposit(
-            full_node.client.http_client().clone(),
+            sequencer.client.http_client().clone(),
             block,
             block_height.try_into().expect("Will not fail"),
             tx,

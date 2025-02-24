@@ -62,13 +62,14 @@ pub async fn deposit(
     let params = rpc_params![
         json!({
             "to": CITREA_ADDRESS,
-            "data": format!("0xdd95c7c6{}",
-            hex::encode(message)),
+            "data": hex::encode(message),
         }),
         "latest"
     ];
 
-    let response: String = client.request("eth_call", params).await?;
+    let response: String = client
+        .request("citrea_sendRawDepositTransaction", params)
+        .await?;
 
     // TODO: should return a bool but dont know the format of the response
     tracing::info!("Deposit response: {}", response);

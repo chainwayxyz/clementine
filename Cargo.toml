@@ -20,7 +20,7 @@ toml = "0.8.19"
 sqlx = { version = "0.7.4", default-features = false }
 serial_test = "3.2.0"
 tempfile = "3.16.0"
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "bd779c4078e3b99d58c1fc66e8ba860088348fb9" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "56abf56" }
 merkle = "1.11.0"
 ring = "0.16.15"
 alloy = { version = "0.11.1", features = ["full"] }
