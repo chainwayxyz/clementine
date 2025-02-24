@@ -44,19 +44,6 @@ macro_rules! encode_btc_params {
     };
 }
 
-pub fn get_deposit_transaction_params(transaction: Transaction) -> Result<Vec<u8>, BridgeError> {
-    let version: u32 = transaction.version.0 as u32;
-    let flag: u16 = 1; // TODO
-    let vin: Vec<u8> = encode_btc_params!(transaction.input);
-    let vout: Vec<u8> = encode_btc_params!(transaction.output);
-    let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);
-    let locktime: u32 = transaction.lock_time.to_consensus_u32();
-
-    let values = (version, flag, vin, vout, witness, locktime);
-
-    Ok(values.abi_encode())
-}
-
 fn get_block_merkle_proof(
     block: Block,
     target_txid: Txid,
@@ -116,14 +103,27 @@ fn get_block_merkle_proof(
     Ok((txid_index, proof))
 }
 
-pub fn get_deposit_block_params(
+pub fn get_deposit_params(
+    transaction: Transaction,
     block: Block,
     block_height: u32,
     txid: Txid,
 ) -> Result<Vec<u8>, BridgeError> {
+    let version: u32 = transaction.version.0 as u32;
+    let flag: u16 = 1; // TODO
+    let vin: Vec<u8> = encode_btc_params!(transaction.input);
+    let vout: Vec<u8> = encode_btc_params!(transaction.output);
+    let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);
+    let locktime: u32 = transaction.lock_time.to_consensus_u32();
     let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
 
     let values = (
+        version,
+        flag,
+        vin,
+        vout,
+        witness,
+        locktime,
         merkle_proof,
         vec![0u8; 28],
         block_height,
@@ -143,29 +143,6 @@ mod tests {
         transaction, Amount, Block, BlockHash, CompactTarget, OutPoint, ScriptBuf, Transaction,
         TxIn, TxMerkleNode, TxOut, Txid, Witness,
     };
-
-    #[test]
-    fn get_deposit_transaction_params() {
-        let empty_transaction = Transaction {
-            version: transaction::Version::TWO,
-            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
-            input: vec![],
-            output: vec![],
-        };
-        let _encoded_tx = super::get_deposit_transaction_params(empty_transaction).unwrap();
-
-        let empty_transaction = Transaction {
-            version: transaction::Version::TWO,
-            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
-            input: vec![TxIn {
-                previous_output: OutPoint::null(),
-                witness: Witness::from_slice(&[[0x45; 32]]),
-                ..Default::default()
-            }],
-            output: vec![],
-        };
-        let _encoded_tx = super::get_deposit_transaction_params(empty_transaction).unwrap();
-    }
 
     #[test]
     fn get_block_merkle_proof() {

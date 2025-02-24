@@ -6,7 +6,7 @@
 //! Function selectors are defined in:
 //! https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
 
-use crate::builder::citrea::parameter::{get_deposit_block_params, get_deposit_transaction_params};
+use crate::builder::citrea::parameter::get_deposit_params;
 use crate::errors::BridgeError;
 use bitcoin::hashes::Hash;
 use bitcoin::{Block, Transaction, Txid};
@@ -49,20 +49,12 @@ pub async fn deposit(
 ) -> Result<(), BridgeError> {
     let txid = transaction.compute_txid();
 
-    let encoded_transaction = get_deposit_transaction_params(transaction)?;
-    let encoded_block_info = get_deposit_block_params(block, block_height, txid)?;
-
-    let message = {
-        let mut message = Vec::new();
-        message.extend_from_slice(&encoded_transaction);
-        message.extend_from_slice(&encoded_block_info);
-        message
-    };
+    let params = get_deposit_params(transaction, block, block_height, txid)?;
 
     let params = rpc_params![
         json!({
             "to": CITREA_ADDRESS,
-            "data": hex::encode(message),
+            "data": hex::encode(params),
         }),
         "latest"
     ];
