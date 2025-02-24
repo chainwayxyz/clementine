@@ -1,7 +1,7 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
-use crate::builder::transaction::{DepositData, TransactionType};
+use crate::builder::transaction::{create_txhandlers, DepositData, TransactionType};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
@@ -10,7 +10,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
 use crate::rpc::operator;
-use crate::tx_sender::{FeePayingType, TxSender};
+use crate::tx_sender::{ActivedWithOutpoint, ActivedWithTxid, FeePayingType, TxSender};
 use crate::utils::SECP;
 use crate::{builder, EVMAddress, UTXO};
 use bitcoin::consensus::deserialize;
@@ -618,19 +618,25 @@ impl Operator {
 
     //     let mut activation_prerequisites = Vec::new();
 
-    //     let txhandlers = create_txhandlers(
-    //         self.config.clone(),
-    //         deposit_id,
-    //         self.nofn_xonly_pk,
-    //         transaction_type,
-    //         kickoff_id,
-    //         operator_data,
-    //         prev_reimburse_generator,
-    //         db_data,
-    //     );
+    //     // let txhandlers = create_txhandlers(
+    //     //     self.config.clone(),
+    //     //     deposit_id,
+    //     //     self.nofn_xonly_pk,
+    //     //     transaction_type,
+    //     //     kickoff_id,
+    //     //     operator_data,
+    //     //     prev_reimburse_generator,
+    //     //     db_data,
+    //     // );
+    //     let current_round_txid = Txid::all_zeros();
+    //     let ready_to_reimburse_tx = Transaction::default();
+    //     let next_round_tx = Transaction::default();
+    //     let ready_to_reimburse_txid = ready_to_reimburse_tx.compute_txid();
+
+    //     let mut unspent_kickoff_connectors = Vec::new();
+
     //     // get kickoff txid for used kickoff connector
-    //     for kickoff_connector_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32
-    //     {
+    //     for kickoff_connector_idx in 0..self.config.num_kickoffs_per_round as u32 {
     //         let kickoff_txid = self
     //             .db
     //             .get_kickoff_txid_for_used_kickoff_connector(
@@ -642,11 +648,19 @@ impl Operator {
     //         match kickoff_txid {
     //             Some(kickoff_txid) => {
     //                 activation_prerequisites.push(ActivedWithOutpoint {
-    //                     outpoint: OutPoint::new(kickoff_txid, 2),
+    //                     outpoint: OutPoint {
+    //                         txid: kickoff_txid,
+    //                         vout: 2, // Kickoff finalizer output index
+    //                     },
     //                     timelock: bitcoin::Sequence(self.config.confirmation_threshold),
     //                 });
     //             }
     //             None => {
+    //                 let unspent_kickoff_connector = OutPoint {
+    //                     txid: current_round_txid,
+    //                     vout: kickoff_connector_idx + 1, // Kickoff finalizer output index
+    //                 };
+    //                 unspent_kickoff_connectors.push(unspent_kickoff_connector);
     //                 self.db
     //                     .set_kickoff_connector_as_used(
     //                         Some(dbtx),
@@ -655,9 +669,45 @@ impl Operator {
     //                         None,
     //                     )
     //                     .await?;
+    //                 activation_prerequisites.push(ActivedWithOutpoint {
+    //                     outpoint: unspent_kickoff_connector,
+    //                     timelock: bitcoin::Sequence(self.config.confirmation_threshold),
+    //                 });
     //             }
     //         }
     //     }
+
+    //     // Burn unspent kickoff connectors
+
+    //     // send ready to reimburse tx
+    //     self.tx_sender
+    //         .try_to_send(
+    //             dbtx,
+    //             &ready_to_reimburse_tx,
+    //             FeePayingType::CPFP,
+    //             &[],
+    //             &[],
+    //             &[],
+    //             &activation_prerequisites,
+    //         )
+    //         .await?;
+
+    //     // send next round tx
+    //     self.tx_sender
+    //         .try_to_send(
+    //             dbtx,
+    //             &next_round_tx,
+    //             FeePayingType::CPFP,
+    //             &[],
+    //             &[],
+    //             &[ActivedWithTxid {
+    //                 txid: ready_to_reimburse_txid,
+    //                 timelock: bitcoin::Sequence::from_height(2 * 24 * 6), // TODO: Get this from protocol constants config
+    //             }],
+    //             &[],
+    //         )
+    //         .await?;
+
     //     // update current round index
     //     self.db
     //         .update_current_round_index(Some(dbtx), current_round_index + 1)
