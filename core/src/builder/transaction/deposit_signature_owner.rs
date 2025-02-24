@@ -57,7 +57,6 @@ impl SignatureId {
                 match normal_sig_type {
                     OperatorSighashDefault => Ok(Operator(SighashDefault)),
                     NormalSignatureUnknown => Ok(NotOwned),
-                    WatchtowerChallengeKickoff => Ok(NofnSharedDeposit(SighashDefault)),
                     Challenge => Ok(NofnSharedDeposit(SinglePlusAnyoneCanPay)),
                     DisproveTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                     Disprove2 => Ok(OperatorSharedDeposit(SighashNone)),
@@ -92,6 +91,8 @@ impl SignatureId {
                     AssertTimeout3 => Ok(OperatorSharedDeposit(SighashDefault)),
                     UnspentKickoff1 => Ok(OperatorSharedSetup(SighashDefault)),
                     UnspentKickoff2 => Ok(OperatorSharedSetup(SighashDefault)),
+                    WatchtowerChallengeTimeout1 => Ok(NofnSharedDeposit(SighashDefault)),
+                    WatchtowerChallengeTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                 }
             }
         }

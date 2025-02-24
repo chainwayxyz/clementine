@@ -360,18 +360,17 @@ pub enum NormalSignatureKind {
     /// by the operator on the fly.
     OperatorSighashDefault = 1,
     Challenge = 2,
-    WatchtowerChallengeKickoff = 3,
-    DisproveTimeout2 = 4,
-    Disprove2 = 5,
-    Reimburse1 = 6,
-    KickoffNotFinalized1 = 7,
-    KickoffNotFinalized2 = 8,
-    Reimburse2 = 9,
-    NoSignature = 10,
-    ChallengeTimeout2 = 11,
-    MiniAssert1 = 12,
-    OperatorChallengeAck1 = 13,
-    NotStored = 14,
+    DisproveTimeout2 = 3,
+    Disprove2 = 4,
+    Reimburse1 = 5,
+    KickoffNotFinalized1 = 6,
+    KickoffNotFinalized2 = 7,
+    Reimburse2 = 8,
+    NoSignature = 9,
+    ChallengeTimeout2 = 10,
+    MiniAssert1 = 11,
+    OperatorChallengeAck1 = 12,
+    NotStored = 13,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -383,7 +382,6 @@ impl NormalSignatureKind {
             Self::NormalSignatureUnknown => "NormalSignatureUnknown",
             Self::OperatorSighashDefault => "OperatorSighashDefault",
             Self::Challenge => "Challenge",
-            Self::WatchtowerChallengeKickoff => "WatchtowerChallengeKickoff",
             Self::DisproveTimeout2 => "DisproveTimeout2",
             Self::Disprove2 => "Disprove2",
             Self::Reimburse1 => "Reimburse1",
@@ -403,7 +401,6 @@ impl NormalSignatureKind {
             "NormalSignatureUnknown" => Some(Self::NormalSignatureUnknown),
             "OperatorSighashDefault" => Some(Self::OperatorSighashDefault),
             "Challenge" => Some(Self::Challenge),
-            "WatchtowerChallengeKickoff" => Some(Self::WatchtowerChallengeKickoff),
             "DisproveTimeout2" => Some(Self::DisproveTimeout2),
             "Disprove2" => Some(Self::Disprove2),
             "Reimburse1" => Some(Self::Reimburse1),
@@ -437,6 +434,8 @@ pub enum NumberedSignatureKind {
     AssertTimeout3 = 7,
     UnspentKickoff1 = 8,
     UnspentKickoff2 = 9,
+    WatchtowerChallengeTimeout1 = 10,
+    WatchtowerChallengeTimeout2 = 11,
 }
 impl NumberedSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -455,6 +454,8 @@ impl NumberedSignatureKind {
             Self::AssertTimeout3 => "AssertTimeout3",
             Self::UnspentKickoff1 => "UnspentKickoff1",
             Self::UnspentKickoff2 => "UnspentKickoff2",
+            Self::WatchtowerChallengeTimeout1 => "WatchtowerChallengeTimeout1",
+            Self::WatchtowerChallengeTimeout2 => "WatchtowerChallengeTimeout2",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -470,6 +471,8 @@ impl NumberedSignatureKind {
             "AssertTimeout3" => Some(Self::AssertTimeout3),
             "UnspentKickoff1" => Some(Self::UnspentKickoff1),
             "UnspentKickoff2" => Some(Self::UnspentKickoff2),
+            "WatchtowerChallengeTimeout1" => Some(Self::WatchtowerChallengeTimeout1),
+            "WatchtowerChallengeTimeout2" => Some(Self::WatchtowerChallengeTimeout2),
             _ => None,
         }
     }
@@ -483,16 +486,15 @@ pub enum NormalTransactionId {
     MoveToVault = 3,
     Payout = 4,
     Challenge = 5,
-    WatchtowerChallengeKickoff = 6,
-    Disprove = 7,
-    DisproveTimeout = 8,
-    Reimburse = 9,
-    AllNeededForDeposit = 10,
-    Dummy = 11,
-    ReadyToReimburse = 12,
-    KickoffNotFinalized = 13,
-    ChallengeTimeout = 14,
-    BurnUnusedKickoffConnectors = 15,
+    Disprove = 6,
+    DisproveTimeout = 7,
+    Reimburse = 8,
+    AllNeededForDeposit = 9,
+    Dummy = 10,
+    ReadyToReimburse = 11,
+    KickoffNotFinalized = 12,
+    ChallengeTimeout = 13,
+    BurnUnusedKickoffConnectors = 14,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -507,7 +509,6 @@ impl NormalTransactionId {
             Self::MoveToVault => "MOVE_TO_VAULT",
             Self::Payout => "PAYOUT",
             Self::Challenge => "CHALLENGE",
-            Self::WatchtowerChallengeKickoff => "WATCHTOWER_CHALLENGE_KICKOFF",
             Self::Disprove => "DISPROVE",
             Self::DisproveTimeout => "DISPROVE_TIMEOUT",
             Self::Reimburse => "REIMBURSE",
@@ -528,7 +529,6 @@ impl NormalTransactionId {
             "MOVE_TO_VAULT" => Some(Self::MoveToVault),
             "PAYOUT" => Some(Self::Payout),
             "CHALLENGE" => Some(Self::Challenge),
-            "WATCHTOWER_CHALLENGE_KICKOFF" => Some(Self::WatchtowerChallengeKickoff),
             "DISPROVE" => Some(Self::Disprove),
             "DISPROVE_TIMEOUT" => Some(Self::DisproveTimeout),
             "REIMBURSE" => Some(Self::Reimburse),
@@ -552,6 +552,7 @@ pub enum NumberedTransactionType {
     AssertTimeout = 4,
     UnspentKickoff = 5,
     MiniAssert = 6,
+    WatchtowerChallengeTimeout = 7,
 }
 impl NumberedTransactionType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -569,6 +570,7 @@ impl NumberedTransactionType {
             Self::AssertTimeout => "ASSERT_TIMEOUT",
             Self::UnspentKickoff => "UNSPENT_KICKOFF",
             Self::MiniAssert => "MINI_ASSERT",
+            Self::WatchtowerChallengeTimeout => "WATCHTOWER_CHALLENGE_TIMEOUT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -583,6 +585,7 @@ impl NumberedTransactionType {
             "ASSERT_TIMEOUT" => Some(Self::AssertTimeout),
             "UNSPENT_KICKOFF" => Some(Self::UnspentKickoff),
             "MINI_ASSERT" => Some(Self::MiniAssert),
+            "WATCHTOWER_CHALLENGE_TIMEOUT" => Some(Self::WatchtowerChallengeTimeout),
             _ => None,
         }
     }

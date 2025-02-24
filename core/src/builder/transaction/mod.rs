@@ -69,7 +69,7 @@ pub enum TransactionType {
     Payout,
     Challenge,
     UnspentKickoff(usize),
-    WatchtowerChallengeKickoff,
+    WatchtowerChallengeTimeout(usize),
     WatchtowerChallenge(usize),
     OperatorChallengeNack(usize),
     OperatorChallengeAck(usize),
@@ -103,7 +103,6 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::MoveToVault => Ok(Self::MoveToVault),
                     Normal::Payout => Ok(Self::Payout),
                     Normal::Challenge => Ok(Self::Challenge),
-                    Normal::WatchtowerChallengeKickoff => Ok(Self::WatchtowerChallengeKickoff),
                     Normal::Disprove => Ok(Self::Disprove),
                     Normal::DisproveTimeout => Ok(Self::DisproveTimeout),
                     Normal::Reimburse => Ok(Self::Reimburse),
@@ -134,9 +133,10 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Numbered::UnspentKickoff => {
                         Ok(Self::UnspentKickoff(transaction_id.index as usize))
                     }
-                    NumberedTransactionType::MiniAssert => {
-                        Ok(Self::MiniAssert(transaction_id.index as usize))
-                    }
+                    Numbered::MiniAssert => Ok(Self::MiniAssert(transaction_id.index as usize)),
+                    Numbered::WatchtowerChallengeTimeout => Ok(Self::WatchtowerChallengeTimeout(
+                        transaction_id.index as usize,
+                    )),
                     Numbered::UnspecifiedIndexedTransactionType => {
                         Err(::prost::UnknownEnumValue(transaction_id.transaction_type))
                     }
@@ -158,9 +158,6 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::MoveToVault => NormalTransaction(Normal::MoveToVault as i32),
                 TransactionType::Payout => NormalTransaction(Normal::Payout as i32),
                 TransactionType::Challenge => NormalTransaction(Normal::Challenge as i32),
-                TransactionType::WatchtowerChallengeKickoff => {
-                    NormalTransaction(Normal::WatchtowerChallengeKickoff as i32)
-                }
                 TransactionType::Disprove => NormalTransaction(Normal::Disprove as i32),
                 TransactionType::DisproveTimeout => {
                     NormalTransaction(Normal::DisproveTimeout as i32)
@@ -213,6 +210,12 @@ impl From<TransactionType> for GrpcTransactionId {
                     transaction_type: Numbered::MiniAssert as i32,
                     index: index as i32,
                 }),
+                TransactionType::WatchtowerChallengeTimeout(index) => {
+                    NumberedTransaction(NumberedTransactionId {
+                        transaction_type: Numbered::WatchtowerChallengeTimeout as i32,
+                        index: index as i32,
+                    })
+                }
                 TransactionType::BurnUnusedKickoffConnectors => {
                     NormalTransaction(Normal::BurnUnusedKickoffConnectors as i32)
                 }

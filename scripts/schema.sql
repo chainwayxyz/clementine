@@ -88,11 +88,11 @@ create table if not exists watchtower_winternitz_public_keys (
 );
 
 -- Verifier table of watchtower challenge addresses for every operator and deposit_id
-create table if not exists watchtower_challenge_addresses (
+create table if not exists watchtower_challenge_hashes (
     watchtower_id int not null,
     operator_id int not null,
     deposit_id int not null,
-    challenge_address bytea not null,
+    challenge_hash bytea not null,
     primary key (watchtower_id, operator_id, deposit_id)
 );
 
