@@ -219,28 +219,21 @@ pub fn create_unspent_kickoff_txhandlers(
     round_txhandler: &TxHandler,
     ready_to_reimburse_txhandler: &TxHandler,
     num_kickoffs_per_round: usize,
-    start_idx: usize, // index of the first kickoff utxo in the round, index is round_idx * num_kickoffs_per_round
 ) -> Result<Vec<TxHandler>, BridgeError> {
     let mut txhandlers = Vec::new();
     for idx in 0..num_kickoffs_per_round {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::UnspentKickoff(idx))
                 .add_input(
-                    (
-                        NumberedSignatureKind::UnspentKickoff1,
-                        (start_idx + idx) as i32,
-                    ),
+                    (NumberedSignatureKind::UnspentKickoff1, idx as i32),
                     ready_to_reimburse_txhandler.get_spendable_output(0)?,
                     SpendPath::KeySpend,
                     DEFAULT_SEQUENCE,
                 )
                 .add_input(
-                    (
-                        NumberedSignatureKind::UnspentKickoff2,
-                        (start_idx + idx) as i32,
-                    ),
+                    (NumberedSignatureKind::UnspentKickoff2, idx as i32),
                     round_txhandler.get_spendable_output(1 + idx)?,
-                    SpendPath::KeySpend,
+                    SpendPath::ScriptSpend(1),
                     DEFAULT_SEQUENCE,
                 )
                 .add_output(UnspentTxOut::from_partial(

@@ -3,8 +3,8 @@ use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
-    create_mini_asserts, create_round_txhandler, AssertScripts, DepositData, OperatorData,
-    TransactionType, TxHandler,
+    create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
+    DepositData, OperatorData, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
@@ -30,7 +30,7 @@ fn get_txhandler(
 #[derive(Debug, Clone)]
 /// Helper struct to get specific kickoff winternitz keys for a sequential collateral tx
 pub struct KickoffWinternitzKeys {
-    keys: Vec<bitvm::signatures::winternitz::PublicKey>,
+    pub keys: Vec<bitvm::signatures::winternitz::PublicKey>,
     num_kickoffs_per_round: usize,
 }
 
@@ -242,49 +242,18 @@ pub async fn create_txhandlers(
 
     let kickoff_winternitz_keys = db_data.get_kickoff_winternitz_keys().await?;
 
-    let (round_txhandler, ready_to_reimburse_txhandler) = match prev_ready_to_reimburse {
-        Some(prev_ready_to_reimburse_txhandler) => {
-            let round_txhandler = builder::transaction::create_round_txhandler(
-                operator_data.xonly_pk,
-                *prev_ready_to_reimburse_txhandler
-                    .get_spendable_output(0)?
-                    .get_prev_outpoint(),
-                prev_ready_to_reimburse_txhandler
-                    .get_spendable_output(0)?
-                    .get_prevout()
-                    .value,
-                config.num_kickoffs_per_round,
-                config.network,
-                kickoff_winternitz_keys.get_keys_for_round(kickoff_id.round_idx as usize),
-            )?;
+    // create round tx, ready to reimburse tx, and unspent kickoff txs
+    let round_txhandlers = create_round_txhandlers(
+        &config,
+        kickoff_id.round_idx as usize,
+        &operator_data,
+        kickoff_winternitz_keys,
+        prev_ready_to_reimburse,
+    )?;
 
-            let ready_to_reimburse_txhandler =
-                builder::transaction::create_ready_to_reimburse_txhandler(
-                    &round_txhandler,
-                    operator_data.xonly_pk,
-                    config.network,
-                )?;
-            (round_txhandler, ready_to_reimburse_txhandler)
-        }
-        None => {
-            // create nth sequential collateral tx and reimburse generator tx for the operator
-            builder::transaction::create_round_nth_txhandler(
-                operator_data.xonly_pk,
-                operator_data.collateral_funding_outpoint,
-                config.collateral_funding_amount,
-                config.num_kickoffs_per_round,
-                config.network,
-                kickoff_id.round_idx as usize,
-                kickoff_winternitz_keys,
-            )?
-        }
-    };
-
-    txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
-    txhandlers.insert(
-        ready_to_reimburse_txhandler.get_transaction_type(),
-        ready_to_reimburse_txhandler,
-    );
+    for round_txhandler in round_txhandlers.into_iter() {
+        txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
+    }
 
     // get the next round txhandler (because reimburse connectors will be in it)
     let next_round_txhandler = create_round_txhandler(
@@ -568,6 +537,71 @@ pub async fn create_txhandlers(
     Ok(txhandlers)
 }
 
+/// Function to create next round txhandler, ready to reimburse txhandler,
+/// and all unspentkickoff txhandlers for a specific operator
+pub fn create_round_txhandlers(
+    config: &BridgeConfig,
+    round_idx: usize,
+    operator_data: &OperatorData,
+    kickoff_winternitz_keys: &KickoffWinternitzKeys,
+    prev_ready_to_reimburse: Option<TxHandler>,
+) -> Result<Vec<TxHandler>, BridgeError> {
+    let mut txhandlers = Vec::with_capacity(2 + config.num_kickoffs_per_round);
+
+    let (round_txhandler, ready_to_reimburse_txhandler) = match prev_ready_to_reimburse {
+        Some(prev_ready_to_reimburse_txhandler) => {
+            let round_txhandler = builder::transaction::create_round_txhandler(
+                operator_data.xonly_pk,
+                *prev_ready_to_reimburse_txhandler
+                    .get_spendable_output(0)?
+                    .get_prev_outpoint(),
+                prev_ready_to_reimburse_txhandler
+                    .get_spendable_output(0)?
+                    .get_prevout()
+                    .value,
+                config.num_kickoffs_per_round,
+                config.network,
+                kickoff_winternitz_keys.get_keys_for_round(round_idx),
+            )?;
+
+            let ready_to_reimburse_txhandler =
+                builder::transaction::create_ready_to_reimburse_txhandler(
+                    &round_txhandler,
+                    operator_data.xonly_pk,
+                    config.network,
+                )?;
+            (round_txhandler, ready_to_reimburse_txhandler)
+        }
+        None => {
+            // create nth sequential collateral tx and reimburse generator tx for the operator
+            builder::transaction::create_round_nth_txhandler(
+                operator_data.xonly_pk,
+                operator_data.collateral_funding_outpoint,
+                config.collateral_funding_amount,
+                config.num_kickoffs_per_round,
+                config.network,
+                round_idx,
+                kickoff_winternitz_keys,
+            )?
+        }
+    };
+
+    let unspent_kickoffs = create_unspent_kickoff_txhandlers(
+        &round_txhandler,
+        &ready_to_reimburse_txhandler,
+        config.num_kickoffs_per_round,
+    )?;
+
+    txhandlers.push(round_txhandler);
+    txhandlers.push(ready_to_reimburse_txhandler);
+
+    for unspent_kickoff in unspent_kickoffs.into_iter() {
+        txhandlers.push(unspent_kickoff);
+    }
+
+    Ok(txhandlers)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -643,6 +677,8 @@ mod tests {
         txs_operator_can_sign.extend(
             (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
+        txs_operator_can_sign
+            .extend((0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
 
         // try to sign everything for all operators
         let operator_task_handles: Vec<_> = operators
@@ -684,7 +720,7 @@ mod tests {
                                     tx_type
                                 );
                             }
-                            tracing::trace!(
+                            tracing::info!(
                                 "Operator signed txs {:?} from rpc call in time {:?}",
                                 TransactionType::AllNeededForDeposit,
                                 start_time.elapsed()
@@ -701,7 +737,7 @@ mod tests {
                                     .unwrap()
                                     .into_inner()
                                     .raw_txs;
-                                tracing::trace!(
+                                tracing::info!(
                                     "Operator Signed Assert txs of size: {}",
                                     _raw_assert_txs.len()
                                 );
@@ -763,6 +799,8 @@ mod tests {
         txs_verifier_can_sign.extend(
             (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
+        txs_verifier_can_sign
+            .extend((0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
 
         // try to sign everything for all verifiers
         // try signing verifier transactions
@@ -805,7 +843,7 @@ mod tests {
                                         tx_type
                                     );
                                 }
-                                tracing::trace!(
+                                tracing::info!(
                                     "Verifier signed txs {:?} from rpc call in time {:?}",
                                     TransactionType::AllNeededForDeposit,
                                     start_time.elapsed()

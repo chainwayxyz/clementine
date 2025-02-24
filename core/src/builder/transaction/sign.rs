@@ -62,7 +62,8 @@ pub async fn create_and_sign_txs(
         start_time.elapsed()
     );
 
-    let sig_query = db
+    // signatures saved during deposit
+    let deposit_sigs_query = db
         .get_deposit_signatures(
             None,
             transaction_data.deposit_data.deposit_outpoint,
@@ -71,7 +72,18 @@ pub async fn create_and_sign_txs(
             transaction_data.kickoff_id.kickoff_idx as usize,
         )
         .await?;
-    let signatures = sig_query.unwrap_or_default();
+    let mut signatures = deposit_sigs_query.unwrap_or_default();
+
+    // signatures saved during setup
+    let setup_sigs_query = db
+        .get_unspent_kickoff_sigs(
+            None,
+            transaction_data.kickoff_id.operator_idx as usize,
+            transaction_data.kickoff_id.round_idx as usize,
+        )
+        .await?;
+
+    signatures.extend(setup_sigs_query.unwrap_or_default());
 
     let mut signed_txs = Vec::with_capacity(txhandlers.len());
 

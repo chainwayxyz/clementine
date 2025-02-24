@@ -8,6 +8,7 @@ pub enum EntityType {
     OperatorDeposit,
     Watchtower,
     VerifierDeposit,
+    OperatorSetup,
 }
 
 /// Entity whose signature is needed to unlock the input utxo
@@ -21,6 +22,8 @@ pub enum DepositSigKeyOwner {
     /// So verifiers do not need this signature info, thus it is not saved to DB.
     /// Added to help define different sighash types for operator's own signatures.
     Operator(TapSighashType),
+    /// For operator signatures that are needed to be saved during aggregator setups
+    OperatorSharedSetup(TapSighashType),
 }
 
 impl DepositSigKeyOwner {
@@ -29,7 +32,8 @@ impl DepositSigKeyOwner {
             DepositSigKeyOwner::NotOwned => None,
             DepositSigKeyOwner::Operator(t)
             | DepositSigKeyOwner::NofnSharedDeposit(t)
-            | DepositSigKeyOwner::OperatorSharedDeposit(t) => Some(*t),
+            | DepositSigKeyOwner::OperatorSharedDeposit(t)
+            | DepositSigKeyOwner::OperatorSharedSetup(t) => Some(*t),
         }
     }
 }
@@ -86,8 +90,8 @@ impl SignatureId {
                     AssertTimeout1 => Ok(NofnSharedDeposit(SighashDefault)),
                     AssertTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                     AssertTimeout3 => Ok(OperatorSharedDeposit(SighashDefault)),
-                    UnspentKickoff1 => Ok(OperatorSharedDeposit(SighashDefault)),
-                    UnspentKickoff2 => Ok(OperatorSharedDeposit(SighashDefault)),
+                    UnspentKickoff1 => Ok(OperatorSharedSetup(SighashDefault)),
+                    UnspentKickoff2 => Ok(OperatorSharedSetup(SighashDefault)),
                 }
             }
         }

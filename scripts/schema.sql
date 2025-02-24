@@ -161,6 +161,14 @@ create table if not exists deposit_signatures (
     primary key (deposit_id, operator_idx, round_idx, kickoff_idx)
 );
 
+-- Signatures of the operator for unspent kickoffs
+create table if not exists unspent_kickoff_signatures (
+    operator_idx int not null,
+    round_idx int not null,
+    signatures bytea not null,
+    primary key (operator_idx, round_idx)
+);
+
 -- Verifier table for BitVM setup data
 /* This table holds the BitVM setup data for each operator and deposit_id pair. */
 create table if not exists bitvm_setups (

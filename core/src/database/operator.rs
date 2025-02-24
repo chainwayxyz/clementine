@@ -323,6 +323,46 @@ impl Database {
         }
     }
 
+    /// Sets the unspent kickoff sigs received from operators during initial setup.
+    /// Sigs of each round are stored together in the same row.
+    pub async fn set_unspent_kickoff_sigs(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        operator_idx: usize,
+        round_idx: usize,
+        signatures: Vec<TaggedSignature>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO unspent_kickoff_signatures (operator_idx, round_idx, signatures) VALUES ($1, $2, $3)
+             ON CONFLICT (operator_idx, round_idx) DO UPDATE
+             SET signatures = EXCLUDED.signatures;",
+        ).bind(operator_idx as i32).bind(round_idx as i32).bind(SignaturesDB(DepositSignatures{signatures}));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    /// Get unspent kickoff sigs for a specific operator and round.
+    pub async fn get_unspent_kickoff_sigs(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        operator_idx: usize,
+        round_idx: usize,
+    ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
+        let query = sqlx::query_as::<_, (SignaturesDB,)>("SELECT signatures FROM unspent_kickoff_signatures WHERE operator_idx = $1 AND round_idx = $2;")
+            .bind(operator_idx as i32)
+            .bind(round_idx as i32);
+
+        let result: Result<(SignaturesDB,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
+
+        match result {
+            Ok((SignaturesDB(signatures),)) => Ok(Some(signatures.signatures)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
     /// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
     pub async fn set_operator_kickoff_winternitz_public_keys(
         &self,
@@ -583,10 +623,10 @@ impl Database {
         Ok(deposit_id?.0)
     }
 
-    /// Retrieves the deposit signatures for a single operator.
-    /// The signatures array is identified by the deposit_outpoint and operator_idx.
-    /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
-    /// which determines the order of the sighashes that are signed.
+    /// Retrieves the deposit signatures for a single operator for a single reimburse
+    /// process (single kickoff utxo).
+    /// The signatures are tagged so that each signature can be matched with the correct
+    /// txin it belongs to easily.
     pub async fn get_deposit_signatures(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -933,6 +973,59 @@ mod tests {
         // Test non-existent entry
         let non_existent = database
             .get_operators_challenge_ack_hashes(None, 999, deposit_outpoint)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_save_get_unspent_kickoff_sigs() {
+        let config = create_test_config_with_thread_name(None).await;
+        let database = Database::new(&config).await.unwrap();
+
+        let operator_idx = 0x45;
+        let round_idx = 1;
+        let signatures = DepositSignatures {
+            signatures: vec![
+                TaggedSignature {
+                    signature_id: Some((NumberedSignatureKind::UnspentKickoff1, 1).into()),
+                    signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
+                },
+                TaggedSignature {
+                    signature_id: Some((NumberedSignatureKind::UnspentKickoff2, 1).into()),
+                    signature: (vec![0x2F; SCHNORR_SIGNATURE_SIZE]),
+                },
+                TaggedSignature {
+                    signature_id: Some((NumberedSignatureKind::UnspentKickoff1, 2).into()),
+                    signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
+                },
+                TaggedSignature {
+                    signature_id: Some((NumberedSignatureKind::UnspentKickoff2, 2).into()),
+                    signature: (vec![0x2F; SCHNORR_SIGNATURE_SIZE]),
+                },
+            ],
+        };
+
+        database
+            .set_unspent_kickoff_sigs(None, operator_idx, round_idx, signatures.signatures.clone())
+            .await
+            .unwrap();
+
+        let result = database
+            .get_unspent_kickoff_sigs(None, operator_idx, round_idx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, signatures.signatures);
+
+        let non_existent = database
+            .get_unspent_kickoff_sigs(None, operator_idx + 1, round_idx)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
+
+        let non_existent = database
+            .get_unspent_kickoff_sigs(None, operator_idx, round_idx + 1)
             .await
             .unwrap();
         assert!(non_existent.is_none());
