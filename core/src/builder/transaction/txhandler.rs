@@ -234,6 +234,10 @@ impl<T: State> TxHandler<T> {
                 | (
                     DepositSigKeyOwner::NofnSharedDeposit(sighash_type),
                     EntityType::VerifierDeposit,
+                )
+                | (
+                    DepositSigKeyOwner::OperatorSharedSetup(sighash_type),
+                    EntityType::OperatorSetup,
                 ) => {
                     sighashes.push((
                         self.calculate_sighash_txin(idx, sighash_type)?,

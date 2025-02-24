@@ -168,6 +168,8 @@ message OperatorParams {
     OperatorConfig operator_details = 1;
     // Winternitz pubkeys for each kickoff utxo (to commit blockhash).
     WinternitzPubkey winternitz_pubkeys = 2;
+    // unspent kickoff signatures
+    SchnorrSig unspent_kickoff_sig = 3;
   }
 }
 
@@ -190,7 +192,7 @@ message OperatorKeys {
   repeated ChallengeACKDigest challenge_ack_digests = 2;
 }
 
-message OperatorBurnSig {
+message SchnorrSig {
   bytes schnorr_sig = 1;
 }
 
@@ -268,7 +270,7 @@ service ClementineOperator {
   // # Returns
   //
   // - Operator burn Schnorr signature
-  rpc DepositSign(DepositSignSession) returns (stream OperatorBurnSig) {}
+  rpc DepositSign(DepositSignSession) returns (stream SchnorrSig) {}
 
   // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
   // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
