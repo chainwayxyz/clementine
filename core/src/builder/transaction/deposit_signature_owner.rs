@@ -26,6 +26,18 @@ pub enum DepositSigKeyOwner {
     OperatorSharedSetup(TapSighashType),
 }
 
+impl DepositSigKeyOwner {
+    pub fn sighash_type(&self) -> Option<TapSighashType> {
+        match self {
+            DepositSigKeyOwner::NotOwned => None,
+            DepositSigKeyOwner::Operator(t)
+            | DepositSigKeyOwner::NofnSharedDeposit(t)
+            | DepositSigKeyOwner::OperatorSharedDeposit(t)
+            | DepositSigKeyOwner::OperatorSharedSetup(t) => Some(*t),
+        }
+    }
+}
+
 impl SignatureId {
     pub fn get_deposit_sig_owner(&self) -> Result<DepositSigKeyOwner, BridgeError> {
         use DepositSigKeyOwner::*;

@@ -206,6 +206,7 @@ pub fn create_challenge_txhandler(
             value: OPERATOR_CHALLENGE_AMOUNT,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
+        .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
         .finalize())
 }
 
@@ -215,6 +216,7 @@ pub fn create_challenge_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ChallengeTimeout)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             kickoff_txhandler.get_spendable_output(0)?,

@@ -861,6 +861,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_save_get_unspent_kickoff_sigs() {
+        let config = create_test_config_with_thread_name(None).await;
+        let database = Database::new(&config).await.unwrap();
+
+        let operator_idx = 0x45;
+        let round_idx = 1;
+        let signatures = DepositSignatures {
+            signatures: vec![
+                TaggedSignature {
+                    signature_id: Some((NumberedSignatureKind::UnspentKickoff1, 1).into()),
+                    signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
+                },
+                TaggedSignature {
+                    signature_id: Some((NumberedSignatureKind::UnspentKickoff2, 1).into()),
+                    signature: (vec![0x2F; SCHNORR_SIGNATURE_SIZE]),
+                },
+                TaggedSignature {
+                    signature_id: Some((NumberedSignatureKind::UnspentKickoff1, 2).into()),
+                    signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
+                },
+                TaggedSignature {
+                    signature_id: Some((NumberedSignatureKind::UnspentKickoff2, 2).into()),
+                    signature: (vec![0x2F; SCHNORR_SIGNATURE_SIZE]),
+                },
+            ],
+        };
+
+        database
+            .set_unspent_kickoff_sigs(None, operator_idx, round_idx, signatures.signatures.clone())
+            .await
+            .unwrap();
+
+        let result = database
+            .get_unspent_kickoff_sigs(None, operator_idx, round_idx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, signatures.signatures);
+
+        let non_existent = database
+            .get_unspent_kickoff_sigs(None, operator_idx + 1, round_idx)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
+
+        let non_existent = database
+            .get_unspent_kickoff_sigs(None, operator_idx, round_idx + 1)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
+    }
+
+    #[tokio::test]
     async fn test_database_gets_previously_saved_operator_take_signature() {
         let config = create_test_config_with_thread_name(None).await;
         let database = Database::new(&config).await.unwrap();
@@ -1140,10 +1193,9 @@ mod tests {
     async fn set_get_operator_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name(None).await;
         let database = Database::new(&config).await.unwrap();
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc().clone();
+        let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config, rpc).await.unwrap();
+        let operator = Operator::new(config).await.unwrap();
         let operator_idx = 0x45;
         let wpks = operator
             .generate_assert_winternitz_pubkeys(Txid::all_zeros())

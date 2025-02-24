@@ -3,7 +3,7 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::{create_move_to_vault_txhandler, TxHandler};
+use crate::builder::transaction::{create_move_to_vault_txhandler, Signed, TxHandler};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -407,12 +407,12 @@ impl Aggregator {
         Ok(operator_sigs)
     }
 
-    async fn create_movetx_check_sig(
+    async fn send_movetx(
         &self,
         partial_sigs: Vec<Vec<u8>>,
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
-    ) -> Result<TxHandler, Status> {
+    ) -> Result<TxHandler<Signed>, Status> {
         let deposit_data = parser::parse_deposit_params(deposit_params)?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
@@ -426,6 +426,7 @@ impl Aggregator {
             self.config.bridge_amount_sats,
             self.config.network,
         )?;
+
         let sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
             0,
@@ -455,9 +456,8 @@ impl Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
 
-        // everything is fine, return the signed move tx
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
-        Ok(move_txhandler)
+        Ok(move_txhandler.promote()?)
     }
 }
 
@@ -846,7 +846,7 @@ impl ClementineAggregator for Aggregator {
         // Create the final move transaction and check the signatures
         let movetx_agg_nonce = nonce_agg_handle.await?;
         let signed_movetx_handler = self
-            .create_movetx_check_sig(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
+            .send_movetx(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
             .await?;
         let txid = *signed_movetx_handler.get_txid();
 

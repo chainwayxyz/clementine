@@ -88,7 +88,7 @@ pub struct Verifier {
 }
 
 impl Verifier {
-    pub async fn new(rpc: ExtendedRpc, config: BridgeConfig) -> Result<Self, BridgeError> {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
@@ -105,14 +105,21 @@ impl Verifier {
             .ok_or(BridgeError::PublicKeyNotFound)?;
 
         let db = Database::new(&config).await?;
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
 
-        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
-        let _tx_sender_handle = tx_sender
-            .run(
-                &format!("verifier_{}", idx).to_string(),
-                Duration::from_secs(1),
-            )
-            .await?;
+        let tx_sender = TxSender::new(
+            signer.clone(),
+            rpc.clone(),
+            db.clone(),
+            &format!("verifier_{}", idx).to_string(),
+            config.network,
+        );
+        let _tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
 
         let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
@@ -302,7 +309,7 @@ impl Verifier {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, xonly_pk), fields(verifier_idx = self.idx), level = "info", ret)]
+    #[tracing::instrument(skip(self, xonly_pk), fields(verifier_idx = self.idx), ret)]
     pub async fn set_watchtower(
         &self,
         watchtower_idx: u32,
