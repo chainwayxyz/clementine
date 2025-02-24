@@ -492,6 +492,7 @@ pub enum NormalTransactionId {
     ReadyToReimburse = 12,
     KickoffNotFinalized = 13,
     ChallengeTimeout = 14,
+    BurnUnusedKickoffConnectors = 15,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -515,6 +516,7 @@ impl NormalTransactionId {
             Self::ReadyToReimburse => "READY_TO_REIMBURSE",
             Self::KickoffNotFinalized => "KICKOFF_NOT_FINALIZED",
             Self::ChallengeTimeout => "CHALLENGE_TIMEOUT",
+            Self::BurnUnusedKickoffConnectors => "BURN_UNUSED_KICKOFF_CONNECTORS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -535,6 +537,7 @@ impl NormalTransactionId {
             "READY_TO_REIMBURSE" => Some(Self::ReadyToReimburse),
             "KICKOFF_NOT_FINALIZED" => Some(Self::KickoffNotFinalized),
             "CHALLENGE_TIMEOUT" => Some(Self::ChallengeTimeout),
+            "BURN_UNUSED_KICKOFF_CONNECTORS" => Some(Self::BurnUnusedKickoffConnectors),
             _ => None,
         }
     }

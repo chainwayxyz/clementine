@@ -83,6 +83,7 @@ pub enum TransactionType {
     ReadyToReimburse,
     KickoffNotFinalized,
     ChallengeTimeout,
+    BurnUnusedKickoffConnectors,
 }
 
 // converter from proto type to rust enum
@@ -112,6 +113,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::KickoffNotFinalized => Ok(Self::KickoffNotFinalized),
                     Normal::ChallengeTimeout => Ok(Self::ChallengeTimeout),
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
+                    Normal::BurnUnusedKickoffConnectors => Ok(Self::BurnUnusedKickoffConnectors),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -211,6 +213,9 @@ impl From<TransactionType> for GrpcTransactionId {
                     transaction_type: Numbered::MiniAssert as i32,
                     index: index as i32,
                 }),
+                TransactionType::BurnUnusedKickoffConnectors => {
+                    NormalTransaction(Normal::BurnUnusedKickoffConnectors as i32)
+                }
             }),
         }
     }

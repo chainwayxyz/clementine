@@ -106,6 +106,7 @@ enum NormalTransactionId {
     READY_TO_REIMBURSE = 12;
     KICKOFF_NOT_FINALIZED = 13;
     CHALLENGE_TIMEOUT = 14;
+    BURN_UNUSED_KICKOFF_CONNECTORS = 15;
 }
 
 enum NumberedTransactionType {

@@ -148,7 +148,7 @@ pub fn create_assert_timeout_txhandlers(
     Ok(txhandlers)
 }
 
-/// Creates the nth (0-indexed) `sequential_collateral_txhandler` and `reimburse_generator_txhandler` pair
+/// Creates the nth (0-indexed) `round_txhandler` and `reimburse_generator_txhandler` pair
 /// for a sspecific operator.
 pub fn create_round_nth_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
@@ -243,4 +243,25 @@ pub fn create_unspent_kickoff_txhandlers(
         );
     }
     Ok(txhandlers)
+}
+
+pub fn create_burn_unused_kickoff_connectors_txhandler(
+    round_txhandler: &TxHandler,
+    unused_kickoff_connectors_indices: &[usize], // indices of the kickoff connectors that are not used, 0 indexed, 0 => first kickoff connector
+) -> Result<TxHandler, BridgeError> {
+    let mut tx_handler_builder =
+        TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
+            .with_version(Version::non_standard(3));
+    for idx in unused_kickoff_connectors_indices {
+        tx_handler_builder = tx_handler_builder.add_input(
+            NormalSignatureKind::OperatorSighashDefault,
+            round_txhandler.get_spendable_output(1 + idx)?,
+            SpendPath::ScriptSpend(1),
+            Sequence::from_height(1),
+        );
+    }
+    tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(
+        builder::transaction::anchor_output(),
+    ));
+    Ok(tx_handler_builder.finalize())
 }
