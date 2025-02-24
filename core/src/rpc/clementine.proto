@@ -196,19 +196,22 @@ message SchnorrSig {
   bytes schnorr_sig = 1;
 }
 
-message NewWithdrawalSigParams {
+message WithdrawParams {
+  // The ID of the withdrawal in Citrea
   uint32 withdrawal_id = 1;
   // User's [`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`]
   // signature
-  bytes user_sig = 2;
-  Outpoint users_intent_outpoint = 3;
-  bytes users_intent_script_pubkey = 4;
-  uint64 users_intent_amount = 5;
-  bytes output_script_pubkey = 6;
-  uint64 output_amount = 7;
+  bytes input_signature = 2;
+  // User's UTXO to claim the deposit
+  Outpoint input_outpoint = 3;
+  // The withdrawal output's script_pubkey (user's signature is only valid for this pubkey)
+  bytes output_script_pubkey = 4;
+  // The withdrawal output's amount (user's signature is only valid for this amount)
+  uint64 output_amount = 5;
 }
 
-message NewWithdrawalSigResponse {
+message WithdrawResponse {
+  // The withdrawal transaction's txid
   bytes txid = 1;
 }
 
@@ -269,10 +272,10 @@ service ClementineOperator {
   // - Operator burn Schnorr signature
   rpc DepositSign(DepositSignSession) returns (stream SchnorrSig) {}
 
-  // Prepares a withdrawal if it's profitable and previous round_tx's timelock
-  // has ended, by paying for the withdrawal and locking the current round_tx.
-  rpc NewWithdrawalSig(NewWithdrawalSigParams)
-    returns (NewWithdrawalSigResponse) {}
+  // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
+  // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+  rpc Withdraw(WithdrawParams)
+    returns (WithdrawResponse) {}
 
   // Checks if a withdrawal is finalized.
   //

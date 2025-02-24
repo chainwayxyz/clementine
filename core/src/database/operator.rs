@@ -1193,10 +1193,9 @@ mod tests {
     async fn set_get_operator_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name(None).await;
         let database = Database::new(&config).await.unwrap();
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc().clone();
+        let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config, rpc).await.unwrap();
+        let operator = Operator::new(config).await.unwrap();
         let operator_idx = 0x45;
         let wpks = operator
             .generate_assert_winternitz_pubkeys(Txid::all_zeros())

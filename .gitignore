@@ -1,3 +1,5 @@
+bitvm_cache.bin
+
 .DS_Store
 
 risc0-guests/operator/guest/Cargo.lock

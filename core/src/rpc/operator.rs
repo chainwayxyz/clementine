@@ -1,8 +1,8 @@
+use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
-    clementine_operator_server::ClementineOperator, AssertRequest, ChallengeAckDigest,
-    DepositParams, DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse,
-    OperatorKeys, OperatorParams, RawSignedTxs, SchnorrSig, SignedTxWithType, SignedTxsWithType,
-    WithdrawalFinalizedParams,
+    AssertRequest, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, OperatorKeys,
+    OperatorParams, RawSignedTxs, SchnorrSig, SignedTxWithType, SignedTxsWithType, WithdrawParams,
+    WithdrawResponse, WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::create_and_sign_txs;
@@ -83,29 +83,24 @@ impl ClementineOperator for Operator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn new_withdrawal_sig(
+    async fn withdraw(
         &self,
-        request: Request<NewWithdrawalSigParams>,
-    ) -> Result<Response<NewWithdrawalSigResponse>, Status> {
-        let (
-            withdrawal_id,
-            user_sig,
-            users_intent_outpoint,
-            users_intent_script_pubkey,
-            users_intent_amount,
-        ) = parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
+        request: Request<WithdrawParams>,
+    ) -> Result<Response<WithdrawResponse>, Status> {
+        let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
+            parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
 
         let withdrawal_txid = self
-            .new_withdrawal_sig(
+            .withdraw(
                 withdrawal_id,
-                user_sig,
-                users_intent_outpoint,
-                users_intent_script_pubkey,
-                users_intent_amount,
+                input_signature,
+                input_outpoint,
+                output_script_pubkey,
+                output_amount,
             )
             .await?;
 
-        Ok(Response::new(NewWithdrawalSigResponse {
+        Ok(Response::new(WithdrawResponse {
             txid: withdrawal_txid.as_raw_hash().to_byte_array().to_vec(),
         }))
     }

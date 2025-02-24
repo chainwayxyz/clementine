@@ -3,7 +3,7 @@
 //! This tests checks if typical RPC flows works or not.
 
 use super::common::run_single_deposit;
-use crate::rpc::clementine::NewWithdrawalSigParams;
+use crate::rpc::clementine::WithdrawParams;
 use crate::utils::SECP;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use tonic::Request;
@@ -44,20 +44,14 @@ async fn honest_operator_takes_refund() {
     )
     .await;
 
-    let request = Request::new(NewWithdrawalSigParams {
+    let request = Request::new(WithdrawParams {
         withdrawal_id: 0,
-        user_sig: user_sig.serialize().to_vec(),
-        users_intent_outpoint: Some(empty_utxo.outpoint.into()),
-        users_intent_script_pubkey: _withdrawal_tx_out.txout().script_pubkey.clone().into(),
-        users_intent_amount: withdrawal_amount.to_sat(),
-        output_script_pubkey: vec![],
+        input_signature: user_sig.serialize().to_vec(),
+        input_outpoint: Some(empty_utxo.outpoint.into()),
+        output_script_pubkey: _withdrawal_tx_out.txout().script_pubkey.clone().into(),
         output_amount: withdrawal_amount.to_sat(),
     });
-    let _withdrawal_provide_txid = operators[1]
-        .new_withdrawal_sig(request)
-        .await
-        .unwrap()
-        .into_inner();
+    let _withdrawal_provide_txid = operators[1].withdraw(request).await.unwrap().into_inner();
 
     // let request = Request::new(WithdrawalFinalizedParams {
     //     withdrawal_id: 0,
