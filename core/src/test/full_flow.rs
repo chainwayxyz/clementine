@@ -63,12 +63,21 @@ pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
     let move_txid: bitcoin::Txid =
         bitcoin::Txid::from_byte_array(move_tx_response.txid.try_into().unwrap());
 
-    tracing::info!("Move transaction sent, waiting for on-chain confirmation: {:x?}", move_txid);
+    tracing::info!(
+        "Move transaction sent, waiting for on-chain confirmation: {:x?}",
+        move_txid
+    );
 
     loop {
         tracing::info!("Checking if move tx is confirmed");
-        let spent = rpc.client.get_raw_transaction_info(&move_txid, None).await?;
-        if spent.blockhash.is_some() {
+        let spent = rpc.client.get_raw_transaction_info(&move_txid, None).await;
+        if spent.is_err() {
+            tracing::error!("Move tx not found");
+            rpc.mine_blocks(1).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            continue;
+        }
+        if spent.unwrap().blockhash.is_some() {
             break;
         }
         rpc.mine_blocks(1).await?;
@@ -410,7 +419,17 @@ pub async fn send_tx(
     let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
     let mut dbtx = db.begin_transaction().await?;
     tx_sender
-        .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[], &[])
+        .try_to_send(
+            &mut dbtx,
+            None,
+            &tx,
+            FeePayingType::CPFP,
+            &[],
+            &[],
+            &[],
+            &[],
+            false,
+        )
         .await?;
     dbtx.commit().await?;
     rpc.mine_blocks(1).await?;

@@ -818,19 +818,19 @@ impl Database {
                     WHERE id = 1
                 )
                 SELECT 
-                    ds.sequential_collateral_idx as round_idx,
-                    ds.kickoff_idx as kickoff_connector_idx,
+                    ds.round_idx as round_idx,
+                    ds.kickoff_idx as kickoff_connector_idx
                 FROM deposit_signatures ds
                 CROSS JOIN current_round cr
                 WHERE ds.deposit_id = $1  -- Parameter for deposit_id
-                    AND ds.sequential_collateral_idx >= cr.round_idx
+                    AND ds.round_idx >= cr.round_idx
                     AND NOT EXISTS (
                         SELECT 1 
                         FROM used_kickoff_connectors ukc 
-                        WHERE ukc.round_idx = ds.sequential_collateral_idx 
+                        WHERE ukc.round_idx = ds.round_idx 
                         AND ukc.kickoff_connector_idx = ds.kickoff_idx
                     )
-                ORDER BY ds.sequential_collateral_idx ASC
+                ORDER BY ds.round_idx ASC
                 LIMIT 1;",
         )
         .bind(i32::try_from(deposit_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);

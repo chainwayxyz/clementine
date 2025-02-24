@@ -6,7 +6,7 @@ use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
-    tx_sender::{ActivedWithOutpoint, ActivedWithTxid, FeePayingType},
+    tx_sender::{ActivedWithOutpoint, ActivedWithTxid, FeePayingType, TxDataForLogging},
 };
 use bitcoin::{
     consensus::{deserialize, serialize},
@@ -291,14 +291,16 @@ impl Database {
     pub async fn save_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_data_for_logging: Option<TxDataForLogging>,
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type) VALUES ($1, $2::fee_paying_type) RETURNING id"
+            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_data_for_logging) VALUES ($1, $2::fee_paying_type, $3) RETURNING id"
         )
         .bind(serialize(raw_tx))
-        .bind(fee_paying_type);
+        .bind(fee_paying_type)
+        .bind(serde_json::to_string(&tx_data_for_logging).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
@@ -375,11 +377,12 @@ impl Database {
         activated_outpoint: &ActivedWithOutpoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout) VALUES ($1, $2, $3)"
+            "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout, timelock) VALUES ($1, $2, $3, $4)"
         )
         .bind(i32::try_from(activated_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .bind(TxidDB(activated_outpoint.outpoint.txid))
-        .bind(i32::try_from(activated_outpoint.outpoint.vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(activated_outpoint.outpoint.vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(activated_outpoint.timelock.0).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -470,21 +473,35 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: u32,
-    ) -> Result<(Transaction, FeePayingType, Option<u32>), BridgeError> {
-        let query = sqlx::query_as::<_, (Vec<u8>, FeePayingType, Option<i32>)>(
-            "SELECT raw_tx, fee_paying_type::fee_paying_type, seen_block_id
+    ) -> Result<
+        (
+            Option<TxDataForLogging>,
+            Transaction,
+            FeePayingType,
+            Option<u32>,
+        ),
+        BridgeError,
+    > {
+        let query =
+            sqlx::query_as::<_, (Option<String>, Option<Vec<u8>>, FeePayingType, Option<i32>)>(
+                "SELECT tx_data_for_logging, raw_tx, fee_paying_type, seen_block_id
              FROM tx_sender_try_to_send_txs
              WHERE id = $1 LIMIT 1",
-        )
-        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+            )
+            .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
-            deserialize(&result.0)
-                .map_err(|e| BridgeError::Error(format!("Bitcoin deserialization error: {}", e)))?,
-            result.1,
             result
-                .2
+                .0
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+            deserialize(&result.1.unwrap_or_default())
+                .map_err(|e| BridgeError::Error(format!("Bitcoin deserialization error: {}", e)))?,
+            result.2,
+            result
+                .3
                 .map(|id| {
                     u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
                 })
@@ -521,10 +538,13 @@ mod tests {
         };
 
         // Test saving tx
-        let id = db.save_tx(None, &tx, FeePayingType::CPFP).await.unwrap();
+        let id = db
+            .save_tx(None, None, &tx, FeePayingType::CPFP)
+            .await
+            .unwrap();
 
         // Test retrieving tx
-        let (retrieved_tx, fee_paying_type, seen_block_id) = db.get_tx(None, id).await.unwrap();
+        let (_, retrieved_tx, fee_paying_type, seen_block_id) = db.get_tx(None, id).await.unwrap();
         assert_eq!(tx.version, retrieved_tx.version);
         assert_eq!(fee_paying_type, FeePayingType::CPFP);
         assert_eq!(seen_block_id, None);
@@ -545,7 +565,7 @@ mod tests {
 
         // Save the transaction first
         let tx_id = db
-            .save_tx(Some(&mut dbtx), &tx, FeePayingType::CPFP)
+            .save_tx(Some(&mut dbtx), None, &tx, FeePayingType::CPFP)
             .await
             .unwrap();
 
@@ -586,7 +606,7 @@ mod tests {
             output: vec![],
         };
         let tx_id = db
-            .save_tx(Some(&mut dbtx), &tx, FeePayingType::CPFP)
+            .save_tx(Some(&mut dbtx), None, &tx, FeePayingType::CPFP)
             .await
             .unwrap();
 
@@ -629,7 +649,7 @@ mod tests {
 
         // Save the transaction first
         let tx_id = db
-            .save_tx(Some(&mut dbtx), &tx, FeePayingType::CPFP)
+            .save_tx(Some(&mut dbtx), None, &tx, FeePayingType::CPFP)
             .await
             .unwrap();
 
@@ -670,11 +690,11 @@ mod tests {
         };
 
         let id1 = db
-            .save_tx(Some(&mut dbtx), &tx1, FeePayingType::CPFP)
+            .save_tx(Some(&mut dbtx), None, &tx1, FeePayingType::CPFP)
             .await
             .unwrap();
         let id2 = db
-            .save_tx(Some(&mut dbtx), &tx2, FeePayingType::RBF)
+            .save_tx(Some(&mut dbtx), None, &tx2, FeePayingType::RBF)
             .await
             .unwrap();
 

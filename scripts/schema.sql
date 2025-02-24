@@ -203,6 +203,7 @@ create type fee_paying_type as enum ('cpfp', 'rbf');
 create table if not exists tx_sender_try_to_send_txs (
     id serial primary key,
     raw_tx bytea not null,
+    tx_data_for_logging text,
     fee_paying_type fee_paying_type not null,
     effective_fee_rate bigint,
     txid text check (txid ~ '^[a-fA-F0-9]{64}'), -- txid of the tx if it is CPFP
@@ -272,7 +273,7 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
 create table if not exists used_kickoff_connectors (
     round_idx int not null,
     kickoff_connector_idx int not null,
-    kickoff_txid text not null check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
+    kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now(),
     primary key (round_idx, kickoff_connector_idx)
 );

@@ -107,7 +107,9 @@ impl Database {
         operator_id: u32,
         deposit_outpoint: bitcoin::OutPoint,
     ) -> Result<[u8; 32], BridgeError> {
-        let deposit_id = self.get_deposit_id(tx.as_deref_mut(), deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query_as::<_, (Vec<u8>,)>(
             "SELECT challenge_hash
          FROM watchtower_challenge_hashes

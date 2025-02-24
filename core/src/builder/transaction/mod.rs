@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use super::script::SpendPath;
 use super::script::{CheckSig, DepositScript, TimelockScript};
 pub use crate::builder::transaction::challenge::*;
@@ -61,7 +63,7 @@ pub struct OperatorData {
 
 /// Types of all transactions that can be created. Some transactions have an (usize) to as they are created
 /// multiple times per kickoff.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum TransactionType {
     Round,
     Kickoff,

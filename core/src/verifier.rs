@@ -688,7 +688,7 @@ impl Verifier {
                 for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
                     self.db
                         .set_deposit_signatures(
-                            None,
+                            Some(&mut dbtx),
                             deposit_outpoint,
                             operator_idx,
                             seq_idx,
@@ -699,6 +699,7 @@ impl Verifier {
                 }
             }
         }
+        dbtx.commit().await?;
 
         Ok(partial_sig)
     }

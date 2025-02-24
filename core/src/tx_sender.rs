@@ -4,6 +4,7 @@ use bitcoin::{
     transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
 };
 use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
+use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
 use crate::{
@@ -50,6 +51,16 @@ pub struct ActivedWithTxid {
 pub struct ActivedWithOutpoint {
     pub outpoint: OutPoint,
     pub timelock: bitcoin::Sequence,
+}
+
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct TxDataForLogging {
+    pub deposit_outpoint: Option<OutPoint>,
+    pub operator_idx: Option<u32>,
+    pub verifier_idx: Option<u32>,
+    pub round_idx: Option<u32>,
+    pub kickoff_idx: Option<u32>,
+    pub tx_type: TransactionType,
 }
 
 impl TxSender {
@@ -162,20 +173,23 @@ impl TxSender {
     /// Tries to send a tx. If all conditions are met, it will save the tx to the database.
     /// It will also save the cancelled outpoints, cancelled txids and activated prerequisite txs to the database.
     /// It will automatically saves inputs as cancelled outpoints.
+    /// It will automatically saves inputs as activated outpoints.
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn try_to_send(
         &self,
         dbtx: DatabaseTransaction<'_, '_>,
+        tx_data_for_logging: Option<TxDataForLogging>,
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
         cancel_outpoints: &[OutPoint],
         cancel_txids: &[Txid],
         activate_txids: &[ActivedWithTxid],
         activate_outpoints: &[ActivedWithOutpoint],
+        skip_saving_inputs_as_activated: bool,
     ) -> Result<u32, BridgeError> {
         let try_to_send_id = self
             .db
-            .save_tx(Some(dbtx), signed_tx, fee_paying_type)
+            .save_tx(Some(dbtx), tx_data_for_logging, signed_tx, fee_paying_type)
             .await?;
 
         for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
@@ -202,17 +216,19 @@ impl TxSender {
                 .await?;
         }
 
-        for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
-            self.db
-                .save_activated_outpoint(
-                    Some(dbtx),
-                    try_to_send_id,
-                    &ActivedWithOutpoint {
-                        outpoint: input_outpoint,
-                        timelock: bitcoin::Sequence::from_height(0),
-                    },
-                )
-                .await?;
+        if !skip_saving_inputs_as_activated {
+            for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
+                self.db
+                    .save_activated_outpoint(
+                        Some(dbtx),
+                        try_to_send_id,
+                        &ActivedWithOutpoint {
+                            outpoint: input_outpoint,
+                            timelock: bitcoin::Sequence::from_height(0),
+                        },
+                    )
+                    .await?;
+            }
         }
 
         for activated_outpoint in activate_outpoints {
@@ -568,7 +584,7 @@ impl TxSender {
             })
             .collect();
 
-        let (tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
+        let (tx_data_for_logging, tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
 
         let package = self.create_package(tx, fee_rate, fee_payer_utxos, fee_paying_type)?;
         let package_refs: Vec<&Transaction> = package.iter().collect();
@@ -580,7 +596,8 @@ impl TxSender {
                 .await?;
         }
         tracing::info!(
-            "Submitting package: {:?}",
+            "Submitting package for tx {:?}: {:?}",
+            tx_data_for_logging,
             package
                 .iter()
                 .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
@@ -599,7 +616,11 @@ impl TxSender {
                 );
             })?;
 
-        tracing::info!("Submit package result: {:?}", submit_package_result);
+        tracing::info!(
+            "Submit package for tx {:?}: {:?}",
+            tx_data_for_logging,
+            submit_package_result
+        );
 
         // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_package_result.tx_results.is_empty() {
@@ -725,7 +746,7 @@ impl TxSender {
                     }
                     BridgeError::InsufficientFeePayerAmount => {
                         tracing::info!("{}: Bumping Tx {} : Insufficient fee payer amount, creating new fee payer UTXO", self.consumer_handle, id);
-                        let (tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
+                        let (_, tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
                         let fee_payer_utxos =
                             self.db.get_confirmed_fee_payer_utxos(None, id).await?;
                         let total_fee_payer_amount = fee_payer_utxos
@@ -875,11 +896,31 @@ mod tests {
 
         let mut dbtx = db.begin_transaction().await.unwrap();
         let tx_id1 = tx_sender
-            .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[], &[])
+            .try_to_send(
+                &mut dbtx,
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+                false,
+            )
             .await
             .unwrap();
         let tx_id2 = tx_sender
-            .try_to_send(&mut dbtx, &tx, FeePayingType::CPFP, &[], &[], &[], &[])
+            .try_to_send(
+                &mut dbtx,
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+                false,
+            )
             .await
             .unwrap(); // It is ok to call this twice
         dbtx.commit().await.unwrap();
@@ -901,11 +942,11 @@ mod tests {
 
         tokio::time::sleep(Duration::from_secs(10)).await;
 
-        let (_, _, tx_id2_seen_block_id) = db.get_tx(None, tx_id2).await.unwrap();
+        let (_, _, _, tx_id2_seen_block_id) = db.get_tx(None, tx_id2).await.unwrap();
 
         assert!(tx_id2_seen_block_id.is_some());
 
-        let (_, _, tx_id1_seen_block_id) = db.get_tx(None, tx_id1).await.unwrap();
+        let (_, _, _, tx_id1_seen_block_id) = db.get_tx(None, tx_id1).await.unwrap();
 
         assert!(tx_id1_seen_block_id.is_none());
 
@@ -915,7 +956,17 @@ mod tests {
 
         let mut dbtx = db.begin_transaction().await.unwrap();
         tx_sender
-            .try_to_send(&mut dbtx, &tx2, FeePayingType::RBF, &[], &[], &[], &[])
+            .try_to_send(
+                &mut dbtx,
+                None,
+                &tx2,
+                FeePayingType::RBF,
+                &[],
+                &[],
+                &[],
+                &[],
+                false,
+            )
             .await
             .unwrap();
         dbtx.commit().await.unwrap();

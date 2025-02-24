@@ -3,14 +3,16 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::{create_move_to_vault_txhandler, Signed, TxHandler};
+use crate::builder::transaction::{
+    create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
+};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::error::output_stream_ended_prematurely;
 use crate::rpc::parser;
-use crate::tx_sender::FeePayingType;
+use crate::tx_sender::{FeePayingType, TxDataForLogging};
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -450,7 +452,24 @@ impl Aggregator {
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(&mut dbtx, move_tx, FeePayingType::CPFP, &[], &[], &[], &[])
+            .try_to_send(
+                &mut dbtx,
+                Some(TxDataForLogging {
+                    deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    operator_idx: None,
+                    verifier_idx: None,
+                    round_idx: None,
+                    kickoff_idx: None,
+                    tx_type: TransactionType::MoveToVault,
+                }),
+                move_tx,
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+                false,
+            )
             .await?;
         dbtx.commit()
             .await
@@ -686,6 +705,7 @@ impl ClementineAggregator for Aggregator {
         };
 
         tracing::debug!("Sending deposit sign session to verifiers");
+        tracing::error!("Sending deposit sign session to verifiers");
         for (_, tx) in partial_sig_streams.iter_mut() {
             let deposit_sign_param: VerifierDepositSignParams = deposit_sign_session.clone().into();
 
@@ -710,6 +730,8 @@ impl ClementineAggregator for Aggregator {
             },
         ))
         .await?;
+
+        tracing::error!("Sending deposit finalize streams to verifiers");
 
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
@@ -788,10 +810,14 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!(
             "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
         );
+
+        tracing::error!("Waiting for pipeline tasks to complete");
         // Wait for all pipeline tasks to complete
         try_join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle])
             .await
             .map_err(|_| Status::internal("panic when pipelining"))?;
+
+        tracing::error!("Pipeline tasks completed");
 
         // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
         // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
@@ -828,6 +854,8 @@ impl ClementineAggregator for Aggregator {
 
         tracing::debug!("Waiting for deposit finalization");
 
+        tracing::error!("Waiting for deposit finalization");
+
         // Collect partial signatures for move transaction
         let move_tx_partial_sigs =
             try_join_all(deposit_finalize_futures.iter_mut().map(|fut| async {
@@ -842,6 +870,8 @@ impl ClementineAggregator for Aggregator {
             .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
 
         tracing::debug!("Received move tx partial sigs: {:?}", move_tx_partial_sigs);
+
+        tracing::error!("Received move tx partial sigs");
 
         // Create the final move transaction and check the signatures
         let movetx_agg_nonce = nonce_agg_handle.await?;
