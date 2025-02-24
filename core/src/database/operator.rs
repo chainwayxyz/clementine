@@ -3,10 +3,16 @@
 //! This module includes database functions which are mainly used by an operator.
 
 use super::{
-    wrapper::{OutPointDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB},
+    wrapper::{
+        AddressDB, EVMAddressDB, OutPointDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
+        XOnlyPublicKeyDB,
+    },
     Database, DatabaseTransaction,
 };
-use crate::builder::transaction::OperatorData;
+use crate::{
+    builder::transaction::{DepositData, OperatorData},
+    EVMAddress,
+};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -408,12 +414,14 @@ impl Database {
     /// will be overwritten by the new hashes.
     pub async fn set_operator_challenge_ack_hashes(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
         public_hashes: &Vec<[u8; 20]>,
     ) -> Result<(), BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query(
             "INSERT INTO operators_challenge_ack_hashes (operator_idx, deposit_id, public_hashes)
              VALUES ($1, $2, $3)
@@ -421,7 +429,7 @@ impl Database {
              SET public_hashes = EXCLUDED.public_hashes;",
         )
         .bind(operator_idx)
-        .bind(deposit_id)
+        .bind(i32::try_from(deposit_id)?)
         .bind(public_hashes);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -433,18 +441,20 @@ impl Database {
     /// tx and kickoff index combination.
     pub async fn get_operators_challenge_ack_hashes(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<PublicHash>>, BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
             "SELECT public_hashes
             FROM operators_challenge_ack_hashes
             WHERE operator_idx = $1 AND deposit_id = $2;",
         )
         .bind(operator_idx)
-        .bind(deposit_id);
+        .bind(i32::try_from(deposit_id)?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -465,61 +475,6 @@ impl Database {
                 Ok(Some(converted_hashes))
             }
             None => Ok(None), // If no result is found, return Ok(None)
-        }
-    }
-
-    pub async fn set_slash_or_take_sigs(
-        &self,
-        deposit_outpoint: OutPoint,
-        slash_or_take_sigs: impl IntoIterator<Item = schnorr::Signature>,
-    ) -> Result<(), BridgeError> {
-        QueryBuilder::new(
-            "UPDATE deposit_kickoff_utxos
-             SET slash_or_take_sig = batch.sig
-             FROM (",
-        )
-        .push_values(
-            slash_or_take_sigs.into_iter().enumerate(),
-            |mut builder, (i, slash_or_take_sig)| {
-                builder
-                    .push_bind(i as i32)
-                    .push_bind(SignatureDB(slash_or_take_sig));
-            },
-        )
-        .push(
-            ") AS batch (operator_idx, sig)
-             WHERE deposit_kickoff_utxos.deposit_outpoint = ",
-        )
-        .push_bind(OutPointDB(deposit_outpoint))
-        .push(" AND deposit_kickoff_utxos.operator_idx = batch.operator_idx;")
-        .build()
-        .execute(&self.connection)
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn get_slash_or_take_sig(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxo: UTXO,
-    ) -> Result<Option<schnorr::Signature>, BridgeError> {
-        let qr: Option<(SignatureDB,)> = sqlx::query_as(
-            "SELECT slash_or_take_sig
-             FROM deposit_kickoff_utxos
-             WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UtxoDB {
-            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-            txout_db: TxOutDB(kickoff_utxo.txout),
-        }))
-        .fetch_optional(&self.connection)
-        .await?;
-
-        match qr {
-            Some(sig) => Ok(Some(sig.0 .0)),
-            None => Ok(None),
         }
     }
 
@@ -569,33 +524,77 @@ impl Database {
         }
     }
 
+    /// Saves deposit infos, and returns the deposit_id
+    pub async fn set_deposit_data(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_data: DepositData,
+    ) -> Result<u32, BridgeError> {
+        let query = sqlx::query_as(
+            "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (deposit_outpoint) DO UPDATE SET deposit_outpoint = deposits.deposit_outpoint
+            RETURNING deposit_id;",
+        )
+        .bind(OutPointDB(deposit_data.deposit_outpoint))
+        .bind(AddressDB(deposit_data.recovery_taproot_address))
+        .bind(EVMAddressDB(deposit_data.evm_address));
+
+        let deposit_id: Result<(i32,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
+
+        Ok(u32::try_from(deposit_id?.0)?)
+    }
+
+    pub async fn get_deposit_data(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_outpoint: OutPoint,
+    ) -> Result<Option<(u32, DepositData)>, BridgeError> {
+        let query = sqlx::query_as("SELECT deposit_id, deposit_outpoint, recovery_taproot_address, evm_address FROM deposits WHERE deposit_outpoint = $1;")
+            .bind(OutPointDB(deposit_outpoint));
+
+        let result: Option<(i32, OutPointDB, AddressDB, EVMAddressDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((deposit_id, deposit_outpoint, recovery_taproot_address, evm_address)) => {
+                Ok(Some((
+                    u32::try_from(deposit_id)?,
+                    DepositData {
+                        deposit_outpoint: deposit_outpoint.0,
+                        recovery_taproot_address: recovery_taproot_address.0,
+                        evm_address: evm_address.0,
+                    },
+                )))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Saves the deposit signatures to the database for a single operator.
     /// The signatures array is identified by the deposit_outpoint and operator_idx.
     /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
     /// which determines the order of the sighashes that are signed.
     pub async fn set_deposit_signatures(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         operator_idx: usize,
         round_idx: usize,
         kickoff_idx: usize,
         signatures: Vec<TaggedSignature>,
     ) -> Result<(), BridgeError> {
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
+
         let query = sqlx::query(
-            "WITH deposit AS (
-            INSERT INTO deposits (deposit_outpoint)
-            VALUES ($1)
-            ON CONFLICT DO NOTHING
-            RETURNING deposit_id
-            )
+            "
             INSERT INTO deposit_signatures (deposit_id, operator_idx, round_idx, kickoff_idx, signatures)
-            VALUES (
-            (SELECT deposit_id FROM deposit UNION SELECT deposit_id FROM deposits WHERE deposit_outpoint = $1),
-            $2, $3, $4, $5
-            );"
+            VALUES ($1, $2, $3, $4, $5);"
         )
-        .bind(OutPointDB(deposit_outpoint))
+        .bind(i32::try_from(deposit_id)?)
         .bind(operator_idx as i32)
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32)
@@ -610,17 +609,13 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
-    ) -> Result<i32, BridgeError> {
-        let query = sqlx::query_as(
-            "INSERT INTO deposits (deposit_outpoint)
-            VALUES ($1)
-            ON CONFLICT (deposit_outpoint) DO UPDATE SET deposit_outpoint = deposits.deposit_outpoint
-            RETURNING deposit_id;",
-        )
-        .bind(OutPointDB(deposit_outpoint));
+    ) -> Result<u32, BridgeError> {
+        let query = sqlx::query_as("SELECT deposit_id FROM deposits WHERE deposit_outpoint = $1;")
+            .bind(OutPointDB(deposit_outpoint));
+
         let deposit_id: Result<(i32,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
-        Ok(deposit_id?.0)
+        Ok(u32::try_from(deposit_id?.0)?)
     }
 
     /// Retrieves the deposit signatures for a single operator for a single reimburse
@@ -661,13 +656,15 @@ impl Database {
     /// Saves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
     pub async fn set_bitvm_setup(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
         assert_tx_addrs: impl AsRef<[[u8; 32]]>,
         root_hash: &[u8; 32],
     ) -> Result<(), BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query(
             "INSERT INTO bitvm_setups (operator_idx, deposit_id, assert_tx_addrs, root_hash)
              VALUES ($1, $2, $3, $4)
@@ -676,7 +673,7 @@ impl Database {
                  root_hash = EXCLUDED.root_hash;",
         )
         .bind(operator_idx)
-        .bind(deposit_id)
+        .bind(i32::try_from(deposit_id)?)
         .bind(
             assert_tx_addrs
                 .as_ref()
@@ -694,18 +691,20 @@ impl Database {
     /// Retrieves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
     pub async fn get_bitvm_setup(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<BitvmSetup>, BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>)>(
             "SELECT assert_tx_addrs, root_hash
              FROM bitvm_setups
              WHERE operator_idx = $1 AND deposit_id = $2;",
         )
         .bind(operator_idx)
-        .bind(deposit_id);
+        .bind(i32::try_from(deposit_id)?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -733,18 +732,20 @@ impl Database {
     /// Retrieves BitVM disprove scripts root hash data for a specific operator, sequential collateral tx and kickoff index combination
     pub async fn get_bitvm_root_hash(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<RootHash>, BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query_as::<_, (Vec<u8>,)>(
             "SELECT root_hash
              FROM bitvm_setups
              WHERE operator_idx = $1 AND deposit_id = $2;",
         )
         .bind(operator_idx)
-        .bind(deposit_id);
+        .bind(i32::try_from(deposit_id)?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -1074,7 +1075,7 @@ mod tests {
         let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
 
-        let raw_hex = "02000000000101eb87b1a80d47b7f5bd5082b77653f5ca37e566951742b80c361875ba0e5c478f0a00000000fdffffff0ca086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca35c081777000000002251202a64b1ee3375f3bb4b367b8cb8384a47f73cf231717f827c6c6fbbf5aecf0c364a010000000000002200204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260014005a41e6f4a4bcfcc5cd3ef602687215f97c18949019a491df56af7413c5dce9292ba3966edc4564a39d9bc0d6c0faae19030f1cedf4d931a6cdc57cc5b83c8ef00000000".to_string();
+        let raw_hex = "02000000000101eb87b1a80d47b7f5bd5082b77653f5ca37e566951742b80c361875ba0e5c478f0a00000000fdffffff0ca086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca35c081777000000002251202a64b1ee3375f3bb4b367b8cb8384a47f73cf231717f827c6c6fbbf5aecf0c364a010000000000002200204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260014005a41e6f4a4bcfcc5cd3ef602687215f97c18949019a491df56af7413c5dce9292ba3966edc4564a39d9bc0d6c0faae19030f1cedf4d931a6cdc57cc5b83c8ef00000000".to_string();
         let tx: bitcoin::Transaction =
             bitcoin::consensus::deserialize(&hex::decode(raw_hex.clone()).unwrap()).unwrap();
         let txid = tx.compute_txid();

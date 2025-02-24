@@ -623,10 +623,16 @@ impl Operator {
     pub async fn handle_finalized_payout<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
-        deposit_id: u32,
+        deposit_outpoint: OutPoint,
         payout_tx_blockhash: BlockHash,
     ) -> Result<(), BridgeError> {
-        // get unsused kickoff connector
+        let (deposit_id, deposit_data) = self
+            .db
+            .get_deposit_data(Some(dbtx), deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+
+        // get unused kickoff connector
         let (round_idx, kickoff_idx) = self
             .db
             .get_unused_and_signed_kickoff_connector(Some(dbtx), deposit_id)
@@ -634,14 +640,6 @@ impl Operator {
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
         // get signed txs,
-
-        let deposit_data = DepositData {
-            // TODO: fix this
-            deposit_outpoint: OutPoint::new(Txid::all_zeros(), 2),
-            evm_address: EVMAddress([0; 20]),
-            recovery_taproot_address: self.signer.address.as_unchecked().clone(),
-        };
-
         let kickoff_id = KickoffId {
             operator_idx: self.idx as u32,
             round_idx,
@@ -720,16 +718,6 @@ impl Operator {
 
         let mut activation_prerequisites = Vec::new();
 
-        // let txhandlers = create_txhandlers(
-        //     self.config.clone(),
-        //     deposit_id,
-        //     self.nofn_xonly_pk,
-        //     transaction_type,
-        //     kickoff_id,
-        //     operator_data,
-        //     prev_reimburse_generator,
-        //     db_data,
-        // );
         let operator_winternitz_public_keys = self
             .db
             .get_operator_kickoff_winternitz_public_keys(None, self.idx as u32)
@@ -798,7 +786,7 @@ impl Operator {
                 None => {
                     let unspent_kickoff_connector = OutPoint {
                         txid: current_round_txid,
-                        vout: kickoff_connector_idx + 1, // Kickoff finalizer output index
+                        vout: kickoff_connector_idx + 1, // add 1 since the first output is collateral
                     };
                     unspent_kickoff_connector_indices.push(kickoff_connector_idx as usize);
                     self.db
@@ -831,7 +819,7 @@ impl Operator {
         self.tx_sender
             .try_to_send(
                 dbtx,
-                &burn_unspent_kickoff_connectors_tx.get_cached_tx(),
+                burn_unspent_kickoff_connectors_tx.get_cached_tx(),
                 FeePayingType::CPFP,
                 &[],
                 &[],
@@ -844,7 +832,7 @@ impl Operator {
         self.tx_sender
             .try_to_send(
                 dbtx,
-                &ready_to_reimburse_tx,
+                ready_to_reimburse_tx,
                 FeePayingType::CPFP,
                 &[],
                 &[],
@@ -857,7 +845,7 @@ impl Operator {
         self.tx_sender
             .try_to_send(
                 dbtx,
-                &next_round_tx,
+                next_round_tx,
                 FeePayingType::CPFP,
                 &[],
                 &[],
