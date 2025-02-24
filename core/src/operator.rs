@@ -3,7 +3,9 @@ use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureIn
 use crate::builder::transaction::creator::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
-use crate::builder::transaction::{create_txhandlers, {DepositData, TransactionType}, OperatorData, TransactionType, TxHandler};
+use crate::builder::transaction::{
+    create_txhandlers, DepositData, OperatorData, TransactionType, TxHandler,
+};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
