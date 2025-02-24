@@ -222,6 +222,11 @@ message WithdrawalFinalizedParams {
   Outpoint deposit_outpoint = 2;
 }
 
+message FinalizedPayoutParams {
+  bytes payout_blockhash = 1;
+  Outpoint deposit_outpoint = 2;
+}
+
 // An operator is responsible for paying withdrawals. It has an unique ID and
 // chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
 // connected to the same database and both have access to watchtowers'
@@ -292,6 +297,11 @@ service ClementineOperator {
   // - withdrawal_id: Withdrawal's ID
   // - deposit_outpoint: Withdrawal's deposit UTXO
   rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
+
+
+  rpc InternalFinalizedPayout(FinalizedPayoutParams) returns (Empty) {}
+
+  rpc InternalEndRound(Empty) returns (Empty) {}
 }
 
 // Verifier --------------------------------------------------------------------

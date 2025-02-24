@@ -9,10 +9,7 @@ use super::{
     },
     Database, DatabaseTransaction,
 };
-use crate::{
-    builder::transaction::{DepositData, OperatorData},
-    EVMAddress,
-};
+use crate::builder::transaction::{DepositData, OperatorData};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,

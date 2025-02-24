@@ -4,8 +4,8 @@ use crate::builder::transaction::creator::{create_round_txhandlers, KickoffWinte
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler, create_txhandlers,
-    DepositData, OperatorData, TransactionType, TxHandler,
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler, DepositData,
+    OperatorData, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -14,10 +14,9 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
-use crate::rpc::operator;
 use crate::tx_sender::{ActivedWithOutpoint, ActivedWithTxid, FeePayingType, TxSender};
 use crate::utils::SECP;
-use crate::{builder, EVMAddress, UTXO};
+use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
