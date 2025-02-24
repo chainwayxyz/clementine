@@ -202,6 +202,19 @@ impl TxSender {
                 .await?;
         }
 
+        for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
+            self.db
+                .save_activated_outpoint(
+                    Some(dbtx),
+                    try_to_send_id,
+                    &ActivedWithOutpoint {
+                        outpoint: input_outpoint,
+                        timelock: bitcoin::Sequence::from_height(0),
+                    },
+                )
+                .await?;
+        }
+
         for activated_outpoint in activate_outpoints {
             self.db
                 .save_activated_outpoint(Some(dbtx), try_to_send_id, activated_outpoint)
