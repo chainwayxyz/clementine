@@ -86,6 +86,7 @@ pub fn create_round_txhandler(
         let blockhash_commit = Arc::new(WinternitzCommit::new(
             vec![(pubkey.clone(), paramset.kickoff_blockhash_commit_length)],
             operator_xonly_pk,
+            paramset.winternitz_log_d,
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
             paramset.kickoff_amount,

@@ -161,7 +161,12 @@ pub struct CombinedAssertData {
 }
 
 impl CombinedAssertData {
-    pub fn get_paths(&self, assert_idx: usize, txid: Txid, paramset: &'static ProtocolParamset) -> Vec<WinternitzDerivationPath> {
+    pub fn get_paths(
+        &self,
+        assert_idx: usize,
+        txid: Txid,
+        paramset: &'static ProtocolParamset,
+    ) -> Vec<WinternitzDerivationPath> {
         BITVM_CACHE
             .intermediate_variables
             .iter()
@@ -195,7 +200,7 @@ impl CombinedAssertData {
                         *step_size as u32 * 2,
                         step_name.to_owned(),
                         txid,
-                        paramset
+                        paramset,
                     ),
                     *step_size as u32 * 2,
                 )

@@ -883,7 +883,11 @@ impl Operator {
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
         for round_idx in 0..self.config.protocol_paramset().num_round_txs + 1 {
             for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
-                let path = WinternitzDerivationPath::Kickoff(round_idx as u32, kickoff_idx as u32, self.config.protocol_paramset());
+                let path = WinternitzDerivationPath::Kickoff(
+                    round_idx as u32,
+                    kickoff_idx as u32,
+                    self.config.protocol_paramset(),
+                );
                 winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
             }
         }
@@ -958,8 +962,11 @@ impl Operator {
         let mut hashes = Vec::with_capacity(self.config.get_num_challenge_ack_hashes());
 
         for watchtower_idx in 0..self.config.num_watchtowers {
-            let path =
-                WinternitzDerivationPath::ChallengeAckHash(watchtower_idx as u32, deposit_txid, self.config.protocol_paramset());
+            let path = WinternitzDerivationPath::ChallengeAckHash(
+                watchtower_idx as u32,
+                deposit_txid,
+                self.config.protocol_paramset(),
+            );
             let hash = self.signer.generate_public_hash_from_path(path)?;
             hashes.push(hash);
         }

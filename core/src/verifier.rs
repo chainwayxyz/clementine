@@ -14,7 +14,6 @@ use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys
 use crate::builder::{self};
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -1018,6 +1017,7 @@ impl Verifier {
                         .map(|(k, s)| (k.clone(), *s))
                         .collect::<Vec<_>>(),
                     operator_data.xonly_pk,
+                    self.config.protocol_paramset().winternitz_log_d,
                 );
                 let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
                 taproot_builder
@@ -1085,8 +1085,13 @@ impl Verifier {
                 .await?;
             let challenge_addr = derive_challenge_address_from_xonlypk_and_wpk(
                 &watchtower_xonly_pk,
-                vec![(winternitz_key.clone(), WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
-                self.config.protocol_paramset().network,
+                vec![(
+                    winternitz_key.clone(),
+                    self.config
+                        .protocol_paramset()
+                        .watchtower_challenge_message_length as u32,
+                )],
+                self.config.protocol_paramset(),
             )
             .script_pubkey();
             self.db

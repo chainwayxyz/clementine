@@ -1,6 +1,8 @@
 use bitcoin::{Amount, Network};
 use serde::{Deserialize, Serialize};
 
+use crate::constants::WINTERNITZ_LOG_D;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 /// A pre-defined paramset name that can be converted into a
 /// [`ProtocolParamset`] reference. Refers to a defined constant paramset in this module.
@@ -53,7 +55,7 @@ pub struct ProtocolParamset {
     pub watchtower_challenge_message_length: usize,
     /// Winternitz derivation log_d (shared for all WOTS commitments)
     ///
-    /// currently always == 4
+    /// See: [`crate::constants::WINTERNITZ_LOG_D`]
     pub winternitz_log_d: u32,
     /// Number of watchtowers. (changes the number of watchtower challenge kickoff txouts)
     pub num_watchtowers: usize,
@@ -70,7 +72,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 480,
-    winternitz_log_d: 4,
+    winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
 };
 
@@ -85,7 +87,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 480,
-    winternitz_log_d: 4,
+    winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
 };
 
@@ -100,6 +102,6 @@ pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 480,
-    winternitz_log_d: 4,
+    winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
 };

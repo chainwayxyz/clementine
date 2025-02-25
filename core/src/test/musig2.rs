@@ -79,8 +79,11 @@ async fn key_spend() {
 
     let (to_address, to_address_spend) =
         builder::address::create_taproot_address(&[], None, config.protocol_paramset().network);
-    let (from_address, from_address_spend_info) =
-        builder::address::create_taproot_address(&[], Some(untweaked_xonly_pubkey), config.protocol_paramset().network);
+    let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
+        &[],
+        Some(untweaked_xonly_pubkey),
+        config.protocol_paramset().network,
+    );
 
     let utxo = rpc
         .send_to_address(&from_address, Amount::from_sat(100_000_000))

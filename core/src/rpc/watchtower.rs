@@ -2,7 +2,6 @@ use super::clementine::{
     clementine_watchtower_server::ClementineWatchtower, watchtower_params, DepositParams, Empty,
     RawSignedTx, TransactionRequest, WatchtowerKeys, WatchtowerParams,
 };
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::rpc::parser::{parse_deposit_params, parse_transaction_request};
 use crate::watchtower::Watchtower;
 use tokio::sync::mpsc::{self, error::SendError};

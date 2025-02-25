@@ -299,6 +299,7 @@ pub async fn create_txhandlers(
             assert_scripts.push(Arc::new(WinternitzCommit::new(
                 param,
                 operator_data.xonly_pk,
+                paramset.winternitz_log_d,
             )));
         }
 
@@ -343,7 +344,7 @@ pub async fn create_txhandlers(
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         &operator_data.reimburse_addr,
-        paramset
+        paramset,
     )?;
     txhandlers.insert(
         challenge_txhandler.get_transaction_type(),
@@ -445,6 +446,7 @@ pub async fn create_txhandlers(
                             paramset.watchtower_challenge_message_length as u32,
                         )],
                         actor.xonly_public_key,
+                        paramset.winternitz_log_d,
                     ))),
                 )?
             };

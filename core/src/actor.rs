@@ -351,7 +351,7 @@ impl Actor {
 
                     let mut witness = match script.kind() {
                         Kind::WinternitzCommit(script) => {
-                            if script.1 != self.xonly_public_key {
+                            if script.checksig_pubkey != self.xonly_public_key {
                                 return Err(BridgeError::NotOwnedScriptPath);
                             }
 

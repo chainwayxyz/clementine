@@ -1,4 +1,3 @@
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
@@ -97,7 +96,7 @@ impl Watchtower {
                         .protocol_paramset()
                         .watchtower_challenge_message_length as u32,
                 )],
-                self.config.protocol_paramset().network,
+                self.config.protocol_paramset(),
             );
             challenge_addresses.push(challenge_address.script_pubkey());
         }

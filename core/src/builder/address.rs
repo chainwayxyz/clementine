@@ -4,16 +4,17 @@
 //! addresses.
 
 use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript, WinternitzCommit};
+use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::Amount;
 use bitcoin::{
     secp256k1::XOnlyPublicKey,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
 };
-use bitcoin::{Amount, Network};
 use bitvm::signatures::winternitz;
 
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
@@ -163,10 +164,12 @@ pub fn create_checksig_address(
 pub fn derive_challenge_address_from_xonlypk_and_wpk(
     xonly_pk: &XOnlyPublicKey,
     pk_with_size: Vec<(winternitz::PublicKey, u32)>,
-    network: Network,
+    paramset: &'static ProtocolParamset,
 ) -> Address {
-    let winternitz_commit = WinternitzCommit::new(pk_with_size, *xonly_pk);
-    let (address, _) = create_taproot_address(&[winternitz_commit.to_script_buf()], None, network);
+    let winternitz_commit =
+        WinternitzCommit::new(pk_with_size, *xonly_pk, paramset.winternitz_log_d);
+    let (address, _) =
+        create_taproot_address(&[winternitz_commit.to_script_buf()], None, paramset.network);
     address
 }
 

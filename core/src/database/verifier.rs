@@ -388,7 +388,12 @@ mod tests {
         ])
         .unwrap();
         let outpoint = OutPoint::null();
-        let taproot_address = Address::p2tr(&SECP, xonly_public_key, None, config.protocol_paramset().network);
+        let taproot_address = Address::p2tr(
+            &SECP,
+            xonly_public_key,
+            None,
+            config.protocol_paramset().network,
+        );
         let evm_address = EVMAddress([1u8; 20]);
         database
             .set_deposit_info(

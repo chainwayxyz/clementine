@@ -939,7 +939,13 @@ mod tests {
         );
         let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
 
-        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db, "tx_sender", config.protocol_paramset().network);
+        let tx_sender = TxSender::new(
+            signer.clone(),
+            rpc.clone(),
+            db,
+            "tx_sender",
+            config.protocol_paramset().network,
+        );
 
         let scripts: Vec<Arc<dyn SpendableScript>> =
             vec![Arc::new(CheckSig::new(xonly_pk)).clone()];
