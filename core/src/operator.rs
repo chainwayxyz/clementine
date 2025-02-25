@@ -1,6 +1,6 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
-use crate::builder::transaction::creator::{create_round_txhandlers, KickoffWinternitzKeys};
+use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
 use crate::config::BridgeConfig;

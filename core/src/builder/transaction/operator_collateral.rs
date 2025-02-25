@@ -69,7 +69,7 @@ pub fn create_round_txhandler(
     // This 1 block is to enforce that operator has to put a sequence number in the input
     // so this spending path can't be used to send kickoff tx
     let timeout_block_count_locked_script =
-        Arc::new(TimelockScript::new(Some(operator_xonly_pk), 1u16));
+        Arc::new(TimelockScript::new(Some(operator_xonly_pk), 1));
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
         input_amount
@@ -204,7 +204,7 @@ pub fn create_ready_to_reimburse_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            prevout.get_prevout().value - ANCHOR_AMOUNT - Amount::from_sat(330),
+            prevout.get_prevout().value - ANCHOR_AMOUNT,
             vec![],
             Some(operator_xonly_pk),
             network,

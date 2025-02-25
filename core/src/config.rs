@@ -15,11 +15,12 @@ use crate::errors::BridgeError;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{address::NetworkUnchecked, Amount};
 use bitcoin::{Address, Network, XOnlyPublicKey};
+use protocol::{ProtocolParamset, ProtocolParamsetName};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
 
-pub mod paramset;
+pub mod protocol;
 
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,8 +55,6 @@ pub struct BridgeConfig {
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
     pub user_takes_after: u16,
-    /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
-    pub operator_takes_after: u32,
     /// Bridge amount in satoshis.
     pub bridge_amount_sats: Amount,
     /// Operator: number of kickoff UTXOs per funding transaction.
@@ -100,10 +99,12 @@ pub struct BridgeConfig {
     pub winternitz_secret_key: Option<SecretKey>,
     /// Collateral funding amount for operators.
     pub collateral_funding_amount: Amount,
-    /// Timeout block count for each kickoff UTXO
-    pub timeout_block_count: i64,
-    /// Max withdrawal(also called reimburse) time block count
-    pub max_withdrawal_time_block_count: u16,
+    /// Protocol paramset name
+    /// One of:
+    /// - `Mainnet`
+    /// - `Regtest`
+    /// - `Testnet`
+    pub protocol_paramset: ProtocolParamsetName,
 }
 
 impl BridgeConfig {
@@ -112,6 +113,10 @@ impl BridgeConfig {
         BridgeConfig {
             ..Default::default()
         }
+    }
+
+    pub fn protocol_paramset(&self) -> &'static ProtocolParamset {
+        self.protocol_paramset.into()
     }
 
     /// Read contents of a TOML file and generate a `BridgeConfig`.
@@ -145,6 +150,7 @@ impl BridgeConfig {
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
+            protocol_paramset: ProtocolParamsetName::Mainnet,
             host: "127.0.0.1".to_string(),
             port: 17000,
             index: 0,
@@ -204,8 +210,6 @@ impl Default for BridgeConfig {
                 )
                 .expect("known valid input"),
             ],
-
-            operator_takes_after: 5,
 
             operator_wallet_addresses: vec![
                 Address::from_str(
@@ -323,8 +327,6 @@ impl Default for BridgeConfig {
             operator_endpoints: None,
             watchtower_endpoints: None,
             collateral_funding_amount: Amount::from_sat(200_000_000),
-            timeout_block_count: 6,
-            max_withdrawal_time_block_count: BLOCKS_PER_WEEK * 4,
         }
     }
 }

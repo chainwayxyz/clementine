@@ -11,10 +11,15 @@ pub const BLOCKS_PER_DAY: u16 = 6 * 24;
 
 pub const WINTERNITZ_LOG_D: u32 = 4;
 
+#[deprecated(since = "0.1.0", note = "Use ProtocolParamset instead")]
+pub const WATCHTOWER_CHALLENGE_MESSAGE_LENGTH: u32 = 480;
+
+#[deprecated(since = "0.1.0", note = "Use ProtocolParamset instead")]
 pub const KICKOFF_BLOCKHASH_COMMIT_LENGTH: u32 = 20 * 2;
 
+#[deprecated(since = "0.1.0", note = "Use ProtocolParamset instead")]
 pub const KICKOFF_AMOUNT: Amount = Amount::from_sat(40_000);
 
+#[deprecated(since = "0.1.0", note = "Use ProtocolParamset instead")]
 /// The amount that should be paid to the operator to challenge them.
 pub const OPERATOR_CHALLENGE_AMOUNT: Amount = Amount::from_sat(200_000_000);
-

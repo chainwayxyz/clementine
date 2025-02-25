@@ -57,6 +57,7 @@ impl<T: State> TxHandler<T> {
             txout.spendinfo().clone(),
         )) // TODO: Can we get rid of clones?
     }
+    
     pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {
         let txin = self.txins.get(idx).ok_or(BridgeError::TxInputNotFound)?;
         Ok(txin.get_signature_id())

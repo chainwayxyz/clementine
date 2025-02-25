@@ -67,7 +67,7 @@ lazy_static::lazy_static! {
             // Create minimal dummy data for faster development
             BitvmCache {
                 intermediate_variables: {
-        let mut map = BTreeMap::new();
+                    let mut map = BTreeMap::new();
                     map.insert("dummy_var_1".to_string(), 4);
                     map.insert("dummy_var_2".to_string(), 4);
                     map.insert("dummy_var_3".to_string(), 4);

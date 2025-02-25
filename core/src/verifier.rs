@@ -6,11 +6,11 @@ use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
-use crate::builder::transaction::creator::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, DepositData, OperatorData, TransactionType, TxHandler, Unsigned,
 };
+use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
 use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
