@@ -764,7 +764,7 @@ impl Operator {
                                 deposit_outpoint: Some(deposit_outpoint),
                             }),
                             &signed_tx,
-                            FeePayingType::RBF,
+                            FeePayingType::CPFP,
                             &[],
                             &[],
                             &[],
