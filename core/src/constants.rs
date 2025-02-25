@@ -9,6 +9,7 @@ pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330); // TODO: Maybe thi
 pub const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
 pub const BLOCKS_PER_DAY: u16 = 6 * 24;
 
+#[deprecated(since = "0.1.0", note = "Use ProtocolParamset instead")]
 pub const WINTERNITZ_LOG_D: u32 = 4;
 
 #[deprecated(since = "0.1.0", note = "Use ProtocolParamset instead")]

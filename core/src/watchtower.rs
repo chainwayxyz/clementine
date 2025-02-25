@@ -91,7 +91,12 @@ impl Watchtower {
         for winternitz_pubkey in winternitz_pubkeys {
             let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
                 &self.signer.xonly_public_key,
-                vec![(winternitz_pubkey, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
+                vec![(
+                    winternitz_pubkey,
+                    self.config
+                        .protocol_paramset()
+                        .watchtower_challenge_message_length as u32,
+                )],
                 self.config.protocol_paramset().network,
             );
             challenge_addresses.push(challenge_address.script_pubkey());

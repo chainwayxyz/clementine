@@ -81,7 +81,7 @@ impl WinternitzDerivationPath {
     pub fn get_params(&self) -> winternitz::Parameters {
         match self {
             WinternitzDerivationPath::Kickoff(_, _, paramset) => winternitz::Parameters::new(
-                paramset.kickoff_blockhash_commit_length as u32,
+                paramset.kickoff_blockhash_commit_length,
                 paramset.winternitz_log_d,
             ),
             WinternitzDerivationPath::WatchtowerChallenge(_, _, paramset) => {
@@ -783,12 +783,12 @@ mod tests {
             Network::Regtest,
         );
 
-        let mut params = WinternitzDerivationPath::Kickoff(0, 0, &paramset);
+        let mut params = WinternitzDerivationPath::Kickoff(0, 0, paramset);
         let pk0 = actor.derive_winternitz_pk(params.clone()).unwrap();
         let pk1 = actor.derive_winternitz_pk(params).unwrap();
         assert_eq!(pk0, pk1);
 
-        params = WinternitzDerivationPath::Kickoff(0, 1, &paramset);
+        params = WinternitzDerivationPath::Kickoff(0, 1, paramset);
         let pk2 = actor.derive_winternitz_pk(params).unwrap();
         assert_ne!(pk0, pk2);
     }
@@ -809,7 +809,7 @@ mod tests {
         );
         // Test so that same path always returns the same public key (to not change it accidentally)
         // check only first digit
-        let params = WinternitzDerivationPath::Kickoff(0, 1, &paramset);
+        let params = WinternitzDerivationPath::Kickoff(0, 1, paramset);
         let expected_pk = vec![
             173, 204, 163, 206, 248, 61, 42, 248, 42, 163, 51, 172, 127, 111, 1, 82, 142, 151, 78,
             6,
@@ -819,7 +819,7 @@ mod tests {
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::WatchtowerChallenge(1, Txid::all_zeros(), &paramset);
+        let params = WinternitzDerivationPath::WatchtowerChallenge(1, Txid::all_zeros(), paramset);
         let expected_pk = vec![
             237, 68, 125, 7, 202, 239, 182, 192, 94, 207, 47, 40, 57, 188, 195, 82, 231, 236, 105,
             252,
@@ -833,7 +833,7 @@ mod tests {
             3,
             "step0".to_string(),
             Txid::all_zeros(),
-            &paramset,
+            paramset,
         );
         let expected_pk = vec![
             19, 106, 233, 190, 243, 102, 53, 65, 74, 188, 254, 213, 228, 200, 160, 166, 111, 183,
@@ -844,7 +844,7 @@ mod tests {
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::ChallengeAckHash(0, Txid::all_zeros(), &paramset);
+        let params = WinternitzDerivationPath::ChallengeAckHash(0, Txid::all_zeros(), paramset);
         let expected_pk = vec![
             50, 128, 175, 255, 135, 45, 190, 117, 75, 4, 141, 166, 43, 146, 207, 154, 189, 149,
             143, 254,
@@ -877,7 +877,7 @@ mod tests {
             message_len,
             "step1".to_string(),
             Txid::all_zeros(),
-            &paramset,
+            paramset,
         );
         let params = winternitz::Parameters::new(message_len, paramset.winternitz_log_d);
 

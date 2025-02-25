@@ -2,7 +2,6 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::config::BridgeConfig;
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::Operator;
@@ -140,7 +139,13 @@ impl Watchtower {
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
     ) -> Result<RawSignedTx, BridgeError> {
-        if commit_data.len() != WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize / 2usize {
+        if commit_data.len()
+            != self
+                .config
+                .protocol_paramset()
+                .watchtower_challenge_message_length
+                / 2
+        {
             return Err(BridgeError::InvalidWatchtowerChallengeData);
         }
         // get operator data
@@ -226,8 +231,11 @@ impl Operator {
         let mut signed_txhandlers = Vec::new();
 
         for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
-            let paths_with_size = utils::COMBINED_ASSERT_DATA
-                .get_paths_and_sizes(idx, assert_data.deposit_data.deposit_outpoint.txid, self.config.protocol_paramset());
+            let paths_with_size = utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(
+                idx,
+                assert_data.deposit_data.deposit_outpoint.txid,
+                self.config.protocol_paramset(),
+            );
             let mut mini_assert_txhandler =
                 txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
                     BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),

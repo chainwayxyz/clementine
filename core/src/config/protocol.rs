@@ -48,7 +48,7 @@ pub struct ProtocolParamset {
     /// Collateral funding amount for operators used to fund the round transaction chain.
     pub collateral_funding_amount: Amount,
     /// Length of the blockhash commitment in kickoff transactions.
-    pub kickoff_blockhash_commit_length: usize,
+    pub kickoff_blockhash_commit_length: u32,
     /// Length of the message used in watchtower challenge transactions.
     pub watchtower_challenge_message_length: usize,
     /// Winternitz derivation log_d (shared for all WOTS commitments)

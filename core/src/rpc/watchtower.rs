@@ -56,7 +56,13 @@ impl ClementineWatchtower for Watchtower {
             .create_and_sign_watchtower_challenge(
                 self.nofn_xonly_pk,
                 transaction_data,
-                &[0u8; WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize / 2], // dummy challenge
+                &vec![
+                    0u8;
+                    self.config
+                        .protocol_paramset()
+                        .watchtower_challenge_message_length
+                        / 2
+                ], // dummy challenge
             )
             .await?;
 

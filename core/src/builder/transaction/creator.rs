@@ -272,9 +272,8 @@ pub async fn create_txhandlers(
             .get_spendable_output(0)?
             .get_prevout()
             .value,
-        paramset.num_kickoffs_per_round,
-        paramset.network,
         kickoff_winternitz_keys.get_keys_for_round(kickoff_id.round_idx as usize + 1),
+        paramset,
     )?;
 
     let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
@@ -288,8 +287,11 @@ pub async fn create_txhandlers(
             Vec::with_capacity(utils::COMBINED_ASSERT_DATA.num_steps.len());
 
         for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
-            let paths = utils::COMBINED_ASSERT_DATA
-                .get_paths_and_sizes(idx, deposit_data.deposit_outpoint.txid, paramset);
+            let paths = utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(
+                idx,
+                deposit_data.deposit_outpoint.txid,
+                paramset,
+            );
             let mut param = Vec::with_capacity(paths.len());
             for (path, size) in paths {
                 param.push((actor.derive_winternitz_pk(path)?, size));
@@ -341,6 +343,7 @@ pub async fn create_txhandlers(
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         &operator_data.reimburse_addr,
+        paramset
     )?;
     txhandlers.insert(
         challenge_txhandler.get_transaction_type(),
@@ -562,16 +565,15 @@ pub fn create_round_txhandlers(
                     .get_spendable_output(0)?
                     .get_prevout()
                     .value,
-                paramset.num_kickoffs_per_round,
-                paramset.network,
                 kickoff_winternitz_keys.get_keys_for_round(round_idx),
+                paramset,
             )?;
 
             let ready_to_reimburse_txhandler =
                 builder::transaction::create_ready_to_reimburse_txhandler(
                     &round_txhandler,
                     operator_data.xonly_pk,
-                    paramset.network,
+                    paramset,
                 )?;
             (round_txhandler, ready_to_reimburse_txhandler)
         }
@@ -581,10 +583,9 @@ pub fn create_round_txhandlers(
                 operator_data.xonly_pk,
                 operator_data.collateral_funding_outpoint,
                 paramset.collateral_funding_amount,
-                paramset.num_kickoffs_per_round,
-                paramset.network,
                 round_idx,
                 kickoff_winternitz_keys,
+                paramset,
             )?
         }
     };
@@ -592,7 +593,7 @@ pub fn create_round_txhandlers(
     let unspent_kickoffs = create_unspent_kickoff_txhandlers(
         &round_txhandler,
         &ready_to_reimburse_txhandler,
-        paramset.num_kickoffs_per_round,
+        paramset,
     )?;
 
     txhandlers.push(round_txhandler);
