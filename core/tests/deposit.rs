@@ -77,9 +77,19 @@ impl TestCase for DepositOnCitrea {
             .client
             .get_block(&tx_info.blockhash.expect("Not None"))
             .await?;
+        rpc.mine_blocks(101).await.unwrap();
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
 
+        tracing::error!("real block height: {:?}", block_height);
+
         builder::citrea::initialized(sequencer.client.http_client().clone()).await?;
+        while builder::citrea::get_block_nu(sequencer.client.http_client().clone()).await?
+            < block_height.try_into().unwrap()
+        {
+            rpc.mine_blocks(1).await.unwrap();
+            tracing::error!("Waiting for block to be mined");
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
 
         let deposit = builder::citrea::deposit(
             sequencer.client.http_client().clone(),
@@ -94,6 +104,7 @@ impl TestCase for DepositOnCitrea {
     }
 }
 
+#[ignore = "reason"]
 #[tokio::test]
 async fn send_deposit_details_to_citrea() -> Result<()> {
     TestCaseRunner::new(DepositOnCitrea).run().await

@@ -5,9 +5,8 @@ use alloy::primitives::{Bytes, FixedBytes, Uint};
 use alloy::sol;
 use alloy::sol_types::SolValue;
 use bitcoin::consensus::Encodable;
+use bitcoin::hashes::Hash;
 use bitcoin::{Block, Transaction, Txid};
-use merkle::MerkleTree;
-use ring::digest::SHA256;
 
 sol!(
     #[derive(Debug, PartialEq, Eq)]
@@ -74,50 +73,33 @@ fn get_block_merkle_proof(
             if tx.compute_txid() == target_txid {
                 txid_index = i;
             }
-
-            tx.compute_wtxid() // or is this wtxid?
+            if i == 0 {
+                [0; 32]
+            } else {
+                let wtxid = tx.compute_wtxid();
+                let wtxid = wtxid.as_byte_array().clone();
+                wtxid.clone() // or is this wtxid?
+            }
         })
         .collect::<Vec<_>>();
 
-    let merkle_tree = MerkleTree::from_vec(&SHA256, txids);
-    let merkle_proof = merkle_tree
-        .gen_nth_proof(txid_index)
-        .ok_or(BridgeError::Error("TODO".to_string()))?;
-    let merkle_proof_leafs =
-        merkle_proof.root_hash.as_slice()[0..merkle_proof.root_hash.len() - 1].to_vec();
+    let m = super::bitcoin_merkle::BitcoinMerkleTree::new(txids.clone());
+    let s = block.witness_root().unwrap();
 
-    // let wtxid_root = merkle_proof_with_root
-    //     .root_hash
-    //     .last()
-    //     .ok_or(BridgeError::Error("TODO".to_string()))?;
-    // let witness_reserved_value = block
-    //     .txdata
-    //     .get(0)
-    //     .expect("TODO")
-    //     .input
-    //     .get(0)
-    //     .expect("TODO")
-    //     .witness
-    //     .iter()
-    //     .next()
-    //     .expect("TODO");
-    // let concat = [&[*wtxid_root], witness_reserved_value].concat();
-    // let witness_commit = Hash::const_hash(&concat);
-    // if !block.txdata.get(0).expect("TODO").raw_hex().contains(&witness_commit.to_string()){
-    //     return Err(BridgeError::Error(format!("Witness Commitment not found in the first transaction of the block: {:?}: {:?}", witness_commit.to_string(), block.txdata.get(0).expect("TODO").raw_hex())));
-    // }
+    let x = m.get_idx_path(txid_index.try_into().unwrap());
+    // x.reverse();
 
-    let proof = if txid_index % 2 == 0 {
-        merkle_proof_leafs[1..].to_vec()
-    } else {
-        [
-            vec![merkle_proof_leafs[0]],
-            merkle_proof_leafs[2..].to_vec(),
-        ]
-        .concat()
-    };
+    let cmp = m.calculate_root_with_merkle_proof(
+        txids[txid_index],
+        txid_index.try_into().unwrap(),
+        x.clone(),
+    );
+    tracing::error!("wtxid {:?}", block.txdata[txid_index].compute_wtxid());
+    tracing::error!("cmp: \n{:?}\n{:?}", cmp, s.as_raw_hash().as_byte_array());
 
-    Ok((txid_index, proof))
+    tracing::error!("xzzz: {:#?} {:?}", (txids.clone(), txid_index), x);
+
+    Ok((txid_index, x.into_iter().flatten().collect()))
 }
 
 pub fn get_deposit_params(
@@ -128,25 +110,38 @@ pub fn get_deposit_params(
 ) -> Result<Vec<u8>, BridgeError> {
     let version: u32 = transaction.version.0 as u32;
     let flag: u16 = 1; // TODO
-    let vin: Vec<u8> = transaction.input.iter().map(|input| {
-        let mut encoded_input = Vec::new();
-        let mut previous_output = Vec::new();
-        input.previous_output.consensus_encode(&mut previous_output)
-            .map_err(|e| BridgeError::Error(format!("Can't encode input: {}", e)))?;
-        tracing::error!("previous_output: {:?}", previous_output);
-        let mut script_sig = Vec::new();
-        input.script_sig.consensus_encode(&mut script_sig)
-            .map_err(|e| BridgeError::Error(format!("Can't encode script_sig: {}", e)))?;
-        let mut sequence = Vec::new();
-        input.sequence.consensus_encode(&mut sequence)
-            .map_err(|e| BridgeError::Error(format!("Can't encode sequence: {}", e)))?;
+    let vin: Vec<u8> = transaction
+        .input
+        .iter()
+        .map(|input| {
+            let mut encoded_input = Vec::new();
+            let mut previous_output = Vec::new();
+            input
+                .previous_output
+                .consensus_encode(&mut previous_output)
+                .map_err(|e| BridgeError::Error(format!("Can't encode input: {}", e)))?;
+            tracing::error!("previous_output: {:?}", previous_output);
+            let mut script_sig = Vec::new();
+            input
+                .script_sig
+                .consensus_encode(&mut script_sig)
+                .map_err(|e| BridgeError::Error(format!("Can't encode script_sig: {}", e)))?;
+            let mut sequence = Vec::new();
+            input
+                .sequence
+                .consensus_encode(&mut sequence)
+                .map_err(|e| BridgeError::Error(format!("Can't encode sequence: {}", e)))?;
 
-        encoded_input.extend(previous_output);
-        encoded_input.extend(script_sig);
-        encoded_input.extend(sequence);
+            encoded_input.extend(previous_output);
+            encoded_input.extend(script_sig);
+            encoded_input.extend(sequence);
 
-        Ok::<Vec<u8>, BridgeError>(encoded_input)
-    }).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
+            Ok::<Vec<u8>, BridgeError>(encoded_input)
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     let vin = [vec![transaction.input.len() as u8], vin].concat();
     let vout: Vec<u8> = encode_btc_params!(transaction.output);
     let vout = [vec![transaction.output.len() as u8], vout].concat();
@@ -154,6 +149,7 @@ pub fn get_deposit_params(
     let locktime: u32 = transaction.lock_time.to_consensus_u32();
     let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
 
+    let version = version.to_le_bytes();
     let transaction_params = TransactionParams {
         version: FixedBytes::from(version),
         flag: FixedBytes::from(flag),

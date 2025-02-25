@@ -40,6 +40,26 @@ pub async fn initialized(client: HttpClient) -> Result<(), BridgeError> {
 
     Ok(())
 }
+pub async fn get_block_nu(client: HttpClient) -> Result<u32, BridgeError> {
+    let params = rpc_params![
+        json!({
+            "to": "0x3100000000000000000000000000000000000001",
+            "data": "0x57e871e7"
+        }),
+        "latest"
+    ];
+
+    let response: String = client.request("eth_call", params).await?;
+    tracing::error!("eee {:?}", response);
+
+    let decoded_hex = hex::decode(&response[2..]).map_err(|e| BridgeError::Error(e.to_string()))?;
+    let block_number = decoded_hex
+        .iter()
+        .take(4)
+        .fold(0u32, |acc, &byte| acc << 8 | byte as u32);
+
+    Ok(block_number)
+}
 
 pub async fn deposit(
     client: HttpClient,

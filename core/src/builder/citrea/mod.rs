@@ -1,3 +1,4 @@
+mod bitcoin_merkle;
 mod parameter;
 pub mod request;
 
