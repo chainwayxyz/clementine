@@ -1,11 +1,28 @@
 //! # Parameter Builder For Citrea Requests
 
 use crate::errors::BridgeError;
+use alloy::primitives::{Bytes, FixedBytes, Uint, U256, U32};
+use alloy::sol;
 use alloy::sol_types::SolValue;
 use bitcoin::consensus::Encodable;
 use bitcoin::{Block, Transaction, Txid};
 use merkle::MerkleTree;
 use ring::digest::SHA256;
+
+sol!(
+    #[derive(Debug, PartialEq, Eq)]
+    struct TransactionParams {
+        bytes4 version;
+        bytes2 flag;
+        bytes vin;
+        bytes vout;
+        bytes witness;
+        bytes4 locktime;
+        bytes intermediate_nodes;
+        uint256 block_height;
+        uint256 index;
+    }
+);
 
 macro_rules! encode_btc_params {
     ($params:expr) => {
@@ -90,7 +107,7 @@ fn get_block_merkle_proof(
     //     return Err(BridgeError::Error(format!("Witness Commitment not found in the first transaction of the block: {:?}: {:?}", witness_commit.to_string(), block.txdata.get(0).expect("TODO").raw_hex())));
     // }
 
-    let proof = if txid_index % 2 == 0 {
+    let _proof = if txid_index % 2 == 0 {
         merkle_proof_leafs[1..].to_vec()
     } else {
         [
@@ -100,7 +117,7 @@ fn get_block_merkle_proof(
         .concat()
     };
 
-    Ok((txid_index, proof))
+    Ok((txid_index, vec![0u8; 32]))
 }
 
 pub fn get_deposit_params(
@@ -111,27 +128,44 @@ pub fn get_deposit_params(
 ) -> Result<Vec<u8>, BridgeError> {
     let version: u32 = transaction.version.0 as u32;
     let flag: u16 = 1; // TODO
+    let vin: Vec<u8> = transaction.input.iter().map(|input| {
+        let mut encoded_input = Vec::new();
+        let mut previous_output = Vec::new();
+        input.previous_output.consensus_encode(&mut previous_output)
+            .map_err(|e| BridgeError::Error(format!("Can't encode input: {}", e)))?;
+        tracing::error!("previous_output: {:?}", previous_output);
+        let mut script_sig = Vec::new();
+        input.script_sig.consensus_encode(&mut script_sig)
+            .map_err(|e| BridgeError::Error(format!("Can't encode script_sig: {}", e)))?;
+        let mut sequence = Vec::new();
+        input.sequence.consensus_encode(&mut sequence)
+            .map_err(|e| BridgeError::Error(format!("Can't encode sequence: {}", e)))?;
+
+        encoded_input.extend(previous_output);
+        encoded_input.extend(script_sig);
+        encoded_input.extend(sequence);
+
+        Ok::<Vec<u8>, BridgeError>(encoded_input)
+    }).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
     let vin: Vec<u8> = encode_btc_params!(transaction.input);
     let vout: Vec<u8> = encode_btc_params!(transaction.output);
     let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);
     let locktime: u32 = transaction.lock_time.to_consensus_u32();
     let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
 
-    let values = (
-        version,
-        flag,
-        vin,
-        vout,
-        witness,
-        locktime,
-        merkle_proof,
-        vec![0u8; 28],
-        block_height,
-        vec![0u8; 28],
-        index as u32,
-    );
+    let transaction_params = TransactionParams {
+        version: FixedBytes::from(version),
+        flag: FixedBytes::from(flag),
+        vin: Bytes::copy_from_slice(&vin),
+        vout: Bytes::copy_from_slice(&vout),
+        witness: Bytes::copy_from_slice(&witness),
+        locktime: FixedBytes::from(locktime),
+        intermediate_nodes: Bytes::copy_from_slice(&merkle_proof),
+        block_height: Uint::from(block_height),
+        index: Uint::from(index),
+    };
 
-    Ok(values.abi_encode())
+    Ok(transaction_params.abi_encode())
 }
 
 #[cfg(test)]
