@@ -255,8 +255,8 @@ impl TxSender {
 
     /// Tries to send a tx. If all conditions are met, it will save the tx to the database.
     /// It will also save the cancelled outpoints, cancelled txids and activated prerequisite txs to the database.
-    /// It will automatically saves inputs as cancelled outpoints.
-    /// It will automatically saves inputs as activated outpoints.
+    /// It will automatically save inputs as cancelled outpoints.
+    /// It will automatically save inputs as activated outpoints.
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn try_to_send(
         &self,

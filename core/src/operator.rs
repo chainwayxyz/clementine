@@ -187,27 +187,27 @@ impl Operator {
         self.signer
             .tx_sign_and_fill_sigs(&mut first_round_tx, &[])?;
 
-        // let mut dbtx = self.db.begin_transaction().await?;
-        // self.tx_sender
-        //     .try_to_send(
-        //         &mut dbtx,
-        //         Some(TxDataForLogging {
-        //             tx_type: TransactionType::Round,
-        //             operator_idx: Some(self.idx as u32),
-        //             verifier_idx: None,
-        //             round_idx: Some(0),
-        //             kickoff_idx: None,
-        //             deposit_outpoint: None,
-        //         }),
-        //         first_round_tx.get_cached_tx(),
-        //         FeePayingType::CPFP,
-        //         &[],
-        //         &[],
-        //         &[],
-        //         &[],
-        //     )
-        //     .await?;
-        // dbtx.commit().await?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .try_to_send(
+                &mut dbtx,
+                Some(TxDataForLogging {
+                    tx_type: TransactionType::Round,
+                    operator_idx: Some(self.idx as u32),
+                    verifier_idx: None,
+                    round_idx: Some(0),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                first_round_tx.get_cached_tx(),
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit().await?;
 
         tokio::spawn(async move {
             for wpk in wpks {
