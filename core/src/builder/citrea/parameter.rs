@@ -107,7 +107,7 @@ fn get_block_merkle_proof(
     //     return Err(BridgeError::Error(format!("Witness Commitment not found in the first transaction of the block: {:?}: {:?}", witness_commit.to_string(), block.txdata.get(0).expect("TODO").raw_hex())));
     // }
 
-    let _proof = if txid_index % 2 == 0 {
+    let proof = if txid_index % 2 == 0 {
         merkle_proof_leafs[1..].to_vec()
     } else {
         [
@@ -117,7 +117,7 @@ fn get_block_merkle_proof(
         .concat()
     };
 
-    Ok((txid_index, vec![0u8; 32]))
+    Ok((txid_index, proof))
 }
 
 pub fn get_deposit_params(
@@ -147,9 +147,9 @@ pub fn get_deposit_params(
 
         Ok::<Vec<u8>, BridgeError>(encoded_input)
     }).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
-    let vin = [vec![1], vin].concat();
+    let vin = [vec![transaction.input.len() as u8], vin].concat();
     let vout: Vec<u8> = encode_btc_params!(transaction.output);
-    let vout = [vec![1], vout].concat();
+    let vout = [vec![transaction.output.len() as u8], vout].concat();
     let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);
     let locktime: u32 = transaction.lock_time.to_consensus_u32();
     let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
