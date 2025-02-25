@@ -32,6 +32,7 @@ pub struct BridgeConfig {
     /// Entity index.
     pub index: u32,
     /// Bitcoin network to work on.
+    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
     pub network: Network,
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
@@ -47,18 +48,21 @@ pub struct BridgeConfig {
     pub num_operators: usize,
     /// Number of watchtowers.
     pub num_watchtowers: usize,
+    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
     /// Number of sequential collateral txs
     pub num_round_txs: usize,
+    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
     /// number of kickoffs per sequential collateral tx
     pub num_kickoffs_per_round: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
+
+    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
     /// Number of blocks after which user can take deposit back if deposit request fails.
     pub user_takes_after: u16,
+    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
     /// Bridge amount in satoshis.
     pub bridge_amount_sats: Amount,
-    /// Operator: number of kickoff UTXOs per funding transaction.
-    pub operator_num_kickoff_utxos_per_tx: usize,
     /// Threshold for confirmation.
     pub confirmation_threshold: u32,
     /// Bitcoin remote procedure call URL.
@@ -115,6 +119,7 @@ impl BridgeConfig {
         }
     }
 
+    /// Get the protocol paramset defined by the paramset name.
     pub fn protocol_paramset(&self) -> &'static ProtocolParamset {
         self.protocol_paramset.into()
     }
@@ -137,11 +142,28 @@ impl BridgeConfig {
         BridgeConfig::try_parse_from(contents)
     }
 
+    pub fn validate(&self) -> Result<(), BridgeError> {
+        if self.protocol_paramset().network != self.network {
+            return Err(BridgeError::ConfigError(
+                format!(
+                    "Network mismatch between paramset and config: protocol.network ({:?}) != config.network ({:?})",
+                    self.protocol_paramset().network, self.network
+                )
+                .to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Try to parse a `BridgeConfig` from given TOML formatted string and
     /// generate a `BridgeConfig`.
     pub fn try_parse_from(input: String) -> Result<Self, BridgeError> {
         match toml::from_str::<BridgeConfig>(&input) {
-            Ok(c) => Ok(c),
+            Ok(c) => {
+                c.validate()?;
+                Ok(c)
+            }
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
     }
@@ -150,7 +172,7 @@ impl BridgeConfig {
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
-            protocol_paramset: ProtocolParamsetName::Mainnet,
+            protocol_paramset: ProtocolParamsetName::Regtest,
             host: "127.0.0.1".to_string(),
             port: 17000,
             index: 0,
@@ -226,8 +248,6 @@ impl Default for BridgeConfig {
                 .expect("known valid input"),
             ],
             operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
-
-            operator_num_kickoff_utxos_per_tx: 10,
 
             user_takes_after: 200,
 

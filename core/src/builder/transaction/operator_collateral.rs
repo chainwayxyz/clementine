@@ -149,7 +149,7 @@ pub fn create_assert_timeout_txhandlers(
 }
 
 /// Creates the nth (0-indexed) `sequential_collateral_txhandler` and `reimburse_generator_txhandler` pair
-/// for a sspecific operator.
+/// for a specific operator.
 pub fn create_round_nth_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     input_outpoint: OutPoint,

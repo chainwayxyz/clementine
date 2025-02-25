@@ -31,49 +31,63 @@ impl From<ProtocolParamsetName> for &'static ProtocolParamset {
 /// paramset is chosen by the actor by choosing a ParamsetName inside the
 /// [`crate::config::BridgeConfig`].
 pub struct ProtocolParamset {
+    /// Bitcoin network to work on (mainnet, testnet, regtest).
     pub network: Network,
+    /// Number of round transactions that the operator will create.
     pub num_round_txs: usize,
+    /// Number of kickoff UTXOs per round transaction.
     pub num_kickoffs_per_round: usize,
+    /// Bridge deposit amount that users can deposit.
     pub bridge_amount: Amount,
+    /// Amount allocated for each kickoff UTXO.
     pub kickoff_amount: Amount,
+    /// Number of blocks after which user can take deposit back if deposit request fails.
+    pub user_takes_after: u16,
+    /// Amount allocated for operator challenge transactions.
     pub operator_challenge_amount: Amount,
+    /// Collateral funding amount for operators used to fund the round transaction chain.
     pub collateral_funding_amount: Amount,
+    /// Length of the blockhash commitment in kickoff transactions.
     pub kickoff_blockhash_commit_length: usize,
+    /// Length of the message used in watchtower challenge transactions.
     pub watchtower_challenge_message_length: usize,
 }
 
 pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Bitcoin,
     num_round_txs: 2,
+    num_kickoffs_per_round: 200,
+    user_takes_after: 200,
     bridge_amount: Amount::from_sat(1_000_000_000),
     kickoff_amount: Amount::from_sat(40_000),
-    kickoff_blockhash_commit_length: 40,
     operator_challenge_amount: Amount::from_sat(200_000_000),
-    watchtower_challenge_message_length: 480,
-    num_kickoffs_per_round: 200,
     collateral_funding_amount: Amount::from_sat(200_000_000),
+    kickoff_blockhash_commit_length: 40,
+    watchtower_challenge_message_length: 480,
 };
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Regtest,
     num_round_txs: 2,
+    num_kickoffs_per_round: 2,
+    user_takes_after: 200,
     bridge_amount: Amount::from_sat(1_000_000_000),
     kickoff_amount: Amount::from_sat(40_000),
     kickoff_blockhash_commit_length: 40,
     operator_challenge_amount: Amount::from_sat(200_000_000),
-    watchtower_challenge_message_length: 480,
-    num_kickoffs_per_round: 2,
     collateral_funding_amount: Amount::from_sat(200_000_000),
+    watchtower_challenge_message_length: 480,
 };
 
 pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Testnet,
     num_round_txs: 2,
+    num_kickoffs_per_round: 2,
+    user_takes_after: 200,
     bridge_amount: Amount::from_sat(10_000_000),
     kickoff_amount: Amount::from_sat(40_000),
-    kickoff_blockhash_commit_length: 40,
     operator_challenge_amount: Amount::from_sat(200_000_000),
-    watchtower_challenge_message_length: 480,
-    num_kickoffs_per_round: 2,
     collateral_funding_amount: Amount::from_sat(200_000_000),
+    kickoff_blockhash_commit_length: 40,
+    watchtower_challenge_message_length: 480,
 };
