@@ -251,6 +251,7 @@ pub fn create_kickoff_not_finalized_txhandler(
     ready_to_reimburse_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::KickoffNotFinalized)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::KickoffNotFinalized1,
             kickoff_txhandler.get_spendable_output(2)?,
@@ -334,6 +335,7 @@ pub fn create_payout_txhandler(
     );
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

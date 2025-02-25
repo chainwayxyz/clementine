@@ -13,6 +13,7 @@ pub fn create_disprove_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::DisproveTimeout)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             kickoff_txhandler.get_spendable_output(3)?,
@@ -37,6 +38,7 @@ pub fn create_mini_asserts(
     for idx in 0..num_asserts {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::MiniAssert(idx))
+                .with_version(Version::non_standard(3))
                 .add_input(
                     NormalSignatureKind::MiniAssert1,
                     kickoff_txhandler.get_spendable_output(4 + idx)?,

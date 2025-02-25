@@ -378,6 +378,7 @@ pub enum NormalSignatureKind {
     MiniAssert1 = 11,
     OperatorChallengeAck1 = 12,
     NotStored = 13,
+    WatchtowerChallenge1 = 14,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -400,6 +401,7 @@ impl NormalSignatureKind {
             Self::MiniAssert1 => "MiniAssert1",
             Self::OperatorChallengeAck1 => "OperatorChallengeAck1",
             Self::NotStored => "NotStored",
+            Self::WatchtowerChallenge1 => "WatchtowerChallenge1",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -419,6 +421,7 @@ impl NormalSignatureKind {
             "MiniAssert1" => Some(Self::MiniAssert1),
             "OperatorChallengeAck1" => Some(Self::OperatorChallengeAck1),
             "NotStored" => Some(Self::NotStored),
+            "WatchtowerChallenge1" => Some(Self::WatchtowerChallenge1),
             _ => None,
         }
     }

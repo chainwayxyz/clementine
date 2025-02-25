@@ -30,6 +30,7 @@ pub fn create_watchtower_challenge_txhandler(
     ));
     Ok(
         TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
+            .with_version(Version::non_standard(3))
             .add_input(
                 (
                     NumberedSignatureKind::NumberedNotStored,
@@ -65,6 +66,7 @@ pub fn create_watchtower_challenge_timeout_txhandler(
         4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
     Ok(
         TxHandlerBuilder::new(TransactionType::WatchtowerChallengeTimeout(watchtower_idx))
+            .with_version(Version::non_standard(3))
             .add_input(
                 (
                     NumberedSignatureKind::WatchtowerChallengeTimeout1,
@@ -103,6 +105,7 @@ pub fn create_operator_challenge_nack_txhandler(
         4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
+            .with_version(Version::non_standard(3))
             .add_input(
                 (
                     NumberedSignatureKind::OperatorChallengeNack1,
@@ -149,6 +152,7 @@ pub fn create_operator_challenge_ack_txhandler(
         4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
+            .with_version(Version::non_standard(3))
             .add_input(
                 NormalSignatureKind::OperatorChallengeAck1,
                 kickoff_txhandler.get_spendable_output(challenge_ack_vout)?,
@@ -196,6 +200,7 @@ pub fn create_challenge_txhandler(
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::Challenge)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::Challenge,
             kickoff_txhandler.get_spendable_output(1)?,

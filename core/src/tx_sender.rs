@@ -42,13 +42,13 @@ pub enum FeePayingType {
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct ActivedWithTxid {
+pub struct ActivatedWithTxid {
     pub txid: Txid,
     pub timelock: bitcoin::Sequence,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct ActivedWithOutpoint {
+pub struct ActivatedWithOutpoint {
     pub outpoint: OutPoint,
     pub timelock: bitcoin::Sequence,
 }
@@ -183,8 +183,8 @@ impl TxSender {
         fee_paying_type: FeePayingType,
         cancel_outpoints: &[OutPoint],
         cancel_txids: &[Txid],
-        activate_txids: &[ActivedWithTxid],
-        activate_outpoints: &[ActivedWithOutpoint],
+        activate_txids: &[ActivatedWithTxid],
+        activate_outpoints: &[ActivatedWithOutpoint],
         skip_saving_inputs_as_activated: bool,
     ) -> Result<u32, BridgeError> {
         let try_to_send_id = self
@@ -222,7 +222,7 @@ impl TxSender {
                     .save_activated_outpoint(
                         Some(dbtx),
                         try_to_send_id,
-                        &ActivedWithOutpoint {
+                        &ActivatedWithOutpoint {
                             outpoint: input_outpoint,
                             timelock: bitcoin::Sequence::from_height(0),
                         },

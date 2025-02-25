@@ -6,7 +6,7 @@ use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
-    tx_sender::{ActivedWithOutpoint, ActivedWithTxid, FeePayingType, TxDataForLogging},
+    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging},
 };
 use bitcoin::{
     consensus::{deserialize, serialize},
@@ -357,7 +357,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         activated_id: u32,
-        prerequisite_tx: &ActivedWithTxid,
+        prerequisite_tx: &ActivatedWithTxid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO tx_sender_activate_try_to_send_txids (activated_id, txid, timelock) VALUES ($1, $2, $3)"
@@ -374,7 +374,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         activated_id: u32,
-        activated_outpoint: &ActivedWithOutpoint,
+        activated_outpoint: &ActivatedWithOutpoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout, timelock) VALUES ($1, $2, $3, $4)"
