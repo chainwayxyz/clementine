@@ -11,12 +11,14 @@ use crate::watchtower::Watchtower;
 use crate::{builder, utils};
 use bitcoin::{Transaction, XOnlyPublicKey};
 
+#[derive(Debug, Clone)]
 pub struct TransactionRequestData {
     pub deposit_data: DepositData,
     pub transaction_type: TransactionType,
     pub kickoff_id: KickoffId,
 }
 
+#[derive(Debug, Clone)]
 pub struct AssertRequestData {
     pub deposit_data: DepositData,
     pub kickoff_id: KickoffId,

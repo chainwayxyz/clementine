@@ -596,8 +596,13 @@ impl TxSender {
                 .await?;
         }
         tracing::info!(
-            "Submitting package for tx {:?}: {:?}",
-            tx_data_for_logging,
+            "Submitting package for tx_type: {:?}, round_idx: {:?}, kickoff_idx: {:?}, operator_idx: {:?}, verifier_idx: {:?}, deposit_outpoint: {:?}, details: {:?} ",
+            tx_data_for_logging.as_ref().map(|d| d.tx_type),
+            tx_data_for_logging.as_ref().map(|d| d.round_idx),
+            tx_data_for_logging.as_ref().map(|d| d.kickoff_idx),
+            tx_data_for_logging.as_ref().map(|d| d.operator_idx),
+            tx_data_for_logging.as_ref().map(|d| d.verifier_idx),
+            tx_data_for_logging.as_ref().map(|d| d.deposit_outpoint),
             package
                 .iter()
                 .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
@@ -616,9 +621,14 @@ impl TxSender {
                 );
             })?;
 
-        tracing::info!(
-            "Submit package for tx {:?}: {:?}",
-            tx_data_for_logging,
+        tracing::error!(
+            "Submit package result: tx_type: {:?}, round_idx: {:?}, kickoff_idx: {:?}, operator_idx: {:?}, verifier_idx: {:?}, deposit_outpoint: {:?}, details: {:?}",
+            tx_data_for_logging.as_ref().map(|d| d.tx_type),
+            tx_data_for_logging.as_ref().map(|d| d.round_idx),
+            tx_data_for_logging.as_ref().map(|d| d.kickoff_idx),
+            tx_data_for_logging.as_ref().map(|d| d.operator_idx),
+            tx_data_for_logging.as_ref().map(|d| d.verifier_idx),
+            tx_data_for_logging.as_ref().map(|d| d.deposit_outpoint),
             submit_package_result
         );
 
@@ -728,9 +738,16 @@ impl TxSender {
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
             .await?;
 
-        tracing::info!("{}: Trying to send {} txs", self.consumer_handle, txs.len());
+        tracing::error!("{}: Trying to send {} txs", self.consumer_handle, txs.len());
+
+        for id in txs.clone() {
+            let (tx_data_for_logging, _, _, _) = self.db.get_tx(None, id).await?;
+            tracing::error!("tx_data_for_logging: {:?}", tx_data_for_logging);
+        }
 
         for id in txs {
+            let (tx_data_for_logging, _, _, _) = self.db.get_tx(None, id).await?;
+            tracing::error!("tx_data_for_logging2: {:?}", tx_data_for_logging);
             self.bump_fees_of_fee_payer_txs(id, new_fee_rate).await?;
             let send_tx_result = self.send_tx(id, new_fee_rate).await;
             match send_tx_result {
