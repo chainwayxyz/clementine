@@ -1,7 +1,7 @@
 //! # Parameter Builder For Citrea Requests
 
 use crate::errors::BridgeError;
-use alloy::primitives::{Bytes, FixedBytes, Uint, U256, U32};
+use alloy::primitives::{Bytes, FixedBytes, Uint};
 use alloy::sol;
 use alloy::sol_types::SolValue;
 use bitcoin::consensus::Encodable;
@@ -147,8 +147,9 @@ pub fn get_deposit_params(
 
         Ok::<Vec<u8>, BridgeError>(encoded_input)
     }).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
-    let vin: Vec<u8> = encode_btc_params!(transaction.input);
+    let vin = [vec![1], vin].concat();
     let vout: Vec<u8> = encode_btc_params!(transaction.output);
+    let vout = [vec![1], vout].concat();
     let witness: Vec<u8> = encode_btc_params!(transaction.input, witness);
     let locktime: u32 = transaction.lock_time.to_consensus_u32();
     let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
