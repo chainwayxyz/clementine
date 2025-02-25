@@ -49,7 +49,7 @@ impl TryFrom<&Verifier> for VerifierParams {
             )?,
             num_round_txs: convert_int_to_another(
                 "num_round_txs",
-                verifier.config.num_round_txs,
+                verifier.config.protocol_paramset().num_round_txs,
                 u32::try_from,
             )?,
         })

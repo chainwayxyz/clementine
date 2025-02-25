@@ -10,11 +10,10 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
-use crate::constants::BLOCKS_PER_WEEK;
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{address::NetworkUnchecked, Amount};
-use bitcoin::{Address, Network, XOnlyPublicKey};
+use bitcoin::{Address, XOnlyPublicKey};
 use protocol::{ProtocolParamset, ProtocolParamsetName};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -31,9 +30,6 @@ pub struct BridgeConfig {
     pub port: u16,
     /// Entity index.
     pub index: u32,
-    /// Bitcoin network to work on.
-    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
-    pub network: Network,
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
     /// Verifiers public keys.
@@ -48,21 +44,8 @@ pub struct BridgeConfig {
     pub num_operators: usize,
     /// Number of watchtowers.
     pub num_watchtowers: usize,
-    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
-    /// Number of sequential collateral txs
-    pub num_round_txs: usize,
-    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
-    /// number of kickoffs per sequential collateral tx
-    pub num_kickoffs_per_round: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
-
-    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
-    /// Number of blocks after which user can take deposit back if deposit request fails.
-    pub user_takes_after: u16,
-    #[deprecated(since = "0.1.0", note = "Use `protocol_paramset` instead")]
-    /// Bridge amount in satoshis.
-    pub bridge_amount_sats: Amount,
     /// Threshold for confirmation.
     pub confirmation_threshold: u32,
     /// Bitcoin remote procedure call URL.
@@ -142,28 +125,11 @@ impl BridgeConfig {
         BridgeConfig::try_parse_from(contents)
     }
 
-    pub fn validate(&self) -> Result<(), BridgeError> {
-        if self.protocol_paramset().network != self.network {
-            return Err(BridgeError::ConfigError(
-                format!(
-                    "Network mismatch between paramset and config: protocol.network ({:?}) != config.network ({:?})",
-                    self.protocol_paramset().network, self.network
-                )
-                .to_string(),
-            ));
-        }
-
-        Ok(())
-    }
-
     /// Try to parse a `BridgeConfig` from given TOML formatted string and
     /// generate a `BridgeConfig`.
     pub fn try_parse_from(input: String) -> Result<Self, BridgeError> {
         match toml::from_str::<BridgeConfig>(&input) {
-            Ok(c) => {
-                c.validate()?;
-                Ok(c)
-            }
+            Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
     }
@@ -216,8 +182,6 @@ impl Default for BridgeConfig {
 
             num_operators: 3,
             num_watchtowers: 4,
-            num_round_txs: 2,
-            num_kickoffs_per_round: 3,
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
                     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
@@ -249,9 +213,6 @@ impl Default for BridgeConfig {
             ],
             operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
 
-            user_takes_after: 200,
-
-            network: Network::Regtest,
             bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
@@ -261,8 +222,6 @@ impl Default for BridgeConfig {
             db_user: "clementine".to_string(),
             db_password: "clementine".to_string(),
             db_name: "clementine".to_string(),
-
-            bridge_amount_sats: Amount::from_sat(1_000_000_000),
 
             confirmation_threshold: 1,
 

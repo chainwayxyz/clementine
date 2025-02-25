@@ -31,7 +31,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
             .map(|s| s.to_script_buf())
             .collect::<Vec<_>>(),
         None,
-        config.network,
+        config.protocol_paramset().network,
     );
 
     // Create a new transaction.
@@ -71,7 +71,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
     let signer = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
-        config.network,
+        config.protocol_paramset().network,
     );
 
     signer

@@ -90,8 +90,8 @@ impl ReimburseDbCache {
             operator_idx,
             deposit_data,
             paramset: config.protocol_paramset(),
-            actor_secret_key: config.secret_key.clone(),
-            winternitz_secret_key: config.winternitz_secret_key.clone(),
+            actor_secret_key: config.secret_key,
+            winternitz_secret_key: config.winternitz_secret_key,
             watchtower_challenge_addr: None,
             kickoff_winternitz_keys: None,
             bitvm_assert_addr: None,
@@ -289,7 +289,7 @@ pub async fn create_txhandlers(
 
         for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
             let paths = utils::COMBINED_ASSERT_DATA
-                .get_paths_and_sizes(idx, deposit_data.deposit_outpoint.txid);
+                .get_paths_and_sizes(idx, deposit_data.deposit_outpoint.txid, paramset);
             let mut param = Vec::with_capacity(paths.len());
             for (path, size) in paths {
                 param.push((actor.derive_winternitz_pk(path)?, size));
@@ -423,6 +423,7 @@ pub async fn create_txhandlers(
                 let path = WatchtowerChallenge(
                     kickoff_id.operator_idx,
                     deposit_data.deposit_outpoint.txid,
+                    paramset,
                 );
 
                 let actor = Actor::new(actor_secret_key, winternitz_secret_key, paramset.network);
@@ -542,13 +543,13 @@ pub async fn create_txhandlers(
 /// Function to create next round txhandler, ready to reimburse txhandler,
 /// and all unspentkickoff txhandlers for a specific operator
 pub fn create_round_txhandlers(
-    config: &'static ProtocolParamset,
+    paramset: &'static ProtocolParamset,
     round_idx: usize,
     operator_data: &OperatorData,
     kickoff_winternitz_keys: &KickoffWinternitzKeys,
     prev_ready_to_reimburse: Option<TxHandler>,
 ) -> Result<Vec<TxHandler>, BridgeError> {
-    let mut txhandlers = Vec::with_capacity(2 + config.num_kickoffs_per_round);
+    let mut txhandlers = Vec::with_capacity(2 + paramset.num_kickoffs_per_round);
 
     let (round_txhandler, ready_to_reimburse_txhandler) = match prev_ready_to_reimburse {
         Some(prev_ready_to_reimburse_txhandler) => {
@@ -561,8 +562,8 @@ pub fn create_round_txhandlers(
                     .get_spendable_output(0)?
                     .get_prevout()
                     .value,
-                config.num_kickoffs_per_round,
-                config.network,
+                paramset.num_kickoffs_per_round,
+                paramset.network,
                 kickoff_winternitz_keys.get_keys_for_round(round_idx),
             )?;
 
@@ -570,7 +571,7 @@ pub fn create_round_txhandlers(
                 builder::transaction::create_ready_to_reimburse_txhandler(
                     &round_txhandler,
                     operator_data.xonly_pk,
-                    config.network,
+                    paramset.network,
                 )?;
             (round_txhandler, ready_to_reimburse_txhandler)
         }
@@ -579,9 +580,9 @@ pub fn create_round_txhandlers(
             builder::transaction::create_round_nth_txhandler(
                 operator_data.xonly_pk,
                 operator_data.collateral_funding_outpoint,
-                config.collateral_funding_amount,
-                config.num_kickoffs_per_round,
-                config.network,
+                paramset.collateral_funding_amount,
+                paramset.num_kickoffs_per_round,
+                paramset.network,
                 round_idx,
                 kickoff_winternitz_keys,
             )?
@@ -591,7 +592,7 @@ pub fn create_round_txhandlers(
     let unspent_kickoffs = create_unspent_kickoff_txhandlers(
         &round_txhandler,
         &ready_to_reimburse_txhandler,
-        config.num_kickoffs_per_round,
+        paramset.num_kickoffs_per_round,
     )?;
 
     txhandlers.push(round_txhandler);

@@ -94,6 +94,7 @@ pub async fn create_and_sign_txs(
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 watchtower_idx as u32,
                 transaction_data.deposit_data.deposit_outpoint.txid,
+                config.protocol_paramset(),
             );
             let preimage = signer.generate_preimage_from_path(path)?;
             let _ = signer.tx_sign_preimage(&mut txhandler, preimage);
@@ -105,6 +106,7 @@ pub async fn create_and_sign_txs(
                 let path = WinternitzDerivationPath::Kickoff(
                     transaction_data.kickoff_id.round_idx,
                     transaction_data.kickoff_id.kickoff_idx,
+                    config.protocol_paramset(),
                 );
                 signer.tx_sign_winternitz(&mut txhandler, &[(block_hash.to_vec(), path)])?;
             }
@@ -180,6 +182,7 @@ impl Watchtower {
         let path = WinternitzDerivationPath::WatchtowerChallenge(
             transaction_data.kickoff_id.operator_idx,
             transaction_data.deposit_data.deposit_outpoint.txid,
+            self.config.protocol_paramset(),
         );
         self.signer
             .tx_sign_winternitz(&mut requested_txhandler, &[(commit_data.to_vec(), path)])?;
@@ -224,7 +227,7 @@ impl Operator {
 
         for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
             let paths_with_size = utils::COMBINED_ASSERT_DATA
-                .get_paths_and_sizes(idx, assert_data.deposit_data.deposit_outpoint.txid);
+                .get_paths_and_sizes(idx, assert_data.deposit_data.deposit_outpoint.txid, self.config.protocol_paramset());
             let mut mini_assert_txhandler =
                 txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
                     BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),

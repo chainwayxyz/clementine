@@ -25,7 +25,7 @@
 // .await;
 
 // let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
-// let signer_address = Actor::new(secret_key, config.winternitz_secret_key, config.network)
+// let signer_address = Actor::new(secret_key, config.winternitz_secret_key, config.protocol_paramset().network)
 //     .address
 //     .as_unchecked()
 //     .clone();
@@ -35,7 +35,7 @@
 // let deposit_address = user.get_deposit_address(evm_address).unwrap(); This line needs to be converted into get_deposit_address
 
 // let deposit_outpoint = rpc
-//     .send_to_address(&deposit_address, config.bridge_amount_sats)
+//     .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
 //     .await
 //     .unwrap();
 // rpc.mine_blocks((config.confirmation_threshold + 2).into())

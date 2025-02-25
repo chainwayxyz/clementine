@@ -36,7 +36,7 @@ impl Watchtower {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
-            config.network,
+            config.protocol_paramset().network,
         );
 
         Ok(Self {
@@ -62,7 +62,11 @@ impl Watchtower {
         let mut winternitz_pubkeys = Vec::new();
 
         for operator in 0..self.config.num_operators as u32 {
-            let path = WinternitzDerivationPath::WatchtowerChallenge(operator, deposit_txid);
+            let path = WinternitzDerivationPath::WatchtowerChallenge(
+                operator,
+                deposit_txid,
+                self.config.protocol_paramset(),
+            );
             winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
         }
 
@@ -88,7 +92,7 @@ impl Watchtower {
             let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
                 &self.signer.xonly_public_key,
                 vec![(winternitz_pubkey, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
-                self.config.network,
+                self.config.protocol_paramset().network,
             );
             challenge_addresses.push(challenge_address.script_pubkey());
         }

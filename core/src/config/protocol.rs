@@ -51,6 +51,10 @@ pub struct ProtocolParamset {
     pub kickoff_blockhash_commit_length: usize,
     /// Length of the message used in watchtower challenge transactions.
     pub watchtower_challenge_message_length: usize,
+    /// Winternitz derivation log_d (shared for all WOTS commitments)
+    ///
+    /// currently always == 4
+    pub winternitz_log_d: u32,
     /// Number of watchtowers. (changes the number of watchtower challenge kickoff txouts)
     pub num_watchtowers: usize,
 }
@@ -66,6 +70,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 480,
+    winternitz_log_d: 4,
     num_watchtowers: 4,
 };
 
@@ -80,6 +85,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 480,
+    winternitz_log_d: 4,
     num_watchtowers: 4,
 };
 
@@ -94,5 +100,6 @@ pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 480,
+    winternitz_log_d: 4,
     num_watchtowers: 4,
 };

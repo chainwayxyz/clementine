@@ -1,9 +1,7 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
-use crate::constants::{
-    KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
-};
+use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::tagged_signature::SignatureId;
@@ -26,15 +24,15 @@ use bitvm::signatures::winternitz::{
 pub enum WinternitzDerivationPath {
     /// round_idx, kickoff_idx
     /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
-    Kickoff(u32, u32),
+    Kickoff(u32, u32, &'static ProtocolParamset),
     /// operator_idx, deposit_txid
     /// Message length is fixed WATCHTOWER_CHALLENGE_MESSAGE_LENGTH
-    WatchtowerChallenge(u32, Txid),
+    WatchtowerChallenge(u32, Txid, &'static ProtocolParamset),
     /// message_length, intermediate_step_name, deposit_txid
-    BitvmAssert(u32, String, Txid),
+    BitvmAssert(u32, String, Txid, &'static ProtocolParamset),
     /// watchtower_idx, deposit_txid
     /// message length is fixed to 1 (because its for one hash)
-    ChallengeAckHash(u32, Txid),
+    ChallengeAckHash(u32, Txid, &'static ProtocolParamset),
 }
 
 impl WinternitzDerivationPath {
@@ -52,11 +50,11 @@ impl WinternitzDerivationPath {
         let mut bytes = vec![type_id];
 
         match self {
-            WinternitzDerivationPath::Kickoff(seq_collat_idx, kickoff_idx) => {
+            WinternitzDerivationPath::Kickoff(seq_collat_idx, kickoff_idx, _) => {
                 bytes.extend_from_slice(&seq_collat_idx.to_be_bytes());
                 bytes.extend_from_slice(&kickoff_idx.to_be_bytes());
             }
-            WinternitzDerivationPath::WatchtowerChallenge(operator_idx, deposit_txid) => {
+            WinternitzDerivationPath::WatchtowerChallenge(operator_idx, deposit_txid, _) => {
                 bytes.extend_from_slice(&operator_idx.to_be_bytes());
                 bytes.extend_from_slice(&deposit_txid.to_byte_array());
             }
@@ -64,12 +62,13 @@ impl WinternitzDerivationPath {
                 message_length,
                 intermediate_step_name,
                 deposit_txid,
+                _,
             ) => {
                 bytes.extend_from_slice(&message_length.to_be_bytes());
                 bytes.extend_from_slice(intermediate_step_name.as_bytes());
                 bytes.extend_from_slice(&deposit_txid.to_byte_array());
             }
-            WinternitzDerivationPath::ChallengeAckHash(watchtower_idx, deposit_txid) => {
+            WinternitzDerivationPath::ChallengeAckHash(watchtower_idx, deposit_txid, _) => {
                 bytes.extend_from_slice(&watchtower_idx.to_be_bytes());
                 bytes.extend_from_slice(&deposit_txid.to_byte_array());
             }
@@ -81,17 +80,21 @@ impl WinternitzDerivationPath {
     /// Returns the parameters for the Winternitz signature.
     pub fn get_params(&self) -> winternitz::Parameters {
         match self {
-            WinternitzDerivationPath::Kickoff(_, _) => {
-                winternitz::Parameters::new(KICKOFF_BLOCKHASH_COMMIT_LENGTH, WINTERNITZ_LOG_D)
+            WinternitzDerivationPath::Kickoff(_, _, paramset) => winternitz::Parameters::new(
+                paramset.kickoff_blockhash_commit_length as u32,
+                paramset.winternitz_log_d,
+            ),
+            WinternitzDerivationPath::WatchtowerChallenge(_, _, paramset) => {
+                winternitz::Parameters::new(
+                    paramset.watchtower_challenge_message_length as u32,
+                    paramset.winternitz_log_d,
+                )
             }
-            WinternitzDerivationPath::WatchtowerChallenge(_, _) => {
-                winternitz::Parameters::new(WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D)
+            WinternitzDerivationPath::BitvmAssert(message_length, _, _, paramset) => {
+                winternitz::Parameters::new(*message_length, paramset.winternitz_log_d)
             }
-            WinternitzDerivationPath::BitvmAssert(message_length, _, _) => {
-                winternitz::Parameters::new(*message_length, WINTERNITZ_LOG_D)
-            }
-            WinternitzDerivationPath::ChallengeAckHash(_, _) => {
-                winternitz::Parameters::new(1, WINTERNITZ_LOG_D)
+            WinternitzDerivationPath::ChallengeAckHash(_, _, paramset) => {
+                winternitz::Parameters::new(1, paramset.winternitz_log_d)
             }
         }
     }
@@ -511,6 +514,7 @@ impl Actor {
 mod tests {
     use super::Actor;
     use crate::builder::address::create_taproot_address;
+    use crate::config::protocol::ProtocolParamsetName;
 
     use super::*;
     use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
@@ -771,6 +775,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_uniqueness() {
+        let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
         let config = create_test_config_with_thread_name(None).await;
         let actor = Actor::new(
             config.secret_key,
@@ -778,12 +783,12 @@ mod tests {
             Network::Regtest,
         );
 
-        let mut params = WinternitzDerivationPath::Kickoff(0, 0);
+        let mut params = WinternitzDerivationPath::Kickoff(0, 0, &paramset);
         let pk0 = actor.derive_winternitz_pk(params.clone()).unwrap();
         let pk1 = actor.derive_winternitz_pk(params).unwrap();
         assert_eq!(pk0, pk1);
 
-        params = WinternitzDerivationPath::Kickoff(0, 1);
+        params = WinternitzDerivationPath::Kickoff(0, 1, &paramset);
         let pk2 = actor.derive_winternitz_pk(params).unwrap();
         assert_ne!(pk0, pk2);
     }
@@ -791,6 +796,7 @@ mod tests {
     #[tokio::test]
     async fn derive_winternitz_pk_fixed_pk() {
         let config = create_test_config_with_thread_name(None).await;
+        let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
         let actor = Actor::new(
             config.secret_key,
             Some(
@@ -803,7 +809,7 @@ mod tests {
         );
         // Test so that same path always returns the same public key (to not change it accidentally)
         // check only first digit
-        let params = WinternitzDerivationPath::Kickoff(0, 1);
+        let params = WinternitzDerivationPath::Kickoff(0, 1, &paramset);
         let expected_pk = vec![
             173, 204, 163, 206, 248, 61, 42, 248, 42, 163, 51, 172, 127, 111, 1, 82, 142, 151, 78,
             6,
@@ -813,7 +819,7 @@ mod tests {
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::WatchtowerChallenge(1, Txid::all_zeros());
+        let params = WinternitzDerivationPath::WatchtowerChallenge(1, Txid::all_zeros(), &paramset);
         let expected_pk = vec![
             237, 68, 125, 7, 202, 239, 182, 192, 94, 207, 47, 40, 57, 188, 195, 82, 231, 236, 105,
             252,
@@ -823,8 +829,12 @@ mod tests {
             expected_pk
         );
 
-        let params =
-            WinternitzDerivationPath::BitvmAssert(3, "step0".to_string(), Txid::all_zeros());
+        let params = WinternitzDerivationPath::BitvmAssert(
+            3,
+            "step0".to_string(),
+            Txid::all_zeros(),
+            &paramset,
+        );
         let expected_pk = vec![
             19, 106, 233, 190, 243, 102, 53, 65, 74, 188, 254, 213, 228, 200, 160, 166, 111, 183,
             62, 126,
@@ -834,7 +844,7 @@ mod tests {
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::ChallengeAckHash(0, Txid::all_zeros());
+        let params = WinternitzDerivationPath::ChallengeAckHash(0, Txid::all_zeros(), &paramset);
         let expected_pk = vec![
             50, 128, 175, 255, 135, 45, 190, 117, 75, 4, 141, 166, 43, 146, 207, 154, 189, 149,
             143, 254,
@@ -861,12 +871,15 @@ mod tests {
 
         let data = "iwantporscheasagiftpls".as_bytes().to_vec();
         let message_len = data.len() as u32 * 2;
+        let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
+
         let path = WinternitzDerivationPath::BitvmAssert(
             message_len,
             "step1".to_string(),
             Txid::all_zeros(),
+            &paramset,
         );
-        let params = winternitz::Parameters::new(message_len, WINTERNITZ_LOG_D);
+        let params = winternitz::Parameters::new(message_len, paramset.winternitz_log_d);
 
         let witness = actor
             .sign_winternitz_signature(path.clone(), data.clone())

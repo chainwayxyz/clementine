@@ -378,6 +378,7 @@ fn get_script_from_arr<T: SpendableScript>(
 #[cfg(test)]
 mod tests {
     use crate::actor::{Actor, WinternitzDerivationPath};
+    use crate::config::protocol::ProtocolParamsetName;
     use crate::extended_rpc::ExtendedRpc;
     use crate::utils;
     use std::sync::Arc;
@@ -635,8 +636,12 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let derivation =
-            WinternitzDerivationPath::BitvmAssert(64, "x".to_string(), Txid::all_zeros());
+        let derivation = WinternitzDerivationPath::BitvmAssert(
+            64,
+            "x".to_string(),
+            Txid::all_zeros(),
+            ProtocolParamsetName::Regtest.into(),
+        );
 
         let signer = Actor::new(
             kp.secret_key(),

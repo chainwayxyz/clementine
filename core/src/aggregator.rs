@@ -85,14 +85,20 @@ impl Aggregator {
         let watchtower_clients =
             rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::connect).await?;
 
-        let signer = Actor::new(config.secret_key, None, config.network);
+        let signer = Actor::new(config.secret_key, None, config.protocol_paramset().network);
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
-        let tx_sender = TxSender::new(signer, rpc, db.clone(), "aggregator", config.network);
+        let tx_sender = TxSender::new(
+            signer,
+            rpc,
+            db.clone(),
+            "aggregator",
+            config.protocol_paramset().network,
+        );
 
         Ok(Aggregator {
             db,
@@ -247,10 +253,10 @@ impl Aggregator {
     //         operator_xonly_pk,
     //         operator_idx,
     //         self.nofn_xonly_pk,
-    //         self.config.network,
-    //         self.config.user_takes_after,
+    //         self.config.protocol_paramset().network,
+    //         self.config.protocol_paramset().user_takes_after,
     //         self.config.operator_takes_after,
-    //         self.config.bridge_amount_sats,
+    //         self.config.protocol_paramset().bridge_amount,
     //     );
     //     // tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
     //     tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
@@ -290,8 +296,8 @@ impl Aggregator {
     //     let move_tx = builder::transaction::create_move_to_vault_tx(
     //         deposit_outpoint,
     //         self.nofn_xonly_pk,
-    //         self.config.bridge_amount_sats,
-    //         self.config.network,
+    //         self.config.protocol_paramset().bridge_amount,
+    //         self.config.protocol_paramset().network,
     //     );
     //     let bridge_fund_outpoint = OutPoint {
     //         txid: move_tx.compute_txid(),
@@ -303,10 +309,10 @@ impl Aggregator {
     //         *operator_xonly_pk,
     //         operator_idx,
     //         self.nofn_xonly_pk,
-    //         self.config.network,
-    //         self.config.user_takes_after,
+    //         self.config.protocol_paramset().network,
+    //         self.config.protocol_paramset().user_takes_after,
     //         self.config.operator_takes_after,
-    //         self.config.bridge_amount_sats,
+    //         self.config.protocol_paramset().bridge_amount,
     //     );
     //     let slash_or_take_utxo = UTXO {
     //         outpoint: OutPoint {
@@ -325,9 +331,9 @@ impl Aggregator {
     //         slash_or_take_utxo,
     //         *operator_xonly_pk,
     //         self.nofn_xonly_pk,
-    //         self.config.network,
+    //         self.config.protocol_paramset().network,
     //         self.config.operator_takes_after,
-    //         self.config.bridge_amount_sats,
+    //         self.config.protocol_paramset().bridge_amount,
     //         self.config.operator_wallet_addresses[operator_idx].clone(),
     //     );
     //     // tracing::debug!(
@@ -365,9 +371,9 @@ impl Aggregator {
             evm_address,
             recovery_taproot_address,
             self.nofn_xonly_pk,
-            self.config.user_takes_after,
-            self.config.bridge_amount_sats,
-            self.config.network,
+            self.config.protocol_paramset().user_takes_after,
+            self.config.protocol_paramset().bridge_amount,
+            self.config.protocol_paramset().network,
         )?;
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
@@ -491,9 +497,9 @@ impl Aggregator {
     //         evm_address,
     //         &recovery_taproot_address,
     //         self.nofn_xonly_pk,
-    //         self.config.user_takes_after,
-    //         self.config.bridge_amount_sats,
-    //         self.config.network,
+    //         self.config.protocol_paramset().user_takes_after,
+    //         self.config.protocol_paramset().bridge_amount,
+    //         self.config.protocol_paramset().network,
     //     )?;
     //     let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
     //     move_tx_handler.set_p2tr_script_spend_witness(&move_tx_witness_elements, 0, 0)?;

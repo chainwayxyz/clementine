@@ -26,13 +26,13 @@ async fn honest_operator_takes_refund() {
         &SECP,
         user_sk.x_only_public_key(&SECP).0,
         None,
-        config.network,
+        config.protocol_paramset().network,
     );
 
     // We are giving enough sats to the user so that the operator can pay the
     // withdrawal and profit.
     let withdrawal_amount = Amount::from_sat(
-        config.bridge_amount_sats.to_sat()
+        config.protocol_paramset().bridge_amount.to_sat()
             - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
     );
 
@@ -106,7 +106,7 @@ async fn honest_operator_takes_refund() {
 //         &SECP,
 //         user_sk.x_only_public_key(&SECP).0,
 //         None,
-//         config.network,
+//         config.protocol_paramset().network,
 //     );
 
 //     let user = User::new(rpc.clone_inner().await.unwrap(), user_sk, config.clone());
@@ -115,7 +115,7 @@ async fn honest_operator_takes_refund() {
 //     let (empty_utxo, withdrawal_tx_out, user_sig) = user
 //         .generate_withdrawal_transaction_and_signature(
 //             withdrawal_address,
-//             Amount::from_sat(config.bridge_amount_sats.to_sat()),
+//             Amount::from_sat(config.protocol_paramset().bridge_amount.to_sat()),
 //         )
 //         .await
 //         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature

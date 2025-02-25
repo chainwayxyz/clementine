@@ -1,4 +1,5 @@
 use crate::cli::Args;
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use bitcoin::key::Parity;
@@ -160,7 +161,7 @@ pub struct CombinedAssertData {
 }
 
 impl CombinedAssertData {
-    pub fn get_paths(&self, assert_idx: usize, txid: Txid) -> Vec<WinternitzDerivationPath> {
+    pub fn get_paths(&self, assert_idx: usize, txid: Txid, paramset: &'static ProtocolParamset) -> Vec<WinternitzDerivationPath> {
         BITVM_CACHE
             .intermediate_variables
             .iter()
@@ -171,6 +172,7 @@ impl CombinedAssertData {
                     *step_size as u32 * 2,
                     step_name.to_owned(),
                     txid,
+                    paramset,
                 )
             })
             .collect()
@@ -180,6 +182,7 @@ impl CombinedAssertData {
         &self,
         assert_idx: usize,
         txid: Txid,
+        paramset: &'static ProtocolParamset,
     ) -> Vec<(WinternitzDerivationPath, u32)> {
         BITVM_CACHE
             .intermediate_variables
@@ -192,6 +195,7 @@ impl CombinedAssertData {
                         *step_size as u32 * 2,
                         step_name.to_owned(),
                         txid,
+                        paramset
                     ),
                     *step_size as u32 * 2,
                 )
