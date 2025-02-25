@@ -741,7 +741,6 @@ impl TxSender {
             .await?;
 
         for id in txs {
-            let (tx_data_for_logging, _, _, _) = self.db.get_tx(None, id).await?;
             self.bump_fees_of_fee_payer_txs(id, new_fee_rate).await?;
             let send_tx_result = self.send_tx(id, new_fee_rate).await;
             match send_tx_result {
