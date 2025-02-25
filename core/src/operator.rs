@@ -184,12 +184,6 @@ impl Operator {
             &kickoff_wpks,
         )?;
 
-        tracing::error!("first_round_tx: {:?}", first_round_tx.get_cached_tx());
-        tracing::error!(
-            "First round funding txid: {:?}",
-            self.collateral_funding_outpoint
-        );
-
         self.signer
             .tx_sign_and_fill_sigs(&mut first_round_tx, &[])?;
 
@@ -678,8 +672,6 @@ impl Operator {
             .await?
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
-        tracing::error!("deposit_id: {:?}", deposit_id);
-        tracing::error!("deposit_data: {:?}", deposit_data);
         // get unused kickoff connector
         let (round_idx, kickoff_idx) = self
             .db
@@ -687,22 +679,18 @@ impl Operator {
             .await?
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
-        tracing::error!("round_idx: {:?}", round_idx);
-        tracing::error!("kickoff_idx: {:?}", kickoff_idx);
         // get signed txs,
         let kickoff_id = KickoffId {
             operator_idx: self.idx as u32,
             round_idx,
             kickoff_idx,
         };
-        tracing::error!("kickoff_id: {:?}", kickoff_id);
 
         let transaction_data = TransactionRequestData {
             deposit_data,
             transaction_type: TransactionType::AllNeededForDeposit,
             kickoff_id,
         };
-        tracing::error!("transaction_data: {:?}", transaction_data);
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
@@ -717,14 +705,11 @@ impl Operator {
         )
         .await?;
 
-        // tracing::error!("signed_txs: {:?}", signed_txs);
-
         let mut kickoff_txid = Txid::all_zeros();
         // try to send them
         for (tx_type, signed_tx) in signed_txs {
             match tx_type {
                 TransactionType::Kickoff => {
-                    tracing::error!("Kickoff txid: {:?}", signed_tx.compute_txid());
                     kickoff_txid = signed_tx.compute_txid();
                     self.tx_sender
                         .try_to_send(
@@ -748,10 +733,6 @@ impl Operator {
                         .await?;
                 }
                 TransactionType::OperatorChallengeAck(watchtower_idx) => {
-                    tracing::error!(
-                        "Operator challenge ack txid: {:?}",
-                        signed_tx.compute_txid()
-                    );
                     self.tx_sender
                         .try_to_send(
                             dbtx,
@@ -774,7 +755,6 @@ impl Operator {
                         .await?;
                 }
                 TransactionType::ChallengeTimeout => {
-                    tracing::error!("Challenge timeout txid: {:?}", signed_tx.compute_txid());
                     self.tx_sender
                         .try_to_send(
                             dbtx,
@@ -797,7 +777,6 @@ impl Operator {
                         .await?;
                 }
                 TransactionType::DisproveTimeout => {
-                    tracing::error!("Disprove timeout txid: {:?}", signed_tx.compute_txid());
                     self.tx_sender
                         .try_to_send(
                             dbtx,
@@ -820,7 +799,6 @@ impl Operator {
                         .await?;
                 }
                 TransactionType::Reimburse => {
-                    tracing::error!("Reimburse txid: {:?}", signed_tx.compute_txid());
                     self.tx_sender
                         .try_to_send(
                             dbtx,

@@ -740,26 +740,10 @@ impl TxSender {
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
             .await?;
 
-        tracing::error!("{}: Trying to send {} txs", self.consumer_handle, txs.len());
-
-        for id in txs.clone() {
-            let (tx_data_for_logging, _, _, _) = self.db.get_tx(None, id).await?;
-            tracing::error!("tx_data_for_logging: {:?}", tx_data_for_logging);
-        }
-
         for id in txs {
             let (tx_data_for_logging, _, _, _) = self.db.get_tx(None, id).await?;
-            tracing::error!("tx_data_for_logging2: {:?}", tx_data_for_logging);
             self.bump_fees_of_fee_payer_txs(id, new_fee_rate).await?;
-            tracing::error!(
-                "bump_fees_of_fee_payer_txs done for tx_data_for_logging2: {:?}",
-                tx_data_for_logging
-            );
             let send_tx_result = self.send_tx(id, new_fee_rate).await;
-            tracing::error!(
-                "send_tx done for tx_data_for_logging2: {:?}",
-                tx_data_for_logging
-            );
             match send_tx_result {
                 Ok(_) => {}
                 Err(e) => match e {
@@ -781,10 +765,6 @@ impl TxSender {
                             .map(|(_, _, amount)| *amount)
                             .sum::<Amount>();
                         let fee_payer_utxos_len = fee_payer_utxos.len();
-                        tracing::error!(
-                            "create_fee_payer_utxo for tx_data_for_logging2: {:?}",
-                            tx_data_for_logging
-                        );
                         self.create_fee_payer_utxo(
                             id,
                             &tx,
@@ -795,10 +775,6 @@ impl TxSender {
                         )
                         .await?;
 
-                        tracing::error!(
-                            "create_fee_payer_utxo done for tx_data_for_logging2: {:?}",
-                            tx_data_for_logging
-                        );
                         continue;
                     }
                     _ => {
