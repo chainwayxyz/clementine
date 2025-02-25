@@ -462,3 +462,37 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
 
     Ok(())
 }
+
+/// Monitors a JoinHandle and aborts the process if the task completes with an error.
+/// Returns a handle to the monitoring task that can be used to cancel it.
+pub fn monitor_task_with_abort<T: Send + 'static>(
+    task_handle: tokio::task::JoinHandle<Result<T, crate::errors::BridgeError>>,
+    task_name: &str,
+) -> tokio::task::JoinHandle<()> {
+    let task_name = task_name.to_string();
+
+    // Move task_handle into the spawned task to make it Send
+    tokio::spawn(async move {
+        match task_handle.await {
+            Ok(Ok(_)) => {
+                // Task completed successfully
+                tracing::debug!("Task {} completed successfully", task_name);
+            }
+            Ok(Err(e)) => {
+                // Task returned an error
+                tracing::error!("Task {} failed with error: {:?}", task_name, e);
+                std::process::abort();
+            }
+            Err(e) => {
+                if e.is_cancelled() {
+                    // Task was cancelled, which is expected during cleanup
+                    tracing::debug!("Task {} was cancelled", task_name);
+                    return;
+                }
+                // Task panicked or was aborted
+                tracing::error!("Task {} panicked: {:?}", task_name, e);
+                std::process::abort();
+            }
+        }
+    })
+}

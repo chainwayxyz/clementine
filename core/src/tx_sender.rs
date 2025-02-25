@@ -251,35 +251,35 @@ impl TxSender {
         total_fee_payer_amount: Amount,
         fee_payer_utxos_len: usize,
     ) -> Result<(), BridgeError> {
-        // let required_fee = Self::calculate_required_fee(
-        //     tx.weight(),
-        //     fee_payer_utxos_len + 1,
-        //     fee_rate,
-        //     fee_paying_type,
-        // )?;
+        let required_fee = Self::calculate_required_fee(
+            tx.weight(),
+            fee_payer_utxos_len + 1,
+            fee_rate,
+            fee_paying_type,
+        )?;
 
-        // // calculate additional if the tx is bumpable by RBF
-        // // This will only be non-zero for the Challenge Tx
-        // let additional_amount = if fee_paying_type == FeePayingType::RBF {
-        //     // We assume the input amount is always the minimum amount.
-        //     tx.output.iter().map(|output| output.value).sum::<Amount>()
-        // } else {
-        //     Amount::from_sat(0)
-        // };
+        // calculate additional if the tx is bumpable by RBF
+        // This will only be non-zero for the Challenge Tx
+        let additional_amount = if fee_paying_type == FeePayingType::RBF {
+            // We assume the input amount is always the minimum amount.
+            tx.output.iter().map(|output| output.value).sum::<Amount>()
+        } else {
+            Amount::from_sat(0)
+        };
 
-        // let required_amount = if additional_amount > total_fee_payer_amount {
-        //     // This means we haven't added the additional amount for the Challenge Tx
-        //     assert!(total_fee_payer_amount == Amount::from_sat(0));
-        //     additional_amount + required_fee + required_fee + required_fee + MIN_TAPROOT_AMOUNT
-        // } else {
-        //     (additional_amount + required_fee - total_fee_payer_amount)
-        //         + required_fee
-        //         + required_fee
-        //         + required_fee
-        //         + MIN_TAPROOT_AMOUNT
-        // };
+        let required_amount = if additional_amount > total_fee_payer_amount {
+            // This means we haven't added the additional amount for the Challenge Tx
+            assert!(total_fee_payer_amount == Amount::from_sat(0));
+            additional_amount + required_fee + required_fee + required_fee + MIN_TAPROOT_AMOUNT
+        } else {
+            (additional_amount + required_fee - total_fee_payer_amount)
+                + required_fee
+                + required_fee
+                + required_fee
+                + MIN_TAPROOT_AMOUNT
+        };
 
-        let required_amount = Amount::from_sat(5000);
+        // let required_amount = Amount::from_sat(5000);
 
         tracing::info!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",

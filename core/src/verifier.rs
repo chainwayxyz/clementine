@@ -119,7 +119,11 @@ impl Verifier {
             &format!("verifier_{}", idx).to_string(),
             config.network,
         );
-        let _tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
+        let tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
+
+        // Monitor the tx_sender_handle and abort if it dies unexpectedly
+        let _monitor_handle =
+            crate::utils::monitor_task_with_abort(tx_sender_handle, "tx_sender for verifier");
 
         let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
