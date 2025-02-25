@@ -17,7 +17,7 @@ use crate::rpc::clementine::KickoffId;
 use crate::tx_sender::{
     ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging, TxSender,
 };
-use crate::utils::SECP;
+use crate::utils::{self, SECP};
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
@@ -749,7 +749,16 @@ impl Operator {
                             &[],
                             &[],
                             &[],
-                            &[],
+                            &[ActivatedWithOutpoint {
+                                outpoint: OutPoint {
+                                    txid: kickoff_txid,
+                                    vout: (4
+                                        + watchtower_idx * 2
+                                        + utils::COMBINED_ASSERT_DATA.num_steps.len())
+                                        as u32,
+                                },
+                                timelock: bitcoin::Sequence(self.config.confirmation_threshold),
+                            }],
                             false,
                         )
                         .await?;
