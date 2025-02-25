@@ -21,22 +21,23 @@ pub async fn initialized(client: HttpClient) -> Result<(), BridgeError> {
     let params = rpc_params![
         json!({
             "to": CITREA_ADDRESS,
-            "data": "0x158ef93e"
+            "data": "0xa41c5cf3"
         }),
         "latest"
     ];
 
     let response: String = client.request("eth_call", params).await?;
+    tracing::error!("eeee {:?}", response);
 
-    let decoded_hex = hex::decode(&response[2..]).map_err(|e| BridgeError::Error(e.to_string()))?;
+    // let decoded_hex = hex::decode(&response[2..]).map_err(|e| BridgeError::Error(e.to_string()))?;
 
-    if decoded_hex
-        .last()
-        .ok_or(BridgeError::Error("Empty response".to_string()))?
-        != &1u8
-    {
-        return Err(BridgeError::Error("Contract not initialized".to_string()));
-    }
+    // if decoded_hex
+    //     .last()
+    //     .ok_or(BridgeError::Error("Empty response".to_string()))?
+    //     != &1u8
+    // {
+    //     return Err(BridgeError::Error("Contract not initialized".to_string()));
+    // }
 
     Ok(())
 }
@@ -55,8 +56,11 @@ pub async fn get_block_nu(client: HttpClient) -> Result<u32, BridgeError> {
     let decoded_hex = hex::decode(&response[2..]).map_err(|e| BridgeError::Error(e.to_string()))?;
     let block_number = decoded_hex
         .iter()
+        .rev()
         .take(4)
+        .rev()
         .fold(0u32, |acc, &byte| acc << 8 | byte as u32);
+    tracing::error!("block_number {:?}", block_number);
 
     Ok(block_number)
 }

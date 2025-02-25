@@ -495,6 +495,7 @@ macro_rules! get_deposit_address {
         let nofn_xonly_pk =
             bitcoin::XOnlyPublicKey::from_musig2_pks($config.verifiers_public_keys.clone(), None)
                 .unwrap();
+            tracing::info!("Verifiers public keys: {:?}", nofn_xonly_pk.to_string());
 
         builder::address::generate_deposit_address(
             nofn_xonly_pk,

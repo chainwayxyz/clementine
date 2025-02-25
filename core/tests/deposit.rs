@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
-    config::{BitcoinConfig, TestCaseConfig, TestCaseDockerConfig},
+    config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
     Result,
@@ -46,8 +46,17 @@ impl TestCase for DepositOnCitrea {
         }
     }
 
+    fn sequencer_config() -> SequencerConfig {
+        SequencerConfig {
+            // min_soft_confirmations_per_commitment: 50,
+            test_mode: false,
+            bridge_initialize_params: "000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a423a0b35060e62053765e2aba342f1c242e78d68f5248aca26e703c0c84ca322ac006306636974726561140000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000".to_string(),
+            ..Default::default()
+        }
+    }
+
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, da) = start_citrea(Self::sequencer_config(), f).await?;
+        let (sequencer, _full_node, da) = start_citrea(Self::sequencer_config(), f).await.unwrap();
 
         let mut config = create_test_config_with_thread_name!(None);
         update_config_with_citrea_e2e_da(&mut config, da);
@@ -69,6 +78,8 @@ impl TestCase for DepositOnCitrea {
             run_single_deposit(&mut config, rpc.clone()).await?;
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
+        tracing::info!("Move tx: {:#?}", tx);
+        tracing::info!("Move txid: {:#?}", hex::encode(tx.input[0].witness.to_vec()[1].clone()));
         let tx_info = rpc
             .client
             .get_raw_transaction_info(&move_txid, None)
@@ -82,12 +93,16 @@ impl TestCase for DepositOnCitrea {
 
         tracing::error!("real block height: {:?}", block_height);
 
+        // builder::citrea::initialize(sequencer.client.http_client().clone()).await?;
         builder::citrea::initialized(sequencer.client.http_client().clone()).await?;
         while builder::citrea::get_block_nu(sequencer.client.http_client().clone()).await?
             < block_height.try_into().unwrap()
         {
-            rpc.mine_blocks(1).await.unwrap();
             tracing::error!("Waiting for block to be mined");
+            // _full_node
+            //     .wait_for_l2_height(block_height.try_into().unwrap(), None)
+            //     .await?;
+            rpc.mine_blocks(1).await.unwrap();
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
 
