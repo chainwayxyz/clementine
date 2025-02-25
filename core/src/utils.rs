@@ -8,7 +8,6 @@ use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
 use crate::actor::WinternitzDerivationPath;
-use crate::constants::WINTERNITZ_LOG_D;
 #[cfg(not(debug_assertions))]
 use bitvm::{
     chunker::{
@@ -127,9 +126,8 @@ lazy_static::lazy_static! {
         let mut last_steps = 0;
         let mut num_steps = Vec::new();
         for (_, step_size) in BITVM_CACHE.intermediate_variables.iter() {
-            // 4 is estimate max checksum length
-            // 499 is max digits that can be in witness because of bitcoin stack limit (1000)
-            if current_length + step_size * 8 / WINTERNITZ_LOG_D as usize + 4 > 450 {
+            // store at most 190 bytes in one assert, to fit in a v3 tx
+            if current_length + step_size > 190 {
                 num_steps.push((last_steps, last_steps + cur_steps));
                 last_steps += cur_steps;
                 current_length = 0;

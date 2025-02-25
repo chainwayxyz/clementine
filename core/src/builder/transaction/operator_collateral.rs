@@ -142,6 +142,7 @@ pub fn create_assert_timeout_txhandlers(
     for idx in 0..num_asserts {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::AssertTimeout(idx))
+                .with_version(Version::non_standard(3))
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout1, idx as i32),
                     kickoff_txhandler.get_spendable_output(5 + idx)?,
@@ -238,6 +239,7 @@ pub fn create_unspent_kickoff_txhandlers(
     for idx in 0..num_kickoffs_per_round {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::UnspentKickoff(idx))
+                .with_version(Version::non_standard(3))
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff1, idx as i32),
                     ready_to_reimburse_txhandler.get_spendable_output(0)?,

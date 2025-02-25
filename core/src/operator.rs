@@ -15,7 +15,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
 use crate::tx_sender::{
-    ActivedWithOutpoint, ActivedWithTxid, FeePayingType, TxDataForLogging, TxSender,
+    ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging, TxSender,
 };
 use crate::utils::SECP;
 use crate::{builder, UTXO};
@@ -921,7 +921,7 @@ impl Operator {
                 .await?;
             match kickoff_txid {
                 Some(kickoff_txid) => {
-                    activation_prerequisites.push(ActivedWithOutpoint {
+                    activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: OutPoint {
                             txid: kickoff_txid,
                             vout: 2, // Kickoff finalizer output index
@@ -943,7 +943,7 @@ impl Operator {
                             None,
                         )
                         .await?;
-                    activation_prerequisites.push(ActivedWithOutpoint {
+                    activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: unspent_kickoff_connector,
                         timelock: bitcoin::Sequence(self.config.confirmation_threshold),
                     });
@@ -1021,7 +1021,7 @@ impl Operator {
                 FeePayingType::CPFP,
                 &[],
                 &[],
-                &[ActivedWithTxid {
+                &[ActivatedWithTxid {
                     txid: ready_to_reimburse_txid,
                     timelock: bitcoin::Sequence::from_height(2 * 24 * 6), // TODO: Get this from protocol constants config
                 }],
