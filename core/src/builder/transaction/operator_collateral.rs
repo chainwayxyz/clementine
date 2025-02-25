@@ -10,6 +10,7 @@
 //! The `round_tx` is used to create a collateral for the withdrawal, kickoff utxos for the current
 //! round and the reimburse connectors for the previous round.
 
+use super::input::get_kickoff_utxo_vout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use crate::builder;
 use crate::builder::address::create_taproot_address;
@@ -145,7 +146,7 @@ pub fn create_assert_timeout_txhandlers(
                 .with_version(Version::non_standard(3))
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout1, idx as i32),
-                    kickoff_txhandler.get_spendable_output(5 + idx)?,
+                    kickoff_txhandler.get_spendable_output(get_kickoff_utxo_vout(idx))?,
                     SpendPath::ScriptSpend(0),
                     Sequence::from_height(BLOCKS_PER_WEEK * 4),
                 )

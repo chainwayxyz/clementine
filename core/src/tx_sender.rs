@@ -14,10 +14,12 @@ use crate::{
         self,
         script::SpendPath,
         transaction::{
-            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
-            DEFAULT_SEQUENCE,
+            input::{get_watchtower_challenge_utxo_vout, SpendableTxIn},
+            output::UnspentTxOut,
+            TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
         },
     },
+    config::BridgeConfig,
     constants::MIN_TAPROOT_AMOUNT,
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
@@ -170,6 +172,87 @@ impl TxSender {
         Ok(handle)
     }
 
+    pub async fn add_tx_to_queue<'a>(
+        &'a self,
+        dbtx: DatabaseTransaction<'a, '_>,
+        tx_type: TransactionType,
+        signed_tx: &Transaction,
+        related_txs: &[(TransactionType, Transaction)],
+        tx_data_for_logging: Option<TxDataForLogging>,
+        config: &BridgeConfig,
+    ) -> Result<u32, BridgeError> {
+        let tx_data_for_logging = tx_data_for_logging.map(|mut data| {
+            data.tx_type = tx_type;
+            data
+        });
+        match tx_type {
+            TransactionType::Kickoff
+            | TransactionType::WatchtowerChallengeTimeout(_)
+            | TransactionType::Dummy
+            | TransactionType::ChallengeTimeout
+            | TransactionType::DisproveTimeout
+            | TransactionType::Reimburse
+            | TransactionType::Round
+            | TransactionType::OperatorChallengeNack(_)
+            | TransactionType::WatchtowerChallenge(_)
+            | TransactionType::UnspentKickoff(_)
+            | TransactionType::Challenge
+            | TransactionType::Payout
+            | TransactionType::MoveToVault
+            | TransactionType::AssertTimeout(_)
+            | TransactionType::Disprove
+            | TransactionType::BurnUnusedKickoffConnectors
+            | TransactionType::KickoffNotFinalized
+            | TransactionType::MiniAssert(_) => {
+                // no_dependency and cpfp
+                self.try_to_send(
+                    dbtx,
+                    tx_data_for_logging,
+                    signed_tx,
+                    FeePayingType::CPFP,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+            }
+            TransactionType::OperatorChallengeAck(watchtower_idx) => {
+                let kickoff_txid = related_txs
+                    .iter()
+                    .find_map(|(tx_type, tx)| {
+                        if let TransactionType::Kickoff = tx_type {
+                            Some(tx.compute_txid())
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or(BridgeError::Error(
+                        "Couldn't find kickoff tx in related_txs".to_string(),
+                    ))?;
+                self.try_to_send(
+                    dbtx,
+                    tx_data_for_logging,
+                    signed_tx,
+                    FeePayingType::CPFP,
+                    &[],
+                    &[],
+                    &[],
+                    &[ActivatedWithOutpoint {
+                        outpoint: OutPoint {
+                            txid: kickoff_txid,
+                            vout: get_watchtower_challenge_utxo_vout(watchtower_idx) as u32,
+                        },
+                        timelock: bitcoin::Sequence(config.confirmation_threshold),
+                    }],
+                )
+                .await
+            }
+            TransactionType::AllNeededForDeposit => unreachable!(),
+            TransactionType::ReadyToReimburse => unimplemented!(),
+        }
+    }
+
     /// Tries to send a tx. If all conditions are met, it will save the tx to the database.
     /// It will also save the cancelled outpoints, cancelled txids and activated prerequisite txs to the database.
     /// It will automatically saves inputs as cancelled outpoints.
@@ -185,7 +268,6 @@ impl TxSender {
         cancel_txids: &[Txid],
         activate_txids: &[ActivatedWithTxid],
         activate_outpoints: &[ActivatedWithOutpoint],
-        skip_saving_inputs_as_activated: bool,
     ) -> Result<u32, BridgeError> {
         let try_to_send_id = self
             .db
@@ -216,19 +298,17 @@ impl TxSender {
                 .await?;
         }
 
-        if !skip_saving_inputs_as_activated {
-            for input in signed_tx.input.iter() {
-                self.db
-                    .save_activated_outpoint(
-                        Some(dbtx),
-                        try_to_send_id,
-                        &ActivatedWithOutpoint {
-                            outpoint: input.previous_output,
-                            timelock: input.sequence,
-                        },
-                    )
-                    .await?;
-            }
+        for input in signed_tx.input.iter() {
+            self.db
+                .save_activated_outpoint(
+                    Some(dbtx),
+                    try_to_send_id,
+                    &ActivatedWithOutpoint {
+                        outpoint: input.previous_output,
+                        timelock: input.sequence,
+                    },
+                )
+                .await?;
         }
 
         for activated_outpoint in activate_outpoints {
@@ -916,7 +996,6 @@ mod tests {
                 &[],
                 &[],
                 &[],
-                false,
             )
             .await
             .unwrap();
@@ -930,7 +1009,6 @@ mod tests {
                 &[],
                 &[],
                 &[],
-                false,
             )
             .await
             .unwrap(); // It is ok to call this twice
@@ -976,7 +1054,6 @@ mod tests {
                 &[],
                 &[],
                 &[],
-                false,
             )
             .await
             .unwrap();

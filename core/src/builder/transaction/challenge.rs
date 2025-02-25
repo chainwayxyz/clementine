@@ -1,3 +1,4 @@
+use crate::builder;
 use crate::builder::script::{SpendPath, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
@@ -6,9 +7,10 @@ use crate::config::BridgeConfig;
 use crate::constants::{BLOCKS_PER_WEEK, OPERATOR_CHALLENGE_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-use crate::{builder, utils};
 use bitcoin::{Sequence, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
+
+use super::input::{get_challenge_ack_vout, get_watchtower_challenge_utxo_vout};
 
 /// Creates a [`TxHandler`] for the `watchtower_challenge_tx`. This transaction
 /// is sent by the watchtowers to reveal their Groth16 proofs with their public
@@ -21,9 +23,8 @@ pub fn create_watchtower_challenge_txhandler(
     config: &BridgeConfig,
     wots_script: Arc<WinternitzCommit>,
 ) -> Result<TxHandler, BridgeError> {
-    let prevout = kickoff_txhandler.get_spendable_output(
-        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len(),
-    )?;
+    let prevout = kickoff_txhandler
+        .get_spendable_output(get_watchtower_challenge_utxo_vout(watchtower_idx))?;
     let nofn_2week = Arc::new(TimelockScript::new(
         Some(nofn_xonly_pk),
         BLOCKS_PER_WEEK * 2,
@@ -60,10 +61,8 @@ pub fn create_watchtower_challenge_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
 ) -> Result<TxHandler, BridgeError> {
-    let watchtower_challenge_vout =
-        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len();
-    let challenge_ack_vout =
-        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
+    let watchtower_challenge_vout = get_watchtower_challenge_utxo_vout(watchtower_idx);
+    let challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
     Ok(
         TxHandlerBuilder::new(TransactionType::WatchtowerChallengeTimeout(watchtower_idx))
             .with_version(Version::non_standard(3))
@@ -101,8 +100,7 @@ pub fn create_operator_challenge_nack_txhandler(
     watchtower_idx: usize,
     round_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
-    let challenge_ack_vout =
-        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
+    let challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
             .with_version(Version::non_standard(3))
@@ -148,8 +146,7 @@ pub fn create_operator_challenge_ack_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
 ) -> Result<TxHandler, BridgeError> {
-    let challenge_ack_vout =
-        4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
+    let challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
             .with_version(Version::non_standard(3))

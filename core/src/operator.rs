@@ -17,7 +17,7 @@ use crate::rpc::clementine::KickoffId;
 use crate::tx_sender::{
     ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging, TxSender,
 };
-use crate::utils::{self, SECP};
+use crate::utils::SECP;
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
@@ -187,28 +187,27 @@ impl Operator {
         self.signer
             .tx_sign_and_fill_sigs(&mut first_round_tx, &[])?;
 
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .try_to_send(
-                &mut dbtx,
-                Some(TxDataForLogging {
-                    tx_type: TransactionType::Round,
-                    operator_idx: Some(self.idx as u32),
-                    verifier_idx: None,
-                    round_idx: Some(0),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                first_round_tx.get_cached_tx(),
-                FeePayingType::CPFP,
-                &[],
-                &[],
-                &[],
-                &[],
-                true,
-            )
-            .await?;
-        dbtx.commit().await?;
+        // let mut dbtx = self.db.begin_transaction().await?;
+        // self.tx_sender
+        //     .try_to_send(
+        //         &mut dbtx,
+        //         Some(TxDataForLogging {
+        //             tx_type: TransactionType::Round,
+        //             operator_idx: Some(self.idx as u32),
+        //             verifier_idx: None,
+        //             round_idx: Some(0),
+        //             kickoff_idx: None,
+        //             deposit_outpoint: None,
+        //         }),
+        //         first_round_tx.get_cached_tx(),
+        //         FeePayingType::CPFP,
+        //         &[],
+        //         &[],
+        //         &[],
+        //         &[],
+        //     )
+        //     .await?;
+        // dbtx.commit().await?;
 
         tokio::spawn(async move {
             for wpk in wpks {
@@ -705,157 +704,50 @@ impl Operator {
         )
         .await?;
 
-        let mut kickoff_txid = Txid::all_zeros();
+        let tx_data_for_logging = Some(TxDataForLogging {
+            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
+            operator_idx: Some(self.idx as u32),
+            verifier_idx: None,
+            round_idx: Some(round_idx),
+            kickoff_idx: Some(kickoff_idx),
+            deposit_outpoint: Some(deposit_outpoint),
+        });
         // try to send them
-        for (tx_type, signed_tx) in signed_txs {
-            match tx_type {
-                TransactionType::Kickoff => {
-                    kickoff_txid = signed_tx.compute_txid();
+        for (tx_type, signed_tx) in &signed_txs {
+            match *tx_type {
+                TransactionType::Kickoff
+                | TransactionType::OperatorChallengeAck(_)
+                | TransactionType::WatchtowerChallengeTimeout(_)
+                | TransactionType::ChallengeTimeout
+                | TransactionType::DisproveTimeout
+                | TransactionType::Reimburse => {
                     self.tx_sender
-                        .try_to_send(
+                        .add_tx_to_queue(
                             dbtx,
-                            Some(TxDataForLogging {
-                                tx_type: TransactionType::Kickoff,
-                                operator_idx: Some(self.idx as u32),
-                                verifier_idx: None,
-                                round_idx: Some(round_idx),
-                                kickoff_idx: Some(kickoff_idx),
-                                deposit_outpoint: Some(deposit_outpoint),
-                            }),
-                            &signed_tx,
-                            FeePayingType::CPFP,
-                            &[],
-                            &[],
-                            &[],
-                            &[],
-                            false,
-                        )
-                        .await?;
-                }
-                TransactionType::OperatorChallengeAck(watchtower_idx) => {
-                    self.tx_sender
-                        .try_to_send(
-                            dbtx,
-                            Some(TxDataForLogging {
-                                tx_type: TransactionType::OperatorChallengeAck(watchtower_idx),
-                                operator_idx: Some(self.idx as u32),
-                                verifier_idx: None,
-                                round_idx: Some(round_idx),
-                                kickoff_idx: Some(kickoff_idx),
-                                deposit_outpoint: Some(deposit_outpoint),
-                            }),
-                            &signed_tx,
-                            FeePayingType::CPFP,
-                            &[],
-                            &[],
-                            &[],
-                            &[ActivatedWithOutpoint {
-                                outpoint: OutPoint {
-                                    txid: kickoff_txid,
-                                    vout: (4
-                                        + watchtower_idx * 2
-                                        + utils::COMBINED_ASSERT_DATA.num_steps.len())
-                                        as u32,
-                                },
-                                timelock: bitcoin::Sequence(self.config.confirmation_threshold),
-                            }],
-                            false,
-                        )
-                        .await?;
-                }
-                TransactionType::WatchtowerChallengeTimeout(watchtower_idx) => {
-                    self.tx_sender
-                        .try_to_send(
-                            dbtx,
-                            Some(TxDataForLogging {
-                                tx_type: TransactionType::WatchtowerChallengeTimeout(
-                                    watchtower_idx,
-                                ),
-                                operator_idx: Some(self.idx as u32),
-                                verifier_idx: None,
-                                round_idx: Some(round_idx),
-                                kickoff_idx: Some(kickoff_idx),
-                                deposit_outpoint: Some(deposit_outpoint),
-                            }),
-                            &signed_tx,
-                            FeePayingType::CPFP,
-                            &[],
-                            &[],
-                            &[],
-                            &[],
-                            false,
-                        )
-                        .await?;
-                }
-                TransactionType::ChallengeTimeout => {
-                    self.tx_sender
-                        .try_to_send(
-                            dbtx,
-                            Some(TxDataForLogging {
-                                tx_type: TransactionType::ChallengeTimeout,
-                                operator_idx: Some(self.idx as u32),
-                                verifier_idx: None,
-                                round_idx: Some(round_idx),
-                                kickoff_idx: Some(kickoff_idx),
-                                deposit_outpoint: Some(deposit_outpoint),
-                            }),
-                            &signed_tx,
-                            FeePayingType::CPFP,
-                            &[],
-                            &[],
-                            &[],
-                            &[],
-                            false,
-                        )
-                        .await?;
-                }
-                TransactionType::DisproveTimeout => {
-                    self.tx_sender
-                        .try_to_send(
-                            dbtx,
-                            Some(TxDataForLogging {
-                                tx_type: TransactionType::DisproveTimeout,
-                                operator_idx: Some(self.idx as u32),
-                                verifier_idx: None,
-                                round_idx: Some(round_idx),
-                                kickoff_idx: Some(kickoff_idx),
-                                deposit_outpoint: Some(deposit_outpoint),
-                            }),
-                            &signed_tx,
-                            FeePayingType::CPFP,
-                            &[],
-                            &[],
-                            &[],
-                            &[],
-                            false,
-                        )
-                        .await?;
-                }
-                TransactionType::Reimburse => {
-                    self.tx_sender
-                        .try_to_send(
-                            dbtx,
-                            Some(TxDataForLogging {
-                                tx_type: TransactionType::Reimburse,
-                                operator_idx: Some(self.idx as u32),
-                                verifier_idx: None,
-                                round_idx: Some(round_idx),
-                                kickoff_idx: Some(kickoff_idx),
-                                deposit_outpoint: Some(deposit_outpoint),
-                            }),
-                            &signed_tx,
-                            FeePayingType::CPFP,
-                            &[],
-                            &[],
-                            &[],
-                            &[],
-                            false,
+                            *tx_type,
+                            signed_tx,
+                            &signed_txs,
+                            tx_data_for_logging,
+                            &self.config,
                         )
                         .await?;
                 }
                 _ => {}
             }
         }
+
+        let kickoff_txid = signed_txs
+            .iter()
+            .find_map(|(tx_type, tx)| {
+                if let TransactionType::Kickoff = tx_type {
+                    Some(tx.compute_txid())
+                } else {
+                    None
+                }
+            })
+            .ok_or(BridgeError::Error(
+                "Couldn't find kickoff tx in signed_txs".to_string(),
+            ))?;
 
         // mark the kickoff connector as used
         self.db
@@ -990,7 +882,6 @@ impl Operator {
                 &[],
                 &[],
                 &[],
-                false,
             )
             .await?;
 
@@ -1012,7 +903,6 @@ impl Operator {
                 &[],
                 &[],
                 &activation_prerequisites,
-                false,
             )
             .await?;
 
@@ -1037,7 +927,6 @@ impl Operator {
                     timelock: bitcoin::Sequence::from_height(2 * 24 * 6), // TODO: Get this from protocol constants config
                 }],
                 &[],
-                false,
             )
             .await?;
 

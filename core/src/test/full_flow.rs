@@ -428,7 +428,6 @@ pub async fn send_tx(
             &[],
             &[],
             &[],
-            false,
         )
         .await?;
     dbtx.commit().await?;
