@@ -217,14 +217,14 @@ impl TxSender {
         }
 
         if !skip_saving_inputs_as_activated {
-            for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
+            for input in signed_tx.input.iter() {
                 self.db
                     .save_activated_outpoint(
                         Some(dbtx),
                         try_to_send_id,
                         &ActivatedWithOutpoint {
-                            outpoint: input_outpoint,
-                            timelock: bitcoin::Sequence::from_height(0),
+                            outpoint: input.previous_output,
+                            timelock: input.sequence,
                         },
                     )
                     .await?;

@@ -763,6 +763,30 @@ impl Operator {
                         )
                         .await?;
                 }
+                TransactionType::WatchtowerChallengeTimeout(watchtower_idx) => {
+                    self.tx_sender
+                        .try_to_send(
+                            dbtx,
+                            Some(TxDataForLogging {
+                                tx_type: TransactionType::WatchtowerChallengeTimeout(
+                                    watchtower_idx,
+                                ),
+                                operator_idx: Some(self.idx as u32),
+                                verifier_idx: None,
+                                round_idx: Some(round_idx),
+                                kickoff_idx: Some(kickoff_idx),
+                                deposit_outpoint: Some(deposit_outpoint),
+                            }),
+                            &signed_tx,
+                            FeePayingType::CPFP,
+                            &[],
+                            &[],
+                            &[],
+                            &[],
+                            false,
+                        )
+                        .await?;
+                }
                 TransactionType::ChallengeTimeout => {
                     self.tx_sender
                         .try_to_send(
