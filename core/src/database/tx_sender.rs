@@ -496,7 +496,8 @@ impl Database {
                 .0
                 .map(|s| serde_json::from_str(&s))
                 .transpose()
-                .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                .map_err(|e| BridgeError::ConversionError(e.to_string()))?
+                .ok_or_else(|| BridgeError::ConversionError("TxDataForLogging".to_string()))?,
             deserialize(&result.1.unwrap_or_default())
                 .map_err(|e| BridgeError::Error(format!("Bitcoin deserialization error: {}", e)))?,
             result.2,
