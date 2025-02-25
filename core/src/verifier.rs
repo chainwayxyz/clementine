@@ -204,9 +204,9 @@ impl Verifier {
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for idx in 0..self.config.num_round_txs {
+        for idx in 0..self.config.protocol_paramset().num_round_txs {
             let txhandlers = create_round_txhandlers(
-                &self.config,
+                self.config.protocol_paramset(),
                 idx,
                 &operator_data,
                 kickoff_wpks,

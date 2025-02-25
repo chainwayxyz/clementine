@@ -1,7 +1,7 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
-use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -907,9 +907,9 @@ impl Operator {
             collateral_funding_outpoint: self.collateral_funding_outpoint,
             reimburse_addr: self.reimburse_addr.clone(),
         };
-        for idx in 0..self.config.num_round_txs {
+        for idx in 0..self.config.protocol_paramset().num_round_txs {
             let txhandlers = create_round_txhandlers(
-                &self.config,
+                self.config.protocol_paramset(),
                 idx,
                 &operator_data,
                 kickoff_wpks,

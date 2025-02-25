@@ -51,6 +51,8 @@ pub struct ProtocolParamset {
     pub kickoff_blockhash_commit_length: usize,
     /// Length of the message used in watchtower challenge transactions.
     pub watchtower_challenge_message_length: usize,
+    /// Number of watchtowers. (changes the number of watchtower challenge kickoff txouts)
+    pub num_watchtowers: usize,
 }
 
 pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -64,6 +66,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 480,
+    num_watchtowers: 4,
 };
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -73,10 +76,11 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     user_takes_after: 200,
     bridge_amount: Amount::from_sat(1_000_000_000),
     kickoff_amount: Amount::from_sat(40_000),
-    kickoff_blockhash_commit_length: 40,
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
+    kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 480,
+    num_watchtowers: 4,
 };
 
 pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -90,4 +94,5 @@ pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 480,
+    num_watchtowers: 4,
 };

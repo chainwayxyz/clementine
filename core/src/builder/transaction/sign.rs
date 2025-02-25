@@ -52,7 +52,7 @@ pub async fn create_and_sign_txs(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
             transaction_data.deposit_data.clone(),
-            config.clone(),
+            &config,
         ),
     )
     .await?;
@@ -161,7 +161,7 @@ impl Watchtower {
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
                 transaction_data.deposit_data.clone(),
-                self.config.clone(),
+                &self.config,
             ),
         )
         .await?;
@@ -215,7 +215,7 @@ impl Operator {
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,
                 assert_data.deposit_data.clone(),
-                self.config.clone(),
+                &self.config,
             ),
         )
         .await?;
