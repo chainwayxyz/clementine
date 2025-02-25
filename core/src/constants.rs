@@ -7,7 +7,6 @@ pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(240); // TODO: This will chan
 pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330); // TODO: Maybe this could be 294, check
 
 pub const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
-pub const BLOCKS_PER_DAY: u16 = 6 * 24;
 
 /// This is the log_d used across the codebase.
 ///

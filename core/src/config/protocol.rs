@@ -1,7 +1,7 @@
 use bitcoin::{Amount, Network};
 use serde::{Deserialize, Serialize};
 
-use crate::constants::WINTERNITZ_LOG_D;
+use crate::constants::{BLOCKS_PER_WEEK, WINTERNITZ_LOG_D};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 /// A pre-defined paramset name that can be converted into a
@@ -59,6 +59,16 @@ pub struct ProtocolParamset {
     pub winternitz_log_d: u32,
     /// Number of watchtowers. (changes the number of watchtower challenge kickoff txouts)
     pub num_watchtowers: usize,
+    /// Number of blocks for watchtower challenge NACK timelock (currently BLOCKS_PER_WEEK / 2)
+    pub watchtower_challenge_nack_timelock: u16,
+    /// Number of blocks for operator challenge timelock (currently BLOCKS_PER_WEEK)
+    pub operator_challenge_timelock: u16,
+    /// Number of blocks for disprove timeout timelock (currently BLOCKS_PER_WEEK * 5)
+    pub disprove_timeout_timelock: u16,
+    /// Number of blocks for assert timeout timelock (currently BLOCKS_PER_WEEK * 4)
+    pub assert_timeout_timelock: u16,
+    /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_WEEK)
+    pub operator_reimburse_timelock: u16,
 }
 
 pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -74,6 +84,11 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_message_length: 480,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
+    watchtower_challenge_nack_timelock: BLOCKS_PER_WEEK / 2,
+    operator_challenge_timelock: BLOCKS_PER_WEEK,
+    disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
+    assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
+    operator_reimburse_timelock: BLOCKS_PER_WEEK,
 };
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -89,6 +104,11 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_message_length: 480,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
+    watchtower_challenge_nack_timelock: BLOCKS_PER_WEEK / 2,
+    operator_challenge_timelock: BLOCKS_PER_WEEK,
+    disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
+    assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
+    operator_reimburse_timelock: BLOCKS_PER_WEEK,
 };
 
 pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -104,4 +124,9 @@ pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_message_length: 480,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
+    watchtower_challenge_nack_timelock: BLOCKS_PER_WEEK / 2,
+    operator_challenge_timelock: BLOCKS_PER_WEEK,
+    disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
+    assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
+    operator_reimburse_timelock: BLOCKS_PER_WEEK,
 };

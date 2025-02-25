@@ -8,8 +8,10 @@ use crate::builder::script::SpendableScript;
 use crate::builder::script::{CheckSig, TimelockScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
-use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
+use crate::config::protocol::ProtocolParamset;
+use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
+use crate::rpc::clementine::KickoffId;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::utils::usize_to_var_len_bytes;
 use crate::utils::{SECP, UNSPENDABLE_XONLY_PUBKEY};
@@ -19,8 +21,9 @@ use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::transaction::Version;
+use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{Address, Network, TapNodeHash, TxOut, Txid};
+use bitcoin::{Address, TapNodeHash, TxOut, Txid};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -31,17 +34,19 @@ pub enum AssertScripts<'a> {
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
+    kickoff_id: KickoffId,
+    deposit_outpoint: OutPoint,
     round_txhandler: &TxHandler,
-    kickoff_idx: usize,
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
-    move_txid: Txid,
-    operator_idx: usize,
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
     disprove_root_hash: &[u8; 32],
-    network: Network,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
+    let kickoff_idx: usize = kickoff_id.kickoff_idx as usize;
+    let operator_idx: usize = kickoff_id.operator_idx as usize;
+    let move_txid: Txid = deposit_outpoint.txid;
     let mut builder =
         TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(3));
     builder = builder.add_input(
@@ -55,7 +60,7 @@ pub fn create_kickoff_txhandler(
 
     let operator_1week = Arc::new(TimelockScript::new(
         Some(operator_xonly_pk),
-        BLOCKS_PER_WEEK,
+        paramset.operator_reimburse_timelock,
     ));
 
     builder = builder
@@ -64,35 +69,35 @@ pub fn create_kickoff_txhandler(
             MIN_TAPROOT_AMOUNT * 20, // TODO: to be calculated
             vec![nofn_script.clone()],
             None,
-            network,
+            paramset.network,
         ))
         // goes to challenge tx or no challenge tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone(), operator_1week],
             None,
-            network,
+            paramset.network,
         ))
         // kickoff finalizer connector
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT * 20,
             vec![nofn_script.clone()],
             None,
-            network,
+            paramset.network,
         ))
         // UTXO to reimburse tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone()],
             None,
-            network,
+            paramset.network,
         ));
 
     // Add disprove utxo
     // Add Operator in 5 week script to taproot, that connects to disprove timeout
     let operator_5week = Arc::new(TimelockScript::new(
         Some(operator_xonly_pk),
-        BLOCKS_PER_WEEK * 5,
+        paramset.disprove_timeout_timelock,
     ));
     let disprove_taproot_spend_info = TaprootBuilder::new()
         .add_leaf(1, operator_5week.to_script_buf())
@@ -106,7 +111,7 @@ pub fn create_kickoff_txhandler(
         &SECP,
         *UNSPENDABLE_XONLY_PUBKEY,
         disprove_taproot_spend_info.merkle_root(),
-        network,
+        paramset.network,
     );
 
     builder = builder.add_output(UnspentTxOut::new(
@@ -121,7 +126,7 @@ pub fn create_kickoff_txhandler(
     // add nofn_4 week to all assert scripts
     let nofn_4week = Arc::new(TimelockScript::new(
         Some(nofn_xonly_pk),
-        4 * BLOCKS_PER_WEEK,
+        paramset.assert_timeout_timelock,
     ));
 
     match assert_scripts {
@@ -133,7 +138,7 @@ pub fn create_kickoff_txhandler(
                     .expect("taptree with one node at depth 1 will accept a script node")
                     .add_leaf(
                         1,
-                        TimelockScript::new(Some(nofn_xonly_pk), BLOCKS_PER_WEEK * 4)
+                        TimelockScript::new(Some(nofn_xonly_pk), paramset.assert_timeout_timelock)
                             .to_script_buf(),
                     )
                     .expect("empty taptree will accept a node at depth 1")
@@ -144,7 +149,7 @@ pub fn create_kickoff_txhandler(
                     &SECP,
                     *UNSPENDABLE_XONLY_PUBKEY,
                     assert_spend_info.merkle_root(),
-                    network,
+                    paramset.network,
                 );
 
                 builder = builder.add_output(UnspentTxOut::new(
@@ -163,7 +168,7 @@ pub fn create_kickoff_txhandler(
                     MIN_TAPROOT_AMOUNT,
                     vec![nofn_4week.clone(), script],
                     None,
-                    network,
+                    paramset.network,
                 ));
             }
         }

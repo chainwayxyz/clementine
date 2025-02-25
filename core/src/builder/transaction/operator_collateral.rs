@@ -20,7 +20,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
+use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
@@ -118,6 +118,7 @@ pub fn create_assert_timeout_txhandlers(
     kickoff_txhandler: &TxHandler,
     round_txhandler: &TxHandler,
     num_asserts: usize,
+    paramset: &'static ProtocolParamset,
 ) -> Result<Vec<TxHandler>, BridgeError> {
     let mut txhandlers = Vec::new();
     for idx in 0..num_asserts {
@@ -127,7 +128,7 @@ pub fn create_assert_timeout_txhandlers(
                     (NumberedSignatureKind::AssertTimeout1, idx as i32),
                     kickoff_txhandler.get_spendable_output(5 + idx)?,
                     SpendPath::ScriptSpend(0),
-                    Sequence::from_height(BLOCKS_PER_WEEK * 4),
+                    Sequence::from_height(paramset.assert_timeout_timelock),
                 )
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout2, idx as i32),

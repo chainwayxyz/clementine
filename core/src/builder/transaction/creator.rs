@@ -304,15 +304,14 @@ pub async fn create_txhandlers(
         }
 
         let kickoff_txhandler = create_kickoff_txhandler(
+            kickoff_id,
+            deposit_data.deposit_outpoint,
             get_txhandler(&txhandlers, TransactionType::Round)?,
-            kickoff_id.kickoff_idx as usize,
             nofn_xonly_pk,
             operator_data.xonly_pk,
-            deposit_data.deposit_outpoint.txid,
-            kickoff_id.operator_idx as usize,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
-            paramset.network,
+            paramset,
         )?;
 
         // Create and insert mini_asserts into return Vec
@@ -327,15 +326,14 @@ pub async fn create_txhandlers(
         let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
         // use db data for scripts
         create_kickoff_txhandler(
+            kickoff_id,
+            deposit_data.deposit_outpoint,
             get_txhandler(&txhandlers, TransactionType::Round)?,
-            kickoff_id.kickoff_idx as usize,
             nofn_xonly_pk,
             operator_data.xonly_pk,
-            deposit_data.deposit_outpoint.txid,
-            kickoff_id.operator_idx as usize,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
-            paramset.network,
+            paramset,
         )?
     };
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
@@ -352,8 +350,10 @@ pub async fn create_txhandlers(
     );
 
     // Creates the challenge timeout txhandler
-    let challenge_timeout_txhandler =
-        create_challenge_timeout_txhandler(get_txhandler(&txhandlers, TransactionType::Kickoff)?)?;
+    let challenge_timeout_txhandler = create_challenge_timeout_txhandler(
+        get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+        paramset,
+    )?;
 
     txhandlers.insert(
         challenge_timeout_txhandler.get_transaction_type(),
@@ -419,7 +419,7 @@ pub async fn create_txhandlers(
                     public_hash,
                     nofn_xonly_pk,
                     operator_data.xonly_pk,
-                    paramset.network,
+                    paramset,
                     None,
                 )?
             } else {
@@ -439,7 +439,7 @@ pub async fn create_txhandlers(
                     public_hash,
                     nofn_xonly_pk,
                     operator_data.xonly_pk,
-                    paramset.network,
+                    paramset,
                     Some(Arc::new(WinternitzCommit::new(
                         vec![(
                             public_key,
@@ -464,6 +464,7 @@ pub async fn create_txhandlers(
                     watchtower_idx,
                     get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                     get_txhandler(&txhandlers, TransactionType::Round)?,
+                    paramset,
                 )?;
             txhandlers.insert(
                 operator_challenge_nack_txhandler.get_transaction_type(),
@@ -477,6 +478,7 @@ pub async fn create_txhandlers(
                         TransactionType::WatchtowerChallenge(watchtower_idx),
                     )?,
                     watchtower_idx,
+                    paramset,
                 )?;
 
             txhandlers.insert(
@@ -494,6 +496,7 @@ pub async fn create_txhandlers(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         get_txhandler(&txhandlers, TransactionType::Round)?,
         num_asserts,
+        paramset,
     )?;
 
     for assert_timeout in assert_timeouts.into_iter() {
@@ -503,6 +506,7 @@ pub async fn create_txhandlers(
     // Creates the disprove_timeout_tx handler.
     let disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+        paramset,
     )?;
 
     txhandlers.insert(
