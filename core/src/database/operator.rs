@@ -4,7 +4,7 @@
 
 use super::{
     wrapper::{
-        AddressDB, EVMAddressDB, OutPointDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
+        AddressDB, EVMAddressDB, OutPointDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
         XOnlyPublicKeyDB,
     },
     Database, DatabaseTransaction,
@@ -17,10 +17,9 @@ use crate::{
     rpc::clementine::{DepositSignatures, TaggedSignature},
     UTXO,
 };
-use bitcoin::{secp256k1::schnorr, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
-use sqlx::{Postgres, QueryBuilder};
 use std::str::FromStr;
 
 pub type RootHash = [u8; 32];
@@ -121,61 +120,6 @@ impl Database {
         }
     }
 
-    pub async fn lock_operators_kickoff_utxo_table(
-        &self,
-        tx: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), BridgeError> {
-        sqlx::query("LOCK TABLE operators_kickoff_utxo IN ACCESS EXCLUSIVE MODE;")
-            .execute(&mut **tx)
-            .await?;
-        Ok(())
-    }
-
-    /// Set the kickoff UTXO for this deposit UTXO.
-    pub async fn set_kickoff_utxo(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        deposit_outpoint: OutPoint,
-        kickoff_utxo: UTXO,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UtxoDB {
-            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-            txout_db: TxOutDB(kickoff_utxo.txout),
-        }));
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    /// If operator already created a kickoff UTXO for this deposit UTXO, return it.
-    pub async fn get_kickoff_utxo(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        deposit_outpoint: OutPoint,
-    ) -> Result<Option<UTXO>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT kickoff_utxo FROM operators_kickoff_utxo WHERE deposit_outpoint = $1;",
-        )
-        .bind(OutPointDB(deposit_outpoint));
-
-        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one);
-
-        match result {
-            Ok((utxo_db,)) => Ok(Some(UTXO {
-                outpoint: utxo_db.outpoint_db.0,
-                txout: utxo_db.txout_db.0.clone(),
-            })),
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
-    }
-
     /// Get unused kickoff_utxo at ready if there are any.
     pub async fn get_unused_kickoff_utxo_and_increase_idx(
         &self,
@@ -265,64 +209,6 @@ impl Database {
             })),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
-    }
-
-    pub async fn set_operator_take_sigs(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxos_and_sigs: impl IntoIterator<Item = (UTXO, schnorr::Signature)>,
-    ) -> Result<(), BridgeError> {
-        QueryBuilder::new(
-            "UPDATE deposit_kickoff_utxos
-             SET operator_take_sig = batch.sig
-             FROM (",
-        )
-        .push_values(
-            kickoff_utxos_and_sigs,
-            |mut builder, (kickoff_utxo, operator_take_sig)| {
-                builder
-                    .push_bind(sqlx::types::Json(UtxoDB {
-                        outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-                        txout_db: TxOutDB(kickoff_utxo.txout),
-                    }))
-                    .push_bind(SignatureDB(operator_take_sig));
-            },
-        )
-        .push(
-            ") AS batch (kickoff_utxo, sig)
-             WHERE deposit_kickoff_utxos.deposit_outpoint = ",
-        )
-        .push_bind(OutPointDB(deposit_outpoint))
-        .push(" AND deposit_kickoff_utxos.kickoff_utxo = batch.kickoff_utxo;")
-        .build()
-        .execute(&self.connection)
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn get_operator_take_sig(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxo: UTXO,
-    ) -> Result<Option<schnorr::Signature>, BridgeError> {
-        let qr: Option<(SignatureDB,)> = sqlx::query_as(
-            "SELECT operator_take_sig
-             FROM deposit_kickoff_utxos
-             WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UtxoDB {
-            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-            txout_db: TxOutDB(kickoff_utxo.txout),
-        }))
-        .fetch_optional(&self.connection)
-        .await?;
-
-        match qr {
-            Some(sig) => Ok(Some(sig.0 .0)),
-            None => Ok(None),
         }
     }
 
@@ -472,52 +358,6 @@ impl Database {
                 Ok(Some(converted_hashes))
             }
             None => Ok(None), // If no result is found, return Ok(None)
-        }
-    }
-
-    /// Sets the signed kickoff UTXO generator tx.
-    ///
-    /// # Parameters
-    ///
-    /// - txid: the txid of the signed tx.
-    /// - funding_txid: the txid of the input[0].
-    pub async fn add_deposit_kickoff_generator_tx(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        txid: Txid,
-        raw_hex: String,
-        num_kickoffs: usize,
-        funding_txid: Txid,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid) VALUES ($1, $2, $3, $4, $5);")
-            .bind(TxidDB(txid))
-            .bind(raw_hex)
-            .bind(num_kickoffs as i32)
-            .bind(1)
-            .bind(TxidDB(funding_txid));
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    pub async fn get_deposit_kickoff_generator_tx(
-        &self,
-        txid: Txid,
-    ) -> Result<Option<(String, usize, usize, Txid)>, BridgeError> {
-        let qr: Option<(String, i32, i32, TxidDB)> = sqlx::query_as("SELECT raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid FROM deposit_kickoff_generator_txs WHERE txid = $1;")
-            .bind(TxidDB(txid))
-            .fetch_optional(&self.connection)
-            .await?;
-
-        match qr {
-            Some((raw_hex, num_kickoffs, cur_unused_kickoff_index, funding_txid)) => Ok(Some((
-                raw_hex,
-                num_kickoffs as usize,
-                cur_unused_kickoff_index as usize,
-                funding_txid.0,
-            ))),
-            None => Ok(None),
         }
     }
 
@@ -886,7 +726,6 @@ impl Database {
 mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
-    use bitcoin::secp256k1::schnorr;
     use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid};
 
     use crate::operator::Operator;
@@ -1036,178 +875,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_database_gets_previously_saved_operator_take_signature() {
-        let config = create_test_config_with_thread_name(None).await;
-        let database = Database::new(&config).await.unwrap();
-
-        let deposit_outpoint = OutPoint::null();
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let kickoff_utxo = UTXO {
-            outpoint,
-            txout: TxOut {
-                value: Amount::from_sat(100),
-                script_pubkey: ScriptBuf::from(vec![1u8]),
-            },
-        };
-        let signature = schnorr::Signature::from_slice(&[0u8; SCHNORR_SIGNATURE_SIZE]).unwrap();
-
-        database
-            .set_kickoff_utxos(None, deposit_outpoint, &[kickoff_utxo.clone()])
-            .await
-            .unwrap();
-
-        database
-            .set_operator_take_sigs(deposit_outpoint, [(kickoff_utxo.clone(), signature)])
-            .await
-            .unwrap();
-
-        let actual_sig = database
-            .get_operator_take_sig(deposit_outpoint, kickoff_utxo)
-            .await
-            .unwrap();
-        let expected_sig = Some(signature);
-
-        assert_eq!(actual_sig, expected_sig);
-    }
-
-    #[tokio::test]
-    async fn test_deposit_kickoff_generator_tx_0() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let raw_hex = "02000000000101eb87b1a80d47b7f5bd5082b77653f5ca37e566951742b80c361875ba0e5c478f0a00000000fdffffff0ca086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca35c081777000000002251202a64b1ee3375f3bb4b367b8cb8384a47f73cf231717f827c6c6fbbf5aecf0c364a010000000000002200204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260014005a41e6f4a4bcfcc5cd3ef602687215f97c18949019a491df56af7413c5dce9292ba3966edc4564a39d9bc0d6c0faae19030f1cedf4d931a6cdc57cc5b83c8ef00000000".to_string();
-        let tx: bitcoin::Transaction =
-            bitcoin::consensus::deserialize(&hex::decode(raw_hex.clone()).unwrap()).unwrap();
-        let txid = tx.compute_txid();
-        let num_kickoffs = tx.output.len() - 2;
-        let funding_txid = tx.input[0].previous_output.txid;
-        db.add_deposit_kickoff_generator_tx(
-            None,
-            txid,
-            raw_hex.clone(),
-            num_kickoffs,
-            funding_txid,
-        )
-        .await
-        .unwrap();
-        for i in 0..num_kickoffs - 1 {
-            let (db_raw_hex, db_num_kickoffs, db_cur_unused_kickoff_index, db_funding_txid) = db
-                .get_deposit_kickoff_generator_tx(txid)
-                .await
-                .unwrap()
-                .unwrap();
-
-            // Sanity check
-            assert_eq!(db_raw_hex, raw_hex);
-            assert_eq!(db_num_kickoffs, num_kickoffs);
-            assert_eq!(db_cur_unused_kickoff_index, i + 1);
-            assert_eq!(db_funding_txid, funding_txid);
-
-            let unused_utxo = db
-                .get_unused_kickoff_utxo_and_increase_idx(None)
-                .await
-                .unwrap()
-                .unwrap();
-            println!("unused_utxo: {:?}", unused_utxo);
-
-            // Sanity check
-            assert_eq!(unused_utxo.outpoint.txid, txid);
-            assert_eq!(unused_utxo.outpoint.vout, i as u32 + 1);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_deposit_kickoff_generator_tx_1() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let raw_hex = "01000000000101308d840c736eefd114a8fad04cb0d8338b4a3034a2b517250e5498701b25eb360100000000fdffffff02401f00000000000022512024985a1ab5724a5164ae5e0026b3e7e22031e83948eedf99d438b866857946b81f7e000000000000225120f7298da2a2be5b6e02a076ff7d35a1fe6b54a2bc7938c1c86bede23cadb7d9650140ad2fdb01ec5e2772f682867c8c6f30697c63f622e338f7390d3abc6c905b9fd7e96496fdc34cb9e872387758a6a334ec1307b3505b73121e0264fe2ba546d78ad11b0d00".to_string();
-        let tx: bitcoin::Transaction =
-            bitcoin::consensus::deserialize(&hex::decode(raw_hex.clone()).unwrap()).unwrap();
-        let txid = tx.compute_txid();
-        let num_kickoffs = tx.output.len();
-        let funding_txid = tx.input[0].previous_output.txid;
-        db.add_deposit_kickoff_generator_tx(
-            None,
-            txid,
-            raw_hex.clone(),
-            num_kickoffs,
-            funding_txid,
-        )
-        .await
-        .unwrap();
-        let (db_raw_hex, db_num_kickoffs, db_cur_unused_kickoff_index, db_funding_txid) = db
-            .get_deposit_kickoff_generator_tx(txid)
-            .await
-            .unwrap()
-            .unwrap();
-
-        // Sanity check
-        assert_eq!(db_raw_hex, raw_hex);
-        assert_eq!(db_num_kickoffs, num_kickoffs);
-        assert_eq!(db_cur_unused_kickoff_index, 1);
-        assert_eq!(db_funding_txid, funding_txid);
-
-        let unused_utxo = db
-            .get_unused_kickoff_utxo_and_increase_idx(None)
-            .await
-            .unwrap()
-            .unwrap();
-        tracing::info!("unused_utxo: {:?}", unused_utxo);
-
-        // Sanity check
-        assert_eq!(unused_utxo.outpoint.txid, txid);
-        assert_eq!(unused_utxo.outpoint.vout, 1);
-
-        let none_utxo = db
-            .get_unused_kickoff_utxo_and_increase_idx(None)
-            .await
-            .unwrap();
-        assert!(none_utxo.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_operators_kickoff_utxo_1() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let kickoff_utxo = UTXO {
-            outpoint,
-            txout: TxOut {
-                value: Amount::from_sat(100),
-                script_pubkey: ScriptBuf::from(vec![1u8]),
-            },
-        };
-        db.set_kickoff_utxo(None, outpoint, kickoff_utxo.clone())
-            .await
-            .unwrap();
-        let db_kickoff_utxo = db.get_kickoff_utxo(None, outpoint).await.unwrap().unwrap();
-
-        // Sanity check
-        assert_eq!(db_kickoff_utxo, kickoff_utxo);
-    }
-
-    #[tokio::test]
-    async fn test_operators_kickoff_utxo_2() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let db_kickoff_utxo = db.get_kickoff_utxo(None, outpoint).await.unwrap();
-        assert!(db_kickoff_utxo.is_none());
-    }
-
-    #[tokio::test]
     async fn test_operators_funding_utxo_1() {
         let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
@@ -1237,26 +904,6 @@ mod tests {
         let db_utxo = db.get_funding_utxo(None).await.unwrap();
 
         assert!(db_utxo.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_deposit_kickoff_generator_tx_2() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let txid = Txid::from_byte_array([1u8; 32]);
-        let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
-        assert!(res.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_deposit_kickoff_generator_tx_3() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let txid = Txid::from_byte_array([1u8; 32]);
-        let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
-        assert!(res.is_none());
     }
 
     #[tokio::test]

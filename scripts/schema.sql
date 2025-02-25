@@ -14,48 +14,6 @@ create table if not exists operators (
     collateral_funding_outpoint text not null check (collateral_funding_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$')
 );
 
--- Verifier table for deposit details
-/* This table holds the information related to a deposit. */
-create table if not exists deposit_infos (
-    deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
-    recovery_taproot_address text not null,
-    evm_address text not null check (evm_address ~ '^[a-fA-F0-9]{40}'),
-    created_at timestamp not null default now()
-);
-
--- Verifier table for kickoff for deposits
-/* This table holds the kickoff utxos sent by the operators for each deposit. */
-create table if not exists deposit_kickoff_utxos (
-    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
-    operator_idx int not null,
-    kickoff_utxo jsonb not null,
-    slash_or_take_sig text,
-    operator_take_sig bytea,
-    burn_sig text,
-    created_at timestamp not null default now(),
-    primary key (deposit_outpoint, operator_idx)
-);
-
--- Operator table for kickoff utxo and funding utxo for deposits
-/* This table holds the funding utxos sent by the operators for each deposit. */
-create table if not exists deposit_kickoff_generator_txs (
-    id serial primary key,
-    txid text unique not null check (txid ~ '^[a-fA-F0-9]{64}'),
-    raw_signed_tx text not null,
-    num_kickoffs int not null,
-    cur_unused_kickoff_index int not null check (cur_unused_kickoff_index <= num_kickoffs),
-    funding_txid text not null check (funding_txid ~ '^[a-fA-F0-9]{64}'),
-    created_at timestamp not null default now()
-);
-
--- Operator table for kickoff utxo related to deposits
-/* This table holds the kickoff utxos sent by the operators for each deposit. */
-create table if not exists operators_kickoff_utxo (
-    deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
-    kickoff_utxo jsonb not null,
-    created_at timestamp not null default now()
-);
-
 -- Operator table for funding utxo used for deposits
 create table if not exists funding_utxos (
     id serial primary key,
