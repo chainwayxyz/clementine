@@ -34,6 +34,9 @@ pub use crate::builder::transaction::txhandler::*;
 pub use creator::{
     create_round_txhandlers, create_txhandlers, KickoffWinternitzKeys, ReimburseDbCache,
 };
+pub use operator_collateral::{
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+};
 pub use operator_reimburse::create_payout_txhandler;
 pub use txhandler::Unsigned;
 

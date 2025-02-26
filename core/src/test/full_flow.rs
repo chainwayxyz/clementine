@@ -33,7 +33,7 @@ pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
     let recovery_taproot_address = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
-        config.network,
+        config.protocol_paramset().network,
     )
     .address;
     // 2. Setup Aggregator
@@ -43,7 +43,7 @@ pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
     // 3. Make Deposit
     tracing::info!("Making deposit transaction");
     let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.bridge_amount_sats)
+        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);

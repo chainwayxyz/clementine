@@ -2,10 +2,10 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
-use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler, DepositData,
-    OperatorData, TransactionType, TxHandler,
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+    create_round_txhandlers, DepositData, KickoffWinternitzKeys, OperatorData, TransactionType,
+    TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -181,10 +181,9 @@ impl Operator {
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
             self.config.collateral_funding_amount,
-            self.config.num_kickoffs_per_round,
-            self.config.network,
-            0,
+            0, // index 0 for the first round
             &kickoff_wpks,
+            self.config.protocol_paramset(),
         )?;
 
         self.signer
@@ -784,27 +783,25 @@ impl Operator {
             .await?;
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
-            self.config.num_kickoffs_per_round,
+            self.config.protocol_paramset().num_kickoffs_per_round,
         );
         let (current_round_txhandler, mut ready_to_reimburse_txhandler) =
             create_round_nth_txhandler(
                 self.signer.xonly_public_key,
                 self.collateral_funding_outpoint,
                 Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
-                self.config.num_kickoffs_per_round,
-                self.config.network,
                 current_round_index as usize,
                 &kickoff_wpks,
+                self.config.protocol_paramset(),
             )?;
 
         let (mut next_round_txhandler, _) = create_round_nth_txhandler(
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
             Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
-            self.config.num_kickoffs_per_round,
-            self.config.network,
             current_round_index as usize + 1,
             &kickoff_wpks,
+            self.config.protocol_paramset(),
         )?;
 
         // sign ready to reimburse tx
@@ -824,7 +821,9 @@ impl Operator {
         let mut unspent_kickoff_connector_indices = Vec::new();
 
         // get kickoff txid for used kickoff connector
-        for kickoff_connector_idx in 0..self.config.num_kickoffs_per_round as u32 {
+        for kickoff_connector_idx in
+            0..self.config.protocol_paramset().num_kickoffs_per_round as u32
+        {
             let kickoff_txid = self
                 .db
                 .get_kickoff_txid_for_used_kickoff_connector(
