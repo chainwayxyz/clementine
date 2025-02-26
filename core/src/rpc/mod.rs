@@ -1,8 +1,9 @@
 use crate::errors::BridgeError;
 use clementine::*;
-use std::future::Future;
+use hyper_util::rt::TokioIo;
+use std::path::PathBuf;
 use tagged_signature::SignatureId;
-use tonic::transport::Uri;
+use tonic::transport::{Channel, Uri};
 
 #[allow(clippy::all)]
 #[rustfmt::skip]
@@ -36,26 +37,61 @@ impl From<(NumberedSignatureKind, i32)> for SignatureId {
 ///
 /// # Parameters
 ///
-/// - `endpoints`: URIs for clients
+/// - `endpoints`: URIs for clients (can be http/https URLs or unix:// paths)
 /// - `connect`: Function that will be used to initiate gRPC connection
 ///
 /// # Returns
 ///
 /// - [`CLIENT`]: [`tonic`] gRPC client.
-pub async fn get_clients<CLIENT, F, Fut>(
+pub async fn get_clients<CLIENT, F>(
     endpoints: Vec<String>,
     connect: F,
 ) -> Result<Vec<CLIENT>, BridgeError>
 where
-    F: FnOnce(Uri) -> Fut + Copy,
-    Fut: Future<Output = Result<CLIENT, tonic::transport::Error>>,
+    F: FnOnce(Channel) -> CLIENT + Copy,
 {
-    futures::future::try_join_all(endpoints.iter().map(|endpoint| async move {
-        let uri = Uri::try_from(endpoint).map_err(|e| {
-            BridgeError::ConfigError(format!("Endpoint {} is malformed: {}", endpoint, e))
-        })?;
+    futures::future::try_join_all(
+        endpoints
+            .into_iter()
+            .map(|endpoint| async move {
+                let channel = if endpoint.starts_with("unix://") {
+                    // Handle Unix socket
+                    let path = endpoint.trim_start_matches("unix://").to_string();
+                    Channel::from_static("lttp://[::]:50051")
+                        .connect_with_connector(tower::service_fn(move |_| {
+                            let path = PathBuf::from(path.clone());
+                            async move {
+                                let unix_stream = tokio::net::UnixStream::connect(path).await?;
+                                Ok::<_, std::io::Error>(TokioIo::new(unix_stream))
+                            }
+                        }))
+                        .await
+                        .map_err(|e| {
+                            BridgeError::ConfigError(format!(
+                                "Failed to connect to Unix socket {}: {}",
+                                endpoint, e
+                            ))
+                        })?
+                } else {
+                    // Handle TCP/HTTP connection
+                    let uri = Uri::try_from(endpoint.clone()).map_err(|e| {
+                        BridgeError::ConfigError(format!(
+                            "Endpoint {} is malformed: {}",
+                            endpoint, e
+                        ))
+                    })?;
 
-        Ok(connect(uri).await?)
-    }))
+                    Channel::builder(uri).connect().await.map_err(|e| {
+                        BridgeError::ConfigError(format!(
+                            "Failed to connect to endpoint {}: {}",
+                            endpoint, e
+                        ))
+                    })?
+                };
+
+                Ok(connect(channel))
+            })
+            .collect::<Vec<_>>(),
+    )
     .await
 }

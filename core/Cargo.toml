@@ -41,6 +41,7 @@ eyre = { workspace = true }
 http = "^1"
 hyper = "^1"
 tower = "^0.4"
+hyper-util = { version = "0.1" }
 
 [dev-dependencies]
 serial_test = { workspace = true }

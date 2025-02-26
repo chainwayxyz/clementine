@@ -18,6 +18,7 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::NormalSignatureKind;
+use crate::rpc::get_clients;
 use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
     create_watchtower_unix_server,
@@ -498,32 +499,44 @@ pub async fn create_actors(
     shutdown_channels.push(aggregator_shutdown_tx);
 
     // Connect to the Unix socket servers
-    let verifiers = futures_util::future::join_all(verifier_paths.iter().map(|path| async move {
-        ClementineVerifierClient::connect(format!("unix://{}", path.display()))
-            .await
-            .expect("Failed to connect to verifier")
-    }))
-    .await;
+    let verifiers = get_clients(
+        verifier_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineVerifierClient::new,
+    )
+    .await
+    .expect("could not connect to verifiers");
 
-    let operators = futures_util::future::join_all(operator_paths.iter().map(|path| async move {
-        ClementineOperatorClient::connect(format!("unix://{}", path.display()))
-            .await
-            .expect("Failed to connect to operator")
-    }))
-    .await;
+    let operators = get_clients(
+        operator_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineOperatorClient::new,
+    )
+    .await
+    .expect("could not connect to operators");
 
-    let aggregator =
-        ClementineAggregatorClient::connect(format!("unix://{}", aggregator_path.display()))
-            .await
-            .expect("Failed to connect to aggregator");
+    let aggregator = get_clients(
+        vec![format!("unix://{}", aggregator_path.display())],
+        ClementineAggregatorClient::new,
+    )
+    .await
+    .expect("could not connect to aggregator")
+    .pop()
+    .expect("could not connect to aggregator");
 
-    let watchtowers =
-        futures_util::future::join_all(watchtower_paths.iter().map(|path| async move {
-            ClementineWatchtowerClient::connect(format!("unix://{}", path.display()))
-                .await
-                .expect("Failed to connect to watchtower")
-        }))
-        .await;
+    let watchtowers = get_clients(
+        watchtower_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineWatchtowerClient::new,
+    )
+    .await
+    .expect("could not connect to watchtowers");
 
     (
         verifiers,
