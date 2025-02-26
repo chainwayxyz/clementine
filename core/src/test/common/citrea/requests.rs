@@ -51,11 +51,11 @@ pub async fn block_number(client: HttpClient) -> Result<u32, BridgeError> {
 pub async fn eth_get_balance(
     client: HttpClient,
     evm_address: EVMAddress,
-) -> Result<u64, BridgeError> {
+) -> Result<u128, BridgeError> {
     let params = rpc_params![evm_address.0, "latest"];
 
     let response: String = client.request("eth_getBalance", params).await?;
-    let ret = u64::from_str_radix(&response[2..], 16)
+    let ret = u128::from_str_radix(&response[2..], 16)
         .map_err(|e| BridgeError::Error(format!("Can't convert hex to int: {}", e)))?;
 
     Ok(ret)

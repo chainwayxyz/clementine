@@ -111,7 +111,7 @@ impl TestCase for DepositToCitrea {
                 .unwrap();
         assert_eq!(
             balance,
-            config.protocol_paramset().bridge_amount.to_sat() * 10_000_000_000
+            (config.protocol_paramset().bridge_amount.to_sat() * 10_000_000_000).into()
         );
 
         Ok(())
