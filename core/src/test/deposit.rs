@@ -1,14 +1,12 @@
-use std::{thread::sleep, time::Duration};
-
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
         citrea::{self},
         create_test_config_with_thread_name, run_single_deposit,
     },
+    EVMAddress,
 };
 use async_trait::async_trait;
-use bitcoin::consensus::Encodable;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
@@ -16,10 +14,11 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
+use std::{thread::sleep, time::Duration};
 
-struct DepositOnCitrea;
+struct DepositToCitrea;
 #[async_trait]
-impl TestCase for DepositOnCitrea {
+impl TestCase for DepositToCitrea {
     fn bitcoin_config() -> BitcoinConfig {
         BitcoinConfig {
             extra_args: vec![
@@ -78,13 +77,6 @@ impl TestCase for DepositOnCitrea {
             run_single_deposit(&mut config, rpc.clone()).await?;
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
-        let mut etx = Vec::new();
-        tx.consensus_encode(&mut etx).unwrap();
-        tracing::info!("Move tx: {:#?}", hex::encode(etx));
-        tracing::info!(
-            "Move txid: {:#?}",
-            hex::encode(tx.input[0].witness.to_vec()[1].clone())
-        );
         let tx_info = rpc
             .client
             .get_raw_transaction_info(&move_txid, None)
@@ -96,34 +88,31 @@ impl TestCase for DepositOnCitrea {
         rpc.mine_blocks(101).await.unwrap();
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
 
-        tracing::error!("real block height: {:?}", block_height);
-
-        // builder::citrea::initialize(sequencer.client.http_client().clone()).await?;
-        citrea::script_prefix(sequencer.client.http_client().clone()).await?;
-        while citrea::get_block_nu(sequencer.client.http_client().clone()).await?
+        while citrea::block_number(sequencer.client.http_client().clone()).await?
             < block_height.try_into().unwrap()
         {
-            tracing::error!("Waiting for block to be mined");
-            // _full_node
-            //     .wait_for_l2_height(block_height.try_into().unwrap(), None)
-            //     .await?;
+            tracing::debug!("Waiting for block to be mined");
             rpc.mine_blocks(1).await.unwrap();
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
 
-        let deposit = citrea::deposit(
+        citrea::deposit(
             sequencer.client.http_client().clone(),
             block,
             block_height.try_into().expect("Will not fail"),
             tx,
         )
-        .await;
-        tracing::info!("Deposit result: {:?}", deposit);
+        .await?;
 
         sleep(Duration::from_secs(3));
-        citrea::deposit_amount(sequencer.client.http_client().clone())
-            .await
-            .unwrap();
+        let balance =
+            citrea::eth_get_balance(sequencer.client.http_client().clone(), EVMAddress([1; 20]))
+                .await
+                .unwrap();
+        assert_eq!(
+            balance,
+            config.protocol_paramset().bridge_amount.to_sat() * 10_000_000_000
+        );
 
         Ok(())
     }
@@ -131,5 +120,5 @@ impl TestCase for DepositOnCitrea {
 
 #[tokio::test]
 async fn send_deposit_details_to_citrea() -> Result<()> {
-    TestCaseRunner::new(DepositOnCitrea).run().await
+    TestCaseRunner::new(DepositToCitrea).run().await
 }
