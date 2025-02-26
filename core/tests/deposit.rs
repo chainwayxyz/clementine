@@ -1,5 +1,7 @@
 //! # Deposit Tests
 
+use std::{thread::sleep, time::Duration};
+
 use async_trait::async_trait;
 use bitcoin::consensus::Encodable;
 use bitcoincore_rpc::RpcApi;
@@ -120,6 +122,9 @@ impl TestCase for DepositOnCitrea {
         )
         .await;
         tracing::info!("Deposit result: {:?}", deposit);
+
+        sleep(Duration::from_secs(3));
+        builder::citrea::depositAmount(sequencer.client.http_client().clone()).await.unwrap();
 
         Ok(())
     }

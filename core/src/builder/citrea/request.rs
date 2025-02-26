@@ -64,6 +64,27 @@ pub async fn get_block_nu(client: HttpClient) -> Result<u32, BridgeError> {
 
     Ok(block_number)
 }
+pub async fn depositAmount(client: HttpClient) -> Result<u32, BridgeError> {
+    let params = rpc_params![
+        "0101010101010101010101010101010101010101",
+        "latest"
+    ];
+
+    let response: String = client.request("eth_getBalance", params).await?;
+    tracing::error!("eeeb {:?}", response);
+
+    // let decoded_hex = hex::decode(&response[2..]).map_err(|e| BridgeError::Error(e.to_string()))?;
+    // let block_number = decoded_hex
+    //     .iter()
+    //     .rev()
+    //     .take(4)
+    //     .rev()
+    //     .fold(0u32, |acc, &byte| acc << 8 | byte as u32);
+    // tracing::error!("block_number {:?}", block_number);
+
+    Ok(0x45)
+}
+
 
 pub async fn deposit(
     client: HttpClient,
