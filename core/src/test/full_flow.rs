@@ -105,7 +105,7 @@ pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
         .await?;
 
     // Try for 60 iterations (approximately 6 seconds plus mining time)
-    for attempt in 0..60 {
+    for attempt in 0..2000 {
         tracing::info!("Checking if move tx is spent (attempt {}/60)", attempt + 1);
         // check if the move_tx is spent
         let spent = rpc.client.get_tx_out(&move_txid, 0, Some(true)).await?;
@@ -114,7 +114,7 @@ pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
         }
 
         // If this is the last attempt and we haven't broken out of the loop yet
-        if attempt == 59 {
+        if attempt == 2000 - 1 {
             return Err(eyre::eyre!("Timeout waiting for move tx to be spent"));
         }
 

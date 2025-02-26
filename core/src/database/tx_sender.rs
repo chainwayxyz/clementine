@@ -295,13 +295,15 @@ impl Database {
         tx_data_for_logging: Option<TxDataForLogging>,
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
+        txid: Txid,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_data_for_logging) VALUES ($1, $2::fee_paying_type, $3) RETURNING id"
+            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_data_for_logging, txid) VALUES ($1, $2::fee_paying_type, $3, $4) RETURNING id"
         )
         .bind(serialize(raw_tx))
         .bind(fee_paying_type)
-        .bind(serde_json::to_string(&tx_data_for_logging).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(serde_json::to_string(&tx_data_for_logging).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(TxidDB(txid));
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         u32::try_from(id).map_err(|e| BridgeError::IntConversionError(e))
@@ -396,45 +398,69 @@ impl Database {
         current_tip_height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
-            "WITH valid_activated_txs AS (
-                    -- Select all tx_sender_try_to_send_txs IDs
-                    SELECT txs.id AS activated_id
-                    FROM tx_sender_try_to_send_txs AS txs
-                    LEFT JOIN tx_sender_activate_try_to_send_txids AS activate_txid
-                        ON txs.id = activate_txid.activated_id
-                    LEFT JOIN tx_sender_activate_try_to_send_outpoints AS activate_outpoint
-                        ON txs.id = activate_outpoint.activated_id
-                    LEFT JOIN bitcoin_syncer AS syncer_txid
-                        ON activate_txid.seen_block_id = syncer_txid.id
-                    LEFT JOIN bitcoin_syncer AS syncer_outpoint
-                        ON activate_outpoint.seen_block_id = syncer_outpoint.id
-                    GROUP BY txs.id
-                    HAVING
-                        -- If the transaction has no prerequisites, it is valid
-                        (COUNT(activate_txid.txid) = 0 AND COUNT(activate_outpoint.txid) = 0)
-                        -- If it has txid-based prerequisites, all must be activated
-                        OR COUNT(activate_txid.txid) = COUNT(CASE WHEN (syncer_txid.height + activate_txid.timelock) <= $2 THEN 1 END)
-                        -- If it has outpoint-based prerequisites, all must be activated
-                        OR COUNT(activate_outpoint.txid) = COUNT(CASE WHEN (syncer_outpoint.height + activate_outpoint.timelock) <= $2 THEN 1 END)
+            "WITH 
+                -- Find non-active transactions (not seen or timelock not passed)
+                non_active_txs AS (
+                    -- Transactions with txid activations that aren't active yet
+                    SELECT DISTINCT
+                        activate_txid.activated_id AS tx_id
+                    FROM 
+                        tx_sender_activate_try_to_send_txids AS activate_txid
+                    LEFT JOIN 
+                        bitcoin_syncer AS syncer ON activate_txid.seen_block_id = syncer.id
+                    WHERE 
+                        activate_txid.seen_block_id IS NULL 
+                        OR (syncer.height + activate_txid.timelock > $2)
+                    
+                    UNION
+                    
+                    -- Transactions with outpoint activations that aren't active yet
+                    SELECT DISTINCT
+                        activate_outpoint.activated_id AS tx_id
+                    FROM 
+                        tx_sender_activate_try_to_send_outpoints AS activate_outpoint
+                    LEFT JOIN 
+                        bitcoin_syncer AS syncer ON activate_outpoint.seen_block_id = syncer.id
+                    WHERE 
+                        activate_outpoint.seen_block_id IS NULL 
+                        OR (syncer.height + activate_outpoint.timelock > $2)
                 ),
-                valid_cancel_outpoints AS (
-                    SELECT cancelled_id
-                    FROM tx_sender_cancel_try_to_send_outpoints
-                    WHERE seen_block_id IS NOT NULL
-                ),
-                valid_cancel_txids AS (
-                    SELECT cancelled_id
-                    FROM tx_sender_cancel_try_to_send_txids
-                    WHERE seen_block_id IS NOT NULL
+
+                -- Transactions with cancelled conditions
+                cancelled_txs AS (
+                    -- Transactions with cancelled outpoints
+                    SELECT DISTINCT
+                        cancelled_id AS tx_id
+                    FROM 
+                        tx_sender_cancel_try_to_send_outpoints
+                    WHERE 
+                        seen_block_id IS NOT NULL
+                    
+                    UNION
+                    
+                    -- Transactions with cancelled txids
+                    SELECT DISTINCT
+                        cancelled_id AS tx_id
+                    FROM 
+                        tx_sender_cancel_try_to_send_txids
+                    WHERE 
+                        seen_block_id IS NOT NULL
                 )
-                SELECT txs.id
-                FROM tx_sender_try_to_send_txs AS txs
-                WHERE
-                    txs.id IN (SELECT activated_id FROM valid_activated_txs)
-                    AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
-                    AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);
-",
+
+                -- Final query to get sendable transactions
+                SELECT 
+                    txs.id
+                FROM 
+                    tx_sender_try_to_send_txs AS txs
+                WHERE 
+                    -- Transaction must not be in the non-active list
+                    txs.id NOT IN (SELECT tx_id FROM non_active_txs)
+                    -- Transaction must not be in the cancelled list
+                    AND txs.id NOT IN (SELECT tx_id FROM cancelled_txs)
+                    -- Transaction must not be already confirmed
+                    AND txs.seen_block_id IS NULL
+                    -- Check if fee_rate is lower than the provided fee rate or null
+                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
         .bind(i64::try_from(fee_rate.to_sat_per_vb_ceil())?)
         .bind(i32::try_from(current_tip_height)?);
@@ -444,7 +470,7 @@ impl Database {
         let txs = results
             .into_iter()
             .map(|(id,)| -> Result<u32, BridgeError> {
-                u32::try_from(id).map_err(|e| BridgeError::IntConversionError(e))
+                u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
@@ -536,8 +562,9 @@ mod tests {
         };
 
         // Test saving tx
+        let txid = tx.compute_txid();
         let id = db
-            .save_tx(None, None, &tx, FeePayingType::CPFP)
+            .save_tx(None, None, &tx, FeePayingType::CPFP, txid)
             .await
             .unwrap();
 
@@ -563,7 +590,13 @@ mod tests {
 
         // Save the transaction first
         let tx_id = db
-            .save_tx(Some(&mut dbtx), None, &tx, FeePayingType::CPFP)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
 
@@ -604,7 +637,13 @@ mod tests {
             output: vec![],
         };
         let tx_id = db
-            .save_tx(Some(&mut dbtx), None, &tx, FeePayingType::CPFP)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
 
@@ -647,7 +686,13 @@ mod tests {
 
         // Save the transaction first
         let tx_id = db
-            .save_tx(Some(&mut dbtx), None, &tx, FeePayingType::CPFP)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
 
@@ -688,11 +733,23 @@ mod tests {
         };
 
         let id1 = db
-            .save_tx(Some(&mut dbtx), None, &tx1, FeePayingType::CPFP)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx1,
+                FeePayingType::CPFP,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
         let id2 = db
-            .save_tx(Some(&mut dbtx), None, &tx2, FeePayingType::RBF)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx2,
+                FeePayingType::RBF,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
 

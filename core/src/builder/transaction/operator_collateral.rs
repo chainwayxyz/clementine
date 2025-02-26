@@ -264,6 +264,7 @@ pub fn create_unspent_kickoff_txhandlers(
 pub fn create_burn_unused_kickoff_connectors_txhandler(
     round_txhandler: &TxHandler,
     unused_kickoff_connectors_indices: &[usize], // indices of the kickoff connectors that are not used, 0 indexed, 0 => first kickoff connector
+    change_address: &Address,
 ) -> Result<TxHandler, BridgeError> {
     let mut tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
@@ -276,6 +277,10 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
             Sequence::from_height(1),
         );
     }
+    tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
+        value: MIN_TAPROOT_AMOUNT,
+        script_pubkey: change_address.script_pubkey(),
+    }));
     tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(
         builder::transaction::anchor_output(),
     ));

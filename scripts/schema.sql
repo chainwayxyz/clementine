@@ -225,6 +225,124 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     primary key (activated_id, txid, vout)
 );
 
+-------- TX SENDER TRIGGERS --------
+
+-- Trigger function for tx_sender_cancel_try_to_send_txids
+CREATE OR REPLACE FUNCTION update_cancel_txids_seen_block_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Find if this txid exists in a canonical block
+    UPDATE tx_sender_cancel_try_to_send_txids
+    SET seen_block_id = bs.id
+    FROM bitcoin_syncer_txs bst
+    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+    WHERE tx_sender_cancel_try_to_send_txids.cancelled_id = NEW.cancelled_id
+      AND tx_sender_cancel_try_to_send_txids.txid = NEW.txid
+      AND tx_sender_cancel_try_to_send_txids.seen_block_id IS NULL
+      AND bst.txid = NEW.txid
+      AND bs.is_canonical = TRUE;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop the trigger if it exists
+DROP TRIGGER IF EXISTS trigger_update_cancel_txids_seen_block_id ON tx_sender_cancel_try_to_send_txids;
+
+-- Create the trigger
+CREATE TRIGGER trigger_update_cancel_txids_seen_block_id
+AFTER INSERT ON tx_sender_cancel_try_to_send_txids
+FOR EACH ROW
+EXECUTE FUNCTION update_cancel_txids_seen_block_id();
+
+-- Trigger function for tx_sender_cancel_try_to_send_outpoints
+CREATE OR REPLACE FUNCTION update_cancel_outpoints_seen_block_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Find if this outpoint is spent in a canonical block
+    UPDATE tx_sender_cancel_try_to_send_outpoints
+    SET seen_block_id = bs.id
+    FROM bitcoin_syncer_spent_utxos bsu
+    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+    WHERE tx_sender_cancel_try_to_send_outpoints.cancelled_id = NEW.cancelled_id
+      AND tx_sender_cancel_try_to_send_outpoints.txid = NEW.txid
+      AND tx_sender_cancel_try_to_send_outpoints.vout = NEW.vout
+      AND tx_sender_cancel_try_to_send_outpoints.seen_block_id IS NULL
+      AND bsu.txid = NEW.txid
+      AND bsu.vout = NEW.vout
+      AND bs.is_canonical = TRUE;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop the trigger if it exists
+DROP TRIGGER IF EXISTS trigger_update_cancel_outpoints_seen_block_id ON tx_sender_cancel_try_to_send_outpoints;
+
+-- Create the trigger
+CREATE TRIGGER trigger_update_cancel_outpoints_seen_block_id
+AFTER INSERT ON tx_sender_cancel_try_to_send_outpoints
+FOR EACH ROW
+EXECUTE FUNCTION update_cancel_outpoints_seen_block_id();
+
+-- Trigger function for tx_sender_activate_try_to_send_txids
+CREATE OR REPLACE FUNCTION update_activate_txids_seen_block_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Find if this txid exists in a canonical block
+    UPDATE tx_sender_activate_try_to_send_txids
+    SET seen_block_id = bs.id
+    FROM bitcoin_syncer_txs bst
+    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+    WHERE tx_sender_activate_try_to_send_txids.activated_id = NEW.activated_id
+      AND tx_sender_activate_try_to_send_txids.txid = NEW.txid
+      AND tx_sender_activate_try_to_send_txids.seen_block_id IS NULL
+      AND bst.txid = NEW.txid
+      AND bs.is_canonical = TRUE;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop the trigger if it exists
+DROP TRIGGER IF EXISTS trigger_update_activate_txids_seen_block_id ON tx_sender_activate_try_to_send_txids;
+
+-- Create the trigger
+CREATE TRIGGER trigger_update_activate_txids_seen_block_id
+AFTER INSERT ON tx_sender_activate_try_to_send_txids
+FOR EACH ROW
+EXECUTE FUNCTION update_activate_txids_seen_block_id();
+
+-- Trigger function for tx_sender_activate_try_to_send_outpoints
+CREATE OR REPLACE FUNCTION update_activate_outpoints_seen_block_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Find if this outpoint is spent in a canonical block
+    UPDATE tx_sender_activate_try_to_send_outpoints
+    SET seen_block_id = bs.id
+    FROM bitcoin_syncer_spent_utxos bsu
+    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+    WHERE tx_sender_activate_try_to_send_outpoints.activated_id = NEW.activated_id
+      AND tx_sender_activate_try_to_send_outpoints.txid = NEW.txid
+      AND tx_sender_activate_try_to_send_outpoints.vout = NEW.vout
+      AND tx_sender_activate_try_to_send_outpoints.seen_block_id IS NULL
+      AND bsu.txid = NEW.txid
+      AND bsu.vout = NEW.vout
+      AND bs.is_canonical = TRUE;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop the trigger if it exists
+DROP TRIGGER IF EXISTS trigger_update_activate_outpoints_seen_block_id ON tx_sender_activate_try_to_send_outpoints;
+
+-- Create the trigger
+CREATE TRIGGER trigger_update_activate_outpoints_seen_block_id
+AFTER INSERT ON tx_sender_activate_try_to_send_outpoints
+FOR EACH ROW
+EXECUTE FUNCTION update_activate_outpoints_seen_block_id();
+
 
 -------- ROUND MANAGMENT FOR OPERATOR --------
 

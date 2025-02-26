@@ -837,7 +837,7 @@ impl Operator {
                     activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: OutPoint {
                             txid: kickoff_txid,
-                            vout: 2, // Kickoff finalizer output index
+                            vout: 1, // Kickoff finalizer output index
                         },
                         relative_block_height: self.config.confirmation_threshold,
                     });
@@ -869,6 +869,7 @@ impl Operator {
             create_burn_unused_kickoff_connectors_txhandler(
                 &current_round_txhandler,
                 &unspent_kickoff_connector_indices,
+                &self.signer.address,
             )?;
 
         // sign burn unused kickoff connectors tx
