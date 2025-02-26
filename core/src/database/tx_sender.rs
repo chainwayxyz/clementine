@@ -306,7 +306,7 @@ impl Database {
         .bind(TxidDB(txid));
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        u32::try_from(id).map_err(|e| BridgeError::IntConversionError(e))
+        u32::try_from(id).map_err(BridgeError::IntConversionError)
     }
 
     pub async fn save_rbf_txid(
@@ -528,7 +528,7 @@ impl Database {
             result.2,
             result
                 .3
-                .map(|id| u32::try_from(id).map_err(|e| BridgeError::IntConversionError(e)))
+                .map(|id| u32::try_from(id).map_err(BridgeError::IntConversionError))
                 .transpose()?,
         ))
     }

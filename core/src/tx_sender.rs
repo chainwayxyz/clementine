@@ -216,7 +216,7 @@ impl TxSender {
                 )
                 .await
             }
-            TransactionType::WatchtowerChallengeTimeout(watchtower_idx) => {
+            TransactionType::WatchtowerChallengeTimeout(_watchtower_idx) => {
                 let kickoff_txid = related_txs
                     .iter()
                     .find_map(|(tx_type, tx)| {
@@ -787,9 +787,7 @@ impl TxSender {
         let mut early_exit = false;
         for (_txid, result) in submit_package_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
-                tracing::warn!("Error submitting package: {:?}", error);
-                // STOP THE WHOLE PROCESS
-                std::process::exit(0);
+                tracing::error!("Error submitting package: {:?}", error);
                 early_exit = true;
                 break;
             }
