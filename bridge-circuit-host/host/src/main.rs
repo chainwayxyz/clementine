@@ -90,8 +90,8 @@ async fn main() {
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
 
-    let l1_hegith = 70029;
-    let (light_client_proof, lcp_receipt) = fetch_light_client_proof(l1_hegith).await.unwrap();
+    let l1_height = 71610;
+    let (light_client_proof, lcp_receipt) = fetch_light_client_proof(l1_height).await.unwrap();
 
     let storage_proof = fetch_storage_proof(&light_client_proof.l2_height).await;
     let block_vec = TESTNET_BLOCK_47029.to_vec();
