@@ -12,7 +12,8 @@ use bitcoin::{
     consensus::{deserialize, serialize},
     Amount, FeeRate, Transaction, Txid,
 };
-use std::ops::DerefMut; // Add this at the top with other imports
+use std::ops::DerefMut;
+// Add this at the top with other imports
 
 impl Database {
     pub async fn confirm_transactions(
@@ -376,13 +377,31 @@ impl Database {
         activated_id: u32,
         activated_outpoint: &ActivatedWithOutpoint,
     ) -> Result<(), BridgeError> {
+        // get relative locktime as blocks
+        let locktime = {
+            if let Some(locktime) = activated_outpoint.timelock.to_relative_lock_time() {
+                use bitcoin::relative::LockTime::*;
+                match locktime {
+                    Blocks(blocks) => {
+                        blocks.value() as i32
+                    }
+                    Time(_) => {
+                        return Err(BridgeError::ConversionError(
+                            "Relative lock time must be in blocks in bridge".to_string(),
+                        ));
+                    }
+                }
+            } else {
+                0
+            }
+        };
         let query = sqlx::query(
             "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout, timelock) VALUES ($1, $2, $3, $4)"
         )
         .bind(i32::try_from(activated_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .bind(TxidDB(activated_outpoint.outpoint.txid))
         .bind(i32::try_from(activated_outpoint.outpoint.vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
-        .bind(i32::try_from(activated_outpoint.timelock.0).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+            .bind(locktime);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())

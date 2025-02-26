@@ -468,7 +468,6 @@ impl Aggregator {
                 &[],
                 &[],
                 &[],
-                false,
             )
             .await?;
         dbtx.commit()
