@@ -37,7 +37,7 @@ impl BridgeConfig {
     }
 
     pub fn get_num_required_nofn_sigs_per_kickoff(&self) -> usize {
-        7 + 2 * self.num_watchtowers + utils::COMBINED_ASSERT_DATA.num_steps.len() * 2
+        6 + 4 * self.num_watchtowers + utils::COMBINED_ASSERT_DATA.num_steps.len() * 2
     }
 
     pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {

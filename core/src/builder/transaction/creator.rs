@@ -14,9 +14,11 @@ use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use crate::{builder, utils};
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{ScriptBuf, XOnlyPublicKey};
+use bitcoin::XOnlyPublicKey;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+use super::RoundTxInput;
 
 // helper function to get a txhandler from a hashmap
 fn get_txhandler(
@@ -67,7 +69,7 @@ pub struct ReimburseDbCache {
     actor_secret_key: SecretKey,
     winternitz_secret_key: Option<SecretKey>,
     /// watchtower challenge addresses
-    watchtower_challenge_addr: Option<Vec<ScriptBuf>>,
+    watchtower_challenge_hashes: Option<Vec<[u8; 32]>>,
     /// winternitz keys to sign the kickoff tx with the blockhash
     kickoff_winternitz_keys: Option<KickoffWinternitzKeys>,
     /// bitvm assert scripts for each assert utxo
@@ -92,21 +94,21 @@ impl ReimburseDbCache {
             paramset: config.protocol_paramset(),
             actor_secret_key: config.secret_key,
             winternitz_secret_key: config.winternitz_secret_key,
-            watchtower_challenge_addr: None,
+            watchtower_challenge_hashes: None,
             kickoff_winternitz_keys: None,
             bitvm_assert_addr: None,
             bitvm_disprove_root_hash: None,
             challenge_ack_hashes: None,
         }
     }
-    pub async fn watchtower_challenge_addr(&mut self) -> Result<&[ScriptBuf], BridgeError> {
-        match self.watchtower_challenge_addr {
+    pub async fn watchtower_challenge_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
+        match self.watchtower_challenge_hashes {
             Some(ref addr) => Ok(addr),
             None => {
                 // Get all watchtower challenge addresses for the operator.
                 let watchtower_challenge_addr = (0..self.paramset.num_watchtowers)
                     .map(|i| {
-                        self.db.get_watchtower_challenge_address(
+                        self.db.get_watchtower_challenge_hash(
                             None,
                             i as u32,
                             self.operator_idx,
@@ -114,10 +116,10 @@ impl ReimburseDbCache {
                         )
                     })
                     .collect::<Vec<_>>();
-                self.watchtower_challenge_addr =
+                self.watchtower_challenge_hashes =
                     Some(futures::future::try_join_all(watchtower_challenge_addr).await?);
                 Ok(self
-                    .watchtower_challenge_addr
+                    .watchtower_challenge_hashes
                     .as_ref()
                     .expect("Inserted before"))
             }
@@ -265,18 +267,17 @@ pub async fn create_txhandlers(
     // get the next round txhandler (because reimburse connectors will be in it)
     let next_round_txhandler = create_round_txhandler(
         operator_data.xonly_pk,
-        *get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
-            .get_spendable_output(0)?
-            .get_prev_outpoint(),
-        get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
-            .get_spendable_output(0)?
-            .get_prevout()
-            .value,
+        RoundTxInput::Prevout(
+            get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
+                .get_spendable_output(0)?,
+        ),
         kickoff_winternitz_keys.get_keys_for_round(kickoff_id.round_idx as usize + 1),
         paramset,
     )?;
 
     let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
+    let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
+    let watchtower_challenge_hashes = db_cache.watchtower_challenge_hash().await?.to_vec();
 
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
@@ -311,6 +312,8 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
+            &watchtower_challenge_hashes,
+            &public_hashes,
             paramset,
         )?;
 
@@ -333,6 +336,8 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
+            &watchtower_challenge_hashes,
+            &public_hashes,
             paramset,
         )?
     };
@@ -370,126 +375,77 @@ pub async fn create_txhandlers(
         kickoff_not_finalized_txhandler,
     );
 
-    // Generate watchtower challenges (addresses from db) if all txs are needed
-    if matches!(
-        transaction_type,
-        TransactionType::AllNeededForDeposit
-            | TransactionType::WatchtowerChallengeKickoff
-            | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::OperatorChallengeNack(_)
-            | TransactionType::OperatorChallengeAck(_)
-    ) {
-        let needed_watchtower_idx: i32 =
-            if let TransactionType::WatchtowerChallenge(idx) = transaction_type {
-                idx as i32
-            } else {
-                -1
-            };
-
-        let watchtower_challenge_addr = db_cache.watchtower_challenge_addr().await?;
-
+    // create watchtower tx's except WatchtowerChallenges
+    for watchtower_idx in 0..paramset.num_watchtowers {
         // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
-        // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
-        // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]
-        // using watchtower_challenge_tx.output[0].
-
-        let watchtower_challenge_kickoff_txhandler =
-            builder::transaction::create_watchtower_challenge_kickoff_txhandler(
+        // - acknowledge the challenge by sending the operator_challenge_ACK_tx, otherwise their burn connector
+        // will get burned by operator_challenge_nack
+        let watchtower_challenge_timeout_txhandler =
+            builder::transaction::create_watchtower_challenge_timeout_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                paramset.num_watchtowers as u32,
-                watchtower_challenge_addr,
+                watchtower_idx,
+                paramset,
             )?;
         txhandlers.insert(
-            watchtower_challenge_kickoff_txhandler.get_transaction_type(),
-            watchtower_challenge_kickoff_txhandler,
+            watchtower_challenge_timeout_txhandler.get_transaction_type(),
+            watchtower_challenge_timeout_txhandler,
         );
 
-        let public_hashes = db_cache.get_challenge_ack_hashes().await?;
+        let operator_challenge_nack_txhandler =
+            builder::transaction::create_operator_challenge_nack_txhandler(
+                get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+                watchtower_idx,
+                get_txhandler(&txhandlers, TransactionType::Round)?,
+                paramset,
+            )?;
+        txhandlers.insert(
+            operator_challenge_nack_txhandler.get_transaction_type(),
+            operator_challenge_nack_txhandler,
+        );
 
-        // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
-        // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
-        // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]
-        // using watchtower_challenge_tx.output[0].
-        for (watchtower_idx, public_hash) in public_hashes.iter().enumerate() {
-            let watchtower_challenge_txhandler = if watchtower_idx as i32 != needed_watchtower_idx {
-                // create it with db if we don't need actual winternitz script
-                builder::transaction::create_watchtower_challenge_txhandler(
-                    get_txhandler(&txhandlers, TransactionType::WatchtowerChallengeKickoff)?,
-                    watchtower_idx,
-                    public_hash,
-                    nofn_xonly_pk,
-                    operator_data.xonly_pk,
-                    paramset,
-                    None,
-                )?
-            } else {
-                // generate with actual scripts if we want to specifically create a watchtower challenge tx
-                let path = WatchtowerChallenge(
-                    kickoff_id.operator_idx,
-                    deposit_data.deposit_outpoint.txid,
-                    paramset,
-                );
+        let operator_challenge_ack_txhandler =
+            builder::transaction::create_operator_challenge_ack_txhandler(
+                get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+                watchtower_idx,
+                paramset,
+            )?;
+        txhandlers.insert(
+            operator_challenge_ack_txhandler.get_transaction_type(),
+            operator_challenge_ack_txhandler,
+        );
+    }
 
-                let actor = Actor::new(actor_secret_key, winternitz_secret_key, paramset.network);
-                let public_key = actor.derive_winternitz_pk(path)?;
+    // Generate watchtower challenge with correct script if specifically requested
+    if let TransactionType::WatchtowerChallenge(watchtower_idx) = transaction_type {
+        // generate with actual scripts if we want to specifically create a watchtower challenge tx
+        let path = WatchtowerChallenge(
+            kickoff_id.operator_idx,
+            deposit_data.deposit_outpoint.txid,
+            paramset,
+        );
 
-                builder::transaction::create_watchtower_challenge_txhandler(
-                    get_txhandler(&txhandlers, TransactionType::WatchtowerChallengeKickoff)?,
-                    watchtower_idx,
-                    public_hash,
-                    nofn_xonly_pk,
-                    operator_data.xonly_pk,
-                    paramset,
-                    Some(Arc::new(WinternitzCommit::new(
-                        vec![(
-                            public_key,
-                            paramset.watchtower_challenge_message_length as u32,
-                        )],
-                        actor.xonly_public_key,
-                        paramset.winternitz_log_d,
-                    ))),
-                )?
-            };
-            txhandlers.insert(
-                watchtower_challenge_txhandler.get_transaction_type(),
-                watchtower_challenge_txhandler,
-            );
-            // Creates the operator_challenge_NACK_tx handler.
-            let operator_challenge_nack_txhandler =
-                builder::transaction::create_operator_challenge_nack_txhandler(
-                    get_txhandler(
-                        &txhandlers,
-                        TransactionType::WatchtowerChallenge(watchtower_idx),
-                    )?,
-                    watchtower_idx,
-                    get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                    get_txhandler(&txhandlers, TransactionType::Round)?,
-                    paramset,
-                )?;
-            txhandlers.insert(
-                operator_challenge_nack_txhandler.get_transaction_type(),
-                operator_challenge_nack_txhandler,
-            );
+        let actor = Actor::new(actor_secret_key, winternitz_secret_key, paramset.network);
+        let public_key = actor.derive_winternitz_pk(path)?;
 
-            let operator_challenge_ack_txhandler =
-                builder::transaction::create_operator_challenge_ack_txhandler(
-                    get_txhandler(
-                        &txhandlers,
-                        TransactionType::WatchtowerChallenge(watchtower_idx),
-                    )?,
-                    watchtower_idx,
-                    paramset,
-                )?;
-
-            txhandlers.insert(
-                operator_challenge_ack_txhandler.get_transaction_type(),
-                operator_challenge_ack_txhandler,
-            );
-        }
-        if transaction_type != TransactionType::AllNeededForDeposit {
-            // We do not need other txhandlers, exit early
-            return Ok(txhandlers);
-        }
+        let watchtower_challenge_txhandler =
+            builder::transaction::create_watchtower_challenge_txhandler(
+                get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+                watchtower_idx,
+                nofn_xonly_pk,
+                Arc::new(WinternitzCommit::new(
+                    vec![(
+                        public_key,
+                        paramset.watchtower_challenge_message_length as u32,
+                    )],
+                    actor.xonly_public_key,
+                    paramset.winternitz_log_d,
+                )),
+                paramset,
+            )?;
+        txhandlers.insert(
+            watchtower_challenge_txhandler.get_transaction_type(),
+            watchtower_challenge_txhandler,
+        );
     }
 
     let assert_timeouts = create_assert_timeout_txhandlers(
@@ -564,13 +520,7 @@ pub fn create_round_txhandlers(
         Some(prev_ready_to_reimburse_txhandler) => {
             let round_txhandler = builder::transaction::create_round_txhandler(
                 operator_data.xonly_pk,
-                *prev_ready_to_reimburse_txhandler
-                    .get_spendable_output(0)?
-                    .get_prev_outpoint(),
-                prev_ready_to_reimburse_txhandler
-                    .get_spendable_output(0)?
-                    .get_prevout()
-                    .value,
+                RoundTxInput::Prevout(prev_ready_to_reimburse_txhandler.get_spendable_output(0)?),
                 kickoff_winternitz_keys.get_keys_for_round(round_idx),
                 paramset,
             )?;
@@ -675,7 +625,6 @@ mod tests {
             TransactionType::Kickoff,
             TransactionType::KickoffNotFinalized,
             TransactionType::Challenge,
-            TransactionType::WatchtowerChallengeKickoff,
             //TransactionType::Disprove, TODO: add when we add actual disprove scripts
             TransactionType::DisproveTimeout,
             TransactionType::Reimburse,
@@ -690,6 +639,9 @@ mod tests {
         );
         txs_operator_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
+        txs_operator_can_sign.extend(
+            (0..paramset.num_kickoffs_per_round).map(TransactionType::WatchtowerChallengeTimeout),
+        );
 
         // try to sign everything for all operators
         let operator_task_handles: Vec<_> = operators
@@ -802,7 +754,6 @@ mod tests {
         let mut txs_verifier_can_sign = vec![
             TransactionType::Challenge,
             TransactionType::KickoffNotFinalized,
-            TransactionType::WatchtowerChallengeKickoff,
             //TransactionType::Disprove,
         ];
         txs_verifier_can_sign
@@ -812,6 +763,9 @@ mod tests {
         );
         txs_verifier_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
+        txs_verifier_can_sign.extend(
+            (0..paramset.num_kickoffs_per_round).map(TransactionType::WatchtowerChallengeTimeout),
+        );
 
         // try to sign everything for all verifiers
         // try signing verifier transactions

@@ -1,13 +1,12 @@
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
-    builder::address::derive_challenge_address_from_xonlypk_and_wpk,
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
-use bitcoin::{ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoin::{Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]
@@ -70,38 +69,6 @@ impl Watchtower {
         }
 
         Ok(winternitz_pubkeys)
-    }
-
-    pub async fn get_watchtower_challenge_addresses(
-        &self,
-        deposit_txid: Txid,
-    ) -> Result<Vec<ScriptBuf>, BridgeError> {
-        let mut challenge_addresses = Vec::new();
-
-        let winternitz_pubkeys = self.get_watchtower_winternitz_public_keys(deposit_txid)?;
-        tracing::info!(
-            "get_watchtower_challenge_addresses watchtower xonly public key: {:?}",
-            self.signer.xonly_public_key
-        );
-        tracing::info!(
-            "get_watchtower_challenge_addresses watchtower taproot public key: {:?}",
-            self.signer.address.script_pubkey()
-        );
-        for winternitz_pubkey in winternitz_pubkeys {
-            let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
-                &self.signer.xonly_public_key,
-                vec![(
-                    winternitz_pubkey,
-                    self.config
-                        .protocol_paramset()
-                        .watchtower_challenge_message_length as u32,
-                )],
-                self.config.protocol_paramset(),
-            );
-            challenge_addresses.push(challenge_address.script_pubkey());
-        }
-
-        Ok(challenge_addresses)
     }
 
     /// Returns id, winteritz public keys and x-only public key of a watchtower.

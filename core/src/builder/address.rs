@@ -3,8 +3,7 @@
 //! Address builder provides useful functions for building typical Bitcoin
 //! addresses.
 
-use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript, WinternitzCommit};
-use crate::config::protocol::ProtocolParamset;
+use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript};
 use crate::errors::BridgeError;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
@@ -15,7 +14,6 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
 };
-use bitvm::signatures::winternitz;
 
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let builder = TaprootBuilder::new();
@@ -159,18 +157,6 @@ pub fn create_checksig_address(
 ) -> (Address, TaprootSpendInfo) {
     let script = CheckSig::new(xonly_pk);
     create_taproot_address(&[script.to_script_buf()], None, network)
-}
-
-pub fn derive_challenge_address_from_xonlypk_and_wpk(
-    xonly_pk: &XOnlyPublicKey,
-    pk_with_size: Vec<(winternitz::PublicKey, u32)>,
-    paramset: &'static ProtocolParamset,
-) -> Address {
-    let winternitz_commit =
-        WinternitzCommit::new(pk_with_size, *xonly_pk, paramset.winternitz_log_d);
-    let (address, _) =
-        create_taproot_address(&[winternitz_commit.to_script_buf()], None, paramset.network);
-    address
 }
 
 #[cfg(test)]

@@ -1,7 +1,5 @@
 use crate::actor::Actor;
-use crate::builder::address::{
-    derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts,
-};
+use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
@@ -1073,33 +1071,42 @@ impl Verifier {
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
 
-        for (operator_id, winternitz_key) in winternitz_keys.iter().enumerate() {
+        for (operator_id, winternitz_key) in winternitz_keys.into_iter().enumerate() {
             self.db
                 .set_watchtower_winternitz_public_keys(
                     None,
                     watchtower_idx,
                     operator_id as u32,
                     deposit_id.deposit_outpoint,
-                    winternitz_key,
+                    &winternitz_key,
                 )
                 .await?;
-            let challenge_addr = derive_challenge_address_from_xonlypk_and_wpk(
-                &watchtower_xonly_pk,
+
+            let script = WinternitzCommit::new(
                 vec![(
-                    winternitz_key.clone(),
+                    winternitz_key,
                     self.config
                         .protocol_paramset()
                         .watchtower_challenge_message_length as u32,
                 )],
-                self.config.protocol_paramset(),
+                watchtower_xonly_pk,
+                self.config.protocol_paramset().winternitz_log_d,
             )
-            .script_pubkey();
+            .to_script_buf();
+
+            let taproot_builder = taproot_builder_with_scripts(&[script]);
+            let root_hash = taproot_builder
+                .try_into_taptree()
+                .expect("taproot builder always builds a full taptree")
+                .root_hash();
+            let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+
             self.db
-                .set_watchtower_challenge_address(
+                .set_watchtower_challenge_hash(
                     None,
                     watchtower_idx,
                     operator_id as u32,
-                    &challenge_addr,
+                    root_hash_bytes,
                     deposit_id.deposit_outpoint,
                 )
                 .await?;
