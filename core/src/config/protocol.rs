@@ -53,8 +53,6 @@ pub struct ProtocolParamset {
     pub num_watchtowers: usize,
     /// Amount allocated for each kickoff UTXO.
     pub kickoff_amount: Amount,
-    /// Number of blocks after which user can take deposit back if deposit request fails.
-    pub user_takes_after: u16,
     /// Amount allocated for operator challenge transactions.
     pub operator_challenge_amount: Amount,
     /// Collateral funding amount for operators used to fund the round transaction chain.
@@ -67,8 +65,8 @@ pub struct ProtocolParamset {
     ///
     /// Currently used in statics and thus cannot be different from [`WINTERNITZ_LOG_D`].
     pub winternitz_log_d: u32,
-    /// Number of blocks for watchtower challenge NACK timelock (currently BLOCKS_PER_WEEK / 2)
-    pub watchtower_challenge_nack_timelock: u16,
+    /// Number of blocks after which user can take deposit back if deposit request fails.
+    pub user_takes_after: u16,
     /// Number of blocks for operator challenge timeout timelock (currently BLOCKS_PER_WEEK)
     pub operator_challenge_timeout_timelock: u16,
     /// Number of blocks for operator challenge NACK timelock (currently BLOCKS_PER_WEEK * 3)
@@ -89,7 +87,6 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Bitcoin,
     num_round_txs: 2,
     num_kickoffs_per_round: 200,
-    user_takes_after: 200,
     bridge_amount: Amount::from_sat(1_000_000_000),
     kickoff_amount: Amount::from_sat(40_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
@@ -98,7 +95,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_message_length: 480,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
-    watchtower_challenge_nack_timelock: BLOCKS_PER_WEEK / 2,
+    user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
     disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
@@ -111,7 +108,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Regtest,
     num_round_txs: 2,
     num_kickoffs_per_round: 2,
-    user_takes_after: 200,
     bridge_amount: Amount::from_sat(1_000_000_000),
     kickoff_amount: Amount::from_sat(40_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
@@ -120,7 +116,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_message_length: 480,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
-    watchtower_challenge_nack_timelock: BLOCKS_PER_WEEK / 2,
+    user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
     disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
@@ -133,7 +129,6 @@ pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Testnet,
     num_round_txs: 2,
     num_kickoffs_per_round: 2,
-    user_takes_after: 200,
     bridge_amount: Amount::from_sat(10_000_000),
     kickoff_amount: Amount::from_sat(40_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
@@ -142,7 +137,7 @@ pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_message_length: 480,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
-    watchtower_challenge_nack_timelock: BLOCKS_PER_WEEK / 2,
+    user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
     disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,

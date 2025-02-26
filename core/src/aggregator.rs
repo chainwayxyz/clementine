@@ -172,7 +172,7 @@ impl Aggregator {
         });
 
         let (watchtower_keys_tx, watchtower_keys_rx) =
-            tokio::sync::broadcast::channel(self.config.num_watchtowers);
+            tokio::sync::broadcast::channel(self.config.protocol_paramset().num_watchtowers);
         // create receivers for each verifier
         let watchtower_rx_handles = (0..self.config.num_verifiers)
             .map(|_| watchtower_keys_rx.resubscribe())

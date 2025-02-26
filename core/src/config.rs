@@ -42,8 +42,6 @@ pub struct BridgeConfig {
     pub operator_wallet_addresses: Vec<bitcoin::Address<NetworkUnchecked>>,
     /// Number of operators.
     pub num_operators: usize,
-    /// Number of watchtowers.
-    pub num_watchtowers: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Threshold for confirmation.
@@ -181,7 +179,6 @@ impl Default for BridgeConfig {
             ],
 
             num_operators: 3,
-            num_watchtowers: 4,
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
                     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
@@ -367,5 +364,17 @@ mod tests {
         assert!(BridgeConfig::try_parse_file(file_name.into()).is_err());
 
         fs::remove_file(file_name).unwrap();
+    }
+
+    #[test]
+    fn test_test_config_parseable() {
+        let content = include_str!("../tests/data/test_config.toml");
+        BridgeConfig::try_parse_from(content.to_string()).unwrap();
+    }
+
+    #[test]
+    fn test_docker_config_parseable() {
+        let content = include_str!("../../scripts/docker/docker_config.toml");
+        BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 }

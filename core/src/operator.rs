@@ -961,7 +961,7 @@ impl Operator {
     ) -> Result<Vec<PublicHash>, BridgeError> {
         let mut hashes = Vec::with_capacity(self.config.get_num_challenge_ack_hashes());
 
-        for watchtower_idx in 0..self.config.num_watchtowers {
+        for watchtower_idx in 0..self.config.protocol_paramset().num_watchtowers {
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 watchtower_idx as u32,
                 deposit_txid,
@@ -1086,7 +1086,7 @@ mod tests {
         let preimages = operator
             .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
             .unwrap();
-        assert_eq!(preimages.len(), config.num_watchtowers);
+        assert_eq!(preimages.len(), config.protocol_paramset().num_watchtowers);
     }
 
     #[tokio::test]
