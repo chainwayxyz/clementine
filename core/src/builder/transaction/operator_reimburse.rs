@@ -130,11 +130,7 @@ pub fn create_kickoff_txhandler(
                 let assert_spend_info = TaprootBuilder::new()
                     .add_hidden_node(1, TapNodeHash::from_byte_array(*script_hash))
                     .expect("taptree with one node at depth 1 will accept a script node")
-                    .add_leaf(
-                        1,
-                        TimelockScript::new(Some(nofn_xonly_pk), paramset.assert_timeout_timelock)
-                            .to_script_buf(),
-                    )
+                    .add_leaf(1, nofn_4week.to_script_buf())
                     .expect("empty taptree will accept a node at depth 1")
                     .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
                     .expect("Taproot with 2 nodes at depth 1 should be valid for assert");
