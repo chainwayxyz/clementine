@@ -111,7 +111,7 @@ pub fn create_operator_challenge_nack_txhandler(
                 ),
                 kickoff_txhandler.get_spendable_output(challenge_ack_vout)?,
                 SpendPath::ScriptSpend(0),
-                Sequence::from_height(paramset.watchtower_challenge_nack_timelock),
+                Sequence::from_height(paramset.operator_challenge_nack_timelock),
             )
             .add_input(
                 (

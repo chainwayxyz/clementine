@@ -61,7 +61,7 @@ pub fn create_kickoff_txhandler(
 
     let operator_1week = Arc::new(TimelockScript::new(
         Some(operator_xonly_pk),
-        paramset.operator_reimburse_timelock,
+        paramset.operator_challenge_timeout_timelock,
     ));
 
     builder = builder

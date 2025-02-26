@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
 
+const BLOCKS_PER_DAY: u16 = 6 * 24;
+
 /// This is the log_d used across the codebase.
 ///
 /// All protocol paramsets should use this value since it's used in the BitVM static.
@@ -74,7 +76,9 @@ pub struct ProtocolParamset {
     pub disprove_timeout_timelock: u16,
     /// Number of blocks for assert timeout timelock (currently BLOCKS_PER_WEEK * 4)
     pub assert_timeout_timelock: u16,
-    /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_WEEK)
+    /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_DAY * 2)
+    ///
+    /// Timelocks operator from sending the next Round Tx after the Ready to Reimburse Tx.
     pub operator_reimburse_timelock: u16,
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)
     pub watchtower_challenge_timeout_timelock: u16,
@@ -98,7 +102,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
     disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
     assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
-    operator_reimburse_timelock: BLOCKS_PER_WEEK,
+    operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
 };
 
@@ -120,7 +124,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
     disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
     assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
-    operator_reimburse_timelock: BLOCKS_PER_WEEK,
+    operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
 };
 
@@ -142,6 +146,6 @@ pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
     disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
     assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
-    operator_reimburse_timelock: BLOCKS_PER_WEEK,
+    operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
 };
