@@ -335,15 +335,7 @@ pub async fn create_actors(
     Vec<ClementineOperatorClient<Channel>>,
     ClementineAggregatorClient<Channel>,
     Vec<ClementineWatchtowerClient<Channel>>,
-    ActorsCleanup,
 ) {
-    let regtest = create_regtest_rpc(&mut config.clone()).await;
-    let rpc = regtest.rpc();
-
-    // replace config with new rpc
-    let mut config = config.clone();
-    config.bitcoin_rpc_url = rpc.url.clone();
-
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
     });
@@ -498,53 +490,7 @@ pub async fn create_actors(
     // Add aggregator shutdown channel
     shutdown_channels.push(aggregator_shutdown_tx);
 
-    // Connect to the Unix socket servers
-    let verifiers = get_clients(
-        verifier_paths
-            .iter()
-            .map(|path| format!("unix://{}", path.display()))
-            .collect::<Vec<_>>(),
-        ClementineVerifierClient::new,
-    )
-    .await
-    .expect("could not connect to verifiers");
-
-    let operators = get_clients(
-        operator_paths
-            .iter()
-            .map(|path| format!("unix://{}", path.display()))
-            .collect::<Vec<_>>(),
-        ClementineOperatorClient::new,
-    )
-    .await
-    .expect("could not connect to operators");
-
-    let aggregator = get_clients(
-        vec![format!("unix://{}", aggregator_path.display())],
-        ClementineAggregatorClient::new,
-    )
-    .await
-    .expect("could not connect to aggregator")
-    .pop()
-    .expect("could not connect to aggregator");
-
-    let watchtowers = get_clients(
-        watchtower_paths
-            .iter()
-            .map(|path| format!("unix://{}", path.display()))
-            .collect::<Vec<_>>(),
-        ClementineWatchtowerClient::new,
-    )
-    .await
-    .expect("could not connect to watchtowers");
-
-    (
-        verifiers,
-        operators,
-        aggregator,
-        watchtowers,
-        ActorsCleanup(shutdown_channels, socket_dir, regtest),
-    )
+    (verifiers, operators, aggregator, watchtowers)
 }
 
 /// Gets the the deposit address for the user.

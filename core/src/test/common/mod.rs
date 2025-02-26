@@ -18,12 +18,13 @@ use crate::servers::{
 };
 use crate::EVMAddress;
 use crate::{builder, musig2::AggregateFromPublicKeys};
-use bitcoin::OutPoint;
+use bitcoin::{OutPoint, Txid};
+use bitcoincore_rpc::RpcApi;
 pub use test_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
 
-mod citrea;
+pub mod citrea;
 mod test_utils;
 
 // pub async fn run_multiple_deposits(test_config_name: &str) {
@@ -249,7 +250,8 @@ mod test_utils;
 // }
 
 pub async fn run_single_deposit(
-    mut config: BridgeConfig,
+    config: &mut BridgeConfig,
+    rpc: ExtendedRpc,
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -257,17 +259,19 @@ pub async fn run_single_deposit(
         ClementineAggregatorClient<Channel>,
         Vec<ClementineWatchtowerClient<Channel>>,
         OutPoint,
+        Txid,
     ),
     BridgeError,
 > {
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
+    let (verifiers, operators, mut aggregator, watchtowers) = create_actors(&config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
+    let actor = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    );
     let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
-
-    let (verifiers, operators, mut aggregator, watchtowers, _regtest) =
-        create_actors(&config).await;
 
     aggregator.setup(Request::new(Empty {})).await?;
 
@@ -276,20 +280,40 @@ pub async fn run_single_deposit(
         .await?;
     rpc.mine_blocks(18).await?;
 
-    let _move_tx = aggregator
+    let move_txid: Txid = aggregator
         .new_deposit(DepositParams {
             deposit_outpoint: Some(deposit_outpoint.into()),
             evm_address: evm_address.0.to_vec(),
-            recovery_taproot_address: deposit_address.to_string(),
+            recovery_taproot_address: actor.address.to_string(),
         })
         .await?
-        .into_inner();
+        .into_inner()
+        .try_into()?;
+    rpc.mine_blocks(1).await?;
 
-    // let move_tx: Transaction =
-    //     Transaction::consensus_decode(&mut move_tx.raw_tx.as_slice())?;
-    // let move_txid = rpc.client.send_raw_transaction(&move_tx).await?;
-    // println!("Move txid: {:?}", move_txid);
-    // println!("Move tx weight: {:?}", move_tx.weight());
+    let start = std::time::Instant::now();
+    let timeout = 60;
+    let tx = loop {
+        if start.elapsed() > std::time::Duration::from_secs(timeout) {
+            panic!("MoveTx did not land onchain within {timeout} seconds");
+        }
+        rpc.mine_blocks(1).await?;
+
+        let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
+
+        let tx_result = match tx_result {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::info!("Waiting for transaction to be on-chain: {}", e);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+
+        break tx_result;
+    };
+
+    tracing::info!("MoveTx landed onchain: Deposit successful");
 
     Ok((
         verifiers,
@@ -297,5 +321,6 @@ pub async fn run_single_deposit(
         aggregator,
         watchtowers,
         deposit_outpoint,
+        move_txid,
     ))
 }
