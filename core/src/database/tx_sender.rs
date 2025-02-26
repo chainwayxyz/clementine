@@ -50,7 +50,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -63,7 +63,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -76,7 +76,7 @@ impl Database {
             AND ctt.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -89,7 +89,7 @@ impl Database {
             AND cto.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -102,7 +102,7 @@ impl Database {
             AND fpu.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -115,7 +115,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -128,7 +128,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -174,7 +174,7 @@ impl Database {
             WHERE txs.seen_block_id = $1;
             "#,
         )
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -202,10 +202,10 @@ impl Database {
             "INSERT INTO tx_sender_fee_payer_utxos (bumped_id, fee_payer_txid, vout, amount, replacement_of_id)
              VALUES ($1, $2, $3, $4, $5)",
         )
-        .bind(i32::try_from(bumped_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(bumped_id)?)
         .bind(TxidDB(fee_payer_txid))
-        .bind(i32::try_from(vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
-        .bind(i64::try_from(amount.to_sat()).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(vout)?)
+        .bind(i64::try_from(amount.to_sat())?)
         .bind(replacement_of_id.map(|id| -> Result<i32, BridgeError> {
             i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
         }).transpose()?);
@@ -236,7 +236,7 @@ impl Database {
               )
             ",
         )
-        .bind(i32::try_from(bumped_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(bumped_id)?);
 
         let results: Vec<(i32, TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
@@ -268,7 +268,7 @@ impl Database {
              FROM tx_sender_fee_payer_utxos fpu
              WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NOT NULL",
         )
-        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(id)?);
 
         let results: Vec<(TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
@@ -304,7 +304,7 @@ impl Database {
         .bind(serde_json::to_string(&tx_data_for_logging).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
+        u32::try_from(id).map_err(|e| BridgeError::IntConversionError(e))
     }
 
     pub async fn save_rbf_txid(
@@ -314,7 +314,7 @@ impl Database {
         txid: Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO tx_sender_rbf_txids (id, txid) VALUES ($1, $2)")
-            .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+            .bind(i32::try_from(id)?)
             .bind(TxidDB(txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -330,9 +330,9 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, txid, vout) VALUES ($1, $2, $3)"
         )
-        .bind(i32::try_from(cancelled_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(cancelled_id)?)
         .bind(TxidDB(outpoint.txid))
-        .bind(i32::try_from(outpoint.vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(outpoint.vout)?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -347,7 +347,7 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO tx_sender_cancel_try_to_send_txids (cancelled_id, txid) VALUES ($1, $2)",
         )
-        .bind(i32::try_from(cancelled_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(cancelled_id)?)
         .bind(TxidDB(txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -363,9 +363,9 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO tx_sender_activate_try_to_send_txids (activated_id, txid, timelock) VALUES ($1, $2, $3)"
         )
-        .bind(i32::try_from(activated_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(activated_id)?)
         .bind(TxidDB(prerequisite_tx.txid))
-        .bind(i32::try_from(prerequisite_tx.timelock.0).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(prerequisite_tx.relative_block_height)?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -377,29 +377,13 @@ impl Database {
         activated_id: u32,
         activated_outpoint: &ActivatedWithOutpoint,
     ) -> Result<(), BridgeError> {
-        // get relative locktime as blocks
-        let locktime = {
-            if let Some(locktime) = activated_outpoint.timelock.to_relative_lock_time() {
-                use bitcoin::relative::LockTime::*;
-                match locktime {
-                    Blocks(blocks) => blocks.value() as i32,
-                    Time(_) => {
-                        return Err(BridgeError::ConversionError(
-                            "Relative lock time must be in blocks in bridge".to_string(),
-                        ));
-                    }
-                }
-            } else {
-                0
-            }
-        };
         let query = sqlx::query(
             "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout, timelock) VALUES ($1, $2, $3, $4)"
         )
-        .bind(i32::try_from(activated_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(activated_id)?)
         .bind(TxidDB(activated_outpoint.outpoint.txid))
-        .bind(i32::try_from(activated_outpoint.outpoint.vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
-            .bind(locktime);
+        .bind(i32::try_from(activated_outpoint.outpoint.vout)?)
+        .bind(i32::try_from(activated_outpoint.relative_block_height)?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -452,15 +436,16 @@ impl Database {
                     AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);
 ",
         )
-        .bind(i64::try_from(fee_rate.to_sat_per_vb_ceil())
-            .map_err(|e| BridgeError::ConversionError(e.to_string()))?)
-        .bind(i32::try_from(current_tip_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i64::try_from(fee_rate.to_sat_per_vb_ceil())?)
+        .bind(i32::try_from(current_tip_height)?);
 
         let results = execute_query_with_tx!(self.connection, tx, select_query, fetch_all)?;
 
         let txs = results
             .into_iter()
-            .map(|(id,)| u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string())))
+            .map(|(id,)| -> Result<u32, BridgeError> {
+                u32::try_from(id).map_err(|e| BridgeError::IntConversionError(e))
+            })
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         Ok(txs)
@@ -475,11 +460,8 @@ impl Database {
         let query = sqlx::query(
             "UPDATE tx_sender_try_to_send_txs SET effective_fee_rate = $1 WHERE id = $2",
         )
-        .bind(
-            i64::try_from(effective_fee_rate.to_sat_per_vb_ceil())
-                .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
-        )
-        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i64::try_from(effective_fee_rate.to_sat_per_vb_ceil())?)
+        .bind(i32::try_from(id)?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -505,7 +487,7 @@ impl Database {
              FROM tx_sender_try_to_send_txs
              WHERE id = $1 LIMIT 1",
             )
-            .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+            .bind(i32::try_from(id)?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
@@ -520,9 +502,7 @@ impl Database {
             result.2,
             result
                 .3
-                .map(|id| {
-                    u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
-                })
+                .map(|id| u32::try_from(id).map_err(|e| BridgeError::IntConversionError(e)))
                 .transpose()?,
         ))
     }

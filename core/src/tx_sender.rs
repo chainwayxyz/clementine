@@ -46,13 +46,13 @@ pub enum FeePayingType {
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ActivatedWithTxid {
     pub txid: Txid,
-    pub timelock: bitcoin::Sequence,
+    pub relative_block_height: u32,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ActivatedWithOutpoint {
     pub outpoint: OutPoint,
-    pub timelock: bitcoin::Sequence,
+    pub relative_block_height: u32,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -243,7 +243,7 @@ impl TxSender {
                             txid: kickoff_txid,
                             vout: get_watchtower_challenge_utxo_vout(watchtower_idx) as u32,
                         },
-                        timelock: bitcoin::Sequence(config.confirmation_threshold),
+                        relative_block_height: config.confirmation_threshold,
                     }],
                 )
                 .await
@@ -299,13 +299,27 @@ impl TxSender {
         }
 
         for input in signed_tx.input.iter() {
+            let relative_block_height = if input.sequence.is_relative_lock_time() {
+                let relatetive_locktime = input
+                    .sequence
+                    .to_relative_lock_time()
+                    .expect("Invalid relative locktime");
+                match relatetive_locktime {
+                    bitcoin::relative::LockTime::Blocks(height) => height.value() as u32,
+                    _ => {
+                        return Err(BridgeError::Error("Invalid relative locktime".to_string()));
+                    }
+                }
+            } else {
+                0
+            };
             self.db
                 .save_activated_outpoint(
                     Some(dbtx),
                     try_to_send_id,
                     &ActivatedWithOutpoint {
                         outpoint: input.previous_output,
-                        timelock: input.sequence,
+                        relative_block_height,
                     },
                 )
                 .await?;

@@ -839,7 +839,7 @@ impl Operator {
                             txid: kickoff_txid,
                             vout: 2, // Kickoff finalizer output index
                         },
-                        timelock: bitcoin::Sequence(self.config.confirmation_threshold),
+                        relative_block_height: self.config.confirmation_threshold,
                     });
                 }
                 None => {
@@ -858,7 +858,7 @@ impl Operator {
                         .await?;
                     activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: unspent_kickoff_connector,
-                        timelock: bitcoin::Sequence(self.config.confirmation_threshold),
+                        relative_block_height: self.config.confirmation_threshold,
                     });
                 }
             }
@@ -900,7 +900,7 @@ impl Operator {
             .try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
-                    tx_type: TransactionType::Reimburse,
+                    tx_type: TransactionType::ReadyToReimburse,
                     operator_idx: Some(self.idx as u32),
                     verifier_idx: None,
                     round_idx: Some(current_round_index),
@@ -934,7 +934,11 @@ impl Operator {
                 &[],
                 &[ActivatedWithTxid {
                     txid: ready_to_reimburse_txid,
-                    timelock: bitcoin::Sequence::from_height(2 * 24 * 6), // TODO: Get this from protocol constants config
+                    relative_block_height: self
+                        .config
+                        .protocol_paramset()
+                        .operator_reimburse_timelock
+                        as u32,
                 }],
                 &[],
             )
