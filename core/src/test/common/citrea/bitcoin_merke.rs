@@ -80,7 +80,7 @@ impl BitcoinMerkleTree {
         self.nodes[self.nodes.len() - 1][0]
     }
 
-    pub fn get_element(&self, level: u32, index: u32) -> [u8; 32] {
+    pub fn _get_element(&self, level: u32, index: u32) -> [u8; 32] {
         self.nodes[level as usize][index as usize]
     }
 

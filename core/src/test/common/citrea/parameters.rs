@@ -84,19 +84,17 @@ fn get_block_merkle_proof(
         })
         .collect::<Vec<_>>();
 
-    let m = BitcoinMerkleTree::new(txids.clone());
-    let s = block.witness_root().unwrap();
+    let merkle_tree = BitcoinMerkleTree::new(txids.clone());
+    let _witness_root = block.witness_root().unwrap();
+    let witness_idx_path = merkle_tree.get_idx_path(txid_index.try_into().unwrap());
 
-    let x = m.get_idx_path(txid_index.try_into().unwrap());
-    // x.reverse();
-
-    let cmp = m.calculate_root_with_merkle_proof(
+    let _root = merkle_tree.calculate_root_with_merkle_proof(
         txids[txid_index],
         txid_index.try_into().unwrap(),
-        x.clone(),
+        witness_idx_path.clone(),
     );
 
-    Ok((txid_index, x.into_iter().flatten().collect()))
+    Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
 }
 
 pub fn get_deposit_params(

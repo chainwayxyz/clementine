@@ -3,12 +3,9 @@
 //! This tests checks if typical RPC flows works or not.
 
 use super::common::run_single_deposit;
-use crate::rpc::clementine::WithdrawParams;
+use crate::test::common::*;
 use crate::utils::SECP;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use tonic::Request;
-
-use crate::test::common::*;
 
 #[ignore = "Design changes in progress"]
 #[tokio::test]
@@ -17,7 +14,7 @@ async fn honest_operator_takes_refund() {
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
-    let (_verifiers, mut operators, _aggregator, _watchtowers, _deposit_outpoint, _move_txid) =
+    let (_verifiers, _operators, _aggregator, _watchtowers, _deposit_outpoint, _move_txid) =
         run_single_deposit(&mut config, rpc.clone()).await.unwrap();
 
     let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
@@ -36,7 +33,7 @@ async fn honest_operator_takes_refund() {
             - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
     );
 
-    let (empty_utxo, _withdrawal_tx_out, user_sig) = generate_withdrawal_transaction_and_signature(
+    let (_withdrawal_tx, _user_sig) = generate_withdrawal_transaction_and_signature(
         &config,
         &rpc,
         &withdrawal_address,
@@ -44,14 +41,14 @@ async fn honest_operator_takes_refund() {
     )
     .await;
 
-    let request = Request::new(WithdrawParams {
-        withdrawal_id: 0,
-        input_signature: user_sig.serialize().to_vec(),
-        input_outpoint: Some(empty_utxo.outpoint.into()),
-        output_script_pubkey: _withdrawal_tx_out.txout().script_pubkey.clone().into(),
-        output_amount: withdrawal_amount.to_sat(),
-    });
-    let _withdrawal_provide_txid = operators[1].withdraw(request).await.unwrap().into_inner();
+    // let request = Request::new(WithdrawParams {
+    //     withdrawal_id: 0,
+    //     input_signature: user_sig.serialize().to_vec(),
+    //     input_outpoint: Some(empty_utxo.outpoint.into()),
+    //     output_script_pubkey: _withdrawal_tx_out.get_spendable_output(0).unwrap().get_prevout().script_pubkey.clone().into(),
+    //     output_amount: withdrawal_amount.to_sat(),
+    // });
+    // let _withdrawal_provide_txid = operators[1].withdraw(request).await.unwrap().into_inner();
 
     // let request = Request::new(WithdrawalFinalizedParams {
     //     withdrawal_id: 0,

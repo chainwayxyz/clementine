@@ -81,6 +81,25 @@ pub async fn deposit(
     Ok(())
 }
 
+pub async fn withdraw(
+    client: HttpClient,
+    withdrawal_txid: Txid,
+    withdrawal_index: u32,
+) -> Result<(), BridgeError> {
+    let params = rpc_params![
+        json!({
+            "to": CITREA_ADDRESS,
+            "data": format!("0x8786dba7{}{}", hex::encode(withdrawal_txid.as_byte_array()), hex::encode(withdrawal_index.to_be_bytes())),
+        }),
+        "latest"
+    ];
+    let response: String = client.request("eth_call", params).await?;
+
+    tracing::info!("withdraw response: {:?}", response);
+
+    Ok(())
+}
+
 pub async fn withdrawal_utxos(
     client: HttpClient,
     withdrawal_index: u32,

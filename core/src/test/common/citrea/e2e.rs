@@ -1,5 +1,4 @@
 use crate::config::BridgeConfig;
-use bitcoin::Network;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{EmptyConfig, SequencerConfig},
