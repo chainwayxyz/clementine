@@ -22,6 +22,7 @@ mod test_utils;
 pub async fn run_multiple_deposits(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
+    count: usize,
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -47,8 +48,7 @@ pub async fn run_multiple_deposits(
 
     let mut deposit_outpoints = Vec::new();
     let mut move_txids = Vec::new();
-    // for _ in 0..config.operator_num_kickoff_utxos_per_tx + 1 {
-    for _ in 0..1 {
+    for _ in 0..count {
         let deposit_outpoint: OutPoint = rpc
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await?;

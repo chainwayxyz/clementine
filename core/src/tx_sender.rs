@@ -83,7 +83,7 @@ impl TxSender {
         let consumer_handle = self.consumer_handle.clone();
         let this = self.clone();
 
-        tracing::info!(
+        tracing::trace!(
             "TXSENDER: Starting tx sender with handle {}",
             consumer_handle
         );
@@ -106,7 +106,7 @@ impl TxSender {
                                         .ok_or(BridgeError::Error("Block not found".to_string()))?
                                         .1;
 
-                                    tracing::info!(
+                                    tracing::trace!(
                                         "TXSENDER: Confirmed transactions for block {}",
                                         block_id
                                     );
@@ -114,7 +114,7 @@ impl TxSender {
                                     true
                                 }
                                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                                    tracing::info!(
+                                    tracing::trace!(
                                         "TXSENDER: Unconfirming transactions for block {}",
                                         block_id
                                     );
@@ -133,9 +133,9 @@ impl TxSender {
                         return Ok(true);
                     }
 
-                    tracing::info!("TXSENDER: Getting fee rate");
+                    tracing::trace!("TXSENDER: Getting fee rate");
                     let fee_rate = this.get_fee_rate().await?;
-                    tracing::info!("TXSENDER: Trying to send unconfirmed txs");
+                    tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
                     this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height)
                         .await?;
 
@@ -250,7 +250,7 @@ impl TxSender {
                 + MIN_TAPROOT_AMOUNT
         };
 
-        tracing::info!(
+        tracing::trace!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
             required_amount,
             fee_rate
@@ -566,7 +566,7 @@ impl TxSender {
                 .save_rbf_txid(None, id, package[0].compute_txid())
                 .await?;
         }
-        tracing::info!(
+        tracing::trace!(
             "Submitting package: {:?}",
             package
                 .iter()
@@ -586,7 +586,7 @@ impl TxSender {
                 );
             })?;
 
-        tracing::info!("Submit package result: {:?}", submit_package_result);
+        tracing::trace!("Submit package result: {:?}", submit_package_result);
 
         // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_package_result.tx_results.is_empty() {
@@ -694,7 +694,7 @@ impl TxSender {
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
             .await?;
 
-        tracing::info!("{}: Trying to send {} txs", self.consumer_handle, txs.len());
+        tracing::trace!("{}: Trying to send {} txs", self.consumer_handle, txs.len());
 
         for id in txs {
             self.bump_fees_of_fee_payer_txs(id, new_fee_rate).await?;

@@ -3,7 +3,7 @@ use crate::{
     test::common::{
         citrea::{self},
         create_test_config_with_thread_name, generate_withdrawal_transaction_and_signature,
-        run_single_deposit,
+        run_multiple_deposits,
     },
     utils::SECP,
     EVMAddress,
@@ -76,36 +76,38 @@ impl TestCase for CitreaDepositAndWithdraw {
         );
         config.citrea_rpc_url = citrea_url;
 
-        let (_verifiers, _operators, _aggregator, _watchtowers, _deposit_outpoint, move_txid) =
-            run_single_deposit(&mut config, rpc.clone()).await?;
+        let (_verifiers, _operators, _aggregator, _watchtowers, _deposit_outpoints, move_txids) =
+            run_multiple_deposits(&mut config, rpc.clone(), 2).await?;
 
-        let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
-        let tx_info = rpc
-            .client
-            .get_raw_transaction_info(&move_txid, None)
-            .await?;
-        let block = rpc
-            .client
-            .get_block(&tx_info.blockhash.expect("Not None"))
-            .await?;
-        rpc.mine_blocks(101).await.unwrap();
-        let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
+        for move_txid in move_txids {
+            let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
+            let tx_info = rpc
+                .client
+                .get_raw_transaction_info(&move_txid, None)
+                .await?;
+            let block = rpc
+                .client
+                .get_block(&tx_info.blockhash.expect("Not None"))
+                .await?;
+            rpc.mine_blocks(101).await.unwrap();
+            let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
 
-        while citrea::block_number(sequencer.client.http_client().clone()).await?
-            < block_height.try_into().unwrap()
-        {
-            tracing::debug!("Waiting for block to be mined");
-            rpc.mine_blocks(1).await.unwrap();
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            while citrea::block_number(sequencer.client.http_client().clone()).await?
+                < block_height.try_into().unwrap()
+            {
+                tracing::debug!("Waiting for block to be mined");
+                rpc.mine_blocks(1).await.unwrap();
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+
+            citrea::deposit(
+                sequencer.client.http_client().clone(),
+                block,
+                block_height.try_into().expect("Will not fail"),
+                tx,
+            )
+            .await?;
         }
-
-        citrea::deposit(
-            sequencer.client.http_client().clone(),
-            block,
-            block_height.try_into().expect("Will not fail"),
-            tx,
-        )
-        .await?;
 
         sleep(Duration::from_secs(3));
         let balance =
@@ -113,8 +115,8 @@ impl TestCase for CitreaDepositAndWithdraw {
                 .await
                 .unwrap();
         assert_eq!(
-            balance,
-            config.protocol_paramset().bridge_amount.to_sat() * 10_000_000_000
+            balance / 10_000_000_000,
+            (config.protocol_paramset().bridge_amount.to_sat() * 2).into()
         );
 
         let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
