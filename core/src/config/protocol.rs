@@ -11,6 +11,7 @@ const BLOCKS_PER_DAY: u16 = 6 * 24;
 pub const WINTERNITZ_LOG_D: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 /// A pre-defined paramset name that can be converted into a
 /// [`ProtocolParamset`] reference. Refers to a defined constant paramset in this module.
 ///

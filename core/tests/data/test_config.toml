@@ -1,5 +1,5 @@
 # Host, port and index of the current actor (operator, verifier, or watchtower)
-protocol_paramset = "Regtest"
+protocol_paramset = "regtest"
 
 host = "127.0.0.1"
 port = 17000
