@@ -15,7 +15,7 @@ use eyre::{bail, Context, Result};
 use secp256k1::rand::rngs::ThreadRng;
 use tonic::Request;
 
-pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
+pub async fn run_happy_path(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     // use std::time::Duration;
 
     // use clementine_core::bitcoin_syncer;
@@ -24,10 +24,8 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
 
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, _watchtowers, regtest) =
-        create_actors(&config).await;
+    let (_verifiers, mut operators, mut aggregator, _watchtowers) = create_actors(config).await;
 
-    let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
     let verifier_0_config = {
@@ -429,7 +427,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     // #[ignore = "Design changes in progress"]
     async fn test_happy_path_1() {
-        let config = create_test_config_with_thread_name(None).await;
-        run_happy_path(config).await.unwrap();
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        run_happy_path(&mut config, rpc).await.unwrap();
     }
 }

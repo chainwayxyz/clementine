@@ -315,15 +315,7 @@ pub async fn create_actors(
     Vec<ClementineOperatorClient<Channel>>,
     ClementineAggregatorClient<Channel>,
     Vec<ClementineWatchtowerClient<Channel>>,
-    WithProcessCleanup,
 ) {
-    let regtest = create_regtest_rpc(&mut config.clone()).await;
-    let rpc = regtest.rpc();
-
-    // replace config with new rpc
-    let mut config = config.clone();
-    config.bitcoin_rpc_url = rpc.url.clone();
-
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
     });
@@ -469,7 +461,7 @@ pub async fn create_actors(
         }))
         .await;
 
-    (verifiers, operators, aggregator, watchtowers, regtest)
+    (verifiers, operators, aggregator, watchtowers)
 }
 
 /// Gets the the deposit address for the user.

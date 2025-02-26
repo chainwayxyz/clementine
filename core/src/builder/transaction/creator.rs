@@ -579,7 +579,7 @@ mod tests {
         let config = create_test_config_with_thread_name(None).await;
 
         let paramset = config.protocol_paramset();
-        let (mut verifiers, mut operators, mut aggregator, mut watchtowers, _regtest) =
+        let (mut verifiers, mut operators, mut aggregator, mut watchtowers) =
             create_actors(&config).await;
 
         tracing::info!("Setting up aggregator");
