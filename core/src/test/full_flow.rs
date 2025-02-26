@@ -68,18 +68,25 @@ pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
         move_txid
     );
 
-    loop {
-        tracing::info!("Checking if move tx is confirmed");
+    // Try for 60 iterations (approximately 6 seconds plus mining time)
+    for attempt in 0..60 {
+        tracing::info!(
+            "Checking if move tx is confirmed (attempt {}/60)",
+            attempt + 1
+        );
         let spent = rpc.client.get_raw_transaction_info(&move_txid, None).await;
+
         if spent.is_err() {
             tracing::error!("Move tx not found");
-            rpc.mine_blocks(1).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            continue;
-        }
-        if spent.unwrap().blockhash.is_some() {
+        } else if spent.unwrap().blockhash.is_some() {
             break;
         }
+
+        // If this is the last attempt and we haven't broken out of the loop yet
+        if attempt == 59 {
+            return Err(eyre::eyre!("Timeout waiting for move tx confirmation"));
+        }
+
         rpc.mine_blocks(1).await?;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
@@ -97,13 +104,20 @@ pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
         .internal_end_round(Request::new(Empty {}))
         .await?;
 
-    loop {
-        tracing::info!("Checking if move tx is spent");
+    // Try for 60 iterations (approximately 6 seconds plus mining time)
+    for attempt in 0..60 {
+        tracing::info!("Checking if move tx is spent (attempt {}/60)", attempt + 1);
         // check if the move_tx is spent
         let spent = rpc.client.get_tx_out(&move_txid, 0, Some(true)).await?;
         if spent.is_none() {
             break;
         }
+
+        // If this is the last attempt and we haven't broken out of the loop yet
+        if attempt == 59 {
+            return Err(eyre::eyre!("Timeout waiting for move tx to be spent"));
+        }
+
         rpc.mine_blocks(1).await?;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
