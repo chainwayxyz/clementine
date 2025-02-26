@@ -869,7 +869,8 @@ mod tests {
 
     #[tokio::test]
     async fn aggregator_double_setup_fail() {
-        let config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name(None).await;
+        let _regtest = create_regtest_rpc(&mut config).await;
 
         let (_, _, mut aggregator, _) = create_actors(&config).await;
 

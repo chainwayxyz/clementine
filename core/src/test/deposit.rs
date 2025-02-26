@@ -129,7 +129,6 @@ impl TestCase for DepositOnCitrea {
     }
 }
 
-#[ignore = "reason"]
 #[tokio::test]
 async fn send_deposit_details_to_citrea() -> Result<()> {
     TestCaseRunner::new(DepositOnCitrea).run().await
