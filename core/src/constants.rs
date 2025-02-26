@@ -5,4 +5,3 @@ pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(240); // TODO: This will chan
 
 /// The minimum possible amount that a UTXO can have when created into a Taproot address.
 pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330); // TODO: Maybe this could be 294, check
-
