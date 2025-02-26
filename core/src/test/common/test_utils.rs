@@ -1,18 +1,9 @@
 //! # Testing Utilities
 //!
-//! This crate provides testing utilities, which are not possible to be included
-//! in binaries.
-use std::net::TcpListener;
-use std::str::FromStr;
-
-use bitcoin::consensus::serde::With;
-use bitcoin::secp256k1::schnorr;
-use tokio::sync::oneshot;
-use tonic::transport::Channel;
+//! This crate provides testing utilities.
 
 use crate::builder::script::SpendPath;
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::TransactionType;
+use crate::builder::transaction::{TransactionType, TxHandler};
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -39,6 +30,9 @@ use crate::{
     },
 };
 use crate::{EVMAddress, UTXO};
+use bitcoin::secp256k1::schnorr;
+use std::net::TcpListener;
+use tonic::transport::Channel;
 
 pub struct WithProcessCleanup(
     /// Handle to the bitcoind process
@@ -528,15 +522,14 @@ pub fn get_deposit_address(
 ///
 /// A tuple of:
 ///
-/// - [`UTXO`]: Dust UTXO used as the input of the withdrawal transaction
-/// - [`TxOut`]: Txout of the withdrawal transaction
+/// - [`TxHandler`]: Withdrawal transaction
 /// - [`Signature`]: Signature of the withdrawal transaction
 pub async fn generate_withdrawal_transaction_and_signature(
     config: &BridgeConfig,
     rpc: &ExtendedRpc,
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
-) -> (UTXO, UnspentTxOut, schnorr::Signature) {
+) -> (TxHandler, schnorr::Signature) {
     let signer = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
@@ -569,7 +562,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     };
     let txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
-    let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
+    let txhandler = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
         .add_input(
             NormalSignatureKind::NotStored,
             txin,
@@ -579,7 +572,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .add_output(txout.clone())
         .finalize();
 
-    let sighash = tx
+    let sighash = txhandler
         .calculate_sighash_txin(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
         .expect("Failed to calculate sighash");
 
@@ -587,7 +580,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .sign_with_tweak(sighash, None)
         .expect("Failed to sign");
 
-    (dust_utxo, txout, sig)
+    (txhandler, sig)
 }
 
 /// Helper to get a dynamically assigned free port.
