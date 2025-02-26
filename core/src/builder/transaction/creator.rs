@@ -6,13 +6,14 @@ use crate::builder::transaction::{
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
     DepositData, OperatorData, TransactionType, TxHandler,
 };
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use crate::{builder, utils};
+use bitcoin::secp256k1::SecretKey;
 use bitcoin::XOnlyPublicKey;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -64,7 +65,9 @@ pub struct ReimburseDbCache {
     pub db: Database,
     pub operator_idx: u32,
     pub deposit_data: DepositData,
-    pub config: BridgeConfig,
+    pub paramset: &'static ProtocolParamset,
+    actor_secret_key: SecretKey,
+    winternitz_secret_key: Option<SecretKey>,
     /// watchtower challenge addresses
     watchtower_challenge_hashes: Option<Vec<[u8; 32]>>,
     /// winternitz keys to sign the kickoff tx with the blockhash
@@ -82,13 +85,15 @@ impl ReimburseDbCache {
         db: Database,
         operator_idx: u32,
         deposit_data: DepositData,
-        config: BridgeConfig,
+        config: &BridgeConfig,
     ) -> Self {
         Self {
             db,
             operator_idx,
             deposit_data,
-            config,
+            paramset: config.protocol_paramset(),
+            actor_secret_key: config.secret_key,
+            winternitz_secret_key: config.winternitz_secret_key,
             watchtower_challenge_hashes: None,
             kickoff_winternitz_keys: None,
             bitvm_assert_addr: None,
@@ -96,12 +101,12 @@ impl ReimburseDbCache {
             challenge_ack_hashes: None,
         }
     }
-    pub async fn get_watchtower_challenge_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
+    pub async fn watchtower_challenge_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
         match self.watchtower_challenge_hashes {
             Some(ref addr) => Ok(addr),
             None => {
                 // Get all watchtower challenge addresses for the operator.
-                let watchtower_challenge_addr = (0..self.config.num_watchtowers)
+                let watchtower_challenge_addr = (0..self.paramset.num_watchtowers)
                     .map(|i| {
                         self.db.get_watchtower_challenge_hash(
                             None,
@@ -131,7 +136,7 @@ impl ReimburseDbCache {
                     self.db
                         .get_operator_kickoff_winternitz_public_keys(None, self.operator_idx)
                         .await?,
-                    self.config.num_kickoffs_per_round,
+                    self.paramset.num_kickoffs_per_round,
                 ));
                 Ok(self
                     .kickoff_winternitz_keys
@@ -212,8 +217,7 @@ impl ReimburseDbCache {
     }
 }
 
-#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_data, txtype = ?transaction_type, ?kickoff_id
-))]
+#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_data, txtype = ?transaction_type, ?kickoff_id))]
 pub async fn create_txhandlers(
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_type: TransactionType,
@@ -226,7 +230,9 @@ pub async fn create_txhandlers(
 
     let ReimburseDbCache {
         deposit_data,
-        config,
+        paramset,
+        actor_secret_key,
+        winternitz_secret_key,
         ..
     } = db_cache.clone();
 
@@ -237,9 +243,9 @@ pub async fn create_txhandlers(
         deposit_data.evm_address,
         &deposit_data.recovery_taproot_address,
         nofn_xonly_pk,
-        config.user_takes_after,
-        config.bridge_amount_sats,
-        config.network,
+        paramset.user_takes_after,
+        paramset.bridge_amount,
+        paramset.network,
     )?;
     txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
 
@@ -247,7 +253,7 @@ pub async fn create_txhandlers(
 
     // create round tx, ready to reimburse tx, and unspent kickoff txs
     let round_txhandlers = create_round_txhandlers(
-        &config,
+        paramset,
         kickoff_id.round_idx as usize,
         &operator_data,
         kickoff_winternitz_keys,
@@ -265,30 +271,28 @@ pub async fn create_txhandlers(
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
                 .get_spendable_output(0)?,
         ),
-        config.num_kickoffs_per_round,
-        config.network,
         kickoff_winternitz_keys.get_keys_for_round(kickoff_id.round_idx as usize + 1),
+        paramset,
     )?;
 
     let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
-    let watchtower_challenge_hashes = db_cache.get_watchtower_challenge_hash().await?.to_vec();
+    let watchtower_challenge_hashes = db_cache.watchtower_challenge_hash().await?.to_vec();
 
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
         // the actual scripts to be able to spend
-        let actor = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.network,
-        );
+        let actor = Actor::new(actor_secret_key, winternitz_secret_key, paramset.network);
 
         let mut assert_scripts: Vec<Arc<dyn SpendableScript>> =
             Vec::with_capacity(utils::COMBINED_ASSERT_DATA.num_steps.len());
 
         for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
-            let paths = utils::COMBINED_ASSERT_DATA
-                .get_paths_and_sizes(idx, deposit_data.deposit_outpoint.txid);
+            let paths = utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(
+                idx,
+                deposit_data.deposit_outpoint.txid,
+                paramset,
+            );
             let mut param = Vec::with_capacity(paths.len());
             for (path, size) in paths {
                 param.push((actor.derive_winternitz_pk(path)?, size));
@@ -296,21 +300,21 @@ pub async fn create_txhandlers(
             assert_scripts.push(Arc::new(WinternitzCommit::new(
                 param,
                 operator_data.xonly_pk,
+                paramset.winternitz_log_d,
             )));
         }
 
         let kickoff_txhandler = create_kickoff_txhandler(
+            kickoff_id,
+            deposit_data.deposit_outpoint,
             get_txhandler(&txhandlers, TransactionType::Round)?,
-            kickoff_id.kickoff_idx as usize,
             nofn_xonly_pk,
             operator_data.xonly_pk,
-            deposit_data.deposit_outpoint.txid,
-            kickoff_id.operator_idx as usize,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
-            &config,
             &watchtower_challenge_hashes,
             &public_hashes,
+            paramset,
         )?;
 
         // Create and insert mini_asserts into return Vec
@@ -325,17 +329,16 @@ pub async fn create_txhandlers(
         let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
         // use db data for scripts
         create_kickoff_txhandler(
+            kickoff_id,
+            deposit_data.deposit_outpoint,
             get_txhandler(&txhandlers, TransactionType::Round)?,
-            kickoff_id.kickoff_idx as usize,
             nofn_xonly_pk,
             operator_data.xonly_pk,
-            deposit_data.deposit_outpoint.txid,
-            kickoff_id.operator_idx as usize,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
-            &config,
             &watchtower_challenge_hashes,
             &public_hashes,
+            paramset,
         )?
     };
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
@@ -344,6 +347,7 @@ pub async fn create_txhandlers(
     let challenge_txhandler = builder::transaction::create_challenge_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         &operator_data.reimburse_addr,
+        paramset,
     )?;
     txhandlers.insert(
         challenge_txhandler.get_transaction_type(),
@@ -351,8 +355,10 @@ pub async fn create_txhandlers(
     );
 
     // Creates the challenge timeout txhandler
-    let challenge_timeout_txhandler =
-        create_challenge_timeout_txhandler(get_txhandler(&txhandlers, TransactionType::Kickoff)?)?;
+    let challenge_timeout_txhandler = create_challenge_timeout_txhandler(
+        get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+        paramset,
+    )?;
 
     txhandlers.insert(
         challenge_timeout_txhandler.get_transaction_type(),
@@ -370,7 +376,7 @@ pub async fn create_txhandlers(
     );
 
     // create watchtower tx's except WatchtowerChallenges
-    for watchtower_idx in 0..config.num_watchtowers {
+    for watchtower_idx in 0..paramset.num_watchtowers {
         // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
         // - acknowledge the challenge by sending the operator_challenge_ACK_tx, otherwise their burn connector
         // will get burned by operator_challenge_nack
@@ -378,6 +384,7 @@ pub async fn create_txhandlers(
             builder::transaction::create_watchtower_challenge_timeout_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 watchtower_idx,
+                paramset,
             )?;
         txhandlers.insert(
             watchtower_challenge_timeout_txhandler.get_transaction_type(),
@@ -389,6 +396,7 @@ pub async fn create_txhandlers(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 watchtower_idx,
                 get_txhandler(&txhandlers, TransactionType::Round)?,
+                paramset,
             )?;
         txhandlers.insert(
             operator_challenge_nack_txhandler.get_transaction_type(),
@@ -399,6 +407,7 @@ pub async fn create_txhandlers(
             builder::transaction::create_operator_challenge_ack_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 watchtower_idx,
+                paramset,
             )?;
         txhandlers.insert(
             operator_challenge_ack_txhandler.get_transaction_type(),
@@ -409,13 +418,13 @@ pub async fn create_txhandlers(
     // Generate watchtower challenge with correct script if specifically requested
     if let TransactionType::WatchtowerChallenge(watchtower_idx) = transaction_type {
         // generate with actual scripts if we want to specifically create a watchtower challenge tx
-        let path = WatchtowerChallenge(kickoff_id.operator_idx, deposit_data.deposit_outpoint.txid);
-
-        let actor = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.network,
+        let path = WatchtowerChallenge(
+            kickoff_id.operator_idx,
+            deposit_data.deposit_outpoint.txid,
+            paramset,
         );
+
+        let actor = Actor::new(actor_secret_key, winternitz_secret_key, paramset.network);
         let public_key = actor.derive_winternitz_pk(path)?;
 
         let watchtower_challenge_txhandler =
@@ -423,11 +432,15 @@ pub async fn create_txhandlers(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 watchtower_idx,
                 nofn_xonly_pk,
-                &config,
                 Arc::new(WinternitzCommit::new(
-                    vec![(public_key, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
+                    vec![(
+                        public_key,
+                        paramset.watchtower_challenge_message_length as u32,
+                    )],
                     actor.xonly_public_key,
+                    paramset.winternitz_log_d,
                 )),
+                paramset,
             )?;
         txhandlers.insert(
             watchtower_challenge_txhandler.get_transaction_type(),
@@ -439,6 +452,7 @@ pub async fn create_txhandlers(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         get_txhandler(&txhandlers, TransactionType::Round)?,
         num_asserts,
+        paramset,
     )?;
 
     for assert_timeout in assert_timeouts.into_iter() {
@@ -448,6 +462,7 @@ pub async fn create_txhandlers(
     // Creates the disprove_timeout_tx handler.
     let disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+        paramset,
     )?;
 
     txhandlers.insert(
@@ -461,7 +476,7 @@ pub async fn create_txhandlers(
         &next_round_txhandler,
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         kickoff_id.kickoff_idx as usize,
-        config.num_kickoffs_per_round,
+        paramset.num_kickoffs_per_round,
         &operator_data.reimburse_addr,
     )?;
 
@@ -493,29 +508,28 @@ pub async fn create_txhandlers(
 /// Function to create next round txhandler, ready to reimburse txhandler,
 /// and all unspentkickoff txhandlers for a specific operator
 pub fn create_round_txhandlers(
-    config: &BridgeConfig,
+    paramset: &'static ProtocolParamset,
     round_idx: usize,
     operator_data: &OperatorData,
     kickoff_winternitz_keys: &KickoffWinternitzKeys,
     prev_ready_to_reimburse: Option<TxHandler>,
 ) -> Result<Vec<TxHandler>, BridgeError> {
-    let mut txhandlers = Vec::with_capacity(2 + config.num_kickoffs_per_round);
+    let mut txhandlers = Vec::with_capacity(2 + paramset.num_kickoffs_per_round);
 
     let (round_txhandler, ready_to_reimburse_txhandler) = match prev_ready_to_reimburse {
         Some(prev_ready_to_reimburse_txhandler) => {
             let round_txhandler = builder::transaction::create_round_txhandler(
                 operator_data.xonly_pk,
                 RoundTxInput::Prevout(prev_ready_to_reimburse_txhandler.get_spendable_output(0)?),
-                config.num_kickoffs_per_round,
-                config.network,
                 kickoff_winternitz_keys.get_keys_for_round(round_idx),
+                paramset,
             )?;
 
             let ready_to_reimburse_txhandler =
                 builder::transaction::create_ready_to_reimburse_txhandler(
                     &round_txhandler,
                     operator_data.xonly_pk,
-                    config.network,
+                    paramset,
                 )?;
             (round_txhandler, ready_to_reimburse_txhandler)
         }
@@ -524,11 +538,10 @@ pub fn create_round_txhandlers(
             builder::transaction::create_round_nth_txhandler(
                 operator_data.xonly_pk,
                 operator_data.collateral_funding_outpoint,
-                config.collateral_funding_amount,
-                config.num_kickoffs_per_round,
-                config.network,
+                paramset.collateral_funding_amount,
                 round_idx,
                 kickoff_winternitz_keys,
+                paramset,
             )?
         }
     };
@@ -536,7 +549,7 @@ pub fn create_round_txhandlers(
     let unspent_kickoffs = create_unspent_kickoff_txhandlers(
         &round_txhandler,
         &ready_to_reimburse_txhandler,
-        config.num_kickoffs_per_round,
+        paramset,
     )?;
 
     txhandlers.push(round_txhandler);
@@ -565,6 +578,7 @@ mod tests {
     async fn test_deposit_and_sign_txs() {
         let config = create_test_config_with_thread_name(None).await;
 
+        let paramset = config.protocol_paramset();
         let (mut verifiers, mut operators, mut aggregator, mut watchtowers, _regtest) =
             create_actors(&config).await;
 
@@ -617,16 +631,16 @@ mod tests {
             TransactionType::ChallengeTimeout,
         ];
         txs_operator_can_sign
-            .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
+            .extend((0..paramset.num_watchtowers).map(TransactionType::OperatorChallengeNack));
         txs_operator_can_sign
-            .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeAck));
+            .extend((0..paramset.num_watchtowers).map(TransactionType::OperatorChallengeAck));
         txs_operator_can_sign.extend(
             (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
         txs_operator_can_sign
-            .extend((0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
+            .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
         txs_operator_can_sign.extend(
-            (0..config.num_kickoffs_per_round).map(TransactionType::WatchtowerChallengeTimeout),
+            (0..paramset.num_kickoffs_per_round).map(TransactionType::WatchtowerChallengeTimeout),
         );
 
         // try to sign everything for all operators
@@ -638,8 +652,8 @@ mod tests {
                 let deposit_params = deposit_params.clone();
                 let mut operator_rpc = operator_rpc.clone();
                 async move {
-                    for round_idx in 0..config.num_round_txs {
-                        for kickoff_idx in 0..config.num_kickoffs_per_round {
+                    for round_idx in 0..paramset.num_round_txs {
+                        for kickoff_idx in 0..paramset.num_kickoffs_per_round {
                             let kickoff_id = KickoffId {
                                 operator_idx: operator_idx as u32,
                                 round_idx: round_idx as u32,
@@ -707,8 +721,8 @@ mod tests {
                 let mut watchtower_rpc = watchtower_rpc.clone();
                 async move {
                     for operator_idx in 0..config.num_operators {
-                        for round_idx in 0..config.num_round_txs {
-                            for kickoff_idx in 0..config.num_kickoffs_per_round {
+                        for round_idx in 0..paramset.num_round_txs {
+                            for kickoff_idx in 0..paramset.num_kickoffs_per_round {
                                 let kickoff_id = KickoffId {
                                     operator_idx: operator_idx as u32,
                                     round_idx: round_idx as u32,
@@ -743,14 +757,14 @@ mod tests {
             //TransactionType::Disprove,
         ];
         txs_verifier_can_sign
-            .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
+            .extend((0..paramset.num_watchtowers).map(TransactionType::OperatorChallengeNack));
         txs_verifier_can_sign.extend(
             (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
         );
         txs_verifier_can_sign
-            .extend((0..config.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
+            .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
         txs_verifier_can_sign.extend(
-            (0..config.num_kickoffs_per_round).map(TransactionType::WatchtowerChallengeTimeout),
+            (0..paramset.num_kickoffs_per_round).map(TransactionType::WatchtowerChallengeTimeout),
         );
 
         // try to sign everything for all verifiers
@@ -763,8 +777,8 @@ mod tests {
                 let mut verifier_rpc = verifier_rpc.clone();
                 async move {
                     for operator_idx in 0..config.num_operators {
-                        for round_idx in 0..config.num_round_txs {
-                            for kickoff_idx in 0..config.num_kickoffs_per_round {
+                        for round_idx in 0..paramset.num_round_txs {
+                            for kickoff_idx in 0..paramset.num_kickoffs_per_round {
                                 let kickoff_id = KickoffId {
                                     operator_idx: operator_idx as u32,
                                     round_idx: round_idx as u32,

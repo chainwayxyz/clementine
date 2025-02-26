@@ -2,8 +2,7 @@ use crate::builder::script::{SpendPath, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
-use crate::config::BridgeConfig;
-use crate::constants::{BLOCKS_PER_WEEK, OPERATOR_CHALLENGE_AMOUNT};
+use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use crate::{builder, utils};
@@ -18,15 +17,15 @@ pub fn create_watchtower_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
     nofn_xonly_pk: XOnlyPublicKey,
-    config: &BridgeConfig,
     wots_script: Arc<WinternitzCommit>,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let prevout = kickoff_txhandler.get_spendable_output(
         4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len(),
     )?;
     let nofn_2week = Arc::new(TimelockScript::new(
         Some(nofn_xonly_pk),
-        BLOCKS_PER_WEEK * 2,
+        paramset.watchtower_challenge_timeout_timelock,
     ));
     Ok(
         TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
@@ -40,7 +39,7 @@ pub fn create_watchtower_challenge_txhandler(
                     prevout.get_prevout().value,
                     vec![nofn_2week, wots_script],
                     None,
-                    config.network,
+                    paramset.network,
                 ),
                 SpendPath::ScriptSpend(1),
                 DEFAULT_SEQUENCE,
@@ -58,6 +57,7 @@ pub fn create_watchtower_challenge_txhandler(
 pub fn create_watchtower_challenge_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let watchtower_challenge_vout =
         4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len();
@@ -72,7 +72,7 @@ pub fn create_watchtower_challenge_timeout_txhandler(
                 ),
                 kickoff_txhandler.get_spendable_output(watchtower_challenge_vout)?,
                 SpendPath::ScriptSpend(0),
-                Sequence::from_height(BLOCKS_PER_WEEK * 2),
+                Sequence::from_height(paramset.watchtower_challenge_timeout_timelock),
             )
             .add_input(
                 (
@@ -81,7 +81,7 @@ pub fn create_watchtower_challenge_timeout_txhandler(
                 ),
                 kickoff_txhandler.get_spendable_output(challenge_ack_vout)?,
                 SpendPath::ScriptSpend(1),
-                Sequence::from_height(BLOCKS_PER_WEEK * 2),
+                Sequence::from_height(paramset.watchtower_challenge_timeout_timelock),
             )
             .add_output(UnspentTxOut::from_partial(
                 builder::transaction::anchor_output(),
@@ -98,6 +98,7 @@ pub fn create_operator_challenge_nack_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
     round_txhandler: &TxHandler,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let challenge_ack_vout =
         4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
@@ -110,7 +111,7 @@ pub fn create_operator_challenge_nack_txhandler(
                 ),
                 kickoff_txhandler.get_spendable_output(challenge_ack_vout)?,
                 SpendPath::ScriptSpend(0),
-                Sequence::from_height(BLOCKS_PER_WEEK * 3),
+                Sequence::from_height(paramset.operator_challenge_nack_timelock),
             )
             .add_input(
                 (
@@ -144,6 +145,7 @@ pub fn create_operator_challenge_nack_txhandler(
 pub fn create_operator_challenge_ack_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
+    _paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let challenge_ack_vout =
         4 + watchtower_idx * 2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1;
@@ -194,6 +196,7 @@ pub fn create_disprove_txhandler(
 pub fn create_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_reimbursement_address: &bitcoin::Address,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::Challenge)
         .add_input(
@@ -203,7 +206,7 @@ pub fn create_challenge_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
-            value: OPERATOR_CHALLENGE_AMOUNT,
+            value: paramset.operator_challenge_amount,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
         .add_output(UnspentTxOut::from_partial(op_return_txout(b"TODO")))
@@ -214,6 +217,7 @@ pub fn create_challenge_txhandler(
 /// challenge tx, so that operator can spend kickoff finalizer to finalize the kickoff.
 pub fn create_challenge_timeout_txhandler(
     kickoff_txhandler: &TxHandler,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ChallengeTimeout)
         .with_version(Version::non_standard(3))
@@ -221,7 +225,7 @@ pub fn create_challenge_timeout_txhandler(
             NormalSignatureKind::OperatorSighashDefault,
             kickoff_txhandler.get_spendable_output(0)?,
             SpendPath::ScriptSpend(1),
-            Sequence::from_height(BLOCKS_PER_WEEK),
+            Sequence::from_height(paramset.operator_challenge_timeout_timelock),
         )
         .add_input(
             NormalSignatureKind::ChallengeTimeout2,

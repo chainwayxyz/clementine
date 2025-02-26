@@ -1,4 +1,5 @@
 use crate::cli::Args;
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use bitcoin::key::Parity;
@@ -8,7 +9,7 @@ use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
 use crate::actor::WinternitzDerivationPath;
-use crate::constants::WINTERNITZ_LOG_D;
+use crate::config::protocol::WINTERNITZ_LOG_D;
 #[cfg(not(debug_assertions))]
 use bitvm::{
     chunker::{
@@ -67,7 +68,7 @@ lazy_static::lazy_static! {
             // Create minimal dummy data for faster development
             BitvmCache {
                 intermediate_variables: {
-        let mut map = BTreeMap::new();
+                    let mut map = BTreeMap::new();
                     map.insert("dummy_var_1".to_string(), 4);
                     map.insert("dummy_var_2".to_string(), 4);
                     map.insert("dummy_var_3".to_string(), 4);
@@ -160,7 +161,12 @@ pub struct CombinedAssertData {
 }
 
 impl CombinedAssertData {
-    pub fn get_paths(&self, assert_idx: usize, txid: Txid) -> Vec<WinternitzDerivationPath> {
+    pub fn get_paths(
+        &self,
+        assert_idx: usize,
+        txid: Txid,
+        paramset: &'static ProtocolParamset,
+    ) -> Vec<WinternitzDerivationPath> {
         BITVM_CACHE
             .intermediate_variables
             .iter()
@@ -171,6 +177,7 @@ impl CombinedAssertData {
                     *step_size as u32 * 2,
                     step_name.to_owned(),
                     txid,
+                    paramset,
                 )
             })
             .collect()
@@ -180,6 +187,7 @@ impl CombinedAssertData {
         &self,
         assert_idx: usize,
         txid: Txid,
+        paramset: &'static ProtocolParamset,
     ) -> Vec<(WinternitzDerivationPath, u32)> {
         BITVM_CACHE
             .intermediate_variables
@@ -192,6 +200,7 @@ impl CombinedAssertData {
                         *step_size as u32 * 2,
                         step_name.to_owned(),
                         txid,
+                        paramset,
                     ),
                     *step_size as u32 * 2,
                 )

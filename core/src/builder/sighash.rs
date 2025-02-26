@@ -23,40 +23,42 @@ impl BridgeConfig {
     /// Returns the number of required signatures for N-of-N signing session.
     pub fn get_num_required_nofn_sigs(&self) -> usize {
         self.num_operators
-            * self.num_round_txs
-            * self.num_kickoffs_per_round
+            * self.protocol_paramset().num_round_txs
+            * self.protocol_paramset().num_kickoffs_per_round
             * self.get_num_required_nofn_sigs_per_kickoff()
     }
 
     // WIP: For now, this is equal to the number of sighashes we yield in create_operator_sighash_stream.
     // This will change as we implement the system design.
     pub fn get_num_required_operator_sigs(&self) -> usize {
-        self.num_round_txs
-            * self.num_kickoffs_per_round
+        self.protocol_paramset().num_round_txs
+            * self.protocol_paramset().num_kickoffs_per_round
             * self.get_num_required_operator_sigs_per_kickoff()
     }
 
     pub fn get_num_required_nofn_sigs_per_kickoff(&self) -> usize {
-        6 + 4 * self.num_watchtowers + utils::COMBINED_ASSERT_DATA.num_steps.len() * 2
+        6 + 4 * self.protocol_paramset().num_watchtowers
+            + utils::COMBINED_ASSERT_DATA.num_steps.len() * 2
     }
 
     pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {
-        2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + self.num_watchtowers
+        2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + self.protocol_paramset().num_watchtowers
     }
 
     /// Returns the total number of winternitz pks used in kickoff utxos for blockhash commits
     pub fn get_num_kickoff_winternitz_pks(&self) -> usize {
-        self.num_kickoffs_per_round * (self.num_round_txs + 1)
+        self.protocol_paramset().num_kickoffs_per_round
+            * (self.protocol_paramset().num_round_txs + 1)
     }
 
     /// Returns the total number of unspent kickoff signatures needed from each operator
     pub fn get_num_unspent_kickoff_sigs(&self) -> usize {
-        self.num_round_txs * self.num_kickoffs_per_round * 2
+        self.protocol_paramset().num_round_txs * self.protocol_paramset().num_kickoffs_per_round * 2
     }
 
     /// Returns the number of challenge ack hashes needed for a single operator for each round
     pub fn get_num_challenge_ack_hashes(&self) -> usize {
-        self.num_watchtowers
+        self.protocol_paramset().num_watchtowers
     }
 
     /// Returns the number of winternitz pks needed for a single operator for each round
@@ -126,6 +128,7 @@ pub fn create_nofn_sighash_stream(
         // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
         let operators: Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)> =
             db.get_operators(None).await?;
+        let paramset = config.protocol_paramset();
         if operators.len() < config.num_operators {
             Err(BridgeError::NotEnoughOperators)?;
         }
@@ -134,7 +137,7 @@ pub fn create_nofn_sighash_stream(
             operators.iter().enumerate()
         {
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = ReimburseDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
+            let mut tx_db_data = ReimburseDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), &config);
 
             let mut last_ready_to_reimburse: Option<TxHandler> = None;
 
@@ -146,14 +149,14 @@ pub fn create_nofn_sighash_stream(
 
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-            for round_iidx in 0..config.num_round_txs {
+            for round_iidx in 0..paramset.num_round_txs {
                 // For each kickoff_utxo, it connnects to a kickoff_tx that results in
                 // either start_happy_reimburse_tx
                 // or challenge_tx, which forces the operator to initiate BitVM sequence
                 // (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
                 // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
                 // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
-                for kickoff_idx in 0..config.num_kickoffs_per_round {
+                for kickoff_idx in 0..paramset.num_kickoffs_per_round {
                     let partial = PartialSignatureInfo::new(operator_idx, round_iidx, kickoff_idx);
 
                     let mut txhandlers = create_txhandlers(
@@ -211,13 +214,19 @@ pub fn create_operator_sighash_stream(
             collateral_funding_outpoint,
         };
 
-        let mut tx_db_data = ReimburseDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), config.clone());
+        let mut tx_db_data = ReimburseDbCache::new(
+            db.clone(),
+            operator_idx as u32,
+            deposit_data.clone(),
+            &config,
+        );
 
+        let paramset = config.protocol_paramset();
         let mut last_reimburse_generator: Option<TxHandler> = None;
 
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
-        for round_idx in 0..config.num_round_txs {
-            for kickoff_idx in 0..config.num_kickoffs_per_round {
+        for round_idx in 0..paramset.num_round_txs {
+            for kickoff_idx in 0..paramset.num_kickoffs_per_round {
                 let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
                 let mut txhandlers = create_txhandlers(

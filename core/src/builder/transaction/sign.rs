@@ -2,7 +2,6 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::config::BridgeConfig;
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::Operator;
@@ -52,7 +51,7 @@ pub async fn create_and_sign_txs(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
             transaction_data.deposit_data.clone(),
-            config.clone(),
+            &config,
         ),
     )
     .await?;
@@ -94,6 +93,7 @@ pub async fn create_and_sign_txs(
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 watchtower_idx as u32,
                 transaction_data.deposit_data.deposit_outpoint.txid,
+                config.protocol_paramset(),
             );
             let preimage = signer.generate_preimage_from_path(path)?;
             let _ = signer.tx_sign_preimage(&mut txhandler, preimage);
@@ -105,6 +105,7 @@ pub async fn create_and_sign_txs(
                 let path = WinternitzDerivationPath::Kickoff(
                     transaction_data.kickoff_id.round_idx,
                     transaction_data.kickoff_id.kickoff_idx,
+                    config.protocol_paramset(),
                 );
                 signer.tx_sign_winternitz(&mut txhandler, &[(block_hash.to_vec(), path)])?;
             }
@@ -138,7 +139,13 @@ impl Watchtower {
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
     ) -> Result<RawSignedTx, BridgeError> {
-        if commit_data.len() != WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize / 2usize {
+        if commit_data.len()
+            != self
+                .config
+                .protocol_paramset()
+                .watchtower_challenge_message_length
+                / 2
+        {
             return Err(BridgeError::InvalidWatchtowerChallengeData);
         }
         // get operator data
@@ -161,7 +168,7 @@ impl Watchtower {
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
                 transaction_data.deposit_data.clone(),
-                self.config.clone(),
+                &self.config,
             ),
         )
         .await?;
@@ -180,6 +187,7 @@ impl Watchtower {
         let path = WinternitzDerivationPath::WatchtowerChallenge(
             transaction_data.kickoff_id.operator_idx,
             transaction_data.deposit_data.deposit_outpoint.txid,
+            self.config.protocol_paramset(),
         );
         self.signer
             .tx_sign_winternitz(&mut requested_txhandler, &[(commit_data.to_vec(), path)])?;
@@ -215,7 +223,7 @@ impl Operator {
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,
                 assert_data.deposit_data.clone(),
-                self.config.clone(),
+                &self.config,
             ),
         )
         .await?;
@@ -223,8 +231,11 @@ impl Operator {
         let mut signed_txhandlers = Vec::new();
 
         for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
-            let paths_with_size = utils::COMBINED_ASSERT_DATA
-                .get_paths_and_sizes(idx, assert_data.deposit_data.deposit_outpoint.txid);
+            let paths_with_size = utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(
+                idx,
+                assert_data.deposit_data.deposit_outpoint.txid,
+                self.config.protocol_paramset(),
+            );
             let mut mini_assert_txhandler =
                 txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
                     BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),

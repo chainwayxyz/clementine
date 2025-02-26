@@ -41,7 +41,7 @@ mod test_utils;
 
 //     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
 
-//     let signer_address = Actor::new(secret_key, config.winternitz_secret_key, config.network)
+//     let signer_address = Actor::new(secret_key, config.winternitz_secret_key, config.protocol_paramset().network)
 //         .address
 //         .as_unchecked()
 //         .clone();
@@ -52,7 +52,7 @@ mod test_utils;
 //     let mut deposit_outpoints = Vec::new();
 //     for _ in 0..config.operator_num_kickoff_utxos_per_tx + 1 {
 //         let deposit_outpoint = rpc
-//             .send_to_address(&deposit_address, config.bridge_amount_sats)
+//             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
 //             .await
 //             .unwrap();
 
@@ -165,13 +165,13 @@ mod test_utils;
 //         &secp,
 //         secret_key.x_only_public_key(&secp).0,
 //         None,
-//         config.network,
+//         config.protocol_paramset().network,
 //     );
 //     let (user_utxo, user_txout, user_sig) = user
 //         .generate_withdrawal_transaction_and_signature(
 //             withdrawal_address.clone(),
 //             Amount::from_sat(
-//                 config.bridge_amount_sats.to_sat()
+//                 config.protocol_paramset().bridge_amount.to_sat()
 //                     - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
 //             ),
 //         )
@@ -193,7 +193,7 @@ mod test_utils;
 //         .generate_withdrawal_transaction_and_signature(
 //             withdrawal_address.clone(),
 //             Amount::from_sat(
-//                 config.bridge_amount_sats.to_sat()
+//                 config.protocol_paramset().bridge_amount.to_sat()
 //                     - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
 //             ),
 //         )
@@ -223,7 +223,7 @@ mod test_utils;
 //         .generate_withdrawal_transaction_and_signature(
 //             withdrawal_address.clone(),
 //             Amount::from_sat(
-//                 config.bridge_amount_sats.to_sat()
+//                 config.protocol_paramset().bridge_amount.to_sat()
 //                     - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
 //             ),
 //         )
@@ -270,7 +270,7 @@ pub async fn run_single_deposit(
     aggregator.setup(Request::new(Empty {})).await?;
 
     let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.bridge_amount_sats)
+        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
     rpc.mine_blocks(18).await?;
 

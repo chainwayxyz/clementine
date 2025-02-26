@@ -10,14 +10,16 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
-use crate::constants::BLOCKS_PER_WEEK;
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{address::NetworkUnchecked, Amount};
-use bitcoin::{Address, Network, XOnlyPublicKey};
+use bitcoin::{Address, XOnlyPublicKey};
+use protocol::{ProtocolParamset, ProtocolParamsetName};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
+
+pub mod protocol;
 
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,8 +30,6 @@ pub struct BridgeConfig {
     pub port: u16,
     /// Entity index.
     pub index: u32,
-    /// Bitcoin network to work on.
-    pub network: Network,
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
     /// Verifiers public keys.
@@ -42,22 +42,8 @@ pub struct BridgeConfig {
     pub operator_wallet_addresses: Vec<bitcoin::Address<NetworkUnchecked>>,
     /// Number of operators.
     pub num_operators: usize,
-    /// Number of watchtowers.
-    pub num_watchtowers: usize,
-    /// Number of sequential collateral txs
-    pub num_round_txs: usize,
-    /// number of kickoffs per sequential collateral tx
-    pub num_kickoffs_per_round: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
-    /// Number of blocks after which user can take deposit back if deposit request fails.
-    pub user_takes_after: u16,
-    /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
-    pub operator_takes_after: u32,
-    /// Bridge amount in satoshis.
-    pub bridge_amount_sats: Amount,
-    /// Operator: number of kickoff UTXOs per funding transaction.
-    pub operator_num_kickoff_utxos_per_tx: usize,
     /// Threshold for confirmation.
     pub confirmation_threshold: u32,
     /// Bitcoin remote procedure call URL.
@@ -98,10 +84,12 @@ pub struct BridgeConfig {
     pub winternitz_secret_key: Option<SecretKey>,
     /// Collateral funding amount for operators.
     pub collateral_funding_amount: Amount,
-    /// Timeout block count for each kickoff UTXO
-    pub timeout_block_count: i64,
-    /// Max withdrawal(also called reimburse) time block count
-    pub max_withdrawal_time_block_count: u16,
+    /// Protocol paramset name
+    /// One of:
+    /// - `Mainnet`
+    /// - `Regtest`
+    /// - `Testnet`
+    pub protocol_paramset: ProtocolParamsetName,
 }
 
 impl BridgeConfig {
@@ -110,6 +98,11 @@ impl BridgeConfig {
         BridgeConfig {
             ..Default::default()
         }
+    }
+
+    /// Get the protocol paramset defined by the paramset name.
+    pub fn protocol_paramset(&self) -> &'static ProtocolParamset {
+        self.protocol_paramset.into()
     }
 
     /// Read contents of a TOML file and generate a `BridgeConfig`.
@@ -143,6 +136,7 @@ impl BridgeConfig {
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
+            protocol_paramset: ProtocolParamsetName::Regtest,
             host: "127.0.0.1".to_string(),
             port: 17000,
             index: 0,
@@ -185,9 +179,6 @@ impl Default for BridgeConfig {
             ],
 
             num_operators: 3,
-            num_watchtowers: 4,
-            num_round_txs: 2,
-            num_kickoffs_per_round: 3,
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
                     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
@@ -202,8 +193,6 @@ impl Default for BridgeConfig {
                 )
                 .expect("known valid input"),
             ],
-
-            operator_takes_after: 5,
 
             operator_wallet_addresses: vec![
                 Address::from_str(
@@ -221,11 +210,6 @@ impl Default for BridgeConfig {
             ],
             operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
 
-            operator_num_kickoff_utxos_per_tx: 10,
-
-            user_takes_after: 200,
-
-            network: Network::Regtest,
             bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
@@ -235,8 +219,6 @@ impl Default for BridgeConfig {
             db_user: "clementine".to_string(),
             db_password: "clementine".to_string(),
             db_name: "clementine".to_string(),
-
-            bridge_amount_sats: Amount::from_sat(1_000_000_000),
 
             confirmation_threshold: 1,
 
@@ -321,8 +303,6 @@ impl Default for BridgeConfig {
             operator_endpoints: None,
             watchtower_endpoints: None,
             collateral_funding_amount: Amount::from_sat(200_000_000),
-            timeout_block_count: 6,
-            max_withdrawal_time_block_count: BLOCKS_PER_WEEK * 4,
         }
     }
 }
@@ -384,5 +364,17 @@ mod tests {
         assert!(BridgeConfig::try_parse_file(file_name.into()).is_err());
 
         fs::remove_file(file_name).unwrap();
+    }
+
+    #[test]
+    fn test_test_config_parseable() {
+        let content = include_str!("../../tests/data/test_config.toml");
+        BridgeConfig::try_parse_from(content.to_string()).unwrap();
+    }
+
+    #[test]
+    fn test_docker_config_parseable() {
+        let content = include_str!("../../../scripts/docker/docker_config.toml");
+        BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 }

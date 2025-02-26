@@ -4,14 +4,14 @@ use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
-use crate::builder::transaction::creator::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, DepositData, OperatorData, TransactionType, TxHandler, Unsigned,
 };
+use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::{self};
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -92,7 +92,7 @@ impl Verifier {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
-            config.network,
+            config.protocol_paramset().network,
         );
 
         // let pk: bitcoin::secp256k1:: PublicKey = config.secret_key.public_key(&utils::SECP);
@@ -117,7 +117,7 @@ impl Verifier {
             rpc.clone(),
             db.clone(),
             &format!("verifier_{}", idx).to_string(),
-            config.network,
+            config.protocol_paramset().network,
         );
         let _tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
 
@@ -202,9 +202,9 @@ impl Verifier {
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for idx in 0..self.config.num_round_txs {
+        for idx in 0..self.config.protocol_paramset().num_round_txs {
             let txhandlers = create_round_txhandlers(
-                &self.config,
+                self.config.protocol_paramset(),
                 idx,
                 &operator_data,
                 kickoff_wpks,
@@ -263,7 +263,7 @@ impl Verifier {
     ) -> Result<(), BridgeError> {
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
-            self.config.num_kickoffs_per_round,
+            self.config.protocol_paramset().num_kickoffs_per_round,
         );
         let tagged_sigs = self.verify_unspent_kickoff_sigs(
             operator_index,
@@ -294,7 +294,8 @@ impl Verifier {
             )
             .await?;
 
-        let sigs_per_round = self.config.get_num_unspent_kickoff_sigs() / self.config.num_round_txs;
+        let sigs_per_round = self.config.get_num_unspent_kickoff_sigs()
+            / self.config.protocol_paramset().num_round_txs;
         let tagged_sigs_per_round: Vec<Vec<TaggedSignature>> = tagged_sigs
             .chunks(sigs_per_round)
             .map(|chunk| chunk.to_vec())
@@ -467,12 +468,14 @@ impl Verifier {
         let num_required_op_sigs = self.config.get_num_required_operator_sigs();
         let num_required_op_sigs_per_kickoff =
             self.config.get_num_required_operator_sigs_per_kickoff();
-        let &BridgeConfig {
-            num_operators,
+        let &BridgeConfig { num_operators, .. } = &self.config;
+
+        let ProtocolParamset {
             num_round_txs,
             num_kickoffs_per_round,
             ..
-        } = &self.config;
+        } = *self.config.protocol_paramset();
+
         let mut verified_sigs = vec![
             vec![
                 vec![
@@ -536,9 +539,9 @@ impl Verifier {
             evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
-            self.config.user_takes_after,
-            self.config.bridge_amount_sats,
-            self.config.network,
+            self.config.protocol_paramset().user_takes_after,
+            self.config.protocol_paramset().bridge_amount,
+            self.config.protocol_paramset().network,
         )?;
 
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
@@ -710,10 +713,10 @@ impl Verifier {
     //             &deposit_outpoint,
     //             &recovery_taproot_address,
     //             evm_address,
-    //             self.config.bridge_amount_sats,
+    //             self.config.protocol_paramset().bridge_amount,
     //             self.config.confirmation_threshold,
-    //             self.config.network,
-    //             self.config.user_takes_after,
+    //             self.config.protocol_paramset().network,
+    //             self.config.protocol_paramset().user_takes_after,
     //         )
     //         .await?;
 
@@ -815,7 +818,7 @@ impl Verifier {
     //             builder::address::create_kickoff_address(
     //                 self.nofn_xonly_pk,
     //                 self.operator_xonly_pks[i],
-    //                 self.config.network,
+    //                 self.config.protocol_paramset().network,
     //             );
     //         tracing::debug!(
     //             "musig2_and_operator_address.script_pubkey: {:?}",
@@ -833,10 +836,10 @@ impl Verifier {
     //             self.config.operators_xonly_pks[i],
     //             i,
     //             self.nofn_xonly_pk,
-    //             self.config.network,
-    //             self.config.user_takes_after,
+    //             self.config.protocol_paramset().network,
+    //             self.config.protocol_paramset().user_takes_after,
     //             self.config.operator_takes_after,
-    //             self.config.bridge_amount_sats,
+    //             self.config.protocol_paramset().bridge_amount,
     //         );
     //         let slash_or_take_tx_sighash =
     //             Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
@@ -923,9 +926,9 @@ impl Verifier {
             evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
-            self.config.user_takes_after,
-            self.config.bridge_amount_sats,
-            self.config.network,
+            self.config.protocol_paramset().user_takes_after,
+            self.config.protocol_paramset().bridge_amount,
+            self.config.protocol_paramset().network,
         )?;
 
         let bridge_fund_outpoint = OutPoint {
@@ -1012,6 +1015,7 @@ impl Verifier {
                         .map(|(k, s)| (k.clone(), *s))
                         .collect::<Vec<_>>(),
                     operator_data.xonly_pk,
+                    self.config.protocol_paramset().winternitz_log_d,
                 );
                 let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
                 taproot_builder
@@ -1079,8 +1083,14 @@ impl Verifier {
                 .await?;
 
             let script = WinternitzCommit::new(
-                vec![(winternitz_key, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
+                vec![(
+                    winternitz_key,
+                    self.config
+                        .protocol_paramset()
+                        .watchtower_challenge_message_length as u32,
+                )],
                 watchtower_xonly_pk,
+                self.config.protocol_paramset().winternitz_log_d,
             )
             .to_script_buf();
 
@@ -1129,10 +1139,10 @@ impl Verifier {
     //                 self.operator_xonly_pks[index],
     //                 index,
     //                 self.nofn_xonly_pk,
-    //                 self.config.network,
-    //                 self.config.user_takes_after,
+    //                 self.config.protocol_paramset().network,
+    //                 self.config.protocol_paramset().user_takes_after,
     //                 self.config.operator_takes_after,
-    //                 self.config.bridge_amount_sats,
+    //                 self.config.protocol_paramset().bridge_amount,
     //             );
     //             let slash_or_take_sighash =
     //                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
@@ -1159,9 +1169,9 @@ impl Verifier {
     //                 slash_or_take_utxo,
     //                 self.operator_xonly_pks[index],
     //                 self.nofn_xonly_pk,
-    //                 self.config.network,
+    //                 self.config.protocol_paramset().network,
     //                 self.config.operator_takes_after,
-    //                 self.config.bridge_amount_sats,
+    //                 self.config.protocol_paramset().bridge_amount,
     //                 self.config.operator_wallet_addresses[index].clone(),
     //             );
     //             Message::from_digest(
@@ -1215,7 +1225,7 @@ impl Verifier {
     //     let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
     //         self.create_deposit_details(deposit_outpoint).await?;
     //     let nofn_taproot_xonly_pk = bitcoin::secp256k1:: XOnlyPublicKey::from_slice(
-    //         &Address::p2tr(&utils::SECP, self.nofn_xonly_pk, None, self.config.network)
+    //         &Address::p2tr(&utils::SECP, self.nofn_xonly_pk, None, self.config.protocol_paramset().network)
     //             .script_pubkey()
     //             .as_bytes()[2..34],
     //     )?;
@@ -1229,10 +1239,10 @@ impl Verifier {
     //                 self.operator_xonly_pks[index],
     //                 index,
     //                 self.nofn_xonly_pk,
-    //                 self.config.network,
-    //                 self.config.user_takes_after,
+    //                 self.config.protocol_paramset().network,
+    //                 self.config.protocol_paramset().user_takes_after,
     //                 self.config.operator_takes_after,
-    //                 self.config.bridge_amount_sats,
+    //                 self.config.protocol_paramset().bridge_amount,
     //             );
     //             let slash_or_take_utxo = UTXO {
     //                 outpoint: OutPoint {
@@ -1246,9 +1256,9 @@ impl Verifier {
     //                 slash_or_take_utxo,
     //                 self.operator_xonly_pks[index],
     //                 self.nofn_xonly_pk,
-    //                 self.config.network,
+    //                 self.config.protocol_paramset().network,
     //                 self.config.operator_takes_after,
-    //                 self.config.bridge_amount_sats,
+    //                 self.config.protocol_paramset().bridge_amount,
     //                 self.config.operator_wallet_addresses[index].clone(),
     //             );
     //             tracing::debug!(
@@ -1346,10 +1356,10 @@ impl Verifier {
     //                 self.operator_xonly_pks[index],
     //                 index,
     //                 self.nofn_xonly_pk,
-    //                 self.config.network,
-    //                 self.config.user_takes_after,
+    //                 self.config.protocol_paramset().network,
+    //                 self.config.protocol_paramset().user_takes_after,
     //                 self.config.operator_takes_after,
-    //                 self.config.bridge_amount_sats,
+    //                 self.config.protocol_paramset().bridge_amount,
     //             );
     //             let slash_or_take_sighash =
     //                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
@@ -1376,9 +1386,9 @@ impl Verifier {
     //                 slash_or_take_utxo,
     //                 self.operator_xonly_pks[index],
     //                 self.nofn_xonly_pk,
-    //                 self.config.network,
+    //                 self.config.protocol_paramset().network,
     //                 self.config.operator_takes_after,
-    //                 self.config.bridge_amount_sats,
+    //                 self.config.protocol_paramset().bridge_amount,
     //                 self.config.operator_wallet_addresses[index].clone(),
     //             );
     //             ByteArray32(
@@ -1432,7 +1442,7 @@ impl Verifier {
     //     let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
     //         self.create_deposit_details(deposit_outpoint).await?;
     //     let nofn_taproot_xonly_pk = bitcoin::secp256k1:: XOnlyPublicKey::from_slice(
-    //         &Address::p2tr(&SECP, self.nofn_xonly_pk, None, self.config.network)
+    //         &Address::p2tr(&SECP, self.nofn_xonly_pk, None, self.config.protocol_paramset().network)
     //             .script_pubkey()
     //             .as_bytes()[2..34],
     //     )?;
@@ -1446,10 +1456,10 @@ impl Verifier {
     //                 self.operator_xonly_pks[index],
     //                 index,
     //                 self.nofn_xonly_pk,
-    //                 self.config.network,
-    //                 self.config.user_takes_after,
+    //                 self.config.protocol_paramset().network,
+    //                 self.config.protocol_paramset().user_takes_after,
     //                 self.config.operator_takes_after,
-    //                 self.config.bridge_amount_sats,
+    //                 self.config.protocol_paramset().bridge_amount,
     //             );
     //             let slash_or_take_utxo = UTXO {
     //                 outpoint: OutPoint {
@@ -1463,9 +1473,9 @@ impl Verifier {
     //                 slash_or_take_utxo,
     //                 self.operator_xonly_pks[index],
     //                 self.nofn_xonly_pk,
-    //                 self.config.network,
+    //                 self.config.protocol_paramset().network,
     //                 self.config.operator_takes_after,
-    //                 self.config.bridge_amount_sats,
+    //                 self.config.protocol_paramset().bridge_amount,
     //                 self.config.operator_wallet_addresses[index].clone(),
     //             );
     //             tracing::debug!(
@@ -1591,7 +1601,7 @@ impl Verifier {
 //     let signer_address = Actor::new(
 //         config.secret_key,
 //         config.winternitz_secret_key,
-//         config.network,
+//         config.protocol_paramset().network,
 //     )
 //     .address
 //     .as_unchecked()
@@ -1601,7 +1611,7 @@ impl Verifier {
 
 //     // Not enough nonces.
 //     let deposit_outpoint = rpc
-//         .send_to_address(&deposit_address.clone(), config.bridge_amount_sats)
+//         .send_to_address(&deposit_address.clone(), config.protocol_paramset().bridge_amount)
 //         .await
 //         .unwrap();
 //     rpc.mine_blocks((config.confirmation_threshold + 2).into())
@@ -1631,7 +1641,7 @@ impl Verifier {
 
 //     // Enough nonces.
 //     let deposit_outpoint = rpc
-//         .send_to_address(&deposit_address.clone(), config.bridge_amount_sats)
+//         .send_to_address(&deposit_address.clone(), config.protocol_paramset().bridge_amount)
 //         .await
 //         .unwrap();
 //     rpc.mine_blocks((config.confirmation_threshold + 2).into())
