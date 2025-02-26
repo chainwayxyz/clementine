@@ -382,9 +382,7 @@ impl Database {
             if let Some(locktime) = activated_outpoint.timelock.to_relative_lock_time() {
                 use bitcoin::relative::LockTime::*;
                 match locktime {
-                    Blocks(blocks) => {
-                        blocks.value() as i32
-                    }
+                    Blocks(blocks) => blocks.value() as i32,
                     Time(_) => {
                         return Err(BridgeError::ConversionError(
                             "Relative lock time must be in blocks in bridge".to_string(),
