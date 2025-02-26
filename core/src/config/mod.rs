@@ -368,13 +368,13 @@ mod tests {
 
     #[test]
     fn test_test_config_parseable() {
-        let content = include_str!("../tests/data/test_config.toml");
+        let content = include_str!("../../tests/data/test_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 
     #[test]
     fn test_docker_config_parseable() {
-        let content = include_str!("../../scripts/docker/docker_config.toml");
+        let content = include_str!("../../../scripts/docker/docker_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 }
