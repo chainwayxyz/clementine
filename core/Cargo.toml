@@ -42,9 +42,10 @@ eyre = "0.6.12"
 [dev-dependencies]
 serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
-
-[features]
-default = []
+alloy = { workspace = true }
+citrea-e2e = { workspace = true }
+merkle = { workspace = true }
+ring = { workspace = true }
 
 [[bin]]
 name = "server"
