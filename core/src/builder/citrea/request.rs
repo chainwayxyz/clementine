@@ -17,7 +17,7 @@ use serde_json::json;
 
 const CITREA_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
-pub async fn initialized(client: HttpClient) -> Result<(), BridgeError> {
+pub async fn script_prefix(client: HttpClient) -> Result<(), BridgeError> {
     let params = rpc_params![
         json!({
             "to": CITREA_ADDRESS,
@@ -75,7 +75,7 @@ pub async fn deposit(
 
     let params = get_deposit_params(transaction, block, block_height, txid)?;
 
-    let response: String = client
+    let response: () = client
         .request(
             "citrea_sendRawDepositTransaction",
             rpc_params!(hex::encode(params)),
@@ -83,7 +83,7 @@ pub async fn deposit(
         .await?;
 
     // TODO: should return a bool but dont know the format of the response
-    tracing::info!("Deposit response: {}", response);
+    tracing::info!("Deposit response: {:?}", response);
 
     Ok(())
 }

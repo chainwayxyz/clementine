@@ -1,6 +1,7 @@
 //! # Deposit Tests
 
 use async_trait::async_trait;
+use bitcoin::consensus::Encodable;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
@@ -50,7 +51,7 @@ impl TestCase for DepositOnCitrea {
         SequencerConfig {
             // min_soft_confirmations_per_commitment: 50,
             test_mode: false,
-            bridge_initialize_params: "000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a423a0b35060e62053765e2aba342f1c242e78d68f5248aca26e703c0c84ca322ac006306636974726561140000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000".to_string(),
+            bridge_initialize_params: "000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a20423a0b35060e62053765e2aba342f1c242e78d68f5248aca26e703c0c84ca322ac0063066369747265611400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000".to_string(),
             ..Default::default()
         }
     }
@@ -78,8 +79,13 @@ impl TestCase for DepositOnCitrea {
             run_single_deposit(&mut config, rpc.clone()).await?;
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
-        tracing::info!("Move tx: {:#?}", tx);
-        tracing::info!("Move txid: {:#?}", hex::encode(tx.input[0].witness.to_vec()[1].clone()));
+        let mut etx = Vec::new();
+        tx.consensus_encode(&mut etx).unwrap();
+        tracing::info!("Move tx: {:#?}", hex::encode(etx));
+        tracing::info!(
+            "Move txid: {:#?}",
+            hex::encode(tx.input[0].witness.to_vec()[1].clone())
+        );
         let tx_info = rpc
             .client
             .get_raw_transaction_info(&move_txid, None)
@@ -94,7 +100,7 @@ impl TestCase for DepositOnCitrea {
         tracing::error!("real block height: {:?}", block_height);
 
         // builder::citrea::initialize(sequencer.client.http_client().clone()).await?;
-        builder::citrea::initialized(sequencer.client.http_client().clone()).await?;
+        builder::citrea::script_prefix(sequencer.client.http_client().clone()).await?;
         while builder::citrea::get_block_nu(sequencer.client.http_client().clone()).await?
             < block_height.try_into().unwrap()
         {
