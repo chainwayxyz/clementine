@@ -424,9 +424,9 @@ impl Aggregator {
             deposit_data.evm_address,
             &deposit_data.recovery_taproot_address,
             self.nofn_xonly_pk,
-            self.config.user_takes_after,
-            self.config.bridge_amount_sats,
-            self.config.network,
+            self.config.protocol_paramset().user_takes_after,
+            self.config.protocol_paramset().bridge_amount,
+            self.config.protocol_paramset().network,
         )?;
 
         let sighash = move_txhandler.calculate_script_spend_sighash_indexed(
@@ -964,7 +964,7 @@ mod tests {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
-            config.network,
+            config.protocol_paramset().network,
         );
 
         let nofn_xonly_pk =
@@ -975,15 +975,15 @@ mod tests {
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.bridge_amount_sats,
-            config.network,
-            config.user_takes_after,
+            config.protocol_paramset().bridge_amount,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
         )
         .unwrap()
         .0;
 
         let deposit_outpoint = rpc
-            .send_to_address(&deposit_address, config.bridge_amount_sats)
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await
             .unwrap();
         rpc.mine_blocks(18).await.unwrap();

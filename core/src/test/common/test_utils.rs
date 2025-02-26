@@ -484,7 +484,7 @@ pub fn get_deposit_address(
     let signer = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
-        config.network,
+        config.protocol_paramset().network,
     );
 
     let nofn_xonly_pk =
@@ -495,9 +495,9 @@ pub fn get_deposit_address(
         nofn_xonly_pk,
         signer.address.as_unchecked(),
         evm_address,
-        config.bridge_amount_sats,
-        config.network,
-        config.user_takes_after,
+        config.protocol_paramset().bridge_amount,
+        config.protocol_paramset().network,
+        config.protocol_paramset().user_takes_after,
     )
 }
 
@@ -519,7 +519,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     let signer = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
-        config.network,
+        config.protocol_paramset().network,
     );
 
     const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);

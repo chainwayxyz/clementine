@@ -137,7 +137,11 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         .await
         .expect("failed to create database");
     let tx_sender = {
-        let actor = Actor::new(keypair.secret_key(), None, config.network);
+        let actor = Actor::new(
+            keypair.secret_key(),
+            None,
+            config.protocol_paramset().network,
+        );
 
         // This tx sender will be adding txs using verifier 0's tx sender loop
         TxSender::new(
@@ -145,7 +149,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
             rpc.clone(),
             tx_sender_db.clone(),
             "run_happy_path_1",
-            config.network,
+            config.protocol_paramset().network,
         )
     };
 
@@ -156,11 +160,11 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     let recovery_taproot_address = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
-        config.network,
+        config.protocol_paramset().network,
     )
     .address;
 
-    let withdrawal_amount = config.bridge_amount_sats.to_sat()
+    let withdrawal_amount = config.protocol_paramset().bridge_amount.to_sat()
         - (2 * config
             .operator_withdrawal_fee_sats
             .expect("exists in test config")
@@ -182,7 +186,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
     // 3. Make Deposit
     tracing::info!("Making deposit transaction");
     let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.bridge_amount_sats)
+        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);

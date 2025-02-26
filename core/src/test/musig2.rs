@@ -78,9 +78,12 @@ async fn key_spend() {
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone()).unwrap();
 
     let (to_address, to_address_spend) =
-        builder::address::create_taproot_address(&[], None, config.network);
-    let (from_address, from_address_spend_info) =
-        builder::address::create_taproot_address(&[], Some(untweaked_xonly_pubkey), config.network);
+        builder::address::create_taproot_address(&[], None, config.protocol_paramset().network);
+    let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
+        &[],
+        Some(untweaked_xonly_pubkey),
+        config.protocol_paramset().network,
+    );
 
     let utxo = rpc
         .send_to_address(&from_address, Amount::from_sat(100_000_000))
@@ -176,14 +179,14 @@ async fn key_spend_with_script() {
     let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(OtherSpendable::new(dummy_script))];
 
     let (to_address, _to_address_spend) =
-        builder::address::create_taproot_address(&[], None, config.network);
+        builder::address::create_taproot_address(&[], None, config.protocol_paramset().network);
     let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
         &scripts
             .iter()
             .map(|a| a.to_script_buf())
             .collect::<Vec<_>>(),
         Some(untweaked_xonly_pubkey),
-        config.network,
+        config.protocol_paramset().network,
     );
 
     let utxo = rpc

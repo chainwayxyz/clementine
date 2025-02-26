@@ -1,8 +1,8 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
-use crate::builder::transaction::creator::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler, DepositData,
     OperatorData, TransactionType, TxHandler,
@@ -58,7 +58,7 @@ impl Operator {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
-            config.network,
+            config.protocol_paramset().network,
         );
 
         let db = Database::new(&config).await?;
@@ -85,7 +85,7 @@ impl Operator {
             rpc.clone(),
             db.clone(),
             &format!("operator_{}", idx).to_string(),
-            config.network,
+            config.protocol_paramset().network,
         );
 
         if config.operator_withdrawal_fee_sats.is_none() {
@@ -168,7 +168,10 @@ impl Operator {
     > {
         let wpks = self.generate_kickoff_winternitz_pubkeys()?;
         let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
-        let kickoff_wpks = KickoffWinternitzKeys::new(wpks, self.config.num_kickoffs_per_round);
+        let kickoff_wpks = KickoffWinternitzKeys::new(
+            wpks,
+            self.config.protocol_paramset().num_kickoffs_per_round,
+        );
         let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
         let wpks = kickoff_wpks.keys.clone();
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
@@ -362,7 +365,7 @@ impl Operator {
         if !Self::is_profitable(
             input_utxo.txout.value,
             output_txout.value,
-            self.config.bridge_amount_sats,
+            self.config.protocol_paramset().bridge_amount,
             operator_withdrawal_fee_sats,
         ) {
             return Err(BridgeError::NotEnoughFeeForOperator);
@@ -376,7 +379,7 @@ impl Operator {
             output_txout,
             self.idx,
             in_signature,
-            self.config.network,
+            self.config.protocol_paramset().network,
         )?;
 
         let sighash = payout_txhandler
@@ -478,8 +481,8 @@ impl Operator {
             // let move_txid = builder::transaction::create_move_to_vault_tx(
             //     deposit_outpoint,
             //     self.nofn_xonly_pk,
-            //     self.config.bridge_amount_sats,
-            //     self.config.network,
+            //     self.config.protocol_paramset().bridge_amount,
+            //     self.config.protocol_paramset().network,
             // )
             // .compute_txid();
 
@@ -537,6 +540,7 @@ impl Operator {
                 *intermediate_step_size as u32 * 2,
                 intermediate_step.to_owned(),
                 deposit_txid,
+                self.config.protocol_paramset(),
             );
             winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
         }
@@ -565,9 +569,13 @@ impl Operator {
             Vec::with_capacity(self.config.get_num_kickoff_winternitz_pks());
 
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
-        for round_idx in 0..self.config.num_round_txs + 1 {
-            for kickoff_idx in 0..self.config.num_kickoffs_per_round {
-                let path = WinternitzDerivationPath::Kickoff(round_idx as u32, kickoff_idx as u32);
+        for round_idx in 0..self.config.protocol_paramset().num_round_txs + 1 {
+            for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+                let path = WinternitzDerivationPath::Kickoff(
+                    round_idx as u32,
+                    kickoff_idx as u32,
+                    self.config.protocol_paramset(),
+                );
                 winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
             }
         }
@@ -595,9 +603,9 @@ impl Operator {
             collateral_funding_outpoint: self.collateral_funding_outpoint,
             reimburse_addr: self.reimburse_addr.clone(),
         };
-        for idx in 0..self.config.num_round_txs {
+        for idx in 0..self.config.protocol_paramset().num_round_txs {
             let txhandlers = create_round_txhandlers(
-                &self.config,
+                self.config.protocol_paramset(),
                 idx,
                 &operator_data,
                 kickoff_wpks,
@@ -641,9 +649,12 @@ impl Operator {
     ) -> Result<Vec<PublicHash>, BridgeError> {
         let mut hashes = Vec::with_capacity(self.config.get_num_challenge_ack_hashes());
 
-        for watchtower_idx in 0..self.config.num_watchtowers {
-            let path =
-                WinternitzDerivationPath::ChallengeAckHash(watchtower_idx as u32, deposit_txid);
+        for watchtower_idx in 0..self.config.protocol_paramset().num_watchtowers {
+            let path = WinternitzDerivationPath::ChallengeAckHash(
+                watchtower_idx as u32,
+                deposit_txid,
+                self.config.protocol_paramset(),
+            );
             let hash = self.signer.generate_public_hash_from_path(path)?;
             hashes.push(hash);
         }
@@ -988,7 +999,7 @@ mod tests {
     //     )
     //     .await;
 
-    //     config.bridge_amount_sats = Amount::from_sat(0x45);
+    //     config.protocol_paramset().bridge_amount = Amount::from_sat(0x45);
     //     config.operator_withdrawal_fee_sats = Some(Amount::from_sat(0x1F));
 
     //     let operator = Operator::new(config.clone(), rpc).await.unwrap();
@@ -999,12 +1010,12 @@ mod tests {
     //     operator.is_profitable(Amount::from_sat(6), Amount::from_sat(9));
 
     //     // False because difference between input and withdrawal amount is
-    //     // bigger than `config.bridge_amount_sats`.
+    //     // bigger than `config.protocol_paramset().bridge_amount`.
     //     assert!(!operator.is_profitable(Amount::from_sat(6), Amount::from_sat(90)));
 
     //     // False because net profit is smaller than
     //     // `config.operator_withdrawal_fee_sats`.
-    //     assert!(!operator.is_profitable(Amount::from_sat(0), config.bridge_amount_sats));
+    //     assert!(!operator.is_profitable(Amount::from_sat(0), config.protocol_paramset().bridge_amount));
 
     //     // True because net profit is bigger than
     //     // `config.operator_withdrawal_fee_sats`.
@@ -1027,7 +1038,8 @@ mod tests {
             .unwrap();
         assert_eq!(
             winternitz_public_key.len(),
-            config.num_round_txs * config.num_kickoffs_per_round
+            config.protocol_paramset().num_round_txs
+                * config.protocol_paramset().num_kickoffs_per_round
         );
     }
 
@@ -1041,7 +1053,7 @@ mod tests {
         let preimages = operator
             .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
             .unwrap();
-        assert_eq!(preimages.len(), config.num_watchtowers);
+        assert_eq!(preimages.len(), config.protocol_paramset().num_watchtowers);
     }
 
     #[tokio::test]

@@ -1087,11 +1087,17 @@ mod tests {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
-            config.network,
+            config.protocol_paramset().network,
         );
         let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
 
-        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db, "tx_sender", config.network);
+        let tx_sender = TxSender::new(
+            signer.clone(),
+            rpc.clone(),
+            db,
+            "tx_sender",
+            config.protocol_paramset().network,
+        );
 
         let scripts: Vec<Arc<dyn SpendableScript>> =
             vec![Arc::new(CheckSig::new(xonly_pk)).clone()];
@@ -1101,7 +1107,7 @@ mod tests {
                 .map(|s| s.to_script_buf())
                 .collect::<Vec<_>>(),
             None,
-            config.network,
+            config.protocol_paramset().network,
         );
 
         let input_utxo = rpc.send_to_address(&taproot_address, amount).await.unwrap();

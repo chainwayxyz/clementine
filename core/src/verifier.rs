@@ -4,13 +4,13 @@ use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
-use crate::builder::transaction::creator::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, DepositData, OperatorData, TransactionType, TxHandler,
 };
+use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -91,7 +91,7 @@ impl Verifier {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
-            config.network,
+            config.protocol_paramset().network,
         );
 
         // let pk: bitcoin::secp256k1:: PublicKey = config.secret_key.public_key(&utils::SECP);
@@ -116,7 +116,7 @@ impl Verifier {
             rpc.clone(),
             db.clone(),
             &format!("verifier_{}", idx).to_string(),
-            config.network,
+            config.protocol_paramset().network,
         );
         let tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
 
@@ -205,9 +205,9 @@ impl Verifier {
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for idx in 0..self.config.num_round_txs {
+        for idx in 0..self.config.protocol_paramset().num_round_txs {
             let txhandlers = create_round_txhandlers(
-                &self.config,
+                self.config.protocol_paramset(),
                 idx,
                 &operator_data,
                 kickoff_wpks,
@@ -266,7 +266,7 @@ impl Verifier {
     ) -> Result<(), BridgeError> {
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
-            self.config.num_kickoffs_per_round,
+            self.config.protocol_paramset().num_kickoffs_per_round,
         );
         let tagged_sigs = self.verify_unspent_kickoff_sigs(
             operator_index,
@@ -297,7 +297,8 @@ impl Verifier {
             )
             .await?;
 
-        let sigs_per_round = self.config.get_num_unspent_kickoff_sigs() / self.config.num_round_txs;
+        let sigs_per_round = self.config.get_num_unspent_kickoff_sigs()
+            / self.config.protocol_paramset().num_round_txs;
         let tagged_sigs_per_round: Vec<Vec<TaggedSignature>> = tagged_sigs
             .chunks(sigs_per_round)
             .map(|chunk| chunk.to_vec())
@@ -470,12 +471,14 @@ impl Verifier {
         let num_required_op_sigs = self.config.get_num_required_operator_sigs();
         let num_required_op_sigs_per_kickoff =
             self.config.get_num_required_operator_sigs_per_kickoff();
-        let &BridgeConfig {
-            num_operators,
+        let &BridgeConfig { num_operators, .. } = &self.config;
+
+        let ProtocolParamset {
             num_round_txs,
             num_kickoffs_per_round,
             ..
-        } = &self.config;
+        } = *self.config.protocol_paramset();
+
         let mut verified_sigs = vec![
             vec![
                 vec![
@@ -539,9 +542,9 @@ impl Verifier {
             evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
-            self.config.user_takes_after,
-            self.config.bridge_amount_sats,
-            self.config.network,
+            self.config.protocol_paramset().user_takes_after,
+            self.config.protocol_paramset().bridge_amount,
+            self.config.protocol_paramset().network,
         )?;
 
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
@@ -784,6 +787,7 @@ impl Verifier {
                         .map(|(k, s)| (k.clone(), *s))
                         .collect::<Vec<_>>(),
                     operator_data.xonly_pk,
+                    self.config.protocol_paramset().winternitz_log_d,
                 );
                 let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
                 taproot_builder
@@ -851,8 +855,14 @@ impl Verifier {
                 .await?;
 
             let script = WinternitzCommit::new(
-                vec![(winternitz_key, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
+                vec![(
+                    winternitz_key,
+                    self.config
+                        .protocol_paramset()
+                        .watchtower_challenge_message_length as u32,
+                )],
                 watchtower_xonly_pk,
+                self.config.protocol_paramset().winternitz_log_d,
             )
             .to_script_buf();
 

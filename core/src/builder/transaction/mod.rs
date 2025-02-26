@@ -9,14 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use super::script::SpendPath;
 use super::script::{CheckSig, DepositScript, TimelockScript};
-pub use crate::builder::transaction::challenge::*;
-pub use crate::builder::transaction::creator::{create_txhandlers, ReimburseDbCache};
+use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
-pub use crate::builder::transaction::operator_assert::*;
-pub use crate::builder::transaction::operator_collateral::*;
-pub use crate::builder::transaction::operator_reimburse::*;
+use crate::builder::transaction::operator_assert::*;
+use crate::builder::transaction::operator_collateral::*;
+use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
-pub use crate::builder::transaction::txhandler::*;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::grpc_transaction_id;
@@ -30,10 +28,17 @@ use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
 use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
+
+// Exports to the outside
+pub use crate::builder::transaction::txhandler::*;
+pub use creator::{
+    create_round_txhandlers, create_txhandlers, KickoffWinternitzKeys, ReimburseDbCache,
+};
+pub use operator_reimburse::create_payout_txhandler;
 pub use txhandler::Unsigned;
 
 mod challenge;
-pub mod creator;
+mod creator;
 pub mod deposit_signature_owner;
 pub mod input;
 mod operator_assert;
