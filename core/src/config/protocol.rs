@@ -46,6 +46,8 @@ pub struct ProtocolParamset {
     pub num_kickoffs_per_round: usize,
     /// Bridge deposit amount that users can deposit.
     pub bridge_amount: Amount,
+    /// Number of watchtowers. (changes the number of watchtower challenge kickoff txouts)
+    pub num_watchtowers: usize,
     /// Amount allocated for each kickoff UTXO.
     pub kickoff_amount: Amount,
     /// Number of blocks after which user can take deposit back if deposit request fails.
@@ -60,10 +62,8 @@ pub struct ProtocolParamset {
     pub watchtower_challenge_message_length: usize,
     /// Winternitz derivation log_d (shared for all WOTS commitments)
     ///
-    /// See: [`crate::constants::WINTERNITZ_LOG_D`]
+    /// Currently used in statics and thus cannot be different from [`WINTERNITZ_LOG_D`].
     pub winternitz_log_d: u32,
-    /// Number of watchtowers. (changes the number of watchtower challenge kickoff txouts)
-    pub num_watchtowers: usize,
     /// Number of blocks for watchtower challenge NACK timelock (currently BLOCKS_PER_WEEK / 2)
     pub watchtower_challenge_nack_timelock: u16,
     /// Number of blocks for operator challenge timeout timelock (currently BLOCKS_PER_WEEK)
