@@ -1,7 +1,12 @@
 use bitcoin::{Amount, Network};
 use serde::{Deserialize, Serialize};
 
-use crate::constants::{BLOCKS_PER_WEEK, WINTERNITZ_LOG_D};
+const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
+
+/// This is the log_d used across the codebase.
+///
+/// All protocol paramsets should use this value since it's used in the BitVM static.
+pub const WINTERNITZ_LOG_D: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 /// A pre-defined paramset name that can be converted into a

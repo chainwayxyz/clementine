@@ -9,7 +9,7 @@ use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
 use crate::actor::WinternitzDerivationPath;
-use crate::constants::WINTERNITZ_LOG_D;
+use crate::config::protocol::WINTERNITZ_LOG_D;
 #[cfg(not(debug_assertions))]
 use bitvm::{
     chunker::{

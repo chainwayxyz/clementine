@@ -6,9 +6,3 @@ pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(240); // TODO: This will chan
 /// The minimum possible amount that a UTXO can have when created into a Taproot address.
 pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330); // TODO: Maybe this could be 294, check
 
-pub const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
-
-/// This is the log_d used across the codebase.
-///
-/// All protocol paramsets should use this value since it's used in the BitVM static.
-pub const WINTERNITZ_LOG_D: u32 = 4;
