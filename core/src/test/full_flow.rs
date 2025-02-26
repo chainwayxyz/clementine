@@ -57,7 +57,7 @@ pub async fn run_happy_path(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     };
 
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
     let recovery_taproot_address = Actor::new(

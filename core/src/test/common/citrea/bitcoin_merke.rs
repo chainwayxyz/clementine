@@ -25,7 +25,7 @@ impl BitcoinMerkleTree {
         // );
         let depth = (transactions.len() - 1).ilog(2) + 1;
         let mut tree = BitcoinMerkleTree {
-            depth: depth,
+            depth,
             nodes: vec![],
         };
 
@@ -47,7 +47,7 @@ impl BitcoinMerkleTree {
             tree.nodes.push(vec![]);
             for i in 0..(prev_level_size / 2) {
                 preimage[..32].copy_from_slice(
-                    &tree.nodes[curr_level_offset - 1 as usize][prev_level_index_offset + i * 2],
+                    &tree.nodes[curr_level_offset - 1_usize][prev_level_index_offset + i * 2],
                 );
                 preimage[32..].copy_from_slice(
                     &tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2 + 1],
@@ -77,35 +77,32 @@ impl BitcoinMerkleTree {
 
     // Returns the Merkle root
     pub fn root(&self) -> [u8; 32] {
-        return self.nodes[self.nodes.len() - 1][0];
+        self.nodes[self.nodes.len() - 1][0]
     }
 
     pub fn get_element(&self, level: u32, index: u32) -> [u8; 32] {
-        return self.nodes[level as usize][index as usize];
+        self.nodes[level as usize][index as usize]
     }
 
     pub fn get_idx_path(&self, index: u32) -> Vec<[u8; 32]> {
-        assert!(
-            index <= self.nodes[0].len() as u32 - 1,
-            "Index out of bounds"
-        );
+        assert!(index < self.nodes[0].len() as u32, "Index out of bounds");
         let mut path = vec![];
         let mut level = 0;
         let mut i = index;
         while level < self.nodes.len() as u32 - 1 {
             if i % 2 == 1 {
                 path.push(self.nodes[level as usize][i as usize - 1]);
+            } else if (self.nodes[level as usize].len() - 1) as u32 == i {
+                path.push(self.nodes[level as usize][i as usize]);
             } else {
-                if (self.nodes[level as usize].len() - 1) as u32 == i {
-                    path.push(self.nodes[level as usize][i as usize]);
-                } else {
-                    path.push(self.nodes[level as usize][(i + 1) as usize]);
-                }
+                path.push(self.nodes[level as usize][(i + 1) as usize]);
             }
+
             level += 1;
-            i = i / 2;
+            i /= 2;
         }
-        return path;
+
+        path
     }
 
     // pub fn verify_tx_merkle_proof(&self, idx: u32, merkle_proof: Vec<[u8; 32]>) {
@@ -137,7 +134,7 @@ impl BitcoinMerkleTree {
         merkle_proof: Vec<[u8; 32]>,
     ) -> [u8; 32] {
         let mut preimage: [u8; 64] = [0; 64];
-        let mut combined_hash: [u8; 32] = txid.clone();
+        let mut combined_hash: [u8; 32] = txid;
         let mut index = idx;
         let mut level: u32 = 0;
         while level < self.depth {
@@ -151,7 +148,7 @@ impl BitcoinMerkleTree {
                 combined_hash = calculate_double_sha256(&preimage);
             }
             level += 1;
-            index = index / 2;
+            index /= 2;
         }
         combined_hash
     }

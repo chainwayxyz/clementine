@@ -110,7 +110,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         get_available_port()
     };
 
-    config.bitcoin_rpc_url = format!("http://127.0.0.1:{}/wallet/admin", rpc_port);
+    config.bitcoin_rpc_url = format!("http://127.0.0.1:{}", rpc_port);
 
     if bitcoin_rpc_debug && TcpListener::bind(format!("127.0.0.1:{}", rpc_port)).is_err() {
         // Bitcoind is already running on port 18443, use existing port.

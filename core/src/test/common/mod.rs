@@ -263,7 +263,7 @@ pub async fn run_single_deposit(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers) = create_actors(&config).await;
+    let (verifiers, operators, mut aggregator, watchtowers) = create_actors(config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
     let actor = Actor::new(
@@ -271,7 +271,7 @@ pub async fn run_single_deposit(
         config.winternitz_secret_key,
         config.protocol_paramset().network,
     );
-    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
     aggregator.setup(Request::new(Empty {})).await?;
 

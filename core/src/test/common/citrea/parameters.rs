@@ -78,8 +78,8 @@ fn get_block_merkle_proof(
                 [0; 32]
             } else {
                 let wtxid = tx.compute_wtxid();
-                let wtxid = wtxid.as_byte_array().clone();
-                wtxid.clone() // or is this wtxid?
+                let wtxid = wtxid.as_byte_array();
+                wtxid.to_owned()
             }
         })
         .collect::<Vec<_>>();
