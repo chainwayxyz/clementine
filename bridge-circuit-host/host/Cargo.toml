@@ -5,12 +5,14 @@ edition = "2021"
 
 [dependencies]
 risc0-zkvm = { version = "1.2.3", features = ["metal"]}
-ark-bn254 = "0.5.0"
-ark-ff = "0.5.0"
-ark-ec = "0.5.0"
-ark-std = "0.5.0"
-ark-crypto-primitives = "0.5.0"
-ark-serialize = "0.5.0"
+ark-bn254 = "=0.4.0"
+ark-ff = "=0.4.2"
+ark-ec = "=0.4.2"
+ark-std = "=0.4.0"
+ark-crypto-primitives = "=0.4.0"
+ark-serialize = "=0.4.2"
+ark-relations = "=0.4.0"
+ark-groth16 = "=0.4.0"
 serde = "1.0"
 rand = { version = "0.8", features = ["small_rng"] }
 bridge-circuit-core = { path = "../../risc0-circuits/core" }
@@ -31,8 +33,8 @@ bincode = "1.3.3"
 hex = "0.4.3"
 alloy-rpc-types-eth = { version = "0.11.1", features = ["serde"] } 
 hex-literal = "0.4.1"
-ark-relations = "=0.4.0"
-ark-groth16 = "0.5.0"
+tracing = { version = "0.1.40", default-features = false }
+tracing-subscriber = { version = "0.3.18", features = ["json", "std", "env-filter"] }
 
 [features]
 metal = ["risc0-zkvm/metal"]

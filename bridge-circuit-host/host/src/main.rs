@@ -17,10 +17,11 @@ use bridge_circuit_core::winternitz::{
     generate_public_key, sign_digits, Parameters, WinternitzCircuitInput, WinternitzHandler,
 };
 use bridge_circuit_core::WorkOnlyCircuitInput;
-
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{layer::SubscriberExt, filter::EnvFilter};
 const HEADERS: &[u8] = include_bytes!("bin-files/testnet4-headers.bin");
 const TESTNET_BLOCK_47029: &[u8] = include_bytes!("bin-files/testnet4_block_47029.bin");
-const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/first_70000_proof.bin");
+const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/first_9.bin");
 const BRIDGE_CIRCUIT_ELF: &[u8] = include_bytes!("../../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../../risc0-circuits/elfs/testnet4-work-only-guest");
 
@@ -28,6 +29,12 @@ const PAYOUT_TX: [u8; 301] = hex_literal::hex!("02000000000102d43afcd7236286bee4
 
 #[tokio::main]
 async fn main() {
+
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     let winternitz_id: [u32; 8] = compute_image_id(BRIDGE_CIRCUIT_ELF).unwrap().into();
     let work_only_id: [u32; 8] = compute_image_id(WORK_ONLY_ELF).unwrap().into();
 
@@ -138,6 +145,7 @@ fn call_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
     let env = binding.write_slice(&borsh::to_vec(&input).unwrap());
     let env = env.build().unwrap();
     let prover = default_prover();
+    println!("input: {:?}", input);
     prover
         .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
         .unwrap()

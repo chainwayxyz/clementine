@@ -1,6 +1,4 @@
 pub mod common;
-pub mod operator;
-pub mod watchtower;
 
 use common::zkvm::ZkvmGuest;
 // use operator::{OperatorCircuitInput, OperatorCircuitOutput};

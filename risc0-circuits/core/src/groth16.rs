@@ -24,12 +24,12 @@ impl CircuitGroth16Proof {
         );
 
         let b = G2::new(
-            ark_bn254::Fq2::from_base_prime_field_elems([
+            ark_bn254::Fq2::from_base_prime_field_elems(&[
                 ark_bn254::Fq::from_be_bytes_mod_order(&seal[96..128]),
                 ark_bn254::Fq::from_be_bytes_mod_order(&seal[64..96]),
             ])
             .unwrap(),
-            ark_bn254::Fq2::from_base_prime_field_elems([
+            ark_bn254::Fq2::from_base_prime_field_elems(&[
                 ark_bn254::Fq::from_be_bytes_mod_order(&seal[160..192]),
                 ark_bn254::Fq::from_be_bytes_mod_order(&seal[128..160]),
             ])
