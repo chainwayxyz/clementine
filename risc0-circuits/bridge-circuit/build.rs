@@ -7,7 +7,7 @@ fn main() {
     if env::var("REPR_GUEST_BUILD").is_ok() {
         // Get the absolute path to the project root
         let current_dir = env::current_dir().expect("Failed to get current directory");
-        let project_root = current_dir.parent().unwrap();
+        let project_root = current_dir.parent().unwrap().parent().unwrap();
         let output_dir = project_root.join("target/riscv-guest/riscv32im-risc0-zkvm-elf/docker");
 
         eprintln!("Current directory: {:?}", current_dir);
@@ -24,7 +24,7 @@ fn main() {
                 "--platform",
                 "linux/amd64",
                 "-f",
-                "../bridge-circuit-host/build-files/bridge_circuit_build.dockerfile",
+                "build-files/bridge_circuit_build.dockerfile",
                 "--output",
                 &format!("type=local,dest=."),
                 ".", // Use current directory as context

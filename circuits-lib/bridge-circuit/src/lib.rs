@@ -48,7 +48,7 @@ pub fn convert_to_groth16_and_verify(message: &Vec<u8>) -> bool {
     res
 }
 
-pub fn winternitz_circuit(guest: &impl ZkvmGuest) {
+pub fn bridge_circuit(guest: &impl ZkvmGuest) {
     let start = env::cycle_count();
     let input: WinternitzCircuitInput = guest.read_from_host();
 

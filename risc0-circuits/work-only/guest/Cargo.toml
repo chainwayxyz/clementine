@@ -6,13 +6,8 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-risc0-zkvm = { version = "1.2.3", default-features = false, features = ['std'] }
-bridge-circuit-core = { path = "../../core" }
-borsh = {version = "1.5.3", features = ["derive"] }
-serde = "1.0"
-crypto-bigint = { git = "https://github.com/risc0/RustCrypto-crypto-bigint", tag = "v0.5.5-risczero.0" }
-tracing = { version = "0.1.40", default-features = false }
-tracing-subscriber = { version = "0.3.18", features = ["json"] }
+work-only-lib = { path = "../../../circuits-lib/work-only" }
+bridge-circuit-core = { path = "../../../circuits-lib/core" }
 
 [patch.crates-io]
 sha2 = { git = "https://github.com/risc0/RustCrypto-hashes", tag = "sha2-v0.10.8-risczero.0" }

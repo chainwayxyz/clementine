@@ -15,7 +15,7 @@ ark-relations = "=0.4.0"
 ark-groth16 = "=0.4.0"
 serde = "1.0"
 rand = { version = "0.8", features = ["small_rng"] }
-bridge-circuit-core = { path = "../../risc0-circuits/core" }
+bridge-circuit-core = { path = "../../circuits-lib/core" }
 header-chain = { git="https://github.com/chainwayxyz/risc0-to-bitvm2.git", rev="a233e27" }
 final-spv = { git="https://github.com/chainwayxyz/risc0-to-bitvm2.git", rev="a233e27" }
 borsh = {version = "1.5.3", features = ["derive"] }

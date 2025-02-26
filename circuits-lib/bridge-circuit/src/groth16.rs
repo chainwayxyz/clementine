@@ -1,4 +1,5 @@
 use ark_bn254::{Bn254, Fr};
+use ark_groth16::Proof;
 use ark_groth16::PreparedVerifyingKey;
 use ark_serialize::CanonicalDeserialize;
 use risc0_zkvm::guest::env;
@@ -66,7 +67,7 @@ impl CircuitGroth16WithTotalWork {
     }
 
     pub fn verify(&self) -> bool {
-        let ark_proof = self.groth16_seal.into();
+        let ark_proof: Proof::<Bn254>  = self.groth16_seal.into();
         let start = env::cycle_count();
         let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
             CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();

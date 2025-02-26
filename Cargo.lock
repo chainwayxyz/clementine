@@ -844,6 +844,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bridge-circuit"
+version = "0.1.0"
+dependencies = [
+ "risc0-build",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

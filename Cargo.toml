@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "core",
   "risc0-circuits/work-only",
+  "risc0-circuits/bridge-circuit",
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]

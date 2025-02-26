@@ -1421,6 +1421,14 @@ dependencies = [
 name = "work-only-guest"
 version = "0.1.0"
 dependencies = [
+ "bridge-circuit-core",
+ "work-only-lib",
+]
+
+[[package]]
+name = "work-only-lib"
+version = "0.1.0"
+dependencies = [
  "borsh",
  "bridge-circuit-core",
  "crypto-bigint",
