@@ -48,8 +48,6 @@ serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
 alloy = { workspace = true }
 citrea-e2e = { workspace = true }
-merkle = { workspace = true }
-ring = { workspace = true }
 
 [[bin]]
 name = "server"

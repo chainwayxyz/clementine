@@ -95,10 +95,6 @@ fn get_block_merkle_proof(
         txid_index.try_into().unwrap(),
         x.clone(),
     );
-    tracing::error!("wtxid {:?}", block.txdata[txid_index].compute_wtxid());
-    tracing::error!("cmp: \n{:?}\n{:?}", cmp, s.as_raw_hash().as_byte_array());
-
-    tracing::error!("xzzz: {:#?} {:?}", (txids.clone(), txid_index), x);
 
     Ok((txid_index, x.into_iter().flatten().collect()))
 }
@@ -121,7 +117,6 @@ pub fn get_deposit_params(
                 .previous_output
                 .consensus_encode(&mut previous_output)
                 .map_err(|e| BridgeError::Error(format!("Can't encode input: {}", e)))?;
-            tracing::error!("previous_output: {:?}", previous_output);
             let mut script_sig = Vec::new();
             input
                 .script_sig
