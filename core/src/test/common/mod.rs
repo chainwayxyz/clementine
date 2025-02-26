@@ -23,7 +23,9 @@ pub use test_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
 
+mod citrea;
 mod test_utils;
+
 // pub async fn run_multiple_deposits(test_config_name: &str) {
 //     let config = create_test_config_with_thread_name(test_config_name, None);
 //     let rpc = ExtendedRpc::connect(
