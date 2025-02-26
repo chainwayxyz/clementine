@@ -37,7 +37,10 @@ futures-util = { workspace = true }
 futures-core = { workspace = true }
 bitvm = { workspace = true }
 tempfile = { workspace = true }
-eyre = "0.6.12"
+eyre = { workspace = true }
+http = "^1"
+hyper = "^1"
+tower = "^0.4"
 
 [dev-dependencies]
 serial_test = { workspace = true }
