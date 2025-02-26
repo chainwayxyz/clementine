@@ -19,7 +19,7 @@ pub const WINTERNITZ_LOG_D: u32 = 4;
 pub enum ProtocolParamsetName {
     Mainnet,
     Regtest,
-    Testnet,
+    Testnet4,
 }
 
 impl From<ProtocolParamsetName> for &'static ProtocolParamset {
@@ -27,7 +27,7 @@ impl From<ProtocolParamsetName> for &'static ProtocolParamset {
         match name {
             ProtocolParamsetName::Mainnet => &MAINNET_PARAMSET,
             ProtocolParamsetName::Regtest => &REGTEST_PARAMSET,
-            ProtocolParamsetName::Testnet => &TESTNET_PARAMSET,
+            ProtocolParamsetName::Testnet4 => &TESTNET4_PARAMSET,
         }
     }
 }
@@ -125,8 +125,8 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
 };
 
-pub const TESTNET_PARAMSET: ProtocolParamset = ProtocolParamset {
-    network: Network::Testnet,
+pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
+    network: Network::Testnet4,
     num_round_txs: 2,
     num_kickoffs_per_round: 2,
     bridge_amount: Amount::from_sat(10_000_000),
