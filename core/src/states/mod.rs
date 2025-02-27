@@ -1,4 +1,4 @@
-use crate::builder::transaction::OperatorData;
+use crate::builder::transaction::{OperatorData, TransactionType, TxHandler};
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::BridgeError;
@@ -193,11 +193,16 @@ pub struct StateManager<T: Owner> {
 impl<T: Owner> StateManager<T> {
     pub fn new(db: Database, handler: T, paramset: &'static ProtocolParamset) -> Self {
         Self {
-            db,
-            owner: handler,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
-            context: StateContext::new(db, handler, Default::default(), paramset),
+            context: StateContext::new(
+                db.clone(),
+                Arc::new(handler.clone()),
+                Default::default(),
+                paramset,
+            ),
+            db,
+            owner: handler,
             paramset,
         }
     }
@@ -270,7 +275,7 @@ impl<T: Owner> StateManager<T> {
 
     // Enhanced method for parallel processing
     pub async fn process_block_parallel(&mut self, block: &Block) -> Result<(), BridgeError> {
-        let cache: BlockCache = Default::default();
+        let mut cache: BlockCache = Default::default();
         cache.update_with_block(block);
 
         // Create a base context with updated cache
