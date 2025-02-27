@@ -1,14 +1,16 @@
-use crate::builder::transaction::{OperatorData, TransactionType, TxHandler};
+use crate::builder::transaction::OperatorData;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use bitcoin::{Block, OutPoint, Transaction, Txid};
+use futures::future::{join, join_all};
 use futures::TryFuture;
 use statig::awaitable::InitializedStateMachine;
 use statig::prelude::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
+use thiserror::Error;
 use tonic::async_trait;
 
 trait BlockMatcher {
@@ -88,37 +90,62 @@ pub trait Owner: Send + Sync + Clone + Default {
     async fn create_txhandlers(&self) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
 }
 
-// Context shared between state machines
+// Enhanced StateError enum
+#[derive(Error, Debug)]
+pub enum StateError {
+    #[error("State machine error in {state_name} during {action}: {source}")]
+    StateMachineError {
+        state_name: String,
+        action: String,
+        source: BridgeError,
+    },
+    #[error("Context error: {0}")]
+    ContextError(String),
+    #[error("Multiple errors: {0:?}")]
+    MultipleErrors(Vec<Arc<StateError>>),
+}
+
 #[derive(Debug, Clone)]
 pub struct StateContext<T: Owner> {
     pub db: Database,
-    pub owner: T,
-    pub cache: BlockCache,
+    pub owner: Arc<T>,
+    pub cache: Arc<BlockCache>,
     pub new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
     pub new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
-    pub errors: Vec<Arc<BridgeError>>,
+    pub errors: Vec<Arc<StateError>>,
+    pub current_state: Option<String>,
+    pub current_action: Option<String>,
     pub paramset: &'static ProtocolParamset,
 }
 
 impl<T: Owner> StateContext<T> {
-    pub fn new(db: Database, owner: T, paramset: &'static ProtocolParamset) -> Self {
+    pub fn new(
+        db: Database,
+        owner: Arc<T>,
+        cache: Arc<BlockCache>,
+        paramset: &'static ProtocolParamset,
+    ) -> Self {
         Self {
             db,
             owner,
-            cache: BlockCache::new(),
+            cache,
             new_round_machines: Vec::new(),
             new_kickoff_machines: Vec::new(),
             errors: Vec::new(),
+            current_state: None,
+            current_action: None,
             paramset,
         }
     }
 
-    pub async fn dispatch_duty(&self, duty: Duty) -> Result<(), BridgeError> {
-        self.owner.handle_duty(duty).await
+    // Method to set the current state and action context
+    pub fn set_state_info(&mut self, state: impl Into<String>, action: impl Into<String>) {
+        self.current_state = Some(state.into());
+        self.current_action = Some(action.into());
     }
 
-    pub fn update_cache(&mut self, block: &Block) {
-        self.cache.update_with_block(block);
+    pub async fn dispatch_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+        self.owner.handle_duty(duty).await
     }
 
     pub fn add_new_round_machine(
@@ -135,13 +162,19 @@ impl<T: Owner> StateContext<T> {
         self.new_kickoff_machines.push(machine);
     }
 
-    pub async fn try_run<Func: AsyncFnOnce(&mut Self) -> Result<(), BridgeError>>(
-        &mut self,
-        fnc: Func,
-    ) {
+    // Enhanced try_run method for better error context
+    pub async fn try_run(&mut self, fnc: impl AsyncFnOnce(&mut Self) -> Result<(), BridgeError>) {
         let result = fnc(self).await;
         if let Err(e) = result {
-            self.errors.push(Arc::new(e));
+            let state_error = match (&self.current_state, &self.current_action) {
+                (Some(state), Some(action)) => Arc::new(StateError::StateMachineError {
+                    state_name: state.clone(),
+                    action: action.clone(),
+                    source: e,
+                }),
+                _ => Arc::new(StateError::ContextError(e.to_string())),
+            };
+            self.errors.push(state_error);
         }
     }
 }
@@ -150,24 +183,22 @@ impl<T: Owner> StateContext<T> {
 #[derive(Debug)]
 pub struct StateManager<T: Owner> {
     db: Database,
-    handler: T,
+    owner: T,
     round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
-    cache: BlockCache,
-    paramset: &'static ProtocolParamset,
     context: StateContext<T>,
+    paramset: &'static ProtocolParamset,
 }
 
 impl<T: Owner> StateManager<T> {
     pub fn new(db: Database, handler: T, paramset: &'static ProtocolParamset) -> Self {
         Self {
+            db,
+            owner: handler,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
-            cache: BlockCache::new(),
-            context: StateContext::new(db.clone(), handler.clone(), paramset),
-            db,
+            context: StateContext::new(db, handler, Default::default(), paramset),
             paramset,
-            handler,
         }
     }
 
@@ -176,7 +207,6 @@ impl<T: Owner> StateManager<T> {
         kickoff_id: crate::rpc::clementine::KickoffId,
     ) -> Result<(), BridgeError> {
         let machine = kickoff::KickoffStateMachine::<T>::new(kickoff_id);
-
         let initialized_machine = machine
             .uninitialized_state_machine()
             .init_with_context(&mut self.context)
@@ -192,7 +222,6 @@ impl<T: Owner> StateManager<T> {
         operator_idx: u32,
     ) -> Result<(), BridgeError> {
         let machine = round::RoundStateMachine::<T>::new(operator_data, operator_idx);
-
         let initialized_machine = machine
             .uninitialized_state_machine()
             .init_with_context(&mut self.context)
@@ -202,41 +231,123 @@ impl<T: Owner> StateManager<T> {
         Ok(())
     }
 
-    fn create_context(&self) -> StateContext<T> {
+    fn create_context(
+        handler: T,
+        db: Database,
+        cache: BlockCache,
+        paramset: &'static ProtocolParamset,
+    ) -> StateContext<T> {
         StateContext {
-            db: self.db.clone(),
-            owner: self.handler.clone(),
-            cache: self.cache.clone(),
-            paramset: self.paramset,
+            db: db.clone(),
+            owner: Arc::new(handler),
+            cache: Arc::new(cache),
             new_kickoff_machines: Vec::new(),
             new_round_machines: Vec::new(),
             errors: Vec::new(),
+            current_state: None,
+            current_action: None,
+            paramset,
         }
     }
 
-    pub async fn process_block(&mut self, block: &Block) -> Result<(), BridgeError> {
-        // Update cache with new block data
-        self.context.cache.update_with_block(block);
+    // Method to commit newly added state machines
+    pub fn commit_new_machines(&mut self, context: &StateContext<T>) {
+        // Append new machines from context
+        self.round_machines
+            .extend(context.new_round_machines.clone());
+        self.kickoff_machines
+            .extend(context.new_kickoff_machines.clone());
+    }
 
-        // Process all kickoff machines
-        for machine in &mut self.kickoff_machines {
-            let events = machine.match_block(&self.cache);
+    // Method to merge errors from contexts
+    pub fn merge_errors(&mut self, contexts: Vec<StateContext<T>>) -> Vec<Arc<StateError>> {
+        let mut all_errors = Vec::new();
+        for ctx in contexts {
+            all_errors.extend(ctx.errors);
+        }
+        all_errors
+    }
 
-            // TODO: we should order events by their presence in the block
-            for event in events {
-                machine.handle_with_context(&event, &mut self.context).await;
+    // Enhanced method for parallel processing
+    pub async fn process_block_parallel(&mut self, block: &Block) -> Result<(), BridgeError> {
+        let cache: BlockCache = Default::default();
+        cache.update_with_block(block);
+
+        // Create a base context with updated cache
+        let base_context =
+            Self::create_context(self.owner.clone(), self.db.clone(), cache, self.paramset);
+
+        // Collect all machines and their events first to avoid borrowing issues
+        let kickoff_futures = (self.kickoff_machines).iter_mut().filter_map(|machine| {
+            let events = machine.match_block(&base_context.cache);
+            if !events.is_empty() {
+                let mut ctx = base_context.clone();
+                Some(async move {
+                    for event in events {
+                        machine.handle_with_context(&event, &mut ctx).await;
+                    }
+                    ctx
+                })
+            } else {
+                None
             }
+        });
+
+        let round_futures = (self.round_machines).iter_mut().filter_map(|machine| {
+            let events = machine.match_block(&base_context.cache);
+            if !events.is_empty() {
+                let mut ctx = base_context.clone();
+                Some(async move {
+                    for event in events {
+                        machine.handle_with_context(&event, &mut ctx).await;
+                    }
+                    ctx
+                })
+            } else {
+                None
+            }
+        });
+
+        // Execute all futures
+        let (kickoff_results, round_results) =
+            join(join_all(kickoff_futures), join_all(round_futures)).await;
+
+        // Merge contexts
+        let mut all_contexts = Vec::new();
+        all_contexts.extend(kickoff_results);
+        all_contexts.extend(round_results);
+
+        // Merge and handle errors
+        let mut all_errors = Vec::new();
+        for ctx in &mut all_contexts {
+            all_errors.extend(std::mem::take(&mut ctx.errors));
         }
 
-        // Process all round machines
-        for machine in &mut self.round_machines {
-            let events = machine.match_block(&self.cache);
-
-            // TODO: we should order events by their presence in the block
-            for event in events {
-                machine.handle_with_context(&event, &mut self.context).await;
-            }
+        if !all_errors.is_empty() {
+            // Return first error or create a combined error
+            return Err(BridgeError::Error(
+                "Multiple errors occurred during state processing".into(),
+            ));
         }
+
+        // Collect new machines from all contexts
+        let mut final_context = base_context;
+        for ctx in &mut all_contexts {
+            final_context
+                .new_kickoff_machines
+                .extend(std::mem::take(&mut ctx.new_kickoff_machines));
+            final_context
+                .new_round_machines
+                .extend(std::mem::take(&mut ctx.new_round_machines));
+        }
+
+        // TODO: commit to db
+
+        // Commit new machines - moved out of the borrow region
+        self.round_machines
+            .extend(std::mem::take(&mut final_context.new_round_machines));
+        self.kickoff_machines
+            .extend(std::mem::take(&mut final_context.new_kickoff_machines));
 
         Ok(())
     }

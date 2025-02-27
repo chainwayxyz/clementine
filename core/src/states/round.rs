@@ -2,14 +2,7 @@ use std::collections::HashMap;
 
 use statig::prelude::*;
 
-use crate::{
-    builder::transaction::{
-        create_round_txhandlers, create_txhandlers, KickoffWinternitzKeys, OperatorData,
-        TransactionType, TxHandler,
-    },
-    rpc::clementine::KickoffId,
-    states::Duty,
-};
+use crate::{builder::transaction::OperatorData, rpc::clementine::KickoffId, states::Duty};
 
 use super::{BlockCache, BlockMatcher, Matcher, Owner, StateContext};
 
@@ -46,6 +39,7 @@ pub struct RoundStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, RoundMatcher>,
     operator_data: OperatorData,
     operator_idx: u32,
+    pub(crate) dirty: bool,
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -72,14 +66,23 @@ impl<T: Owner> RoundStateMachine<T> {
             matchers: HashMap::new(),
             operator_data,
             operator_idx,
+            dirty: false,
             phantom: std::marker::PhantomData,
         }
     }
 }
 
-#[state_machine(initial = "State::initial_collateral()", state(derive(Debug, Clone)))]
+#[state_machine(
+    initial = "State::initial_collateral()",
+    on_transition = "Self::on_transition",
+    state(derive(Debug, Clone))
+)]
 impl<T: Owner> RoundStateMachine<T> {
-    // State handlers with proper statig approach
+    #[action]
+    pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
+        tracing::debug!("Transitioning from {:?} to {:?}", state_a, state_b);
+        self.dirty = true;
+    }
 
     #[state(entry_action = "on_initial_collateral_entry")]
     pub(crate) async fn initial_collateral(
@@ -95,7 +98,6 @@ impl<T: Owner> RoundStateMachine<T> {
 
     #[action]
     pub(crate) async fn on_initial_collateral_entry(&mut self, context: &mut StateContext<T>) {
-        println!("Entered Initial Collateral state");
         self.matchers = HashMap::new();
         self.matchers.insert(
             Matcher::SpentUtxo(self.operator_data.collateral_funding_outpoint),
@@ -106,8 +108,8 @@ impl<T: Owner> RoundStateMachine<T> {
     #[state(entry_action = "on_round_tx_entry")]
     pub(crate) async fn round_tx(
         &mut self,
-        round_idx: &mut u32,
         event: &RoundEvent,
+        round_idx: &mut u32,
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
@@ -121,11 +123,10 @@ impl<T: Owner> RoundStateMachine<T> {
     #[action]
     pub(crate) async fn on_round_tx_entry(
         &mut self,
-        context: &mut StateContext<T>,
         round_idx: &mut u32,
+        context: &mut StateContext<T>,
     ) {
         println!("Entered Round Tx state");
-        // Assuming context.dispatch_duty is called elsewhere in the code
         self.matchers = HashMap::new();
         let x = context.owner.create_txhandlers();
     }

@@ -12,7 +12,7 @@ pub enum KickoffEvent {
 }
 
 #[derive(Debug, Clone)]
-enum KickoffMatcher {
+pub(crate) enum KickoffMatcher {
     TBD,
 }
 
@@ -28,6 +28,7 @@ impl KickoffMatcher {
 pub struct KickoffStateMachine<T: Owner> {
     pub(crate) kickoff_id: KickoffId,
     pub(crate) matchers: HashMap<Matcher, KickoffMatcher>,
+    pub(crate) dirty: bool,
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -53,14 +54,23 @@ impl<T: Owner> KickoffStateMachine<T> {
         Self {
             kickoff_id,
             matchers: HashMap::new(),
+            dirty: false,
             phantom: std::marker::PhantomData,
         }
     }
 }
 
-#[state_machine(initial = "State::idle()", state(derive(Debug, Clone)))]
+#[state_machine(
+    initial = "State::idle()",
+    on_transition = "Self::on_transition",
+    state(derive(Debug, Clone))
+)]
 impl<T: Owner> KickoffStateMachine<T> {
-    // Kickoff process state handlers
+    #[action]
+    pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
+        tracing::debug!(?self.kickoff_id, "Transitioning from {:?} to {:?}", state_a, state_b);
+        self.dirty = true;
+    }
 
     #[state]
     pub(crate) async fn idle(
