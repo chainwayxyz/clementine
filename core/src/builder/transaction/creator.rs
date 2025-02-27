@@ -12,6 +12,7 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
+use crate::utils::ClementineBitVMPublicKeys;
 use crate::{builder, utils};
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::XOnlyPublicKey;
@@ -275,7 +276,7 @@ pub async fn create_txhandlers(
         paramset,
     )?;
 
-    let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
+    let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
     let watchtower_challenge_hashes = db_cache.watchtower_challenge_hash().await?.to_vec();
 
@@ -284,25 +285,12 @@ pub async fn create_txhandlers(
         // the actual scripts to be able to spend
         let actor = Actor::new(actor_secret_key, winternitz_secret_key, paramset.network);
 
-        let mut assert_scripts: Vec<Arc<dyn SpendableScript>> =
-            Vec::with_capacity(utils::COMBINED_ASSERT_DATA.num_steps.len());
+        // deposit_data.deposit_outpoint.txid
 
-        for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
-            let paths = utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(
-                idx,
-                deposit_data.deposit_outpoint.txid,
-                paramset,
-            );
-            let mut param = Vec::with_capacity(paths.len());
-            for (path, size) in paths {
-                param.push((actor.derive_winternitz_pk(path)?, size));
-            }
-            assert_scripts.push(Arc::new(WinternitzCommit::new(
-                param,
-                operator_data.xonly_pk,
-                paramset.winternitz_log_d,
-            )));
-        }
+        let bitvm_pks =
+            actor.generate_bitvm_pks_for_deposit(deposit_data.deposit_outpoint.txid, paramset)?;
+
+        let assert_scripts = bitvm_pks.get_assert_scripts();
 
         let kickoff_txhandler = create_kickoff_txhandler(
             kickoff_id,
@@ -566,6 +554,7 @@ pub fn create_round_txhandlers(
 mod tests {
 
     use crate::rpc::clementine::{self};
+    use crate::utils::ClementineBitVMPublicKeys;
     use crate::{rpc::clementine::DepositParams, test::common::*, utils, EVMAddress};
     use bitcoin::Txid;
     use futures::future::try_join_all;
@@ -635,7 +624,8 @@ mod tests {
         txs_operator_can_sign
             .extend((0..paramset.num_watchtowers).map(TransactionType::OperatorChallengeAck));
         txs_operator_can_sign.extend(
-            (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
+            (0..ClementineBitVMPublicKeys::number_of_assert_txs())
+                .map(TransactionType::AssertTimeout),
         );
         txs_operator_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
@@ -759,7 +749,8 @@ mod tests {
         txs_verifier_can_sign
             .extend((0..paramset.num_watchtowers).map(TransactionType::OperatorChallengeNack));
         txs_verifier_can_sign.extend(
-            (0..utils::COMBINED_ASSERT_DATA.num_steps.len()).map(TransactionType::AssertTimeout),
+            (0..ClementineBitVMPublicKeys::number_of_assert_txs())
+                .map(TransactionType::AssertTimeout),
         );
         txs_verifier_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));

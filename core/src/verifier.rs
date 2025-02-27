@@ -17,7 +17,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
 use crate::tx_sender::TxSender;
-use crate::utils::{self, SECP};
+use crate::utils::{self, ClementineBitVMPublicKeys, SECP};
 use crate::{bitcoin_syncer, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -758,52 +758,24 @@ impl Verifier {
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
 
-        if winternitz_keys.len() != self.config.get_num_assert_winternitz_pks() {
+        if winternitz_keys.len() != ClementineBitVMPublicKeys::number_of_assert_txs() {
             return Err(BridgeError::Error(format!(
                 "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
                 operator_idx,
                 winternitz_keys.len(),
-                self.config.get_num_assert_winternitz_pks()
+                ClementineBitVMPublicKeys::number_of_assert_txs()
             )));
         }
 
-        let mut steps_iter = utils::BITVM_CACHE.intermediate_variables.iter();
-
-        let assert_tx_addrs: Vec<[u8; 32]> = utils::COMBINED_ASSERT_DATA
-            .num_steps
+        let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
+        let assert_tx_addrs = bitvm_pks
+            .get_assert_taproot_leaf_hashes()
             .iter()
-            .map(|steps| {
-                let len = steps.1 - steps.0;
-                let intermediate_steps = Vec::from_iter(steps_iter.by_ref().take(len));
-                let sizes: Vec<u32> = intermediate_steps
-                    .iter()
-                    .map(|(_, intermediate_step_size)| **intermediate_step_size as u32 * 2)
-                    .collect();
-
-                let script = WinternitzCommit::new(
-                    winternitz_keys[steps.0..steps.1]
-                        .iter()
-                        .zip(sizes.iter())
-                        .map(|(k, s)| (k.clone(), *s))
-                        .collect::<Vec<_>>(),
-                    operator_data.xonly_pk,
-                    self.config.protocol_paramset().winternitz_log_d,
-                );
-                let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
-                taproot_builder
-                    .try_into_taptree()
-                    .expect("taproot builder always builds a full taptree")
-                    .root_hash()
-                    .to_raw_hash()
-                    .to_byte_array()
-            })
+            .map(|x| x.to_byte_array())
             .collect::<Vec<_>>();
 
         // TODO: Use correct verification key and along with a dummy proof.
-        let scripts: Vec<ScriptBuf> = {
-            tracing::info!("Replacing disprove scripts");
-            utils::replace_disprove_scripts(&winternitz_keys)
-        };
+        let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts();
 
         let taproot_builder = taproot_builder_with_scripts(&scripts);
         let root_hash = taproot_builder

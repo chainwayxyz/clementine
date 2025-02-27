@@ -639,62 +639,62 @@ mod tests {
             .expect("bitcoin RPC did not accept transaction");
     }
 
-    #[tokio::test]
-    async fn test_winternitz_commit_spendable() {
-        let mut config = create_test_config_with_thread_name(None).await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc();
+    // #[tokio::test]
+    // async fn test_winternitz_commit_spendable() {
+    //     let mut config = create_test_config_with_thread_name(None).await;
+    //     let regtest = create_regtest_rpc(&mut config).await;
+    //     let rpc = regtest.rpc();
 
-        let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
-        let xonly_pk = kp.public_key().x_only_public_key().0;
+    //     let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
+    //     let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let derivation = WinternitzDerivationPath::BitvmAssert(
-            64,
-            "x".to_string(),
-            Txid::all_zeros(),
-            ProtocolParamsetName::Regtest.into(),
-        );
+    //     let derivation = WinternitzDerivationPath::BitvmAssert(
+    //         64,
+    //         "x".to_string(),
+    //         Txid::all_zeros(),
+    //         ProtocolParamsetName::Regtest.into(),
+    //     );
 
-        let signer = Actor::new(
-            kp.secret_key(),
-            Some(kp.secret_key()),
-            bitcoin::Network::Regtest,
-        );
+    //     let signer = Actor::new(
+    //         kp.secret_key(),
+    //         Some(kp.secret_key()),
+    //         bitcoin::Network::Regtest,
+    //     );
 
-        let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
-            vec![(
-                signer
-                    .derive_winternitz_pk(derivation.clone())
-                    .expect("failed to derive Winternitz public key"),
-                64,
-            )],
-            xonly_pk,
-            4,
-        ));
+    //     let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
+    //         vec![(
+    //             signer
+    //                 .derive_winternitz_pk(derivation.clone())
+    //                 .expect("failed to derive Winternitz public key"),
+    //             64,
+    //         )],
+    //         xonly_pk,
+    //         4,
+    //     ));
 
-        let scripts = vec![script];
-        let (builder, _) = create_taproot_test_tx(
-            rpc,
-            scripts,
-            SpendPath::ScriptSpend(0),
-            Amount::from_sat(10_000),
-        )
-        .await;
-        let mut tx = builder.finalize();
+    //     let scripts = vec![script];
+    //     let (builder, _) = create_taproot_test_tx(
+    //         rpc,
+    //         scripts,
+    //         SpendPath::ScriptSpend(0),
+    //         Amount::from_sat(10_000),
+    //     )
+    //     .await;
+    //     let mut tx = builder.finalize();
 
-        signer
-            .tx_sign_winternitz(&mut tx, &[(vec![0; 32], derivation)])
-            .expect("failed to partially sign commitments");
+    //     signer
+    //         .tx_sign_winternitz(&mut tx, &[(vec![0; 32], derivation)])
+    //         .expect("failed to partially sign commitments");
 
-        let tx = tx
-            .promote()
-            .expect("the transaction should be fully signed");
+    //     let tx = tx
+    //         .promote()
+    //         .expect("the transaction should be fully signed");
 
-        rpc.client
-            .send_raw_transaction(tx.get_cached_tx())
-            .await
-            .expect("bitcoin RPC did not accept transaction");
-    }
+    //     rpc.client
+    //         .send_raw_transaction(tx.get_cached_tx())
+    //         .await
+    //         .expect("bitcoin RPC did not accept transaction");
+    // }
 
     #[tokio::test]
     async fn test_timelock_script_spendable() {

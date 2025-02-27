@@ -37,7 +37,10 @@ futures-util = { workspace = true }
 futures-core = { workspace = true }
 bitvm = { workspace = true }
 tempfile = { workspace = true }
-eyre = "0.6.12"
+ark-groth16 = { workspace = true }
+ark-bn254 = { workspace = true }
+ark-serialize = { workspace = true }
+eyre = "0.6.12" 
 
 [dev-dependencies]
 serial_test = { workspace = true }

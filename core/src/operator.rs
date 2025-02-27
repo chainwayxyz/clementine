@@ -528,31 +528,11 @@ impl Operator {
         &self,
         deposit_txid: Txid,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
-        // TODO: Misleading name
-        let mut winternitz_pubkeys =
-            Vec::with_capacity(self.config.get_num_assert_winternitz_pks());
-
-        for (intermediate_step, intermediate_step_size) in
-            crate::utils::BITVM_CACHE.intermediate_variables.iter()
-        {
-            let path = WinternitzDerivationPath::BitvmAssert(
-                *intermediate_step_size as u32 * 2,
-                intermediate_step.to_owned(),
-                deposit_txid,
-                self.config.protocol_paramset(),
-            );
-            winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
-        }
-
-        if winternitz_pubkeys.len() != self.config.get_num_assert_winternitz_pks() {
-            return Err(BridgeError::Error(format!(
-                "Expected {} number of assert winternitz pubkeys, but got {}",
-                self.config.get_num_assert_winternitz_pks(),
-                winternitz_pubkeys.len()
-            )));
-        }
-
-        Ok(winternitz_pubkeys)
+        let bitvm_pks = self
+            .signer
+            .generate_bitvm_pks_for_deposit(deposit_txid, self.config.protocol_paramset())?;
+        let flattened_wpks = bitvm_pks.to_flattened_vec();
+        Ok(flattened_wpks)
     }
     /// Generates Winternitz public keys for every blockhash commit to be used in kickoff utxos.
     /// Unique for each kickoff utxo of operator.

@@ -6,6 +6,7 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::Operator;
 use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
+use crate::utils::ClementineBitVMPublicKeys;
 use crate::watchtower::Watchtower;
 use crate::{builder, utils};
 use bitcoin::{Transaction, XOnlyPublicKey};
@@ -232,20 +233,12 @@ impl Operator {
 
         let mut signed_txhandlers = Vec::new();
 
-        for idx in 0..utils::COMBINED_ASSERT_DATA.num_steps.len() {
-            let paths_with_size = utils::COMBINED_ASSERT_DATA.get_paths_and_sizes(
-                idx,
-                assert_data.deposit_data.deposit_outpoint.txid,
-                self.config.protocol_paramset(),
-            );
+        for idx in 0..ClementineBitVMPublicKeys::number_of_assert_txs() {
             let mut mini_assert_txhandler =
                 txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
                     BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),
                 )?;
-            let dummy_data = paths_with_size
-                .into_iter()
-                .map(|(path, size)| (vec![0u8; size as usize / 2], path))
-                .collect::<Vec<_>>();
+            let dummy_data = vec![];
             self.signer
                 .tx_sign_winternitz(&mut mini_assert_txhandler, &dummy_data)?;
             signed_txhandlers.push(mini_assert_txhandler.promote()?);

@@ -41,11 +41,11 @@ pub fn get_kickoff_utxo_vout(kickoff_idx: usize) -> usize {
 }
 
 pub fn get_watchtower_challenge_utxo_vout(watchtower_idx: usize) -> usize {
-    2 * watchtower_idx + 4 + utils::COMBINED_ASSERT_DATA.num_steps.len()
+    2 * watchtower_idx + 4 + utils::ClementineBitVMPublicKeys::number_of_assert_txs()
 }
 
 pub fn get_challenge_ack_vout(watchtower_idx: usize) -> usize {
-    2 * watchtower_idx + 4 + utils::COMBINED_ASSERT_DATA.num_steps.len() + 1
+    2 * watchtower_idx + 4 + utils::ClementineBitVMPublicKeys::number_of_assert_txs() + 1
 }
 
 impl SpendableTxIn {
