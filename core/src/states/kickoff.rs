@@ -4,7 +4,7 @@ use statig::prelude::*;
 
 use crate::{rpc::clementine::KickoffId, states::Duty};
 
-use super::{BlockCache, BlockMatcher, DutyHandler, Matcher, StateContext};
+use super::{BlockCache, BlockMatcher, Matcher, Owner, StateContext};
 
 #[derive(Debug, Clone)]
 pub enum KickoffEvent {
@@ -25,13 +25,13 @@ impl KickoffMatcher {
 }
 
 #[derive(Debug, Clone)]
-pub struct KickoffStateMachine<T: DutyHandler> {
+pub struct KickoffStateMachine<T: Owner> {
     pub(crate) kickoff_id: KickoffId,
     pub(crate) matchers: HashMap<Matcher, KickoffMatcher>,
     phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: DutyHandler> BlockMatcher for KickoffStateMachine<T> {
+impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
     type Event = KickoffEvent;
 
     fn match_block(&self, block: &BlockCache) -> Vec<Self::Event> {
@@ -48,7 +48,7 @@ impl<T: DutyHandler> BlockMatcher for KickoffStateMachine<T> {
     }
 }
 
-impl<T: DutyHandler> KickoffStateMachine<T> {
+impl<T: Owner> KickoffStateMachine<T> {
     pub fn new(kickoff_id: KickoffId) -> Self {
         Self {
             kickoff_id,
@@ -58,12 +58,8 @@ impl<T: DutyHandler> KickoffStateMachine<T> {
     }
 }
 
-#[state_machine(
-    initial = "State::idle()",
-    state(derive(Debug, Clone)),
-    // context = "BridgeContext<T>"
-)]
-impl<T: DutyHandler> KickoffStateMachine<T> {
+#[state_machine(initial = "State::idle()", state(derive(Debug, Clone)))]
+impl<T: Owner> KickoffStateMachine<T> {
     // Kickoff process state handlers
 
     #[state]

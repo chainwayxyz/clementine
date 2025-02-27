@@ -1,10 +1,12 @@
+use crate::builder::transaction::{OperatorData, TransactionType, TxHandler};
+use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use bitcoin::{Block, OutPoint, Transaction, Txid};
 use futures::TryFuture;
 use statig::awaitable::InitializedStateMachine;
 use statig::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use tonic::async_trait;
@@ -81,23 +83,25 @@ pub enum Duty {
 
 // DutyHandler trait with async handling
 #[async_trait]
-pub trait DutyHandler: Send + Sync + Clone + Default {
+pub trait Owner: Send + Sync + Clone + Default {
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError>;
+    async fn create_txhandlers(&self) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
 }
 
 // Context shared between state machines
 #[derive(Debug, Clone)]
-pub struct StateContext<T: DutyHandler> {
+pub struct StateContext<T: Owner> {
     pub db: Database,
     pub owner: T,
     pub cache: BlockCache,
     pub new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
     pub new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     pub errors: Vec<Arc<BridgeError>>,
+    pub paramset: &'static ProtocolParamset,
 }
 
-impl<T: DutyHandler> StateContext<T> {
-    pub fn new(db: Database, owner: T) -> Self {
+impl<T: Owner> StateContext<T> {
+    pub fn new(db: Database, owner: T, paramset: &'static ProtocolParamset) -> Self {
         Self {
             db,
             owner,
@@ -105,6 +109,7 @@ impl<T: DutyHandler> StateContext<T> {
             new_round_machines: Vec::new(),
             new_kickoff_machines: Vec::new(),
             errors: Vec::new(),
+            paramset,
         }
     }
 
@@ -130,9 +135,7 @@ impl<T: DutyHandler> StateContext<T> {
         self.new_kickoff_machines.push(machine);
     }
 
-    pub async fn try_run<
-        Func: AsyncFnOnce(&mut Self) -> Result<(), BridgeError>,
-    >(
+    pub async fn try_run<Func: AsyncFnOnce(&mut Self) -> Result<(), BridgeError>>(
         &mut self,
         fnc: Func,
     ) {
@@ -145,22 +148,26 @@ impl<T: DutyHandler> StateContext<T> {
 
 // New state manager to hold and coordinate state machines
 #[derive(Debug)]
-pub struct StateManager<T: DutyHandler> {
+pub struct StateManager<T: Owner> {
     db: Database,
     handler: T,
     round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     cache: BlockCache,
+    paramset: &'static ProtocolParamset,
+    context: StateContext<T>,
 }
 
-impl<T: DutyHandler> StateManager<T> {
-    pub fn new(db: Database, handler: T) -> Self {
+impl<T: Owner> StateManager<T> {
+    pub fn new(db: Database, handler: T, paramset: &'static ProtocolParamset) -> Self {
         Self {
-            db,
-            handler,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             cache: BlockCache::new(),
+            context: StateContext::new(db.clone(), handler.clone(), paramset),
+            db,
+            paramset,
+            handler,
         }
     }
 
@@ -169,24 +176,26 @@ impl<T: DutyHandler> StateManager<T> {
         kickoff_id: crate::rpc::clementine::KickoffId,
     ) -> Result<(), BridgeError> {
         let machine = kickoff::KickoffStateMachine::<T>::new(kickoff_id);
-        let mut context = self.create_context();
 
         let initialized_machine = machine
             .uninitialized_state_machine()
-            .init_with_context(&mut context)
+            .init_with_context(&mut self.context)
             .await;
 
         self.kickoff_machines.push(initialized_machine);
         Ok(())
     }
 
-    pub async fn add_round_machine(&mut self) -> Result<(), BridgeError> {
-        let machine = round::RoundStateMachine::<T>::new();
-        let mut context = self.create_context();
+    pub async fn add_round_machine(
+        &mut self,
+        operator_data: OperatorData,
+        operator_idx: u32,
+    ) -> Result<(), BridgeError> {
+        let machine = round::RoundStateMachine::<T>::new(operator_data, operator_idx);
 
         let initialized_machine = machine
             .uninitialized_state_machine()
-            .init_with_context(&mut context)
+            .init_with_context(&mut self.context)
             .await;
 
         self.round_machines.push(initialized_machine);
@@ -198,6 +207,7 @@ impl<T: DutyHandler> StateManager<T> {
             db: self.db.clone(),
             owner: self.handler.clone(),
             cache: self.cache.clone(),
+            paramset: self.paramset,
             new_kickoff_machines: Vec::new(),
             new_round_machines: Vec::new(),
             errors: Vec::new(),
@@ -206,10 +216,7 @@ impl<T: DutyHandler> StateManager<T> {
 
     pub async fn process_block(&mut self, block: &Block) -> Result<(), BridgeError> {
         // Update cache with new block data
-        self.cache.update_with_block(block);
-
-        // Create a context with updated cache
-        let mut context = self.create_context();
+        self.context.cache.update_with_block(block);
 
         // Process all kickoff machines
         for machine in &mut self.kickoff_machines {
@@ -217,7 +224,7 @@ impl<T: DutyHandler> StateManager<T> {
 
             // TODO: we should order events by their presence in the block
             for event in events {
-                machine.handle_with_context(&event, &mut context).await;
+                machine.handle_with_context(&event, &mut self.context).await;
             }
         }
 
@@ -227,7 +234,7 @@ impl<T: DutyHandler> StateManager<T> {
 
             // TODO: we should order events by their presence in the block
             for event in events {
-                machine.handle_with_context(&event, &mut context).await;
+                machine.handle_with_context(&event, &mut self.context).await;
             }
         }
 

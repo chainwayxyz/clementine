@@ -2,9 +2,16 @@ use std::collections::HashMap;
 
 use statig::prelude::*;
 
-use crate::{rpc::clementine::KickoffId, states::Duty};
+use crate::{
+    builder::transaction::{
+        create_round_txhandlers, create_txhandlers, KickoffWinternitzKeys, OperatorData,
+        TransactionType, TxHandler,
+    },
+    rpc::clementine::KickoffId,
+    states::Duty,
+};
 
-use super::{BlockCache, BlockMatcher, DutyHandler, Matcher, StateContext};
+use super::{BlockCache, BlockMatcher, Matcher, Owner, StateContext};
 
 #[derive(Debug, Clone)]
 pub enum RoundEvent {
@@ -14,7 +21,7 @@ pub enum RoundEvent {
 }
 
 #[derive(Debug, Clone)]
-enum RoundMatcher {
+pub(crate) enum RoundMatcher {
     KickoffSent(KickoffId),
     ReadyToReimburseSent { round_idx: u32 },
     RoundSent { round_idx: u32 },
@@ -35,12 +42,14 @@ impl RoundMatcher {
 }
 
 #[derive(Debug, Clone)]
-pub struct RoundStateMachine<T: DutyHandler> {
+pub struct RoundStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, RoundMatcher>,
+    operator_data: OperatorData,
+    operator_idx: u32,
     phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: DutyHandler> BlockMatcher for RoundStateMachine<T> {
+impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
     type Event = RoundEvent;
 
     fn match_block(&self, block: &BlockCache) -> Vec<Self::Event> {
@@ -57,17 +66,19 @@ impl<T: DutyHandler> BlockMatcher for RoundStateMachine<T> {
     }
 }
 
-impl<T: DutyHandler> RoundStateMachine<T> {
-    pub fn new() -> Self {
+impl<T: Owner> RoundStateMachine<T> {
+    pub fn new(operator_data: OperatorData, operator_idx: u32) -> Self {
         Self {
             matchers: HashMap::new(),
+            operator_data,
+            operator_idx,
             phantom: std::marker::PhantomData,
         }
     }
 }
 
 #[state_machine(initial = "State::initial_collateral()", state(derive(Debug, Clone)))]
-impl<T: DutyHandler> RoundStateMachine<T> {
+impl<T: Owner> RoundStateMachine<T> {
     // State handlers with proper statig approach
 
     #[state(entry_action = "on_initial_collateral_entry")]
@@ -77,6 +88,7 @@ impl<T: DutyHandler> RoundStateMachine<T> {
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
+            RoundEvent::RoundSent { round_idx } => Transition(State::round_tx(*round_idx)),
             _ => Super,
         }
     }
@@ -84,23 +96,38 @@ impl<T: DutyHandler> RoundStateMachine<T> {
     #[action]
     pub(crate) async fn on_initial_collateral_entry(&mut self, context: &mut StateContext<T>) {
         println!("Entered Initial Collateral state");
+        self.matchers = HashMap::new();
+        self.matchers.insert(
+            Matcher::SpentUtxo(self.operator_data.collateral_funding_outpoint),
+            RoundMatcher::RoundSent { round_idx: 0 },
+        );
     }
 
     #[state(entry_action = "on_round_tx_entry")]
     pub(crate) async fn round_tx(
         &mut self,
+        round_idx: &mut u32,
         event: &RoundEvent,
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
+            RoundEvent::ReadyToReimburseSent { round_idx } => {
+                Transition(State::ready_to_reimburse(*round_idx))
+            }
             _ => Super,
         }
     }
 
     #[action]
-    pub(crate) async fn on_round_tx_entry(&mut self, context: &mut StateContext<T>) {
+    pub(crate) async fn on_round_tx_entry(
+        &mut self,
+        context: &mut StateContext<T>,
+        round_idx: &mut u32,
+    ) {
         println!("Entered Round Tx state");
         // Assuming context.dispatch_duty is called elsewhere in the code
+        self.matchers = HashMap::new();
+        let x = context.owner.create_txhandlers();
     }
 
     #[state(entry_action = "on_ready_to_reimburse_entry")]
@@ -108,6 +135,7 @@ impl<T: DutyHandler> RoundStateMachine<T> {
         &mut self,
         event: &RoundEvent,
         context: &mut StateContext<T>,
+        round_idx: &mut u32,
     ) -> Response<State> {
         match event {
             _ => Super,
