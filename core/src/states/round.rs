@@ -1,44 +1,30 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use bitcoin::{hashes::Hash, Txid};
 use statig::prelude::*;
 
-use crate::{builder::transaction::OperatorData, rpc::clementine::KickoffId, states::Duty};
+use crate::{
+    builder::transaction::{OperatorData, TransactionType},
+    errors::BridgeError,
+    rpc::clementine::KickoffId,
+    states::Duty,
+};
 
 use super::{BlockCache, BlockMatcher, Matcher, Owner, StateContext};
 
 #[derive(Debug, Clone)]
 pub enum RoundEvent {
-    KickoffSent(KickoffId),
+    KickoffUtxoUsed { kickoff_idx: usize },
     ReadyToReimburseSent { round_idx: u32 },
     RoundSent { round_idx: u32 },
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum RoundMatcher {
-    KickoffSent(KickoffId),
-    ReadyToReimburseSent { round_idx: u32 },
-    RoundSent { round_idx: u32 },
-}
-
-impl RoundMatcher {
-    fn get_event(&self, matcher: Matcher) -> RoundEvent {
-        match self {
-            RoundMatcher::KickoffSent(kickoff_id) => RoundEvent::KickoffSent(*kickoff_id),
-            RoundMatcher::ReadyToReimburseSent { round_idx } => RoundEvent::ReadyToReimburseSent {
-                round_idx: *round_idx,
-            },
-            RoundMatcher::RoundSent { round_idx } => RoundEvent::RoundSent {
-                round_idx: *round_idx,
-            },
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct RoundStateMachine<T: Owner> {
-    pub(crate) matchers: HashMap<Matcher, RoundMatcher>,
+    pub(crate) matchers: HashMap<Matcher, RoundEvent>,
     operator_data: OperatorData,
     operator_idx: u32,
+    current_txid: Txid,
     pub(crate) dirty: bool,
     phantom: std::marker::PhantomData<T>,
 }
@@ -49,9 +35,9 @@ impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
     fn match_block(&self, block: &BlockCache) -> Vec<Self::Event> {
         self.matchers
             .iter()
-            .filter_map(|(matcher, round_matcher)| {
+            .filter_map(|(matcher, round_event)| {
                 if matcher.matches(block) {
-                    Some(round_matcher.get_event(matcher.clone()))
+                    Some(round_event.clone())
                 } else {
                     None
                 }
@@ -66,6 +52,7 @@ impl<T: Owner> RoundStateMachine<T> {
             matchers: HashMap::new(),
             operator_data,
             operator_idx,
+            current_txid: Txid::all_zeros(),
             dirty: false,
             phantom: std::marker::PhantomData,
         }
@@ -77,10 +64,11 @@ impl<T: Owner> RoundStateMachine<T> {
     on_transition = "Self::on_transition",
     state(derive(Debug, Clone))
 )]
+// TODO: Add exit conditions too (ex: burn connector spent on smth else)
 impl<T: Owner> RoundStateMachine<T> {
     #[action]
     pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
-        tracing::debug!("Transitioning from {:?} to {:?}", state_a, state_b);
+        tracing::debug!(?self.operator_data, ?self.operator_idx, "Transitioning from {:?} to {:?}", state_a, state_b);
         self.dirty = true;
     }
 
@@ -91,7 +79,9 @@ impl<T: Owner> RoundStateMachine<T> {
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
-            RoundEvent::RoundSent { round_idx } => Transition(State::round_tx(*round_idx)),
+            RoundEvent::RoundSent { round_idx } => {
+                Transition(State::round_tx(*round_idx, HashSet::new()))
+            }
             _ => Super,
         }
     }
@@ -101,18 +91,23 @@ impl<T: Owner> RoundStateMachine<T> {
         self.matchers = HashMap::new();
         self.matchers.insert(
             Matcher::SpentUtxo(self.operator_data.collateral_funding_outpoint),
-            RoundMatcher::RoundSent { round_idx: 0 },
+            RoundEvent::RoundSent { round_idx: 0 },
         );
     }
 
-    #[state(entry_action = "on_round_tx_entry")]
+    #[state(entry_action = "on_round_tx_entry", exit_action = "on_round_tx_exit")]
     pub(crate) async fn round_tx(
         &mut self,
         event: &RoundEvent,
         round_idx: &mut u32,
+        used_kickoffs: &mut HashSet<usize>,
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
+            RoundEvent::KickoffUtxoUsed { kickoff_idx } => {
+                used_kickoffs.insert(*kickoff_idx);
+                Handled
+            }
             RoundEvent::ReadyToReimburseSent { round_idx } => {
                 Transition(State::ready_to_reimburse(*round_idx))
             }
@@ -121,14 +116,65 @@ impl<T: Owner> RoundStateMachine<T> {
     }
 
     #[action]
+    pub(crate) async fn on_round_tx_exit(
+        &mut self,
+        round_idx: &mut u32,
+        used_kickoffs: &mut HashSet<usize>,
+        context: &mut StateContext<T>,
+    ) {
+        context
+            .capture_error(async |context| {
+                context
+                    .owner
+                    .handle_duty(Duty::NewReadyToReimburse {
+                        round_idx: *round_idx,
+                        used_kickoffs: used_kickoffs.clone(),
+                        operator_idx: self.operator_idx,
+                    })
+                    .await?;
+                Ok(())
+            })
+            .await;
+    }
+
+    #[action]
     pub(crate) async fn on_round_tx_entry(
         &mut self,
         round_idx: &mut u32,
         context: &mut StateContext<T>,
     ) {
-        println!("Entered Round Tx state");
-        self.matchers = HashMap::new();
-        let x = context.owner.create_txhandlers();
+        context
+            .capture_error(async |context| {
+                self.matchers = HashMap::new();
+                let mut txhandlers = context.owner.create_txhandlers().await?;
+                let round_txhandler = txhandlers
+                    .remove(&TransactionType::Round)
+                    .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Round))?;
+                let ready_to_reimburse_txhandler = txhandlers
+                    .remove(&TransactionType::ReadyToReimburse)
+                    .ok_or(BridgeError::TxHandlerNotFound(
+                        TransactionType::ReadyToReimburse,
+                    ))?;
+                self.matchers.insert(
+                    Matcher::SentTx(*ready_to_reimburse_txhandler.get_txid()),
+                    RoundEvent::ReadyToReimburseSent {
+                        round_idx: *round_idx,
+                    },
+                );
+                self.current_txid = *round_txhandler.get_txid();
+                for idx in 1..context.paramset.num_kickoffs_per_round + 1 {
+                    self.matchers.insert(
+                        Matcher::SpentUtxo(
+                            *round_txhandler
+                                .get_spendable_output(idx)?
+                                .get_prev_outpoint(),
+                        ),
+                        RoundEvent::KickoffUtxoUsed { kickoff_idx: idx },
+                    );
+                }
+                Ok(())
+            })
+            .await;
     }
 
     #[state(entry_action = "on_ready_to_reimburse_entry")]
@@ -139,12 +185,42 @@ impl<T: Owner> RoundStateMachine<T> {
         round_idx: &mut u32,
     ) -> Response<State> {
         match event {
+            RoundEvent::RoundSent { round_idx } => {
+                Transition(State::round_tx(*round_idx, HashSet::new()))
+            }
             _ => Super,
         }
     }
 
     #[action]
-    pub(crate) async fn on_ready_to_reimburse_entry(&mut self, context: &mut StateContext<T>) {
-        println!("Entered Ready To Reimburse state");
+    pub(crate) async fn on_ready_to_reimburse_entry(
+        &mut self,
+        context: &mut StateContext<T>,
+        round_idx: &mut u32,
+    ) {
+        context
+            .capture_error(async |context| {
+                self.matchers = HashMap::new();
+                let mut txhandlers = context.owner.create_txhandlers().await?;
+                let ready_to_reimburse_txhandler = txhandlers
+                    .remove(&TransactionType::ReadyToReimburse)
+                    .ok_or(BridgeError::TxHandlerNotFound(
+                        TransactionType::ReadyToReimburse,
+                    ))?;
+                self.current_txid = *ready_to_reimburse_txhandler.get_txid();
+                let next_round_txhandlers = context.owner.create_txhandlers().await?;
+                let next_round_txid = next_round_txhandlers
+                    .get(&TransactionType::Round)
+                    .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Round))?
+                    .get_txid();
+                self.matchers.insert(
+                    Matcher::SentTx(*next_round_txid),
+                    RoundEvent::RoundSent {
+                        round_idx: *round_idx + 1,
+                    },
+                );
+                Ok(())
+            })
+            .await;
     }
 }

@@ -217,6 +217,17 @@ impl ReimburseDbCache {
     }
 }
 
+struct ContractContext {
+    /// required
+    operator_idx: u32,
+    round_idx: u32,
+    paramset: &'static ProtocolParamset,
+    /// optional (only used for after kickoff)
+    nofn_xonly_pk: Option<XOnlyPublicKey>,
+    kickoff_idx: Option<u32>,
+    deposit_data: Option<DepositData>,
+}
+
 #[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_data, txtype = ?transaction_type, ?kickoff_id))]
 pub async fn create_txhandlers(
     nofn_xonly_pk: XOnlyPublicKey,

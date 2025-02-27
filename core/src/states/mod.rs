@@ -1,7 +1,9 @@
-use crate::builder::transaction::{OperatorData, TransactionType, TxHandler};
+use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::BridgeError;
+use crate::rpc::clementine::KickoffId;
+use bitcoin::hashes::hash160::Hash;
 use bitcoin::{Block, OutPoint, Transaction, Txid};
 use futures::future::{join, join_all};
 use futures::TryFuture;
@@ -77,7 +79,11 @@ impl Matcher {
 #[derive(Debug, Clone)]
 pub enum Duty {
     NewKickoff,
-    NewRound,
+    NewReadyToReimburse {
+        round_idx: u32,
+        operator_idx: u32,
+        used_kickoffs: HashSet<usize>,
+    },
     WatchtowerChallenge,
     OperatorAssert,
     VerifierDisprove,
@@ -87,7 +93,11 @@ pub enum Duty {
 #[async_trait]
 pub trait Owner: Send + Sync + Clone + Default {
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError>;
-    async fn create_txhandlers(&self) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
+    async fn create_txhandlers(
+        &self,
+        kickoff_id: KickoffId,
+        deposit_data: Option<DepositData>,
+    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
 }
 
 // Enhanced StateError enum
@@ -163,7 +173,10 @@ impl<T: Owner> StateContext<T> {
     }
 
     // Enhanced try_run method for better error context
-    pub async fn try_run(&mut self, fnc: impl AsyncFnOnce(&mut Self) -> Result<(), BridgeError>) {
+    pub async fn capture_error(
+        &mut self,
+        fnc: impl AsyncFnOnce(&mut Self) -> Result<(), BridgeError>,
+    ) {
         let result = fnc(self).await;
         if let Err(e) = result {
             let state_error = match (&self.current_state, &self.current_action) {

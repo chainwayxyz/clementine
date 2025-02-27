@@ -98,7 +98,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     pub(crate) async fn on_kickoff_started_entry(&mut self, context: &mut StateContext<T>) {
         println!("Kickoff Started");
         context
-            .try_run(async |context| context.dispatch_duty(Duty::NewKickoff).await)
+            .capture_error(async |context| context.dispatch_duty(Duty::NewKickoff).await)
             .await;
     }
 
@@ -117,7 +117,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     pub(crate) async fn on_watchtower_challenge_entry(&mut self, context: &mut StateContext<T>) {
         println!("Watchtower Challenge Stage");
         context
-            .try_run(async |context| context.dispatch_duty(Duty::WatchtowerChallenge).await)
+            .capture_error(async |context| context.dispatch_duty(Duty::WatchtowerChallenge).await)
             .await;
     }
 
@@ -136,7 +136,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     pub(crate) async fn on_operator_assert_entry(&mut self, context: &mut StateContext<T>) {
         println!("Operator Assert Stage");
         context
-            .try_run(async |context| context.dispatch_duty(Duty::OperatorAssert).await)
+            .capture_error(async |context| context.dispatch_duty(Duty::OperatorAssert).await)
             .await;
     }
 
@@ -155,7 +155,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     pub(crate) async fn on_verifier_disprove_entry(&mut self, context: &mut StateContext<T>) {
         println!("Verifier Disprove Stage");
         context
-            .try_run(async |context| context.dispatch_duty(Duty::VerifierDisprove).await)
+            .capture_error(async |context| context.dispatch_duty(Duty::VerifierDisprove).await)
             .await;
     }
 }
