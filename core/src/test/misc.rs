@@ -9,7 +9,7 @@ async fn test_deposit() {
     let mut config = create_test_config_with_thread_name(None).await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    run_single_deposit(&mut config, rpc).await.unwrap();
+    run_single_deposit(&mut config, rpc, None).await.unwrap();
 }
 
 //     #[ignore = "We are switching to gRPC"]

@@ -15,7 +15,9 @@ async fn honest_operator_takes_refund() {
     let rpc = regtest.rpc().clone();
 
     let (_verifiers, _operators, _aggregator, _watchtowers, _deposit_outpoint, _move_txid) =
-        run_single_deposit(&mut config, rpc.clone()).await.unwrap();
+        run_single_deposit(&mut config, rpc.clone(), None)
+            .await
+            .unwrap();
 
     let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
 

@@ -24,6 +24,14 @@ sol!(
     }
 );
 
+// Codegen from ABI file to interact with the contract.
+sol!(
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    IWETH9,
+    "src/test/common/citrea/Bridge.json"
+);
+
 macro_rules! encode_btc_params {
     ($params:expr) => {
         $params

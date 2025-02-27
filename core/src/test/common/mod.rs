@@ -188,6 +188,7 @@ pub async fn run_multiple_deposits(
 pub async fn run_single_deposit(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
+    evm_address: Option<EVMAddress>,
 ) -> Result<
     (
         Vec<ClementineVerifierClient<Channel>>,
@@ -201,7 +202,7 @@ pub async fn run_single_deposit(
 > {
     let (verifiers, operators, mut aggregator, watchtowers) = create_actors(config).await;
 
-    let evm_address = EVMAddress([1u8; 20]);
+    let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
