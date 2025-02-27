@@ -5,7 +5,6 @@ use alloy::{
 use alloy_primitives::U256;
 use alloy_rpc_types::EIP1186AccountProofResponse;
 use anyhow::bail;
-use bridge_circuit_core::{LightClientProof, StorageProof};
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;

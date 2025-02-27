@@ -5,7 +5,7 @@ members = [
   "risc0-circuits/work-only",
   "risc0-circuits/bridge-circuit",
   "circuits-lib",
-  "bridge-circuit-host/host"
+  "bridge-circuit-host"
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]
