@@ -4,8 +4,11 @@ WORKDIR /src
 
 # Copy the entire project structure
 COPY risc0-circuits/work-only risc0-circuits/work-only
-COPY circuits-lib/core circuits-lib/core
-COPY circuits-lib/work-only circuits-lib/work-only
+
+# Might be heavy in the future, but for now it's fine
+COPY circuits-lib circuits-lib 
+COPY Cargo.toml Cargo.toml
+
 # Set compile-time environment variables
 ENV CARGO_MANIFEST_PATH="risc0-circuits/work-only/guest/Cargo.toml"
 ENV RUSTFLAGS="-C passes=loweratomic -C link-arg=-Ttext=0x00200800 -C link-arg=--fatal-warnings"

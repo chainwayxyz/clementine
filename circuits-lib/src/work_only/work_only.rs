@@ -1,6 +1,9 @@
+use crate::bridge_circuit_core;
+
 use crypto_bigint::{Encoding, U128, U256};
 use risc0_zkvm::guest::env;
-use bridge_circuit_core::{zkvm::ZkvmGuest, WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
+use bridge_circuit_core::{zkvm::ZkvmGuest, structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput}};
+
 
 pub fn work_only_circuit(guest: &impl ZkvmGuest) {
     let start = env::cycle_count();
@@ -13,8 +16,15 @@ pub fn work_only_circuit(guest: &impl ZkvmGuest) {
     let total_work_u256: U256 =
         U256::from_be_bytes(input.header_chain_circuit_output.chain_state.total_work);
     let (_, chain_state_total_work_u128): (U128, U128) = total_work_u256.into();
-    let mut words = chain_state_total_work_u128.to_words();
-    words.reverse();
+    println!("Total work: {}", chain_state_total_work_u128);
+    let mut words: [u32; 4] = chain_state_total_work_u128.to_le_bytes()
+        .chunks_exact(4)
+        .map(|chunk| u32::from_le_bytes(chunk.try_into().unwrap()))
+        .collect::<Vec<u32>>()
+        .try_into()
+        .unwrap();
+
+    words.reverse();    
     guest.commit(&WorkOnlyCircuitOutput { work_u128: words });
     let end = env::cycle_count();
     println!("WO: {}", end - start);

@@ -3,8 +3,8 @@ use ark_groth16::Proof;
 use ark_groth16::PreparedVerifyingKey;
 use ark_serialize::CanonicalDeserialize;
 use risc0_zkvm::guest::env;
-use bridge_circuit_core::{groth16::CircuitGroth16Proof, utils::to_decimal};
-use crate::constants::{
+use crate::bridge_circuit_core::{groth16::CircuitGroth16Proof, utils::to_decimal};
+use super::constants::{
     A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG, POST_STATE,
     PREPARED_VK, PRE_STATE,
 };
@@ -93,7 +93,12 @@ impl CircuitGroth16WithTotalWork {
 
         let end = env::cycle_count();
         println!("PPI: {}", end - start);
-        ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
-            .unwrap()
+        println!("Public inputs: {:?}", public_inputs);
+        println!("Proof: {:?}", ark_proof);
+        println!("Prepared VK: {:?}", prepared_vk);
+        let res = ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
+            .unwrap();
+        println!("{}", res);
+        res
     }
 }

@@ -4,8 +4,12 @@ WORKDIR /src
 
 # Copy the entire project structure
 COPY risc0-circuits/bridge-circuit risc0-circuits/bridge-circuit
-COPY circuits-lib/core circuits-lib/core
-COPY circuits-lib/bridge-circuit circuits-lib/bridge-circuit
+
+# Might be heavy in the future, but for now it's fine
+COPY circuits-lib circuits-lib
+
+COPY Cargo.toml Cargo.toml
+
 
 # Set compile-time environment variables
 ENV CARGO_MANIFEST_PATH="risc0-circuits/bridge-circuit/guest/Cargo.toml"

@@ -6,8 +6,7 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-bridge-circuit-lib = { path = "../../../circuits-lib/bridge-circuit" }
-bridge-circuit-core = { path = "../../../circuits-lib/core" }
+circuits-lib = { path = "../../../circuits-lib" }
 
 [[example]]
 name = "guest"

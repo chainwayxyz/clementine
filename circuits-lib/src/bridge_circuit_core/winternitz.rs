@@ -1,3 +1,4 @@
+use super::{structs, utils};
 use borsh::{BorshDeserialize, BorshSerialize};
 use final_spv::spv::SPV;
 use header_chain::header_chain::BlockHeaderCircuitOutput;
@@ -5,8 +6,10 @@ use serde::{Deserialize, Serialize};
 pub type HashOut = [u8; 20];
 pub type PublicKey = Vec<HashOut>;
 pub type SecretKey = Vec<u8>;
-use crate::{utils::hash160, LightClientProof, StorageProof};
+use utils::hash160;
+use structs::{LightClientProof, StorageProof};
 use bitcoin::hashes::{self, Hash};
+
 
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WinternitzHandler {

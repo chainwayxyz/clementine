@@ -1,8 +1,8 @@
+use crate::bridge_circuit_core::structs::StorageProof;
 use alloy_primitives::{Keccak256, U256};
 use jmt::{proof::SparseMerkleProof, KeyHash};
 use alloy_rpc_types::EIP1186StorageProof;
 use alloy_primitives::Bytes;
-use bridge_circuit_core::StorageProof;
 
 
 const ADDRESS: [u8; 20] = hex_literal::hex!("3100000000000000000000000000000000000002");
