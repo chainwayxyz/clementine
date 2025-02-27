@@ -1,6 +1,10 @@
 use crate::errors::BridgeError;
 use crate::test::common::citrea::parameters::get_deposit_params;
 use crate::EVMAddress;
+use alloy::consensus::transaction::PooledTransaction;
+use alloy::dyn_abi::abi::encode;
+use alloy::primitives::{self, Bytes, B256};
+use alloy::rpc::types::TransactionRequest;
 use bitcoin::hashes::Hash;
 use bitcoin::{Block, Transaction, Txid};
 use jsonrpsee::core::client::ClientT;
@@ -81,15 +85,59 @@ pub async fn deposit(
     Ok(())
 }
 
+pub async fn send_raw_transaction(
+    client: HttpClient,
+    data: TransactionRequest,
+) -> Result<(), BridgeError> {
+    // let _response: B256 = client
+    //     .request(
+    //         "eth_sendRawTransaction",
+    //         rpc_params!(hex::encode(data)),
+    //     )
+    //     .await?;
+
+    // tracing::info!("send_raw_transaction response: {:?}", _response);
+
+    Ok(())
+}
+
+pub async fn declare_withdraw_filler(
+    client: HttpClient,
+    block: Block,
+    block_height: u32,
+    transaction: Transaction,
+    input_index: u32,
+    withdrawal_index: u32,
+) -> Result<(), BridgeError> {
+    let txid = transaction.compute_txid();
+
+    let params = get_deposit_params(transaction, block, block_height, txid)?;
+
+    let params = rpc_params![
+        json!({
+            "to": CITREA_ADDRESS,
+            "data": format!("0x74ab4a83{}0000000000000000000000000000{}0000000000000000000000000000{}", hex::encode(params), hex::encode(input_index.to_be_bytes()), hex::encode(withdrawal_index.to_be_bytes())),
+        }),
+        "latest"
+    ];
+    let response: String = client.request("eth_call", params).await?;
+
+    tracing::info!("declare_withdraw_filler response: {:?}", response);
+
+    Ok(())
+}
+
 pub async fn withdraw(
     client: HttpClient,
     withdrawal_txid: Txid,
     withdrawal_index: u32,
+    withdrawal_amount: u64,
 ) -> Result<(), BridgeError> {
     let params = rpc_params![
         json!({
             "to": CITREA_ADDRESS,
             "data": format!("0x8786dba7{}{}", hex::encode(withdrawal_txid.as_byte_array()), hex::encode(withdrawal_index.to_be_bytes())),
+            "value": format!("0x{}", withdrawal_amount.to_string())
         }),
         "latest"
     ];

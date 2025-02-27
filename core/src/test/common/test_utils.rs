@@ -512,7 +512,10 @@ pub async fn generate_withdrawal_transaction_and_signature(
     const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);
 
     let dust_outpoint = rpc
-        .send_to_address(&signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)
+        .send_to_address(
+            &signer.address,
+            withdrawal_amount + WITHDRAWAL_EMPTY_UTXO_SATS,
+        )
         .await
         .expect("Failed to send to address");
     let dust_utxo = UTXO {
