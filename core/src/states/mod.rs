@@ -255,25 +255,6 @@ impl<T: Owner> StateManager<T> {
         }
     }
 
-    // Method to commit newly added state machines
-    pub fn commit_new_machines(&mut self, context: &StateContext<T>) {
-        // Append new machines from context
-        self.round_machines
-            .extend(context.new_round_machines.clone());
-        self.kickoff_machines
-            .extend(context.new_kickoff_machines.clone());
-    }
-
-    // Method to merge errors from contexts
-    pub fn merge_errors(&mut self, contexts: Vec<StateContext<T>>) -> Vec<Arc<StateError>> {
-        let mut all_errors = Vec::new();
-        for ctx in contexts {
-            all_errors.extend(ctx.errors);
-        }
-        all_errors
-    }
-
-    // Enhanced method for parallel processing
     pub async fn process_block_parallel(&mut self, block: &Block) -> Result<(), BridgeError> {
         let mut cache: BlockCache = Default::default();
         cache.update_with_block(block);
