@@ -840,6 +840,24 @@ dependencies = [
 [[package]]
 name = "ark-crypto-primitives"
 version = "0.4.0"
+source = "git+https://github.com/arkworks-rs/crypto-primitives/?branch=releases#f3528da5be818cba53306476f0518d713466d9f5"
+dependencies = [
+ "ark-ec",
+ "ark-ff 0.4.0",
+ "ark-relations",
+ "ark-serialize 0.4.0",
+ "ark-snark",
+ "ark-std 0.4.0",
+ "blake2",
+ "derivative",
+ "digest 0.10.7",
+ "rayon",
+ "sha2",
+]
+
+[[package]]
+name = "ark-crypto-primitives"
+version = "0.4.0"
 source = "git+https://github.com/arkworks-rs/crypto-primitives/#b13983815e5b3a0fbeed0e7da0edec751beac270"
 dependencies = [
  "ahash",
@@ -855,7 +873,6 @@ dependencies = [
  "digest 0.10.7",
  "fnv",
  "merlin",
- "rayon",
  "sha2",
 ]
 
@@ -875,7 +892,7 @@ version = "0.4.0"
 source = "git+https://github.com/chainwayxyz/algebra/?branch=ozan%2Fsync-0.4.0#fa7808729b2ba70d7cef3793f72fadfaceda785d"
 dependencies = [
  "ark-ff 0.4.0",
- "ark-poly",
+ "ark-poly 0.4.0",
  "ark-serialize 0.4.0",
  "ark-std 0.4.0",
  "derivative",
@@ -970,12 +987,28 @@ dependencies = [
 [[package]]
 name = "ark-groth16"
 version = "0.4.0"
-source = "git+https://github.com/arkworks-rs/groth16?branch=releases#b6f9166bcf15ff4bfe101bb34e1bdc0d92302e37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20ceafa83848c3e390f1cbf124bc3193b3e639b3f02009e0e290809a501b95fc"
 dependencies = [
- "ark-crypto-primitives",
+ "ark-crypto-primitives 0.4.0 (git+https://github.com/arkworks-rs/crypto-primitives/?branch=releases)",
  "ark-ec",
  "ark-ff 0.4.0",
- "ark-poly",
+ "ark-poly 0.4.1",
+ "ark-relations",
+ "ark-serialize 0.4.0",
+ "ark-std 0.4.0",
+ "rayon",
+]
+
+[[package]]
+name = "ark-groth16"
+version = "0.4.0"
+source = "git+https://github.com/arkworks-rs/groth16?branch=releases#b6f9166bcf15ff4bfe101bb34e1bdc0d92302e37"
+dependencies = [
+ "ark-crypto-primitives 0.4.0 (git+https://github.com/arkworks-rs/crypto-primitives/?branch=releases)",
+ "ark-ec",
+ "ark-ff 0.4.0",
+ "ark-poly 0.4.1",
  "ark-relations",
  "ark-serialize 0.4.0",
  "ark-std 0.4.0",
@@ -986,6 +1019,19 @@ dependencies = [
 name = "ark-poly"
 version = "0.4.0"
 source = "git+https://github.com/chainwayxyz/algebra/?branch=ozan%2Fsync-0.4.0#fa7808729b2ba70d7cef3793f72fadfaceda785d"
+dependencies = [
+ "ark-ff 0.4.0",
+ "ark-serialize 0.4.0",
+ "ark-std 0.4.0",
+ "derivative",
+ "hashbrown 0.13.2",
+]
+
+[[package]]
+name = "ark-poly"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f6ec811462cabe265cfe1b102fcfe3df79d7d2929c2425673648ee9abfd0272"
 dependencies = [
  "ark-ff 0.4.0",
  "ark-serialize 0.4.0",
@@ -1461,10 +1507,10 @@ version = "0.1.0"
 source = "git+https://github.com/chainwayxyz/BitVM?rev=fc9cdd4#fc9cdd4c17260002247f44be3fd2d947a6acdec2"
 dependencies = [
  "ark-bn254 0.4.0 (git+https://github.com/arkworks-rs/curves/?branch=releases)",
- "ark-crypto-primitives",
+ "ark-crypto-primitives 0.4.0 (git+https://github.com/arkworks-rs/crypto-primitives/)",
  "ark-ec",
  "ark-ff 0.4.0",
- "ark-groth16",
+ "ark-groth16 0.4.0 (git+https://github.com/arkworks-rs/groth16?branch=releases)",
  "ark-relations",
  "ark-serialize 0.4.0",
  "ark-std 0.4.0",
@@ -1589,10 +1635,10 @@ dependencies = [
  "alloy-rpc-types-eth 0.11.1",
  "anyhow",
  "ark-bn254 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ark-crypto-primitives",
+ "ark-crypto-primitives 0.4.0 (git+https://github.com/arkworks-rs/crypto-primitives/?branch=releases)",
  "ark-ec",
  "ark-ff 0.4.0",
- "ark-groth16",
+ "ark-groth16 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ark-relations",
  "ark-serialize 0.4.0",
  "ark-std 0.4.0",
@@ -1607,6 +1653,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "rand",
+ "risc0-circuit-recursion",
  "risc0-groth16",
  "risc0-zkvm",
  "serde",
@@ -1742,10 +1789,10 @@ dependencies = [
  "alloy-rpc-types-eth 0.11.1",
  "alloy-serde 0.4.2",
  "ark-bn254 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ark-crypto-primitives",
+ "ark-crypto-primitives 0.4.0 (git+https://github.com/arkworks-rs/crypto-primitives/?branch=releases)",
  "ark-ec",
  "ark-ff 0.4.0",
- "ark-groth16",
+ "ark-groth16 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ark-relations",
  "ark-serialize 0.4.0",
  "ark-std 0.4.0",
@@ -4946,7 +4993,7 @@ dependencies = [
  "anyhow",
  "ark-bn254 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ark-ec",
- "ark-groth16",
+ "ark-groth16 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ark-serialize 0.4.0",
  "bytemuck",
  "hex",

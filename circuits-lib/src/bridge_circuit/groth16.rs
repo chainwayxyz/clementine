@@ -3,10 +3,12 @@ use ark_groth16::Proof;
 use ark_groth16::PreparedVerifyingKey;
 use ark_serialize::CanonicalDeserialize;
 use risc0_zkvm::guest::env;
-use crate::bridge_circuit_core::{groth16::CircuitGroth16Proof, utils::to_decimal};
+use crate::bridge_circuit_core::groth16::CircuitGroth16Proof;
+use crate::bridge_circuit_core::utils::to_decimal;
+
 use super::constants::{
     A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG, POST_STATE,
-    PREPARED_VK, PRE_STATE,
+    PREPARED_VK,
 };
 use hex::ToHex;
 use sha2::{Digest, Sha256};
@@ -29,7 +31,7 @@ pub fn create_output_digest(total_work: &[u8; 16]) -> [u8; 32] {
     Sha256::digest(output_pre_digest).into()
 }
 
-pub fn create_claim_digest(output_digest: &[u8; 32]) -> [u8; 32] {
+pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u8; 32] {
     let data: [u8; 8] = [0; 8];
 
     let claim_len: [u8; 2] = [4, 0];
@@ -37,7 +39,7 @@ pub fn create_claim_digest(output_digest: &[u8; 32]) -> [u8; 32] {
     let concatenated = [
         &CLAIM_TAG,
         &INPUT,
-        &PRE_STATE,
+        pre_state,
         &POST_STATE,
         output_digest,
         &data[..],
@@ -66,7 +68,7 @@ impl CircuitGroth16WithTotalWork {
         }
     }
 
-    pub fn verify(&self) -> bool {
+    pub fn verify(&self, pre_state: &[u8; 32]) -> bool {
         let ark_proof: Proof::<Bn254>  = self.groth16_seal.into();
         let start = env::cycle_count();
         let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
@@ -77,7 +79,7 @@ impl CircuitGroth16WithTotalWork {
 
         let output_digest = create_output_digest(&self.total_work);
 
-        let claim_digest: [u8; 32] = create_claim_digest(&output_digest);
+        let claim_digest: [u8; 32] = create_claim_digest(&output_digest, pre_state);
 
         let claim_digest_hex: String = claim_digest.encode_hex();
         let c0_str = &claim_digest_hex[32..64];

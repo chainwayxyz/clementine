@@ -3,7 +3,7 @@ use ark_ff::BigInt;
 
 // GROTH16 RELATED CONSTANTS
 pub static PRE_STATE: [u8; 32] =
-    hex_literal::hex!("200c68e2c957bcd57738d7291630f25e240bd7b944e51c2e89929af21379d529");
+    hex_literal::hex!("0e5538994223302b19029d4703ad72ed6feff8bb3c8f6e3cb64f6b3efcb08344");
 pub static POST_STATE: [u8; 32] =
     hex_literal::hex!("a3acc27117418996340b84e5a90f3ef4c49d22c79e44aad822ec9c313e1eb8e2");
 pub static INPUT: [u8; 32] =

@@ -31,7 +31,7 @@ const PAYOUT_TX: [u8; 301] = hex_literal::hex!("02000000000102d43afcd7236286bee4
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")))
         .with(tracing_subscriber::fmt::layer())
         .init();
 

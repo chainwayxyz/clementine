@@ -1,7 +1,4 @@
 use bitcoin::hashes::Hash;
-use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
-use crate::bridge_circuit_core;
-use super::{lc_proof, storage_proof};
 use storage_proof::verify_storage_proofs;
 use lc_proof::lc_proof_verifier;
 use risc0_zkvm::guest::env;
@@ -12,6 +9,11 @@ use bridge_circuit_core::winternitz::{
 };
 use bridge_circuit_core::zkvm::ZkvmGuest;
 use bridge_circuit_core::groth16::CircuitGroth16Proof;
+
+use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
+use crate::bridge_circuit_core;
+
+use super::{lc_proof, storage_proof};
 
 
 
@@ -24,7 +26,7 @@ pub fn verify_winternitz_and_groth16(input: &WinternitzHandler) -> bool {
     res
 }
 
-pub fn convert_to_groth16_and_verify(message: &Vec<u8>) -> bool {
+pub fn convert_to_groth16_and_verify(message: &Vec<u8>, pre_state: &[u8; 32]) -> bool {
     let compressed_seal: [u8; 128] = match message[0..128].try_into() {
         Ok(compressed_seal) => compressed_seal,
         Err(_) => return false,
@@ -42,14 +44,14 @@ pub fn convert_to_groth16_and_verify(message: &Vec<u8>) -> bool {
 
     let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work);
     let start = env::cycle_count();
-    let res = groth16_proof.verify();
+    let res = groth16_proof.verify(pre_state);
     let end = env::cycle_count();
     println!("G16V: {}", end - start);
     println!("{}", res);
     res
 }
 
-pub fn bridge_circuit(guest: &impl ZkvmGuest) {
+pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     let start = env::cycle_count();
     let input: WinternitzCircuitInput = guest.read_from_host();
 
@@ -72,7 +74,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest) {
     for pair in wt_messages_with_idxs.iter() {
 
         // Grooth16 verification of work only circuit
-        if convert_to_groth16_and_verify(&pair.1) {
+        if convert_to_groth16_and_verify(&pair.1, &pre_state) {
             total_work[16..32].copy_from_slice(&pair.1[128..144].chunks_exact(4).flat_map(|c| c.iter().rev()).copied().collect::<Vec<_>>());
             break;
         }

@@ -63,8 +63,8 @@ crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.3", default-features = false }
 header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "a233e27" }
-risc0-build = "1.2"
-risc0-zkvm = { version = "1.2" }
+risc0-build = "=1.2.4"
+risc0-zkvm = { version = "=1.2.4" }
 
 [patch.crates-io]
 bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "9f1e8c9" }
@@ -74,10 +74,9 @@ ark-ec = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-
 ark-poly = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
 ark-serialize = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
 ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/" }
-ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/" }
+ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/", branch = "releases" }
 ark-relations = { git = "https://github.com/arkworks-rs/snark/" }
 ark-snark = { git = "https://github.com/arkworks-rs/snark/" }
-ark-groth16 = { git = "https://github.com/arkworks-rs/groth16", branch = "releases" }
 
 [profile.release]
 lto = true

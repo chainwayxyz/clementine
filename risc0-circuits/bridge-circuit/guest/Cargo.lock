@@ -27,7 +27,7 @@ dependencies = [
  "alloy-trie",
  "auto_impl",
  "c-kzg",
- "derive_more",
+ "derive_more 1.0.0",
  "serde",
 ]
 
@@ -76,7 +76,7 @@ checksum = "cabf647eb4650c91a9d38cb6f972bb320009e7e9d61765fb688a86f1563b33e8"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
- "derive_more",
+ "derive_more 1.0.0",
  "serde",
 ]
 
@@ -94,7 +94,7 @@ dependencies = [
  "alloy-serde 0.11.1",
  "auto_impl",
  "c-kzg",
- "derive_more",
+ "derive_more 1.0.0",
  "once_cell",
  "serde",
  "sha2",
@@ -115,15 +115,15 @@ dependencies = [
 
 [[package]]
 name = "alloy-primitives"
-version = "0.8.21"
+version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "478bedf4d24e71ea48428d1bc278553bd7c6ae07c30ca063beb0b09fe58a9e74"
+checksum = "8c66bb6715b7499ea755bde4c96223ae8eb74e05c014ab38b9db602879ffb825"
 dependencies = [
  "alloy-rlp",
  "bytes",
  "cfg-if",
  "const-hex",
- "derive_more",
+ "derive_more 2.0.1",
  "foldhash",
  "hashbrown 0.15.2",
  "indexmap",
@@ -186,7 +186,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "alloy-serde 0.11.1",
- "derive_more",
+ "derive_more 1.0.0",
  "jsonwebtoken",
  "rand",
  "serde",
@@ -237,9 +237,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro"
-version = "0.8.21"
+version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2708e27f58d747423ae21d31b7a6625159bd8d867470ddd0256f396a68efa11"
+checksum = "c7f9c3c7bc1f4e334e5c5fc59ec8dac894973a71b11da09065affc6094025049"
 dependencies = [
  "alloy-sol-macro-expander",
  "alloy-sol-macro-input",
@@ -251,9 +251,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro-expander"
-version = "0.8.21"
+version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6b7984d7e085dec382d2c5ef022b533fcdb1fe6129200af30ebf5afddb6a361"
+checksum = "46ff7aa715eb2404cb87fa94390d2c5d5addd70d9617e20b2398ee6f48cb21f0"
 dependencies = [
  "alloy-sol-macro-input",
  "const-hex",
@@ -269,9 +269,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro-input"
-version = "0.8.21"
+version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33d6a9fc4ed1a3c70bdb2357bec3924551c1a59f24e5a04a74472c755b37f87d"
+checksum = "6f105fa700140c0cc6e2c3377adef650c389ac57b8ead8318a2e6bd52f1ae841"
 dependencies = [
  "const-hex",
  "dunce",
@@ -284,9 +284,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-types"
-version = "0.8.21"
+version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6044800da35c38118fd4b98e18306bd3b91af5dedeb54c1b768cf1b4fb68f549"
+checksum = "5f819635439ebb06aa13c96beac9b2e7360c259e90f5160a6848ae0d94d10452"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-macro",
@@ -302,7 +302,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "arrayvec",
- "derive_more",
+ "derive_more 1.0.0",
  "nybbles",
  "serde",
  "smallvec",
@@ -322,7 +322,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a22f4561524cd949590d78d7d4c5df8f592430d221f7f3c9497bbafd8972120f"
 dependencies = [
  "ark-ec",
- "ark-ff 0.4.2",
+ "ark-ff 0.4.0",
  "ark-std 0.4.0",
 ]
 
@@ -333,9 +333,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3a13b34da09176a8baba701233fdffbaa7c1b1192ce031a3da4e55ce1f1a56"
 dependencies = [
  "ark-ec",
- "ark-ff 0.4.2",
+ "ark-ff 0.4.0",
  "ark-relations",
- "ark-serialize 0.4.2",
+ "ark-serialize 0.4.0",
  "ark-snark",
  "ark-std 0.4.0",
  "blake2",
@@ -346,13 +346,13 @@ dependencies = [
 
 [[package]]
 name = "ark-ec"
-version = "0.4.2"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "defd9a439d56ac24968cca0571f598a61bc8c55f71d50a89cda591cb750670ba"
+checksum = "52d7f0c52aff14f216200a9eee06a9990fee2e51fc9599e226df448ad3232886"
 dependencies = [
- "ark-ff 0.4.2",
+ "ark-ff 0.4.0",
  "ark-poly",
- "ark-serialize 0.4.2",
+ "ark-serialize 0.4.0",
  "ark-std 0.4.0",
  "derivative",
  "hashbrown 0.13.2",
@@ -381,13 +381,13 @@ dependencies = [
 
 [[package]]
 name = "ark-ff"
-version = "0.4.2"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec847af850f44ad29048935519032c33da8aa03340876d351dfab5660d2966ba"
+checksum = "51ee31d8869a353433524dbd5a8f51f95cdafe7c66d458956ec13aa737198562"
 dependencies = [
  "ark-ff-asm 0.4.2",
  "ark-ff-macros 0.4.2",
- "ark-serialize 0.4.2",
+ "ark-serialize 0.4.0",
  "ark-std 0.4.0",
  "derivative",
  "digest 0.10.7",
@@ -452,21 +452,21 @@ checksum = "20ceafa83848c3e390f1cbf124bc3193b3e639b3f02009e0e290809a501b95fc"
 dependencies = [
  "ark-crypto-primitives",
  "ark-ec",
- "ark-ff 0.4.2",
+ "ark-ff 0.4.0",
  "ark-poly",
  "ark-relations",
- "ark-serialize 0.4.2",
+ "ark-serialize 0.4.0",
  "ark-std 0.4.0",
 ]
 
 [[package]]
 name = "ark-poly"
-version = "0.4.2"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d320bfc44ee185d899ccbadfa8bc31aab923ce1558716e1997a1e74057fe86bf"
+checksum = "8f6ec811462cabe265cfe1b102fcfe3df79d7d2929c2425673648ee9abfd0272"
 dependencies = [
- "ark-ff 0.4.2",
- "ark-serialize 0.4.2",
+ "ark-ff 0.4.0",
+ "ark-serialize 0.4.0",
  "ark-std 0.4.0",
  "derivative",
  "hashbrown 0.13.2",
@@ -478,7 +478,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00796b6efc05a3f48225e59cb6a2cda78881e7c390872d5786aaf112f31fb4f0"
 dependencies = [
- "ark-ff 0.4.2",
+ "ark-ff 0.4.0",
  "ark-std 0.4.0",
  "tracing",
  "tracing-subscriber 0.2.25",
@@ -496,9 +496,9 @@ dependencies = [
 
 [[package]]
 name = "ark-serialize"
-version = "0.4.2"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adb7b85a02b83d2f22f89bd5cac66c9c89474240cb6207cb1efc16d098e822a5"
+checksum = "58ea39d00a8a4c832e6f6520e58ccec7bf909c4845863512e9b8656fd47df355"
 dependencies = [
  "ark-serialize-derive",
  "ark-std 0.4.0",
@@ -523,9 +523,9 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84d3cc6833a335bb8a600241889ead68ee89a3cf8448081fb7694c0fe503da63"
 dependencies = [
- "ark-ff 0.4.2",
+ "ark-ff 0.4.0",
  "ark-relations",
- "ark-serialize 0.4.2",
+ "ark-serialize 0.4.0",
  "ark-std 0.4.0",
 ]
 
@@ -800,6 +800,7 @@ name = "bridge-circuit-guest"
 version = "0.1.0"
 dependencies = [
  "circuits-lib",
+ "hex-literal",
 ]
 
 [[package]]
@@ -896,16 +897,16 @@ dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
  "ark-ec",
- "ark-ff 0.4.2",
+ "ark-ff 0.4.0",
  "ark-groth16",
  "ark-relations",
- "ark-serialize 0.4.2",
+ "ark-serialize 0.4.0",
  "ark-std 0.4.0",
  "bincode",
  "bitcoin",
  "borsh",
  "crypto-bigint",
- "derive_more",
+ "derive_more 1.0.0",
  "final-spv",
  "header-chain",
  "hex",
@@ -1086,7 +1087,16 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a9b99b9cbbe49445b21764dc0625032a89b145a2642e67603e1c936f5458d05"
 dependencies = [
- "derive_more-impl",
+ "derive_more-impl 1.0.0",
+]
+
+[[package]]
+name = "derive_more"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "093242cf7570c207c83073cf82f79706fe7b8317e98620a47d5be7c3d8497678"
+dependencies = [
+ "derive_more-impl 2.0.1",
 ]
 
 [[package]]
@@ -1094,6 +1104,18 @@ name = "derive_more-impl"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
+ "unicode-xid",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bda628edc44c4bb645fbe0f758797143e4e07926f7ebf4e9bdfbd3d2ce621df3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2133,7 +2155,7 @@ dependencies = [
  "ark-bn254",
  "ark-ec",
  "ark-groth16",
- "ark-serialize 0.4.2",
+ "ark-serialize 0.4.0",
  "bytemuck",
  "hex",
  "num-bigint",
@@ -2236,7 +2258,7 @@ checksum = "825df406ec217a8116bd7b06897c6cc8f65ffefc15d030ae2c9540acc9ed50b6"
 dependencies = [
  "alloy-rlp",
  "ark-ff 0.3.0",
- "ark-ff 0.4.2",
+ "ark-ff 0.4.0",
  "bytes",
  "fastrlp 0.3.1",
  "fastrlp 0.4.0",
@@ -2578,9 +2600,9 @@ dependencies = [
 
 [[package]]
 name = "syn-solidity"
-version = "0.8.21"
+version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c2de690018098e367beeb793991c7d4dc7270f42c9d2ac4ccc876c1368ca430"
+checksum = "ac9f9798a84bca5cd4d1760db691075fda8f2c3a5d9647e8bfd29eb9b3fabb87"
 dependencies = [
  "paste",
  "proc-macro2",

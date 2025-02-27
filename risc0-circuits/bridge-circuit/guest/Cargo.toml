@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 circuits-lib = { path = "../../../circuits-lib" }
+hex-literal = "0.4.1"
 
 [[example]]
 name = "guest"
