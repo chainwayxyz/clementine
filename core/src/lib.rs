@@ -27,6 +27,7 @@ pub mod tx_sender;
 pub mod utils;
 pub mod verifier;
 pub mod watchtower;
+pub mod states;
 
 #[cfg(test)]
 pub mod test;
