@@ -6,8 +6,7 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-work-only-lib = { path = "../../../circuits-lib/work-only" }
-bridge-circuit-core = { path = "../../../circuits-lib/core" }
+circuits-lib = { path = "../../../circuits-lib" }
 
 [patch.crates-io]
 sha2 = { git = "https://github.com/risc0/RustCrypto-hashes", tag = "sha2-v0.10.8-risczero.0" }

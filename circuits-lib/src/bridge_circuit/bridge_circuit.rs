@@ -1,5 +1,7 @@
 use bitcoin::hashes::Hash;
-use groth16::CircuitGroth16WithTotalWork;
+use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
+use crate::bridge_circuit_core;
+use super::{lc_proof, storage_proof};
 use storage_proof::verify_storage_proofs;
 use lc_proof::lc_proof_verifier;
 use risc0_zkvm::guest::env;
@@ -10,10 +12,9 @@ use bridge_circuit_core::winternitz::{
 };
 use bridge_circuit_core::zkvm::ZkvmGuest;
 use bridge_circuit_core::groth16::CircuitGroth16Proof;
-mod constants;
-mod lc_proof;
-mod storage_proof;
-mod groth16;
+
+
+
 
 pub fn verify_winternitz_and_groth16(input: &WinternitzHandler) -> bool {
     let start = env::cycle_count();
@@ -115,14 +116,16 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest) {
     let len = last_output_script[1];
     let operator_id  = last_output_script[2..(2 + len as usize)].to_vec();
 
-    guest.commit(&WinternitzCircuitOutput {
+    guest.commit(
+        &WinternitzCircuitOutput {
         winternitz_pubkeys_digest: hash160(&pub_key_concat),
         correct_watchtowers: watchtower_flags,
         payout_tx_blockhash: input.payout_spv.block_header.compute_block_hash(),
         last_blockhash: [0u8; 32], // TODO: Change here - WE'LL CHANGE WHEN WITHDRAWAL IS AVAILABLE
         deposit_txid: input.sp.txid_hex,
         operator_id: operator_id,
-    });
+        }
+    );
     let end = env::cycle_count();
     println!("WNT: {}", end - start);
 }

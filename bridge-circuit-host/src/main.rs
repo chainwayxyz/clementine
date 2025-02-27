@@ -10,12 +10,17 @@ use final_spv::merkle_tree::BitcoinMerkleTree;
 use final_spv::spv::SPV;
 use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
 use header_chain::mmr_native::MMRNative;
-use host::{fetch_light_client_proof, fetch_storage_proof};
+use bridge_circuit_host::{fetch_light_client_proof, fetch_storage_proof};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use risc0_zkvm::{
     compute_image_id, default_executor, default_prover, ExecutorEnv, ProverOpts, Receipt,
 };
 use std::convert::TryInto;
+use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit_core::winternitz::{
+    generate_public_key, sign_digits, Parameters, WinternitzCircuitInput, WinternitzHandler,
+};
+use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt};
 const HEADERS: &[u8] = include_bytes!("bin-files/testnet4-headers.bin");
@@ -25,13 +30,14 @@ const BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] =
     include_bytes!("../../../risc0-circuits/elfs/testnet4-work-only-guest");
+const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/first_70000_proof.bin");
 
 const PAYOUT_TX: [u8; 301] = hex_literal::hex!("02000000000102d43afcd7236286bee4eb5316c597b9977cae4ac69eb8f40d4a47155b94db64540000000000fdffffffeb0577a0d00e1774686e4ef6107d85509a83b63f63056a87ee4a9ff551846bf20100000000fdffffff032036963b00000000160014b9d8ffd3b02047bc33442a2c427abc54ba53a6f83a906b1e020000001600142551d4ad0ab54037f8770ae535ce2e3e56e3f9d50000000000000000036a010101418c1976233f4523d6c988d6c9430b292d5cac77d2358117eeb7dc4dfab728da305ed183fdd44054d368398b64de7ed057fe28c31c689d8ca8c9ea813e100f9203830140b452bea0f0b6ca19442142034d3d9fedfa10bec5e58c12f1f407905214a8c8594f906cb67ffac173fedfcabff55c09e2d44cb9b2cd48f87deae15f729283bf2900000000");
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -89,10 +95,16 @@ async fn main() {
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
+<<<<<<< HEAD:bridge-circuit-host/host/src/main.rs
     let l1_height = 71610;
     let (light_client_proof, lcp_receipt) = fetch_light_client_proof(l1_height).await.unwrap();
+=======
 
-    let storage_proof = fetch_storage_proof(&light_client_proof.l2_height).await;
+    let l1_hegith = 71610;
+    let (light_client_proof, lcp_receipt) = fetch_light_client_proof(l1_hegith).await.unwrap();
+>>>>>>> oguz-ozan/bridge-circuit:bridge-circuit-host/src/main.rs
+
+    let storage_proof = fetch_storage_proof(&"latest".to_string()).await;
     let block_vec = TESTNET_BLOCK_47029.to_vec();
     let block_47029 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
     let payout_tx =
@@ -144,7 +156,6 @@ fn call_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
     let env = binding.write_slice(&borsh::to_vec(&input).unwrap());
     let env = env.build().unwrap();
     let prover = default_prover();
-    println!("input: {:?}", input);
     prover
         .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
         .unwrap()
