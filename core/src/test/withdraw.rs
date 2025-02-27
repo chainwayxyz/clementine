@@ -1,7 +1,7 @@
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self, send_raw_transaction},
+        citrea::{self, EVM_ADDRESSES, SECRET_KEYS},
         create_test_config_with_thread_name, generate_withdrawal_transaction_and_signature,
         run_single_deposit,
     },
@@ -10,18 +10,14 @@ use crate::{
 };
 use alloy::signers::Signer;
 use alloy::{
-    consensus::TxEnvelope,
     network::{EthereumWallet, TransactionBuilder},
-    primitives::{self, address, U256},
-    providers::{ext::AnvilApi, Provider},
+    primitives::{self, U256},
+    providers::Provider,
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
     sol,
 };
-use alloy::{
-    providers::{ProviderBuilder, WalletProvider},
-    transports::http::reqwest::Url,
-};
+use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use async_trait::async_trait;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use bitcoincore_rpc::RpcApi;
@@ -98,9 +94,10 @@ impl TestCase for CitreaDepositAndWithdraw {
         );
         config.citrea_rpc_url = citrea_url.clone();
 
+        // EVM_ADDRESSES[0]
         let evm_address = EVMAddress([
             0xf3, 0x9F, 0xd6, 0xe5, 0x1a, 0xad, 0x88, 0xF6, 0xF4, 0xce, 0x6a, 0xB8, 0x82, 0x72,
-            0x79, 0xcf, 0xfF, 0xb9, 0x22, 0x66,
+            0x79, 0xcf, 0xff, 0xb9, 0x22, 0x66,
         ]);
         let (_verifiers, _operators, _aggregator, _watchtowers, _deposit_outpoint, move_txid) =
             run_single_deposit(&mut config, rpc.clone(), Some(evm_address)).await?;
@@ -138,7 +135,7 @@ impl TestCase for CitreaDepositAndWithdraw {
         let balance = citrea::eth_get_balance(sequencer.client.http_client().clone(), evm_address)
             .await
             .unwrap();
-        // Has initial funds.
+        // Has initial funds. Therefore should be greater than the bridge amount.
         assert!(
             balance / 10_000_000_000 >= (config.protocol_paramset().bridge_amount.to_sat()).into()
         );
@@ -156,7 +153,7 @@ impl TestCase for CitreaDepositAndWithdraw {
             config.protocol_paramset().bridge_amount.to_sat()
                 - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
         );
-        let (withdrawal_tx, _withdrawal_tx_signature) =
+        let (_withdrawal_tx, _withdrawal_tx_signature) =
             generate_withdrawal_transaction_and_signature(
                 &config,
                 &rpc,
@@ -166,7 +163,7 @@ impl TestCase for CitreaDepositAndWithdraw {
             .await;
 
         let chain_id: u64 = 5655;
-        let key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+        let key = SECRET_KEYS[0]
             .parse::<PrivateKeySigner>()
             .unwrap()
             .with_chain_id(Some(chain_id));
@@ -174,10 +171,8 @@ impl TestCase for CitreaDepositAndWithdraw {
             .wallet(EthereumWallet::from(key))
             .on_http(Url::parse(&citrea_url).unwrap());
 
-        let alice =
-            primitives::Address::from_str("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266").unwrap();
-        let bob =
-            primitives::Address::from_str("70997970C51812dc3A010C7d01b50e0d17dc79C8").unwrap();
+        let alice = primitives::Address::from_str(EVM_ADDRESSES[0]).unwrap();
+        let bob = primitives::Address::from_str(EVM_ADDRESSES[1]).unwrap();
 
         let tx = TransactionRequest::default()
             .with_from(alice)
@@ -190,17 +185,13 @@ impl TestCase for CitreaDepositAndWithdraw {
         let gas = provider.estimate_gas(&tx).await.unwrap();
         let req = tx.gas_limit(gas);
 
-        send_raw_transaction(sequencer.client.http_client().clone(), req.clone())
-            .await
-            .unwrap();
-
         let call_set_value_req = provider.send_transaction(req).await.unwrap();
         let tx_hash = call_set_value_req
             .get_receipt()
             .await
             .unwrap()
             .transaction_hash;
-        tracing::error!("asasd {:?}", tx_hash);
+        tracing::info!("EVM tx hash: {:?}", tx_hash);
 
         Ok(())
     }
