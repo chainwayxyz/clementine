@@ -1,10 +1,6 @@
 use crate::errors::BridgeError;
 use crate::test::common::citrea::parameters::get_deposit_params;
 use crate::EVMAddress;
-use alloy::consensus::transaction::PooledTransaction;
-use alloy::dyn_abi::abi::encode;
-use alloy::primitives::{self, Bytes, B256};
-use alloy::rpc::types::TransactionRequest;
 use bitcoin::hashes::Hash;
 use bitcoin::{Block, Transaction, Txid};
 use jsonrpsee::core::client::ClientT;
@@ -81,22 +77,6 @@ pub async fn deposit(
             rpc_params!(hex::encode(params)),
         )
         .await?;
-
-    Ok(())
-}
-
-pub async fn send_raw_transaction(
-    client: HttpClient,
-    data: TransactionRequest,
-) -> Result<(), BridgeError> {
-    // let _response: B256 = client
-    //     .request(
-    //         "eth_sendRawTransaction",
-    //         rpc_params!(hex::encode(data)),
-    //     )
-    //     .await?;
-
-    // tracing::info!("send_raw_transaction response: {:?}", _response);
 
     Ok(())
 }
