@@ -5,10 +5,10 @@ use alloy::{
 use alloy_primitives::U256;
 use alloy_rpc_types::EIP1186AccountProofResponse;
 use anyhow::bail;
+use bridge_circuit_core::{LightClientProof, StorageProof};
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;
-use bridge_circuit_core::{LightClientProof, StorageProof};
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000026");
@@ -38,13 +38,12 @@ pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProo
     let bytes = decode(proof_str).expect("Invalid hex");
     let decoded: InnerReceipt = bincode::deserialize(&bytes).expect("Failed to deserialize");
     let receipt = receipt_from_inner(decoded).expect("Failed to create receipt");
-    
 
     let l2_height = response["lightClientProofOutput"]["lastL2Height"]
-    .as_str()
-    .expect("l2 height is not a string");
+        .as_str()
+        .expect("l2 height is not a string");
     println!("L2 height: {:?}", l2_height);
-    
+
     Ok((
         LightClientProof {
             lc_journal: receipt.journal.bytes.clone(),
@@ -54,7 +53,7 @@ pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProo
     ))
 }
 
-pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof{
+pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof {
     let ind = 34;
     let tx_index: u32 = ind * 2;
 
@@ -109,7 +108,6 @@ pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof{
         index: ind,
         txid_hex: TX_ID,
     }
-
 }
 
 fn receipt_from_inner(inner: InnerReceipt) -> anyhow::Result<Receipt> {

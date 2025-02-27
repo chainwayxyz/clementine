@@ -19,9 +19,7 @@ use bitcoin::{
     Address, ScriptBuf, TapSighash, TapTweakHash, Txid,
 };
 use bitcoin::{TapNodeHash, Witness};
-use bitvm::signatures::winternitz::{
-    self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
-};
+use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
@@ -182,7 +180,7 @@ impl Actor {
         path: WinternitzDerivationPath,
         data: Vec<u8>,
     ) -> Result<Witness, BridgeError> {
-        let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
+        let winternitz = Winternitz::<BinarysearchVerifier, ToBytesConverter>::new();
 
         let winternitz_params = path.get_params();
 
@@ -494,9 +492,7 @@ mod tests {
     use bitcoin::{Amount, Network, OutPoint};
     use bitvm::{
         execute_script,
-        signatures::winternitz::{
-            self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
-        },
+        signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz},
         treepp::script,
     };
     use rand::thread_rng;
@@ -838,7 +834,7 @@ mod tests {
             .unwrap();
         let pk = actor.derive_winternitz_pk(path.clone()).unwrap();
 
-        let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
+        let winternitz = Winternitz::<BinarysearchVerifier, ToBytesConverter>::new();
         let check_sig_script = winternitz.checksig_verify(&params, &pk);
 
         let message_checker = script! {

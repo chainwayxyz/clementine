@@ -444,7 +444,7 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
         )
     } else {
         tracing_subscriber::util::SubscriberInitExt::try_init(
-        tracing_subscriber::registry()
+            tracing_subscriber::registry()
                 .with(standard_layer)
                 .with(filter),
         )

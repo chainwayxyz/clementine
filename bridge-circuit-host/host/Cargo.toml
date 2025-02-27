@@ -5,14 +5,14 @@ edition = "2021"
 
 [dependencies]
 risc0-zkvm = { version = "1.2.3", features = ["metal"]}
-ark-bn254 = "=0.4.0"
-ark-ff = "=0.4.2"
-ark-ec = "=0.4.2"
-ark-std = "=0.4.0"
-ark-crypto-primitives = "=0.4.0"
-ark-serialize = "=0.4.2"
-ark-relations = "=0.4.0"
-ark-groth16 = "=0.4.0"
+# ark-bn254 = "=0.4.0"
+# ark-ff = "=0.4.2"
+# ark-ec = "=0.4.2"
+# ark-std = "=0.4.0"
+# ark-crypto-primitives = "=0.4.0"
+# ark-serialize = "=0.4.2"
+# ark-relations = "=0.4.0"
+# ark-groth16 = "=0.4.0"
 serde = "1.0"
 rand = { version = "0.8", features = ["small_rng"] }
 bridge-circuit-core = { path = "../../circuits-lib/core" }

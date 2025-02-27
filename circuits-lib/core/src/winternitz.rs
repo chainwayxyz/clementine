@@ -23,7 +23,7 @@ pub struct WinternitzCircuitInput {
     pub payout_spv: SPV,
     pub lcp: LightClientProof,
     pub operator_id: u32,
-    pub sp : StorageProof,
+    pub sp: StorageProof,
 }
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -36,8 +36,6 @@ pub struct WinternitzCircuitOutput {
     pub operator_id: Vec<u8>,
 }
 
-
-
 pub fn verify_winternitz_signature(input: &WinternitzHandler) -> bool {
     if input.pub_key.len() != input.params.n as usize
         || input.signature.len() != input.params.n as usize
@@ -45,7 +43,7 @@ pub fn verify_winternitz_signature(input: &WinternitzHandler) -> bool {
     {
         return false;
     }
-    
+
     let checksum = get_message_checksum(&input.params, &input.message);
 
     for (i, &digit) in input.message.iter().enumerate() {

@@ -14,7 +14,7 @@ use std::sync::Arc;
 #[tokio::test]
 async fn create_address_and_transaction_then_sign_transaction() {
     let mut config = create_test_config_with_thread_name(None).await;
-    let regtest = create_regtest_rpc(&mut config).await;
+    let regtest: WithProcessCleanup = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();

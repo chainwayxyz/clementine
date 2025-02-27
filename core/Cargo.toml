@@ -12,7 +12,7 @@ bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
-risc0-zkvm = { workspace = true }
+risc0-zkvm = { version = "1.2", features = [ "prove" ] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
@@ -35,7 +35,7 @@ tokio-stream = { workspace = true }
 async-stream = { workspace = true }
 futures-util = { workspace = true }
 futures-core = { workspace = true }
-bitvm = { workspace = true }
+bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "fc9cdd4" }
 tempfile = { workspace = true }
 
 [dev-dependencies]

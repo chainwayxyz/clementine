@@ -30,7 +30,6 @@ pub trait ZkvmHost {
 #[derive(Debug, Clone, Default)]
 pub struct Risc0Guest;
 
-
 impl Risc0Guest {
     pub fn new() -> Self {
         Self {}
