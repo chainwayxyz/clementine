@@ -58,7 +58,7 @@ impl TestCase for DepositToCitrea {
             .unwrap();
 
         let mut config = create_test_config_with_thread_name(None).await;
-        citrea::update_config_with_citrea_e2e_da(&mut config, da);
+        citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
 
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -66,12 +66,6 @@ impl TestCase for DepositToCitrea {
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
-
-        let citrea_url = format!(
-            "http://{}:{}",
-            sequencer.config.rollup.rpc.bind_host, sequencer.config.rollup.rpc.bind_port
-        );
-        config.citrea_rpc_url = citrea_url;
 
         let (_verifiers, _operators, _aggregator, _watchtowers, _deposit_outpoint, move_txid) =
             run_single_deposit(&mut config, rpc.clone(), None).await?;

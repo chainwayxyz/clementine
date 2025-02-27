@@ -41,6 +41,7 @@ pub const EVM_ADDRESSES: [&str; 10] = [
     "a0Ee7A142d267C1f36714E4a8F75612F20a79720",
 ];
 
+/// Starts typical nodes with typical configs for a test that needs Citrea.
 pub async fn start_citrea(
     sequencer_config: SequencerConfig,
     f: &mut TestFramework,
@@ -71,9 +72,11 @@ pub async fn start_citrea(
     Ok((sequencer, full_node, da))
 }
 
-pub fn update_config_with_citrea_e2e_da(
+/// Updates given config with the values set by the Citrea e2e.
+pub fn update_config_with_citrea_e2e_values(
     config: &mut BridgeConfig,
     da: &citrea_e2e::bitcoin::BitcoinNode,
+    sequencer: &citrea_e2e::node::Node<SequencerConfig>,
 ) {
     config.bitcoin_rpc_password = da.config.rpc_password.clone();
     config.bitcoin_rpc_user = da.config.rpc_user.clone();
@@ -83,4 +86,10 @@ pub fn update_config_with_citrea_e2e_da(
         da.config.rpc_port,
         NodeKind::Bitcoin // citrea-e2e internal.
     );
+
+    let citrea_url = format!(
+        "http://{}:{}",
+        sequencer.config.rollup.rpc.bind_host, sequencer.config.rollup.rpc.bind_port
+    );
+    config.citrea_rpc_url = citrea_url;
 }
