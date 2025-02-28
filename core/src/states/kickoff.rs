@@ -88,7 +88,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             kickoff_height,
             deposit_data,
             matchers: HashMap::new(),
-            dirty: false,
+            dirty: true,
             phantom: std::marker::PhantomData,
             watchtower_challenges: HashMap::new(),
             operator_asserts: HashMap::new(),
@@ -102,7 +102,7 @@ impl<T: Owner> KickoffStateMachine<T> {
 
 #[state_machine(
     initial = "State::kickoff_started()",
-    on_transition = "Self::on_transition",
+    on_dispatch = "Self::on_dispatch",
     state(derive(Debug, Clone))
 )]
 impl<T: Owner> KickoffStateMachine<T> {
@@ -119,8 +119,12 @@ impl<T: Owner> KickoffStateMachine<T> {
     }
 
     #[action]
-    pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
-        tracing::debug!(?self.kickoff_id, "Transitioning from {:?} to {:?}", state_a, state_b);
+    pub(crate) fn on_dispatch(
+        &mut self,
+        _state: StateOrSuperstate<'_, '_, Self>,
+        evt: &KickoffEvent,
+    ) {
+        tracing::debug!(?self.kickoff_id, "Dispatching event {:?}", evt);
         self.dirty = true;
     }
 

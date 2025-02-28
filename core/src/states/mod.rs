@@ -49,7 +49,8 @@ where
     T: Owner,
     for<'evt, 'ctx> M: IntoStateMachine<Event<'evt> = M::StateEvent, Context<'ctx> = context::StateContext<T>>
         + Send
-        + BlockMatcher,
+        + BlockMatcher
+        + Clone,
     M::State: awaitable::State<M> + 'static + Send,
     for<'sub> M::Superstate<'sub>: awaitable::Superstate<M> + Send,
     for<'evt> M::Event<'evt>: Send + Sync,
@@ -100,6 +101,16 @@ impl<T: Owner + 'static> StateManager<T> {
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
         }
+    }
+
+    pub fn load_from_db(&mut self) -> Result<(), BridgeError> {
+        // TODO: implement
+        Ok(())
+    }
+
+    pub fn save_to_db(&self) -> Result<(), BridgeError> {
+        // TODO: implement
+        Ok(())
     }
 
     fn create_context(
@@ -162,7 +173,7 @@ impl<T: Owner + 'static> StateManager<T> {
     }
 
     /// Processes the block and moves all state machines forward in parallel.
-    /// The state machines are updated until they stabilize in their state (ie.
+    /// The state machines are updated until all of them stabilize in their state (ie.
     /// the block does not generate any new events)
     ///
     /// # Errors
@@ -190,12 +201,6 @@ impl<T: Owner + 'static> StateManager<T> {
         // On each iteration, we'll update the changed machines until all machines
         // stabilize in their state.
         while !kickoff_futures.is_empty() || !round_futures.is_empty() {
-            if iterations > 50 {
-                return Err(BridgeError::Error(
-                    "State machines did not stabilize after 50 iterations".into(),
-                ));
-            }
-
             // Execute all futures in parallel
             let (kickoff_results, round_results) =
                 join(join_all(kickoff_futures), join_all(round_futures)).await;
@@ -221,8 +226,42 @@ impl<T: Owner + 'static> StateManager<T> {
 
             // Append the newly generated state machines into the changed machines list
             for ctx in kickoff_contexts.iter_mut().chain(round_contexts.iter_mut()) {
+                #[cfg(debug_assertions)]
+                for machine in &ctx.new_round_machines {
+                    if !machine.dirty {
+                        panic!("Round machine not dirty despite having been newly created: {:?}", machine.state());
+                    }
+                }
+                for machine in &ctx.new_kickoff_machines {
+                    if !machine.dirty {
+                        panic!("Kickoff machine not dirty despite having been newly created: {:?}", machine.state());
+                    }
+                }
                 changed_round_machines.extend(std::mem::take(&mut ctx.new_round_machines));
                 changed_kickoff_machines.extend(std::mem::take(&mut ctx.new_kickoff_machines));
+            }
+
+            if iterations > 50 {
+                return Err(BridgeError::Error(format!(
+                    r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 50 iterations, debug repr of changed machines:
+                        ---- Kickoff machines ----
+                        {:?}
+                        ---- Round machines ----
+                        {:?}
+                        "#,
+                    changed_kickoff_machines.len(),
+                    final_kickoff_machines.len() + changed_kickoff_machines.len(),
+                    changed_round_machines.len(),
+                    final_round_machines.len() + changed_round_machines.len(),
+                    changed_kickoff_machines
+                        .iter()
+                        .map(|m| m.state())
+                        .collect::<Vec<_>>(),
+                    changed_round_machines
+                        .iter()
+                        .map(|m| m.state())
+                        .collect::<Vec<_>>(),
+                )));
             }
 
             // Reprocess changed machines and commit these futures to be handled

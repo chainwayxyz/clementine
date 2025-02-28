@@ -56,7 +56,7 @@ impl<T: Owner> RoundStateMachine<T> {
             matchers: HashMap::new(),
             operator_data,
             operator_idx,
-            dirty: false,
+            dirty: true,
             phantom: std::marker::PhantomData,
         }
     }
@@ -65,7 +65,7 @@ use eyre::Report;
 
 #[state_machine(
     initial = "State::initial_collateral()",
-    on_transition = "Self::on_transition",
+    on_dispatch = "Self::on_dispatch",
     state(derive(Debug, Clone))
 )]
 // TODO: Add exit conditions too (ex: burn connector spent on smth else)
@@ -83,8 +83,8 @@ impl<T: Owner> RoundStateMachine<T> {
     }
 
     #[action]
-    pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
-        tracing::debug!(?self.operator_data, ?self.operator_idx, "Transitioning from {:?} to {:?}", state_a, state_b);
+    pub(crate) fn on_dispatch(&mut self, _state: StateOrSuperstate<'_, '_, Self>, evt: &RoundEvent) {
+        tracing::debug!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
         self.dirty = true;
     }
 
