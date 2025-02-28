@@ -1,12 +1,9 @@
+use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::{hashes::Hash, Txid};
-use statig::prelude::*;
-
 use crate::{
-    builder::transaction::{OperatorData, TransactionType},
+    builder::transaction::{ContractContext, OperatorData, TransactionType},
     errors::BridgeError,
-    rpc::clementine::KickoffId,
     states::Duty,
 };
 
@@ -24,7 +21,6 @@ pub struct RoundStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, RoundEvent>,
     operator_data: OperatorData,
     operator_idx: u32,
-    current_txid: Txid,
     pub(crate) dirty: bool,
     phantom: std::marker::PhantomData<T>,
 }
@@ -52,7 +48,6 @@ impl<T: Owner> RoundStateMachine<T> {
             matchers: HashMap::new(),
             operator_data,
             operator_idx,
-            current_txid: Txid::all_zeros(),
             dirty: false,
             phantom: std::marker::PhantomData,
         }
@@ -111,7 +106,7 @@ impl<T: Owner> RoundStateMachine<T> {
             RoundEvent::ReadyToReimburseSent { round_idx } => {
                 Transition(State::ready_to_reimburse(*round_idx))
             }
-            _ => Super,
+            _ => Handled,
         }
     }
 
@@ -146,7 +141,15 @@ impl<T: Owner> RoundStateMachine<T> {
         context
             .capture_error(async |context| {
                 self.matchers = HashMap::new();
-                let mut txhandlers = context.owner.create_txhandlers().await?;
+                let contract_context = ContractContext::new_context_for_rounds(
+                    self.operator_idx,
+                    *round_idx,
+                    context.paramset,
+                );
+                let mut txhandlers = context
+                    .owner
+                    .create_txhandlers(TransactionType::Round, contract_context)
+                    .await?;
                 let round_txhandler = txhandlers
                     .remove(&TransactionType::Round)
                     .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Round))?;
@@ -161,7 +164,6 @@ impl<T: Owner> RoundStateMachine<T> {
                         round_idx: *round_idx,
                     },
                 );
-                self.current_txid = *round_txhandler.get_txid();
                 for idx in 1..context.paramset.num_kickoffs_per_round + 1 {
                     self.matchers.insert(
                         Matcher::SpentUtxo(
@@ -188,7 +190,7 @@ impl<T: Owner> RoundStateMachine<T> {
             RoundEvent::RoundSent { round_idx } => {
                 Transition(State::round_tx(*round_idx, HashSet::new()))
             }
-            _ => Super,
+            _ => Handled,
         }
     }
 
@@ -201,14 +203,16 @@ impl<T: Owner> RoundStateMachine<T> {
         context
             .capture_error(async |context| {
                 self.matchers = HashMap::new();
-                let mut txhandlers = context.owner.create_txhandlers().await?;
-                let ready_to_reimburse_txhandler = txhandlers
-                    .remove(&TransactionType::ReadyToReimburse)
-                    .ok_or(BridgeError::TxHandlerNotFound(
-                        TransactionType::ReadyToReimburse,
-                    ))?;
-                self.current_txid = *ready_to_reimburse_txhandler.get_txid();
-                let next_round_txhandlers = context.owner.create_txhandlers().await?;
+                // get next rounds Round tx
+                let contract_context = ContractContext::new_context_for_rounds(
+                    self.operator_idx,
+                    *round_idx + 1,
+                    context.paramset,
+                );
+                let next_round_txhandlers = context
+                    .owner
+                    .create_txhandlers(TransactionType::Round, contract_context)
+                    .await?;
                 let next_round_txid = next_round_txhandlers
                     .get(&TransactionType::Round)
                     .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Round))?

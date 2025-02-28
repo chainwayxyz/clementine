@@ -1,4 +1,6 @@
-use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
+use crate::builder::transaction::{
+    ContractContext, DepositData, OperatorData, TransactionType, TxHandler,
+};
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::BridgeError;
@@ -95,8 +97,8 @@ pub trait Owner: Send + Sync + Clone + Default {
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError>;
     async fn create_txhandlers(
         &self,
-        kickoff_id: KickoffId,
-        deposit_data: Option<DepositData>,
+        tx_type: TransactionType,
+        contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
 }
 

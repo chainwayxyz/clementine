@@ -194,9 +194,6 @@ impl Operator {
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
             self.db.clone(),
             self.idx,
-            self.collateral_funding_outpoint,
-            self.reimburse_addr.clone(),
-            self.signer.xonly_public_key,
             self.config.clone(),
             deposit_id,
             self.nofn_xonly_pk,

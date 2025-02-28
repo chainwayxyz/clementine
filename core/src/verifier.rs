@@ -597,9 +597,6 @@ impl Verifier {
             let mut sighash_stream = pin!(create_operator_sighash_stream(
                 self.db.clone(),
                 operator_idx,
-                *collateral_outpoint,
-                reimburse_addr.clone(),
-                *op_xonly_pk,
                 self.config.clone(),
                 DepositData {
                     deposit_outpoint,

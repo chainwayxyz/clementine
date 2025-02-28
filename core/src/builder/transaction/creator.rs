@@ -1,5 +1,5 @@
-use crate::actor::Actor;
 use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
+use crate::actor::{self, Actor};
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
@@ -64,10 +64,8 @@ impl KickoffWinternitzKeys {
 pub struct ReimburseDbCache {
     pub db: Database,
     pub operator_idx: u32,
-    pub deposit_data: DepositData,
+    pub deposit_data: Option<DepositData>,
     pub paramset: &'static ProtocolParamset,
-    actor_secret_key: SecretKey,
-    winternitz_secret_key: Option<SecretKey>,
     /// watchtower challenge addresses
     watchtower_challenge_hashes: Option<Vec<[u8; 32]>>,
     /// winternitz keys to sign the kickoff tx with the blockhash
@@ -78,51 +76,93 @@ pub struct ReimburseDbCache {
     bitvm_disprove_root_hash: Option<[u8; 32]>,
     /// Public hashes to acknowledge watchtower challenges
     challenge_ack_hashes: Option<Vec<PublicHash>>,
+    /// operator data
+    operator_data: Option<OperatorData>,
 }
 
 impl ReimburseDbCache {
-    pub fn new(
+    /// Creates a db cache that can be used to create txhandlers for a specific operator and deposit
+    pub fn new_for_deposit(
         db: Database,
         operator_idx: u32,
         deposit_data: DepositData,
-        config: &BridgeConfig,
+        paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
             db,
             operator_idx,
-            deposit_data,
-            paramset: config.protocol_paramset(),
-            actor_secret_key: config.secret_key,
-            winternitz_secret_key: config.winternitz_secret_key,
+            deposit_data: Some(deposit_data),
+            paramset,
             watchtower_challenge_hashes: None,
             kickoff_winternitz_keys: None,
             bitvm_assert_addr: None,
             bitvm_disprove_root_hash: None,
             challenge_ack_hashes: None,
+            operator_data: None,
         }
     }
-    pub async fn watchtower_challenge_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
-        match self.watchtower_challenge_hashes {
-            Some(ref addr) => Ok(addr),
+
+    /// Creates a db cache that can be used to create txhandlers for a specific operator and collateral chain
+    pub fn new_for_rounds(
+        db: Database,
+        operator_idx: u32,
+        paramset: &'static ProtocolParamset,
+    ) -> Self {
+        Self {
+            db,
+            operator_idx,
+            deposit_data: None,
+            paramset,
+            watchtower_challenge_hashes: None,
+            kickoff_winternitz_keys: None,
+            bitvm_assert_addr: None,
+            bitvm_disprove_root_hash: None,
+            challenge_ack_hashes: None,
+            operator_data: None,
+        }
+    }
+
+    pub async fn get_operator_data(&mut self) -> Result<&OperatorData, BridgeError> {
+        match self.operator_data {
+            Some(ref data) => Ok(data),
             None => {
-                // Get all watchtower challenge addresses for the operator.
-                let watchtower_challenge_addr = (0..self.paramset.num_watchtowers)
-                    .map(|i| {
-                        self.db.get_watchtower_challenge_hash(
-                            None,
-                            i as u32,
-                            self.operator_idx,
-                            self.deposit_data.deposit_outpoint,
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                self.watchtower_challenge_hashes =
-                    Some(futures::future::try_join_all(watchtower_challenge_addr).await?);
-                Ok(self
-                    .watchtower_challenge_hashes
-                    .as_ref()
-                    .expect("Inserted before"))
+                self.operator_data = Some(
+                    self.db
+                        .get_operator(None, self.operator_idx as i32)
+                        .await?
+                        .ok_or(BridgeError::OperatorNotFound(self.operator_idx))?,
+                );
+                Ok(self.operator_data.as_ref().expect("Inserted before"))
             }
+        }
+    }
+
+    pub async fn watchtower_challenge_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
+        if let Some(deposit_data) = &self.deposit_data {
+            match self.watchtower_challenge_hashes {
+                Some(ref addr) => Ok(addr),
+                None => {
+                    // Get all watchtower challenge addresses for the operator.
+                    let watchtower_challenge_addr = (0..self.paramset.num_watchtowers)
+                        .map(|i| {
+                            self.db.get_watchtower_challenge_hash(
+                                None,
+                                i as u32,
+                                self.operator_idx,
+                                deposit_data.deposit_outpoint,
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    self.watchtower_challenge_hashes =
+                        Some(futures::future::try_join_all(watchtower_challenge_addr).await?);
+                    Ok(self
+                        .watchtower_challenge_hashes
+                        .as_ref()
+                        .expect("Inserted before"))
+                }
+            }
+        } else {
+            Err(BridgeError::InsufficientContext)
         }
     }
 
@@ -147,77 +187,91 @@ impl ReimburseDbCache {
     }
 
     pub async fn get_bitvm_assert_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
-        match self.bitvm_assert_addr {
-            Some(ref addr) => Ok(addr),
-            None => {
-                let (assert_addr, bitvm_hash) = self
-                    .db
-                    .get_bitvm_setup(
-                        None,
-                        self.operator_idx as i32,
-                        self.deposit_data.deposit_outpoint,
-                    )
-                    .await?
-                    .ok_or(BridgeError::BitvmSetupNotFound(
-                        self.operator_idx as i32,
-                        self.deposit_data.deposit_outpoint.txid,
-                    ))?;
-                self.bitvm_assert_addr = Some(assert_addr);
-                self.bitvm_disprove_root_hash = Some(bitvm_hash);
-                Ok(self.bitvm_assert_addr.as_ref().expect("Inserted before"))
+        if let Some(deposit_data) = &self.deposit_data {
+            match self.bitvm_assert_addr {
+                Some(ref addr) => Ok(addr),
+                None => {
+                    let (assert_addr, bitvm_hash) = self
+                        .db
+                        .get_bitvm_setup(
+                            None,
+                            self.operator_idx as i32,
+                            deposit_data.deposit_outpoint,
+                        )
+                        .await?
+                        .ok_or(BridgeError::BitvmSetupNotFound(
+                            self.operator_idx as i32,
+                            deposit_data.deposit_outpoint.txid,
+                        ))?;
+                    self.bitvm_assert_addr = Some(assert_addr);
+                    self.bitvm_disprove_root_hash = Some(bitvm_hash);
+                    Ok(self.bitvm_assert_addr.as_ref().expect("Inserted before"))
+                }
             }
+        } else {
+            Err(BridgeError::InsufficientContext)
         }
     }
 
     pub async fn get_challenge_ack_hashes(&mut self) -> Result<&[PublicHash], BridgeError> {
-        match self.challenge_ack_hashes {
-            Some(ref hashes) => Ok(hashes),
-            None => {
-                self.challenge_ack_hashes = Some(
-                    self.db
-                        .get_operators_challenge_ack_hashes(
-                            None,
-                            self.operator_idx as i32,
-                            self.deposit_data.deposit_outpoint,
-                        )
-                        .await?
-                        .ok_or(BridgeError::WatchtowerPublicHashesNotFound(
-                            self.operator_idx as i32,
-                            self.deposit_data.deposit_outpoint.txid,
-                        ))?,
-                );
-                Ok(self.challenge_ack_hashes.as_ref().expect("Inserted before"))
+        if let Some(deposit_data) = &self.deposit_data {
+            match self.challenge_ack_hashes {
+                Some(ref hashes) => Ok(hashes),
+                None => {
+                    self.challenge_ack_hashes = Some(
+                        self.db
+                            .get_operators_challenge_ack_hashes(
+                                None,
+                                self.operator_idx as i32,
+                                deposit_data.deposit_outpoint,
+                            )
+                            .await?
+                            .ok_or(BridgeError::WatchtowerPublicHashesNotFound(
+                                self.operator_idx as i32,
+                                deposit_data.deposit_outpoint.txid,
+                            ))?,
+                    );
+                    Ok(self.challenge_ack_hashes.as_ref().expect("Inserted before"))
+                }
             }
+        } else {
+            Err(BridgeError::InsufficientContext)
         }
     }
 
     pub async fn get_bitvm_disprove_root_hash(&mut self) -> Result<&[u8; 32], BridgeError> {
-        match self.bitvm_disprove_root_hash {
-            Some(ref hash) => Ok(hash),
-            None => {
-                let bitvm_hash = self
-                    .db
-                    .get_bitvm_root_hash(
-                        None,
-                        self.operator_idx as i32,
-                        self.deposit_data.deposit_outpoint,
-                    )
-                    .await?
-                    .ok_or(BridgeError::BitvmSetupNotFound(
-                        self.operator_idx as i32,
-                        self.deposit_data.deposit_outpoint.txid,
-                    ))?;
-                self.bitvm_disprove_root_hash = Some(bitvm_hash);
-                Ok(self
-                    .bitvm_disprove_root_hash
-                    .as_ref()
-                    .expect("Inserted before"))
+        if let Some(deposit_data) = &self.deposit_data {
+            match self.bitvm_disprove_root_hash {
+                Some(ref hash) => Ok(hash),
+                None => {
+                    let bitvm_hash = self
+                        .db
+                        .get_bitvm_root_hash(
+                            None,
+                            self.operator_idx as i32,
+                            deposit_data.deposit_outpoint,
+                        )
+                        .await?
+                        .ok_or(BridgeError::BitvmSetupNotFound(
+                            self.operator_idx as i32,
+                            deposit_data.deposit_outpoint.txid,
+                        ))?;
+                    self.bitvm_disprove_root_hash = Some(bitvm_hash);
+                    Ok(self
+                        .bitvm_disprove_root_hash
+                        .as_ref()
+                        .expect("Inserted before"))
+                }
             }
+        } else {
+            Err(BridgeError::InsufficientContext)
         }
     }
 }
 
-struct ContractContext {
+#[derive(Debug, Clone)]
+/// Context for a single operator and round, and optionally a single deposit
+pub struct ContractContext {
     /// required
     operator_idx: u32,
     round_idx: u32,
@@ -226,26 +280,134 @@ struct ContractContext {
     nofn_xonly_pk: Option<XOnlyPublicKey>,
     kickoff_idx: Option<u32>,
     deposit_data: Option<DepositData>,
+    signer: Option<Actor>,
+    // TODO: why different winternitz_secret_key???
 }
 
-#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_data, txtype = ?transaction_type, ?kickoff_id))]
+impl ContractContext {
+    /// Contains all necessary context for creating txhandlers for a specific operator and collateral chain
+    pub fn new_context_for_rounds(
+        operator_idx: u32,
+        round_idx: u32,
+        paramset: &'static ProtocolParamset,
+    ) -> Self {
+        Self {
+            operator_idx,
+            round_idx,
+            paramset,
+            nofn_xonly_pk: None,
+            kickoff_idx: None,
+            deposit_data: None,
+            signer: None,
+        }
+    }
+
+    /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
+    pub fn new_context_for_kickoffs(
+        kickoff_id: KickoffId,
+        deposit_data: DepositData,
+        paramset: &'static ProtocolParamset,
+        nofn_xonly_pk: XOnlyPublicKey,
+    ) -> Self {
+        Self {
+            operator_idx: kickoff_id.operator_idx,
+            round_idx: kickoff_id.round_idx,
+            paramset,
+            nofn_xonly_pk: Some(nofn_xonly_pk),
+            kickoff_idx: Some(kickoff_id.kickoff_idx),
+            deposit_data: Some(deposit_data),
+            signer: None,
+        }
+    }
+
+    /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
+    /// Additionally holds signer of an actor that can generate the actual winternitz public keys.
+    pub fn new_context_for_asserts(
+        kickoff_id: KickoffId,
+        deposit_data: DepositData,
+        paramset: &'static ProtocolParamset,
+        nofn_xonly_pk: XOnlyPublicKey,
+        signer: Actor,
+    ) -> Self {
+        Self {
+            operator_idx: kickoff_id.operator_idx,
+            round_idx: kickoff_id.round_idx,
+            paramset,
+            nofn_xonly_pk: Some(nofn_xonly_pk),
+            kickoff_idx: Some(kickoff_id.kickoff_idx),
+            deposit_data: Some(deposit_data),
+            signer: Some(signer),
+        }
+    }
+}
+
+#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_data, txtype = ?transaction_type, ?context))]
 pub async fn create_txhandlers(
-    nofn_xonly_pk: XOnlyPublicKey,
     transaction_type: TransactionType,
-    kickoff_id: KickoffId,
-    operator_data: OperatorData,
+    context: ContractContext,
     prev_ready_to_reimburse: Option<TxHandler>,
     db_cache: &mut ReimburseDbCache,
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
     let mut txhandlers = BTreeMap::new();
 
-    let ReimburseDbCache {
-        deposit_data,
-        paramset,
-        actor_secret_key,
-        winternitz_secret_key,
+    let ReimburseDbCache { paramset, .. } = db_cache.clone();
+
+    let operator_data = db_cache.get_operator_data().await?.clone();
+    let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?;
+    let ContractContext {
+        operator_idx,
+        round_idx,
         ..
-    } = db_cache.clone();
+    } = context;
+
+    // create round tx, ready to reimburse tx, and unspent kickoff txs
+    let round_txhandlers = create_round_txhandlers(
+        paramset,
+        round_idx as usize,
+        &operator_data,
+        kickoff_winternitz_keys,
+        prev_ready_to_reimburse,
+    )?;
+
+    for round_txhandler in round_txhandlers.into_iter() {
+        txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
+    }
+
+    if matches!(
+        transaction_type,
+        TransactionType::Round
+            | TransactionType::ReadyToReimburse
+            | TransactionType::UnspentKickoff(_)
+    ) {
+        // return if only one of the collateral tx's were requested
+        // do not continue as we might not have the necessary context for the remaining tx's
+        return Ok(txhandlers);
+    }
+
+    // get the next round txhandler (because reimburse connectors will be in it)
+    let next_round_txhandler = create_round_txhandler(
+        operator_data.xonly_pk,
+        RoundTxInput::Prevout(
+            get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
+                .get_spendable_output(0)?,
+        ),
+        kickoff_winternitz_keys.get_keys_for_round(round_idx as usize + 1),
+        paramset,
+    )?;
+
+    let nofn_xonly_pk = context
+        .nofn_xonly_pk
+        .ok_or(BridgeError::InsufficientContext)?;
+    let kickoff_id = KickoffId {
+        operator_idx,
+        round_idx,
+        kickoff_idx: context
+            .kickoff_idx
+            .ok_or(BridgeError::InsufficientContext)?,
+    };
+    let deposit_data = context
+        .deposit_data
+        .ok_or(BridgeError::InsufficientContext)?;
 
     // Create move_tx handler. This is unique for each deposit tx.
     // Technically this can be also given as a parameter because it is calculated repeatedly in streams
@@ -260,32 +422,6 @@ pub async fn create_txhandlers(
     )?;
     txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
 
-    let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?;
-
-    // create round tx, ready to reimburse tx, and unspent kickoff txs
-    let round_txhandlers = create_round_txhandlers(
-        paramset,
-        kickoff_id.round_idx as usize,
-        &operator_data,
-        kickoff_winternitz_keys,
-        prev_ready_to_reimburse,
-    )?;
-
-    for round_txhandler in round_txhandlers.into_iter() {
-        txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
-    }
-
-    // get the next round txhandler (because reimburse connectors will be in it)
-    let next_round_txhandler = create_round_txhandler(
-        operator_data.xonly_pk,
-        RoundTxInput::Prevout(
-            get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
-                .get_spendable_output(0)?,
-        ),
-        kickoff_winternitz_keys.get_keys_for_round(kickoff_id.round_idx as usize + 1),
-        paramset,
-    )?;
-
     let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
     let watchtower_challenge_hashes = db_cache.watchtower_challenge_hash().await?.to_vec();
@@ -293,7 +429,10 @@ pub async fn create_txhandlers(
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
         // the actual scripts to be able to spend
-        let actor = Actor::new(actor_secret_key, winternitz_secret_key, paramset.network);
+        let actor = context
+            .signer
+            .clone()
+            .ok_or(BridgeError::InsufficientContext)?;
 
         let mut assert_scripts: Vec<Arc<dyn SpendableScript>> =
             Vec::with_capacity(utils::COMBINED_ASSERT_DATA.num_steps.len());
@@ -435,7 +574,7 @@ pub async fn create_txhandlers(
             paramset,
         );
 
-        let actor = Actor::new(actor_secret_key, winternitz_secret_key, paramset.network);
+        let actor = context.signer.ok_or(BridgeError::InsufficientContext)?;
         let public_key = actor.derive_winternitz_pk(path)?;
 
         let watchtower_challenge_txhandler =

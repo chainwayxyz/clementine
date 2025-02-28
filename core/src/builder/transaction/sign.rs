@@ -10,6 +10,8 @@ use crate::watchtower::Watchtower;
 use crate::{builder, utils};
 use bitcoin::XOnlyPublicKey;
 
+use super::ContractContext;
+
 pub struct TransactionRequestData {
     pub deposit_data: DepositData,
     pub transaction_type: TransactionType,
@@ -32,34 +34,25 @@ pub async fn create_and_sign_txs(
     transaction_data: TransactionRequestData,
     block_hash: Option<[u8; 20]>, //to sign kickoff
 ) -> Result<Vec<(TransactionType, RawSignedTx)>, BridgeError> {
-    // get operator data
-    let operator_data = db
-        .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
-        .await?
-        .ok_or(BridgeError::OperatorNotFound(
-            transaction_data.kickoff_id.operator_idx,
-        ))?;
-
-    let start_time = std::time::Instant::now();
-    let txhandlers = builder::transaction::create_txhandlers(
-        nofn_xonly_pk,
-        transaction_data.transaction_type,
+    let context = ContractContext::new_context_for_kickoffs(
         transaction_data.kickoff_id,
-        operator_data,
+        transaction_data.deposit_data.clone(),
+        config.protocol_paramset(),
+        nofn_xonly_pk,
+    );
+
+    let txhandlers = builder::transaction::create_txhandlers(
+        transaction_data.transaction_type,
+        context,
         None,
-        &mut ReimburseDbCache::new(
+        &mut &mut ReimburseDbCache::new_for_deposit(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
             transaction_data.deposit_data.clone(),
-            &config,
+            config.protocol_paramset(),
         ),
     )
     .await?;
-    tracing::trace!(
-        "create_txhandlers for {:?} finished in {:?}",
-        transaction_data.transaction_type,
-        start_time.elapsed()
-    );
 
     // signatures saved during deposit
     let deposit_sigs_query = db
@@ -148,35 +141,27 @@ impl Watchtower {
         {
             return Err(BridgeError::InvalidWatchtowerChallengeData);
         }
-        // get operator data
-        let operator_data = self
-            .db
-            .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
-            .await?
-            .ok_or(BridgeError::OperatorNotFound(
-                transaction_data.kickoff_id.operator_idx,
-            ))?;
 
-        let start_time = std::time::Instant::now();
-        let mut txhandlers = builder::transaction::create_txhandlers(
-            nofn_xonly_pk,
-            TransactionType::WatchtowerChallenge(self.config.index as usize),
+        let context = ContractContext::new_context_for_asserts(
             transaction_data.kickoff_id,
-            operator_data,
+            transaction_data.deposit_data.clone(),
+            self.config.protocol_paramset(),
+            nofn_xonly_pk,
+            self.signer.clone(),
+        );
+
+        let mut txhandlers = builder::transaction::create_txhandlers(
+            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            context,
             None,
-            &mut ReimburseDbCache::new(
+            &mut &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
                 transaction_data.deposit_data.clone(),
-                &self.config,
+                self.config.protocol_paramset(),
             ),
         )
         .await?;
-        tracing::trace!(
-            "create_txhandlers for {:?} finished in {:?}",
-            TransactionType::WatchtowerChallenge(self.config.index as usize),
-            start_time.elapsed()
-        );
 
         let mut requested_txhandler = txhandlers
             .remove(&transaction_data.transaction_type)
@@ -204,26 +189,23 @@ impl Operator {
         nofn_xonly_pk: XOnlyPublicKey,
         assert_data: AssertRequestData,
     ) -> Result<RawSignedTxs, BridgeError> {
-        // get operator data
-        let operator_data = self
-            .db
-            .get_operator(None, assert_data.kickoff_id.operator_idx as i32)
-            .await?
-            .ok_or(BridgeError::OperatorNotFound(
-                assert_data.kickoff_id.operator_idx,
-            ))?;
+        let context = ContractContext::new_context_for_asserts(
+            assert_data.kickoff_id,
+            assert_data.deposit_data.clone(),
+            self.config.protocol_paramset(),
+            nofn_xonly_pk,
+            self.signer.clone(),
+        );
 
         let mut txhandlers = builder::transaction::create_txhandlers(
-            nofn_xonly_pk,
             TransactionType::MiniAssert(0),
-            assert_data.kickoff_id,
-            operator_data,
+            context,
             None,
-            &mut ReimburseDbCache::new(
+            &mut &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,
                 assert_data.deposit_data.clone(),
-                &self.config,
+                self.config.protocol_paramset(),
             ),
         )
         .await?;

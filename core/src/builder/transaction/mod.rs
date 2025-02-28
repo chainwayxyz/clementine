@@ -30,7 +30,8 @@ use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 // Exports to the outside
 pub use crate::builder::transaction::txhandler::*;
 pub use creator::{
-    create_round_txhandlers, create_txhandlers, KickoffWinternitzKeys, ReimburseDbCache,
+    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
+    ReimburseDbCache,
 };
 pub use operator_reimburse::create_payout_txhandler;
 pub use txhandler::Unsigned;

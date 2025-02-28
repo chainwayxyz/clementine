@@ -7,7 +7,8 @@
 
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
-    create_txhandlers, DepositData, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
+    create_txhandlers, ContractContext, DepositData, OperatorData, ReimburseDbCache,
+    TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -133,23 +134,16 @@ pub fn create_nofn_sighash_stream(
             Err(BridgeError::NotEnoughOperators)?;
         }
 
-        for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_outpoint)) in
+        for (operator_idx, _) in
             operators.iter().enumerate()
         {
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = ReimburseDbCache::new(db.clone(), operator_idx as u32, deposit_data.clone(), &config);
+            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.clone(), config.protocol_paramset());
 
             let mut last_ready_to_reimburse: Option<TxHandler> = None;
 
-            let operator_data = OperatorData {
-                xonly_pk: *operator_xonly_pk,
-                reimburse_addr: operator_reimburse_address.clone(),
-                collateral_funding_outpoint: *collateral_funding_outpoint,
-            };
-
-
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-            for round_iidx in 0..paramset.num_round_txs {
+            for round_idx in 0..paramset.num_round_txs {
                 // For each kickoff_utxo, it connnects to a kickoff_tx that results in
                 // either start_happy_reimburse_tx
                 // or challenge_tx, which forces the operator to initiate BitVM sequence
@@ -157,17 +151,22 @@ pub fn create_nofn_sighash_stream(
                 // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
                 // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
                 for kickoff_idx in 0..paramset.num_kickoffs_per_round {
-                    let partial = PartialSignatureInfo::new(operator_idx, round_iidx, kickoff_idx);
+                    let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
-                    let mut txhandlers = create_txhandlers(
-                        nofn_xonly_pk,
-                        TransactionType::AllNeededForDeposit,
+                    let context = ContractContext::new_context_for_kickoffs(
                         KickoffId {
                             operator_idx: operator_idx as u32,
-                            round_idx: round_iidx as u32,
+                            round_idx: round_idx as u32,
                             kickoff_idx: kickoff_idx as u32,
                         },
-                        operator_data.clone(),
+                        deposit_data.clone(),
+                        config.protocol_paramset(),
+                        nofn_xonly_pk
+                    );
+
+                    let mut txhandlers = create_txhandlers(
+                        TransactionType::AllNeededForDeposit,
+                        context,
                         last_ready_to_reimburse,
                         &mut tx_db_data,
                     ).await?;
@@ -200,45 +199,37 @@ pub fn create_nofn_sighash_stream(
 pub fn create_operator_sighash_stream(
     db: Database,
     operator_idx: usize,
-    collateral_funding_outpoint: OutPoint,
-    operator_reimburse_addr: Address,
-    operator_xonly_pk: XOnlyPublicKey,
     config: BridgeConfig,
     deposit_data: DepositData,
     nofn_xonly_pk: XOnlyPublicKey,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        let operator_data = OperatorData {
-            xonly_pk: operator_xonly_pk,
-            reimburse_addr: operator_reimburse_addr,
-            collateral_funding_outpoint,
-        };
+        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.clone(), config.protocol_paramset());
 
-        let mut tx_db_data = ReimburseDbCache::new(
-            db.clone(),
-            operator_idx as u32,
-            deposit_data.clone(),
-            &config,
-        );
 
         let paramset = config.protocol_paramset();
-        let mut last_reimburse_generator: Option<TxHandler> = None;
+        let mut last_ready_to_reimburse: Option<TxHandler> = None;
 
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
         for round_idx in 0..paramset.num_round_txs {
             for kickoff_idx in 0..paramset.num_kickoffs_per_round {
                 let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
-                let mut txhandlers = create_txhandlers(
-                    nofn_xonly_pk,
-                    TransactionType::AllNeededForDeposit,
+                let context = ContractContext::new_context_for_kickoffs(
                     KickoffId {
                         operator_idx: operator_idx as u32,
                         round_idx: round_idx as u32,
                         kickoff_idx: kickoff_idx as u32,
                     },
-                    operator_data.clone(),
-                    last_reimburse_generator,
+                    deposit_data.clone(),
+                    config.protocol_paramset(),
+                    nofn_xonly_pk
+                );
+
+                let mut txhandlers = create_txhandlers(
+                    TransactionType::AllNeededForDeposit,
+                    context,
+                    last_ready_to_reimburse,
                     &mut tx_db_data,
                 ).await?;
 
@@ -253,7 +244,7 @@ pub fn create_operator_sighash_stream(
                 if sum != config.get_num_required_operator_sigs_per_kickoff() {
                     Err(BridgeError::OperatorSighashMismatch(config.get_num_required_operator_sigs_per_kickoff(), sum))?;
                 }
-                last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
+                last_ready_to_reimburse = txhandlers.remove(&TransactionType::ReadyToReimburse);
             }
         }
     }

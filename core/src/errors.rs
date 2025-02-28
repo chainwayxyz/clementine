@@ -172,6 +172,9 @@ pub enum BridgeError {
     #[error("Error while parsing a musig member: {0}")]
     MusigParseError(#[from] musig::ParseError),
 
+    #[error("Insufficient Context data for the requested TxHandler")]
+    InsufficientContext,
+
     #[error("NoncesNotFound")]
     NoncesNotFound,
 
