@@ -3,13 +3,14 @@ use crate::builder::transaction::TransactionType;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
+use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest};
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxSender};
 use crate::utils::SECP;
 use crate::EVMAddress;
 use bitcoin::consensus::{self};
-use bitcoin::Transaction;
+use bitcoin::{Transaction, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use eyre::{bail, Context, Result};
 use secp256k1::rand::rngs::ThreadRng;
@@ -29,6 +30,9 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
 
     let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
+
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
     let verifier_0_config = {
         let mut config = config.clone();
@@ -100,6 +104,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");

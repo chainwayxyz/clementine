@@ -89,6 +89,9 @@ message DepositParams {
   bytes evm_address = 2;
   // User's recovery taproot address.
   string recovery_taproot_address = 3;
+  // nofn_xonly_pk used for the deposit
+  // TODO: not send in the future(?), every actor should retrieve nofn key from citrea
+  bytes nofn_xonly_pk = 4;
 }
 
 enum NormalTransactionId {

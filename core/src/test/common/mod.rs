@@ -18,7 +18,7 @@ use crate::servers::{
 };
 use crate::EVMAddress;
 use crate::{builder, musig2::AggregateFromPublicKeys};
-use bitcoin::OutPoint;
+use bitcoin::{OutPoint, XOnlyPublicKey};
 pub use test_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
@@ -269,6 +269,9 @@ pub async fn run_single_deposit(
 
     aggregator.setup(Request::new(Empty {})).await?;
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
@@ -279,6 +282,7 @@ pub async fn run_single_deposit(
             deposit_outpoint: Some(deposit_outpoint.into()),
             evm_address: evm_address.0.to_vec(),
             recovery_taproot_address: deposit_address.to_string(),
+            nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
         })
         .await?
         .into_inner();

@@ -381,8 +381,8 @@ impl Verifier {
                     deposit_outpoint,
                     evm_address,
                     recovery_taproot_address,
+                    nofn_xonly_pk: verifier.nofn_xonly_pk,
                 },
-                verifier.nofn_xonly_pk,
             ));
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
 
@@ -458,8 +458,8 @@ impl Verifier {
                 deposit_outpoint,
                 evm_address,
                 recovery_taproot_address: recovery_taproot_address.clone(),
+                nofn_xonly_pk: self.nofn_xonly_pk,
             },
-            self.nofn_xonly_pk,
         ));
 
         let num_required_nofn_sigs = self.config.get_num_required_nofn_sigs();
@@ -602,8 +602,8 @@ impl Verifier {
                     deposit_outpoint,
                     evm_address,
                     recovery_taproot_address: recovery_taproot_address.clone(),
+                    nofn_xonly_pk: self.nofn_xonly_pk,
                 },
-                self.nofn_xonly_pk,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
                 let sighash = sighash_stream

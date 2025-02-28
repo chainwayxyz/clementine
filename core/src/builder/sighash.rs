@@ -123,7 +123,6 @@ pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,
     deposit_data: DepositData,
-    nofn_xonly_pk: XOnlyPublicKey,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
@@ -161,7 +160,6 @@ pub fn create_nofn_sighash_stream(
                         },
                         deposit_data.clone(),
                         config.protocol_paramset(),
-                        nofn_xonly_pk
                     );
 
                     let mut txhandlers = create_txhandlers(
@@ -201,7 +199,6 @@ pub fn create_operator_sighash_stream(
     operator_idx: usize,
     config: BridgeConfig,
     deposit_data: DepositData,
-    nofn_xonly_pk: XOnlyPublicKey,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.clone(), config.protocol_paramset());
@@ -223,7 +220,6 @@ pub fn create_operator_sighash_stream(
                     },
                     deposit_data.clone(),
                     config.protocol_paramset(),
-                    nofn_xonly_pk
                 );
 
                 let mut txhandlers = create_txhandlers(

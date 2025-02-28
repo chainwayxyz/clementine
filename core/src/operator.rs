@@ -196,7 +196,6 @@ impl Operator {
             self.idx,
             self.config.clone(),
             deposit_id,
-            self.nofn_xonly_pk,
         ));
 
         let operator = self.clone();

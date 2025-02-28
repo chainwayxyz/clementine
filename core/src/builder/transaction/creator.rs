@@ -277,7 +277,6 @@ pub struct ContractContext {
     round_idx: u32,
     paramset: &'static ProtocolParamset,
     /// optional (only used for after kickoff)
-    nofn_xonly_pk: Option<XOnlyPublicKey>,
     kickoff_idx: Option<u32>,
     deposit_data: Option<DepositData>,
     signer: Option<Actor>,
@@ -295,7 +294,6 @@ impl ContractContext {
             operator_idx,
             round_idx,
             paramset,
-            nofn_xonly_pk: None,
             kickoff_idx: None,
             deposit_data: None,
             signer: None,
@@ -307,13 +305,11 @@ impl ContractContext {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
-        nofn_xonly_pk: XOnlyPublicKey,
     ) -> Self {
         Self {
             operator_idx: kickoff_id.operator_idx,
             round_idx: kickoff_id.round_idx,
             paramset,
-            nofn_xonly_pk: Some(nofn_xonly_pk),
             kickoff_idx: Some(kickoff_id.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: None,
@@ -326,14 +322,12 @@ impl ContractContext {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
-        nofn_xonly_pk: XOnlyPublicKey,
         signer: Actor,
     ) -> Self {
         Self {
             operator_idx: kickoff_id.operator_idx,
             round_idx: kickoff_id.round_idx,
             paramset,
-            nofn_xonly_pk: Some(nofn_xonly_pk),
             kickoff_idx: Some(kickoff_id.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: Some(signer),
@@ -395,9 +389,6 @@ pub async fn create_txhandlers(
         paramset,
     )?;
 
-    let nofn_xonly_pk = context
-        .nofn_xonly_pk
-        .ok_or(BridgeError::InsufficientContext)?;
     let kickoff_id = KickoffId {
         operator_idx,
         round_idx,
@@ -411,11 +402,12 @@ pub async fn create_txhandlers(
 
     // Create move_tx handler. This is unique for each deposit tx.
     // Technically this can be also given as a parameter because it is calculated repeatedly in streams
+    // TODO: change parameters...
     let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
         deposit_data.deposit_outpoint,
         deposit_data.evm_address,
         &deposit_data.recovery_taproot_address,
-        nofn_xonly_pk,
+        deposit_data.nofn_xonly_pk,
         paramset.user_takes_after,
         paramset.bridge_amount,
         paramset.network,
@@ -458,7 +450,7 @@ pub async fn create_txhandlers(
             kickoff_id,
             deposit_data.deposit_outpoint,
             get_txhandler(&txhandlers, TransactionType::Round)?,
-            nofn_xonly_pk,
+            deposit_data.nofn_xonly_pk,
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
@@ -482,7 +474,7 @@ pub async fn create_txhandlers(
             kickoff_id,
             deposit_data.deposit_outpoint,
             get_txhandler(&txhandlers, TransactionType::Round)?,
-            nofn_xonly_pk,
+            deposit_data.nofn_xonly_pk,
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
@@ -581,7 +573,7 @@ pub async fn create_txhandlers(
             builder::transaction::create_watchtower_challenge_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 watchtower_idx,
-                nofn_xonly_pk,
+                deposit_data.nofn_xonly_pk,
                 Arc::new(WinternitzCommit::new(
                     vec![(
                         public_key,
@@ -721,6 +713,7 @@ mod tests {
     use futures::future::try_join_all;
 
     use crate::builder::transaction::TransactionType;
+    use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
@@ -757,10 +750,17 @@ mod tests {
         let recovery_addr_checked = recovery_taproot_address.assume_checked();
         let evm_address = EVMAddress([1u8; 20]);
 
+        let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
+            config.verifiers_public_keys.clone(),
+            None,
+        )
+        .unwrap();
+
         let deposit_params = DepositParams {
             deposit_outpoint: Some(deposit_outpoint.into()),
             evm_address: evm_address.0.to_vec(),
             recovery_taproot_address: recovery_addr_checked.to_string(),
+            nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
         };
 
         aggregator

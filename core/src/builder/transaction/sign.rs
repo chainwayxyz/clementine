@@ -38,7 +38,6 @@ pub async fn create_and_sign_txs(
         transaction_data.kickoff_id,
         transaction_data.deposit_data.clone(),
         config.protocol_paramset(),
-        nofn_xonly_pk,
     );
 
     let txhandlers = builder::transaction::create_txhandlers(
@@ -146,7 +145,6 @@ impl Watchtower {
             transaction_data.kickoff_id,
             transaction_data.deposit_data.clone(),
             self.config.protocol_paramset(),
-            nofn_xonly_pk,
             self.signer.clone(),
         );
 
@@ -193,7 +191,6 @@ impl Operator {
             assert_data.kickoff_id,
             assert_data.deposit_data.clone(),
             self.config.protocol_paramset(),
-            nofn_xonly_pk,
             self.signer.clone(),
         );
 

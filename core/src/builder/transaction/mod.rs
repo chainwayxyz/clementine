@@ -56,6 +56,8 @@ pub struct DepositData {
     pub evm_address: EVMAddress,
     /// User's recovery taproot address.
     pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
+    /// nofn xonly public key used for deposit. TODO: save this in db
+    pub nofn_xonly_pk: XOnlyPublicKey,
 }
 
 #[derive(Debug, Clone)]

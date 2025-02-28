@@ -31,6 +31,7 @@ mod round;
 pub struct BlockCache {
     txids: HashMap<Txid, Transaction>,
     spent_utxos: HashSet<OutPoint>,
+    block_height: u32,
 }
 
 impl BlockCache {
@@ -38,10 +39,12 @@ impl BlockCache {
         Self {
             txids: HashMap::new(),
             spent_utxos: HashSet::new(),
+            block_height: 0,
         }
     }
 
-    pub fn update_with_block(&mut self, block: &Block) {
+    pub fn update_with_block(&mut self, block: &Block, block_height: u32) {
+        self.block_height = block_height;
         for tx in &block.txdata {
             self.txids.insert(tx.compute_txid(), tx.clone());
 
@@ -66,6 +69,7 @@ impl BlockCache {
 pub enum Matcher {
     SentTx(Txid),
     SpentUtxo(OutPoint),
+    BlockHeight(u32),
 }
 
 impl Matcher {
@@ -73,6 +77,7 @@ impl Matcher {
         match self {
             Matcher::SentTx(txid) => block.contains_txid(txid),
             Matcher::SpentUtxo(outpoint) => block.is_utxo_spent(outpoint),
+            Matcher::BlockHeight(height) => *height == block.block_height,
         }
     }
 }
@@ -89,6 +94,7 @@ pub enum Duty {
     WatchtowerChallenge,
     OperatorAssert,
     VerifierDisprove,
+    CheckIfMalicious,
 }
 
 // DutyHandler trait with async handling
@@ -225,8 +231,11 @@ impl<T: Owner> StateManager<T> {
     pub async fn add_kickoff_machine(
         &mut self,
         kickoff_id: crate::rpc::clementine::KickoffId,
+        block_height: u32,
+        deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let machine = kickoff::KickoffStateMachine::<T>::new(kickoff_id);
+        let machine =
+            kickoff::KickoffStateMachine::<T>::new(kickoff_id, block_height, deposit_data);
         let initialized_machine = machine
             .uninitialized_state_machine()
             .init_with_context(&mut self.context)
@@ -270,9 +279,13 @@ impl<T: Owner> StateManager<T> {
         }
     }
 
-    pub async fn process_block_parallel(&mut self, block: &Block) -> Result<(), BridgeError> {
+    pub async fn process_block_parallel(
+        &mut self,
+        block: &Block,
+        block_height: u32,
+    ) -> Result<(), BridgeError> {
         let mut cache: BlockCache = Default::default();
-        cache.update_with_block(block);
+        cache.update_with_block(block, block_height);
 
         // Create a base context with updated cache
         let base_context =
