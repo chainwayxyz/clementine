@@ -320,7 +320,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         paramset: &'static ProtocolParamset,
     ) -> context::StateContext<T> {
         let owner = Arc::new(handler);
-        let owner_type = owner.owner_type_str().to_string();
+        let owner_type = T::OWNER_TYPE.to_string();
 
         context::StateContext {
             db: db.clone(),

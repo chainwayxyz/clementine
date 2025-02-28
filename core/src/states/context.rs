@@ -23,26 +23,6 @@ use super::block_cache;
 use super::kickoff;
 use super::round;
 
-/// Identifies the type of owner that is managing state machines
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum OwnerType {
-    Operator(String),   // String identifier for operator
-    Watchtower(String), // String identifier for watchtower
-    Verifier,           // General verifier (only one per system)
-    User(String),       // String identifier for user
-}
-
-impl OwnerType {
-    pub fn as_string(&self) -> String {
-        match self {
-            OwnerType::Operator(id) => format!("operator-{}", id),
-            OwnerType::Watchtower(id) => format!("watchtower-{}", id),
-            OwnerType::Verifier => "verifier".to_string(),
-            OwnerType::User(id) => format!("user-{}", id),
-        }
-    }
-}
-
 // Duty types that can be dispatched
 #[derive(Debug, Clone)]
 pub enum Duty {
@@ -61,6 +41,13 @@ pub enum Duty {
 /// Owner trait with async handling and tx handler creation
 #[async_trait]
 pub trait Owner: Send + Sync + Clone + Default {
+    /// A string identifier for this owner type used to distinguish between
+    /// state machines with different owners in the database.
+    ///
+    /// ## Example
+    /// "operator", "watchtower", "verifier", "user"
+    const OWNER_TYPE: &'static str;
+
     /// Handle a duty
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError>;
     async fn create_txhandlers(
@@ -68,10 +55,6 @@ pub trait Owner: Send + Sync + Clone + Default {
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
-
-    /// Return a string identifier for this owner type
-    /// e.g. "operator", "watchtower", "verifier", "user"
-    fn owner_type_str(&self) -> &'static str;
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +77,7 @@ impl<T: Owner> StateContext<T> {
         paramset: &'static ProtocolParamset,
     ) -> Self {
         // Get the owner type string from the owner instance
-        let owner_type = owner.owner_type_str().to_string();
+        let owner_type = T::OWNER_TYPE.to_string();
 
         Self {
             db,
