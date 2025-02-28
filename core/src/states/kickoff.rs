@@ -33,9 +33,16 @@ pub enum KickoffEvent {
     },
     KickoffFinalizerSpent,
     BurnConnectorSpent,
+    TimeToSendWatchtowerChallenge,
+    TimeToSendOperatorAssert,
+    TimeToSendVerifierDisprove,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+// TODO: add and save operator challenge acks
+// save watchtower challenge utxo's spending (not only challenge, also timeout)
+// all timelocks
+// delete used matchers?
 pub struct KickoffStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
     pub(crate) dirty: bool,
@@ -152,6 +159,9 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .insert(*assert_idx, tx.input[0].witness.clone());
                 Handled
             }
+            KickoffEvent::BurnConnectorSpent | KickoffEvent::KickoffFinalizerSpent => {
+                Transition(State::closed())
+            }
             _ => Super,
         }
     }
@@ -173,7 +183,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             remove_txhandler_from_map(&mut txhandlers, TransactionType::Kickoff)?;
 
         // add operator asserts
-        let kickoff_txid = kickoff_txhandler.get_txid();
+        let kickoff_txid = *kickoff_txhandler.get_txid();
         let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
         for assert_idx in 0..num_asserts {
             // TODO: use dedicated functions or smth else, not hardcoded here.
@@ -184,12 +194,11 @@ impl<T: Owner> KickoffStateMachine<T> {
                 TransactionType::MiniAssert(assert_idx),
             )?
             .get_txid();
-            let matcher = matcher::Matcher::SpentUtxo(OutPoint {
-                txid: *kickoff_txid,
-                vout: mini_assert_vout as u32,
-            });
             self.matchers.insert(
-                matcher,
+                Matcher::SpentUtxo(OutPoint {
+                    txid: kickoff_txid,
+                    vout: mini_assert_vout as u32,
+                }),
                 KickoffEvent::OperatorAssertSent {
                     assert_txid: operator_assert_txid,
                     assert_idx: assert_idx as u32,
@@ -206,19 +215,36 @@ impl<T: Owner> KickoffStateMachine<T> {
                 TransactionType::WatchtowerChallenge(watchtower_idx as usize),
             )?
             .get_txid();
-            let matcher = matcher::Matcher::SpentUtxo(OutPoint {
-                txid: *kickoff_txid,
-                vout: watchtower_challenge_vout as u32,
-            });
             self.matchers.insert(
-                matcher,
+                Matcher::SpentUtxo(OutPoint {
+                    txid: kickoff_txid,
+                    vout: watchtower_challenge_vout as u32,
+                }),
                 KickoffEvent::WatchtowerChallengeSent {
                     watchtower_idx,
                     challenge_txid: watchtower_challenge_txid,
                 },
             );
         }
-        // add challenge tx
+        // add burn connector tx spent matcher
+        let round_txhandler = remove_txhandler_from_map(&mut txhandlers, TransactionType::Round)?;
+        let round_txid = *round_txhandler.get_txid();
+        self.matchers.insert(
+            Matcher::SpentUtxo(OutPoint {
+                txid: round_txid,
+                vout: 0,
+            }),
+            KickoffEvent::BurnConnectorSpent,
+        );
+        // add kickoff finalizer tx spent matcher
+        self.matchers.insert(
+            Matcher::SpentUtxo(OutPoint {
+                txid: kickoff_txid,
+                vout: 1,
+            }),
+            KickoffEvent::KickoffFinalizerSpent,
+        );
+        // create times to send necessary asserts
         Ok(())
     }
 
@@ -237,27 +263,18 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
-    #[state(entry_action = "on_challenge_entry")]
-    pub(crate) async fn challenged(
+    #[state(entry_action = "on_closed_entry")]
+    // Terminal state
+    pub(crate) async fn closed(
         &mut self,
         event: &KickoffEvent,
         context: &mut StateContext<T>,
     ) -> Response<State> {
-        match event {
-            _ => Super,
-        }
+        Handled
     }
 
     #[action]
-    pub(crate) async fn on_challenge_entry(&mut self, context: &mut StateContext<T>) {
-        println!("Watchtower Challenge Stage");
-        context
-            .capture_error(async |context| {
-                context
-                    .dispatch_duty(Duty::WatchtowerChallenge)
-                    .await
-                    .map_err(self.wrap_err("on_watchtower_challenge_entry"))
-            })
-            .await;
+    pub(crate) async fn on_closed_entry(&mut self, context: &mut StateContext<T>) {
+        self.matchers.clear();
     }
 }
