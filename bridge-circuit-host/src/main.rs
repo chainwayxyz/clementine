@@ -89,7 +89,7 @@ async fn main() {
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
-    let l1_hegith = 71610;
+    let l1_hegith = 72041;
     let (light_client_proof, lcp_receipt) = fetch_light_client_proof(l1_hegith).await.unwrap();
 
     let storage_proof = fetch_storage_proof(&"latest".to_string()).await;
@@ -103,7 +103,7 @@ async fn main() {
         .iter()
         .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
         .collect();
-    let mmr_inclusion_proof = mmr_native.generate_proof(47029);
+    let mmr_inclusion_proof = mmr_native.generate_proof(72041);
     let block_47029_mt = BitcoinMerkleTree::new(block_47029_txids);
     let payout_tx_proof = block_47029_mt.generate_proof(15); // 16th tx
 
