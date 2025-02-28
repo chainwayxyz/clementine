@@ -190,7 +190,6 @@ fn generate_fresh_data() -> BitvmCache {
                 let pk_idx = u16::from_be_bytes([script[pos + 1], script[pos + 2]]);
                 let digit_idx = script[pos + 3];
 
-
                 match pk_type_idx {
                     0 => {
                         replacement_places.payout_tx_blockhash_pk[digit_idx as usize]
