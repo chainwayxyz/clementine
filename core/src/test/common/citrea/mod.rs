@@ -1,6 +1,7 @@
 //! # Citrea Related Utilities
 
 use crate::config::BridgeConfig;
+use alloy::sol;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{EmptyConfig, SequencerConfig},
@@ -40,6 +41,14 @@ pub const EVM_ADDRESSES: [&str; 10] = [
     "23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f",
     "a0Ee7A142d267C1f36714E4a8F75612F20a79720",
 ];
+
+// Codegen from ABI file to interact with the contract.
+sol!(
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    BRIDGE_CONTRACT,
+    "src/test/common/citrea/Bridge.json"
+);
 
 /// Starts typical nodes with typical configs for a test that needs Citrea.
 pub async fn start_citrea(

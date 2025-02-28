@@ -104,7 +104,7 @@ impl TestCase for CitreaWithdraw {
             config.protocol_paramset().bridge_amount.to_sat()
                 - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
         );
-        let (_withdrawal_tx, _withdrawal_tx_signature) =
+        let (withdrawal_tx, _withdrawal_tx_signature) =
             generate_withdrawal_transaction_and_signature(
                 &config,
                 &rpc,
@@ -125,24 +125,61 @@ impl TestCase for CitreaWithdraw {
         let alice = primitives::Address::from_str(EVM_ADDRESSES[0]).unwrap();
         let bob = primitives::Address::from_str(EVM_ADDRESSES[1]).unwrap();
 
-        let tx = TransactionRequest::default()
+        let nonce =
+            citrea::eth_get_transaction_count(sequencer.client.http_client().clone(), evm_address)
+                .await
+                .unwrap();
+
+        let tx_req = TransactionRequest::default()
             .with_from(alice)
             .with_to(bob)
-            .with_nonce(0)
+            .with_nonce(nonce.try_into().unwrap())
             .with_chain_id(chain_id)
             .with_value(U256::from(withdrawal_amount.to_sat()))
             .with_max_priority_fee_per_gas(10)
             .with_max_fee_per_gas(1000000001);
-        let gas = provider.estimate_gas(&tx).await.unwrap();
-        let req = tx.gas_limit(gas);
+        let gas = provider.estimate_gas(&tx_req).await.unwrap();
+        let gas_price = provider.get_gas_price().await.unwrap();
+        let tx_req = tx_req.gas_limit(gas);
+        tracing::info!("Gas: {}, gas price: {}", gas, gas_price);
 
-        let call_set_value_req = provider.send_transaction(req).await.unwrap();
+        let call_set_value_req = provider.send_transaction(tx_req).await.unwrap();
         let tx_hash = call_set_value_req
             .get_receipt()
             .await
             .unwrap()
             .transaction_hash;
         tracing::info!("EVM tx hash: {:?}", tx_hash);
+
+        let balance_after =
+            citrea::eth_get_balance(sequencer.client.http_client().clone(), evm_address)
+                .await
+                .unwrap();
+        assert_ne!(balance, balance_after);
+
+        assert_eq!(
+            citrea::get_withdrawal_count(sequencer.client.http_client().clone())
+                .await
+                .unwrap(),
+            0
+        );
+
+        let nonce =
+            citrea::eth_get_transaction_count(sequencer.client.http_client().clone(), evm_address)
+                .await
+                .unwrap();
+        citrea::withdraw(
+            sequencer.client.http_client().clone(),
+            EVM_ADDRESSES[0],
+            *withdrawal_tx.get_txid(),
+            0,
+            withdrawal_amount.to_sat(),
+            gas,
+            gas_price,
+            nonce,
+        )
+        .await
+        .unwrap();
 
         Ok(())
     }
