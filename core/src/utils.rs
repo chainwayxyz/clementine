@@ -1,11 +1,11 @@
-use crate::builder::script::SpendableScript;
+use crate::builder::address::taproot_builder_with_scripts;
+use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::cli::Args;
-use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use ark_bn254::Bn254;
 use bitcoin::key::Parity;
-use bitcoin::{self, Txid};
+use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 
 use bitvm::chunk::api::{
@@ -14,23 +14,13 @@ use bitvm::chunk::api::{
 use bitvm::signatures::wots_api::wots160;
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
-use crate::actor::WinternitzDerivationPath;
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-#[cfg(not(debug_assertions))]
-use bitvm::{
-    chunker::{
-        assigner::BridgeAssigner, chunk_groth16_verifier::groth16_verify_to_segments,
-        disprove_execution::RawProof,
-    },
-    signatures::{signing_winternitz::WinternitzPublicKey, winternitz},
-};
+use ark_serialize::CanonicalDeserialize;
+
 use borsh::{BorshDeserialize, BorshSerialize};
-use std::collections::HashMap;
-use std::fs;
-#[cfg(not(debug_assertions))]
 use std::fs;
 use std::process::exit;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Instant;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -76,6 +66,7 @@ lazy_static::lazy_static! {
                     cache
                 }
                 Err(_) => {
+                    tracing::info!("No BitVM cache found, generating fresh data");
                     let fresh_data = generate_fresh_data();
                     if let Err(e) = fresh_data.save_to_file(cache_path) {
                         tracing::error!("Failed to save BitVM cache to file: {}", e);
@@ -157,13 +148,13 @@ fn generate_fresh_data() -> BitvmCache {
     .to_vec();
 
     let vk: ark_groth16::VerifyingKey<Bn254> =
-        ark_groth16::VerifyingKey::deserialize_uncompressed(&vk_bytes[..]).unwrap();
+        ark_groth16::VerifyingKey::deserialize_uncompressed(&vk_bytes[..])
+            .expect("Failed to deserialize verifying key");
 
     let dummy_pks = ClementineBitVMPublicKeys::create_dummy();
 
     let partial_scripts = api_generate_partial_script(&vk);
 
-    // TODO: Check if there is any dummy value exists in the partial scripts
     let scripts = partial_scripts
         .iter()
         .map(|s| s.clone().compile().to_bytes())
@@ -172,8 +163,8 @@ fn generate_fresh_data() -> BitvmCache {
     for (script_idx, script) in scripts.iter().enumerate() {
         let mut pos = 0;
         while pos + 20 <= script.len() {
-            // Check if this window matches our pattern (31u8 in the end)
-            if &script[pos + 4..pos + 20] == &[31u8; 16] {
+            // Check if this window matches our pattern (255u8 in the end)
+            if script[pos + 4..pos + 20] == [255u8; 16] {
                 panic!("Dummy value found in script {}", script_idx);
             }
             pos += 1;
@@ -193,11 +184,12 @@ fn generate_fresh_data() -> BitvmCache {
     for (script_idx, script) in scripts.iter().enumerate() {
         let mut pos = 0;
         while pos + 20 <= script.len() {
-            // Check if this window matches our pattern (31u8 in the end)
-            if &script[pos + 4..pos + 20] == &[31u8; 16] {
+            // Check if this window matches our pattern (255u8 in the end)
+            if script[pos + 4..pos + 20] == [255u8; 16] {
                 let pk_type_idx = script[pos];
                 let pk_idx = u16::from_be_bytes([script[pos + 1], script[pos + 2]]);
                 let digit_idx = script[pos + 3];
+
 
                 match pk_type_idx {
                     0 => {
@@ -241,7 +233,7 @@ fn generate_fresh_data() -> BitvmCache {
     }
 }
 
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq)]
 pub struct ClementineBitVMPublicKeys {
     pub combined_method_id_constant: [u8; 32],
     pub deposit_constant: [u8; 32],
@@ -252,6 +244,7 @@ pub struct ClementineBitVMPublicKeys {
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[allow(clippy::type_complexity)]
 pub struct ClementineBitVMReplacementData {
     pub payout_tx_blockhash_pk: [Vec<(usize, usize)>; 44],
     pub latest_blockhash_pk: [Vec<(usize, usize)>; 44],
@@ -280,7 +273,7 @@ impl Default for ClementineBitVMReplacementData {
 
 impl ClementineBitVMPublicKeys {
     pub fn get_dummy_value(pk_type_idx: u8, pk_idx: u16, digit_idx: u8) -> [u8; 20] {
-        let mut dummy_value = [31u8; 20];
+        let mut dummy_value = [255u8; 20];
         dummy_value[0] = pk_type_idx;
         dummy_value[1] = pk_idx.to_be_bytes()[0];
         dummy_value[2] = pk_idx.to_be_bytes()[1];
@@ -296,7 +289,7 @@ impl ClementineBitVMPublicKeys {
             .map(|digit_idx| Self::get_dummy_value(pk_type_idx, pk_idx, digit_idx))
             .collect::<Vec<_>>()
             .try_into()
-            .unwrap()
+            .expect("Should be able to convert to array")
     }
 
     pub fn get_multiple_dummy_wpks<const DIGIT_LEN: usize, const PK_LEN: usize>(
@@ -306,12 +299,12 @@ impl ClementineBitVMPublicKeys {
             .map(|pk_idx| Self::get_dummy_wpk(pk_type_idx, pk_idx))
             .collect::<Vec<_>>()
             .try_into()
-            .unwrap()
+            .expect("Should be able to convert to array")
     }
 
     pub fn create_dummy() -> Self {
-        let combined_method_id_constant = [31u8; 32];
-        let deposit_constant = [31u8; 32];
+        let combined_method_id_constant = [255u8; 32];
+        let deposit_constant = [255u8; 32];
         let payout_tx_blockhash_pk = Self::get_dummy_wpk(0, 0);
         let latest_blockhash_pk = Self::get_dummy_wpk(1, 0);
         let challenge_sending_watchtowers_pk = Self::get_dummy_wpk(2, 0);
@@ -339,24 +332,28 @@ impl ClementineBitVMPublicKeys {
 
     pub fn from_flattened_vec(flattened_wpks: &[Vec<[u8; 20]>]) -> Self {
         // These are dummy since they are coming from another source
-        let combined_method_id_constant = [31u8; 32];
-        let deposit_constant = [31u8; 32];
-        let payout_tx_blockhash_pk = Self::get_dummy_wpk(0, 0);
+        let combined_method_id_constant = [255u8; 32];
+        let deposit_constant = [255u8; 32];
 
-        // Convert Vec<[u8; 20]> to [[u8; 20]; N] using array_init
-        let latest_blockhash_pk = Self::vec_to_array::<44>(&flattened_wpks[0]);
-        let challenge_sending_watchtowers_pk = Self::vec_to_array::<44>(&flattened_wpks[1]);
+        // Use the first element for payout_tx_blockhash_pk
+        let payout_tx_blockhash_pk = Self::vec_to_array::<44>(&flattened_wpks[0]);
 
-        // Create the nested arrays for bitvm_pks
+        // Use the second element for latest_blockhash_pk
+        let latest_blockhash_pk = Self::vec_to_array::<44>(&flattened_wpks[1]);
+
+        // Use the third element for challenge_sending_watchtowers_pk
+        let challenge_sending_watchtowers_pk = Self::vec_to_array::<44>(&flattened_wpks[2]);
+
+        // Create the nested arrays for bitvm_pks, starting from the fourth element
         let bitvm_pks_1 =
-            Self::vec_slice_to_nested_array::<68, NUM_PUBS>(&flattened_wpks[2..2 + NUM_PUBS]);
+            Self::vec_slice_to_nested_array::<68, NUM_PUBS>(&flattened_wpks[3..3 + NUM_PUBS]);
 
         let bitvm_pks_2 = Self::vec_slice_to_nested_array::<68, NUM_U256>(
-            &flattened_wpks[2 + NUM_PUBS..2 + NUM_PUBS + NUM_U256],
+            &flattened_wpks[3 + NUM_PUBS..3 + NUM_PUBS + NUM_U256],
         );
 
         let bitvm_pks_3 = Self::vec_slice_to_nested_array::<44, NUM_U160>(
-            &flattened_wpks[2 + NUM_PUBS + NUM_U256..2 + NUM_PUBS + NUM_U256 + NUM_U160],
+            &flattened_wpks[3 + NUM_PUBS + NUM_U256..3 + NUM_PUBS + NUM_U256 + NUM_U160],
         );
 
         Self {
@@ -394,8 +391,8 @@ impl ClementineBitVMPublicKeys {
     }
 
     // Helper to convert Vec<[u8; 20]> to [[u8; 20]; N]
-    pub fn vec_to_array<const N: usize>(vec: &Vec<[u8; 20]>) -> [[u8; 20]; N] {
-        let mut result = [[31u8; 20]; N];
+    pub fn vec_to_array<const N: usize>(vec: &[[u8; 20]]) -> [[u8; 20]; N] {
+        let mut result = [[255u8; 20]; N];
         for (i, item) in vec.iter().enumerate() {
             if i < N {
                 result[i] = *item;
@@ -408,7 +405,7 @@ impl ClementineBitVMPublicKeys {
     pub fn vec_slice_to_nested_array<const INNER_LEN: usize, const OUTER_LEN: usize>(
         slice: &[Vec<[u8; 20]>],
     ) -> [[[u8; 20]; INNER_LEN]; OUTER_LEN] {
-        let mut result = [[[31u8; 20]; INNER_LEN]; OUTER_LEN];
+        let mut result = [[[255u8; 20]; INNER_LEN]; OUTER_LEN];
         for (i, vec) in slice.iter().enumerate() {
             if i < OUTER_LEN {
                 result[i] = Self::vec_to_array::<INNER_LEN>(vec);
@@ -418,18 +415,76 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub const fn number_of_assert_txs() -> usize {
-        43
+        42
     }
 
-    pub fn get_assert_scripts(&self) -> Vec<std::sync::Arc<dyn SpendableScript>> {
-        unimplemented!()
+    pub const fn number_of_flattened_wpks() -> usize {
+        396
     }
-    pub fn get_assert_taproot_leaf_hashes(&self) -> Vec<bitcoin::TapNodeHash> {
-        unimplemented!()
+
+    pub fn get_assert_scripts(
+        &self,
+        xonly_public_key: XOnlyPublicKey,
+    ) -> Vec<std::sync::Arc<dyn SpendableScript>> {
+        let mut scripts = Vec::new();
+        let first_script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
+            vec![
+                (self.latest_blockhash_pk.to_vec(), 20),
+                (self.challenge_sending_watchtowers_pk.to_vec(), 20),
+                (self.bitvm_pks.0[0].to_vec(), 32),
+            ],
+            xonly_public_key,
+            4,
+        ));
+        scripts.push(first_script);
+        // iterate NUM_U256 5 by 5
+        for i in (0..NUM_U256).step_by(5) {
+            let last_idx = std::cmp::min(i + 5, NUM_U256 - 1);
+            let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
+                self.bitvm_pks.1[i..last_idx]
+                    .iter()
+                    .map(|x| (x.to_vec(), 32))
+                    .collect::<Vec<_>>(),
+                xonly_public_key,
+                4,
+            ));
+            scripts.push(script);
+        }
+        // iterate NUM_U160 10 by 10
+        for i in (0..NUM_U160).step_by(10) {
+            let last_idx = std::cmp::min(i + 10, NUM_U160 - 1);
+            let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
+                self.bitvm_pks.2[i..last_idx]
+                    .iter()
+                    .map(|x| (x.to_vec(), 20))
+                    .collect::<Vec<_>>(),
+                xonly_public_key,
+                4,
+            ));
+            scripts.push(script);
+        }
+        scripts
+    }
+
+    pub fn get_assert_taproot_leaf_hashes(
+        &self,
+        xonly_public_key: XOnlyPublicKey,
+    ) -> Vec<bitcoin::TapNodeHash> {
+        let assert_scripts = self.get_assert_scripts(xonly_public_key);
+        assert_scripts
+            .iter()
+            .map(|script| {
+                let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
+                taproot_builder
+                    .try_into_taptree()
+                    .expect("taproot builder always builds a full taptree")
+                    .root_hash()
+            })
+            .collect::<Vec<_>>()
     }
 
     pub fn get_g16_verifier_disprove_scripts(&self) -> Vec<ScriptBuf> {
-        replace_disprove_scripts(&self)
+        replace_disprove_scripts(self)
     }
 }
 
@@ -661,4 +716,41 @@ pub fn monitor_task_with_abort<T: Send + 'static>(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{hashes::Hash, Txid};
+    use secp256k1::rand::thread_rng;
+
+    use super::*;
+    use crate::{actor::Actor, test::common::create_test_config_with_thread_name};
+    #[test]
+    fn test_to_flattened_vec() {
+        let bitvm_pks = ClementineBitVMPublicKeys::create_dummy();
+        let flattened_vec = bitvm_pks.to_flattened_vec();
+        let from_vec_to_array = ClementineBitVMPublicKeys::from_flattened_vec(&flattened_vec);
+        assert_eq!(bitvm_pks, from_vec_to_array);
+    }
+
+    #[tokio::test]
+    async fn test_vec_to_array_with_actor_values() {
+        let config = create_test_config_with_thread_name(None).await;
+
+        let sk = bitcoin::secp256k1::SecretKey::new(&mut thread_rng());
+        let signer = Actor::new(sk, Some(sk), config.protocol_paramset().network);
+        let bitvm_pks = signer
+            .generate_bitvm_pks_for_deposit(Txid::all_zeros(), config.protocol_paramset())
+            .unwrap();
+
+        let flattened_vec = bitvm_pks.to_flattened_vec();
+        let from_vec_to_array = ClementineBitVMPublicKeys::from_flattened_vec(&flattened_vec);
+        assert_eq!(bitvm_pks, from_vec_to_array);
+    }
+
+    #[tokio::test]
+    #[ignore = "This test is too slow to run on every commit"]
+    async fn test_generate_fresh_data() {
+        let _bitvm_cache = generate_fresh_data();
+    }
 }

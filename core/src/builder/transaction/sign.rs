@@ -1,4 +1,5 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
+use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::config::BridgeConfig;
@@ -8,7 +9,6 @@ use crate::operator::Operator;
 use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
 use crate::utils::ClementineBitVMPublicKeys;
 use crate::watchtower::Watchtower;
-use crate::{builder, utils};
 use bitcoin::{Transaction, XOnlyPublicKey};
 
 #[derive(Debug, Clone)]

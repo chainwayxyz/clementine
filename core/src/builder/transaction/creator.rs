@@ -1,6 +1,7 @@
 use crate::actor::Actor;
 use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
-use crate::builder::script::{SpendableScript, WinternitzCommit};
+use crate::builder;
+use crate::builder::script::WinternitzCommit;
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
@@ -13,7 +14,6 @@ use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use crate::utils::ClementineBitVMPublicKeys;
-use crate::{builder, utils};
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::XOnlyPublicKey;
 use std::collections::BTreeMap;
@@ -290,7 +290,7 @@ pub async fn create_txhandlers(
         let bitvm_pks =
             actor.generate_bitvm_pks_for_deposit(deposit_data.deposit_outpoint.txid, paramset)?;
 
-        let assert_scripts = bitvm_pks.get_assert_scripts();
+        let assert_scripts = bitvm_pks.get_assert_scripts(operator_data.xonly_pk);
 
         let kickoff_txhandler = create_kickoff_txhandler(
             kickoff_id,
@@ -555,7 +555,7 @@ mod tests {
 
     use crate::rpc::clementine::{self};
     use crate::utils::ClementineBitVMPublicKeys;
-    use crate::{rpc::clementine::DepositParams, test::common::*, utils, EVMAddress};
+    use crate::{rpc::clementine::DepositParams, test::common::*, EVMAddress};
     use bitcoin::Txid;
     use futures::future::try_join_all;
 

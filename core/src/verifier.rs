@@ -758,18 +758,24 @@ impl Verifier {
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
 
-        if winternitz_keys.len() != ClementineBitVMPublicKeys::number_of_assert_txs() {
+        if winternitz_keys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
+            tracing::error!(
+                "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
+                operator_idx,
+                winternitz_keys.len(),
+                ClementineBitVMPublicKeys::number_of_flattened_wpks()
+            );
             return Err(BridgeError::Error(format!(
                 "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
                 operator_idx,
                 winternitz_keys.len(),
-                ClementineBitVMPublicKeys::number_of_assert_txs()
+                ClementineBitVMPublicKeys::number_of_flattened_wpks()
             )));
         }
 
         let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
         let assert_tx_addrs = bitvm_pks
-            .get_assert_taproot_leaf_hashes()
+            .get_assert_taproot_leaf_hashes(operator_data.xonly_pk)
             .iter()
             .map(|x| x.to_byte_array())
             .collect::<Vec<_>>();

@@ -387,8 +387,7 @@ fn get_script_from_arr<T: SpendableScript>(
 }
 #[cfg(test)]
 mod tests {
-    use crate::actor::{Actor, WinternitzDerivationPath};
-    use crate::config::protocol::ProtocolParamsetName;
+    use crate::actor::Actor;
     use crate::extended_rpc::ExtendedRpc;
     use crate::utils;
     use std::sync::Arc;
@@ -537,7 +536,7 @@ mod tests {
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
     use crate::utils::SECP;
-    use bitcoin::{Amount, Sequence, TxOut, Txid};
+    use bitcoin::{Amount, Sequence, TxOut};
 
     async fn create_taproot_test_tx(
         rpc: &ExtendedRpc,

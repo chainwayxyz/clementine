@@ -230,19 +230,19 @@ impl Actor {
         ))?;
         pks.challenge_sending_watchtowers_pk =
             ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
-        for i in (0..pks.bitvm_pks.0.len()) {
+        for i in 0..pks.bitvm_pks.0.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 32, 2, i as u32, txid, paramset,
             ))?;
             pks.bitvm_pks.0[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
         }
-        for i in (0..pks.bitvm_pks.1.len()) {
+        for i in 0..pks.bitvm_pks.1.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 32, 3, i as u32, txid, paramset,
             ))?;
             pks.bitvm_pks.1[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
         }
-        for i in (0..pks.bitvm_pks.2.len()) {
+        for i in 0..pks.bitvm_pks.2.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 20, 4, i as u32, txid, paramset,
             ))?;
