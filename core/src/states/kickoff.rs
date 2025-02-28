@@ -11,7 +11,7 @@ use crate::{
 
 use super::{BlockCache, BlockMatcher, Matcher, Owner, StateContext};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum KickoffEvent {
     Challenged,
     WatchtowerChallengeSent,

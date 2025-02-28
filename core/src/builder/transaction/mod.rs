@@ -48,7 +48,7 @@ pub mod sign;
 mod txhandler;
 
 /// Type to uniquely identify a deposit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DepositData {
     /// User's deposit UTXO.
     pub deposit_outpoint: bitcoin::OutPoint,

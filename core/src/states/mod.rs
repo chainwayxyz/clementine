@@ -356,7 +356,11 @@ impl<T: Owner + 'static> StateManager<T> {
         (new_machines, processing_futures)
     }
 
-    pub async fn process_block_parallel(&mut self, block: &Block,         block_height: u32) -> Result<(), BridgeError> {
+    pub async fn process_block_parallel(
+        &mut self,
+        block: &Block,
+        block_height: u32,
+    ) -> Result<(), BridgeError> {
         let mut cache: BlockCache = Default::default();
         cache.update_with_block(block, block_height);
 
