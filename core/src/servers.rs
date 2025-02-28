@@ -27,6 +27,7 @@ fn is_test_env() -> bool {
 #[derive(Debug, Clone)]
 pub enum ServerAddr {
     Tcp(std::net::SocketAddr),
+    #[cfg(unix)]
     Unix(std::path::PathBuf),
 }
 
@@ -36,6 +37,7 @@ impl From<std::net::SocketAddr> for ServerAddr {
     }
 }
 
+#[cfg(unix)]
 impl From<std::path::PathBuf> for ServerAddr {
     fn from(path: std::path::PathBuf) -> Self {
         ServerAddr::Unix(path)
@@ -88,6 +90,7 @@ where
                 }
             });
         }
+        #[cfg(unix)]
         ServerAddr::Unix(ref socket_path) => {
             tracing::info!(
                 "Starting {} gRPC server with Unix socket: {:?}",
@@ -211,6 +214,7 @@ pub async fn create_watchtower_grpc_server(
 }
 
 // Functions for creating servers with Unix sockets (useful for tests)
+#[cfg(unix)]
 pub async fn create_verifier_unix_server(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
@@ -234,6 +238,17 @@ pub async fn create_verifier_unix_server(
     }
 }
 
+#[cfg(not(unix))]
+pub async fn create_verifier_unix_server(
+    _config: BridgeConfig,
+    _socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    Err(BridgeError::ConfigError(
+        "Unix sockets are not supported on this platform".into(),
+    ))
+}
+
+#[cfg(unix)]
 pub async fn create_operator_unix_server(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
@@ -257,6 +272,17 @@ pub async fn create_operator_unix_server(
     }
 }
 
+#[cfg(not(unix))]
+pub async fn create_operator_unix_server(
+    _config: BridgeConfig,
+    _socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    Err(BridgeError::ConfigError(
+        "Unix sockets are not supported on this platform".into(),
+    ))
+}
+
+#[cfg(unix)]
 pub async fn create_aggregator_unix_server(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
@@ -273,6 +299,17 @@ pub async fn create_aggregator_unix_server(
     }
 }
 
+#[cfg(not(unix))]
+pub async fn create_aggregator_unix_server(
+    _config: BridgeConfig,
+    _socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    Err(BridgeError::ConfigError(
+        "Unix sockets are not supported on this platform".into(),
+    ))
+}
+
+#[cfg(unix)]
 pub async fn create_watchtower_unix_server(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
@@ -289,4 +326,12 @@ pub async fn create_watchtower_unix_server(
     }
 }
 
-// Similar Unix socket functions can be added for other server types as needed
+#[cfg(not(unix))]
+pub async fn create_watchtower_unix_server(
+    _config: BridgeConfig,
+    _socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    Err(BridgeError::ConfigError(
+        "Unix sockets are not supported on this platform".into(),
+    ))
+}

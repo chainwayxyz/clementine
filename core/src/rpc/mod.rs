@@ -55,23 +55,35 @@ where
             .into_iter()
             .map(|endpoint| async move {
                 let channel = if endpoint.starts_with("unix://") {
-                    // Handle Unix socket
-                    let path = endpoint.trim_start_matches("unix://").to_string();
-                    Channel::from_static("lttp://[::]:50051")
-                        .connect_with_connector(tower::service_fn(move |_| {
-                            let path = PathBuf::from(path.clone());
-                            async move {
-                                let unix_stream = tokio::net::UnixStream::connect(path).await?;
-                                Ok::<_, std::io::Error>(TokioIo::new(unix_stream))
-                            }
-                        }))
-                        .await
-                        .map_err(|e| {
-                            BridgeError::ConfigError(format!(
-                                "Failed to connect to Unix socket {}: {}",
-                                endpoint, e
-                            ))
-                        })?
+                    #[cfg(unix)]
+                    {
+                        // Handle Unix socket (only available on Unix platforms)
+                        let path = endpoint.trim_start_matches("unix://").to_string();
+                        Channel::from_static("lttp://[::]:50051")
+                            .connect_with_connector(tower::service_fn(move |_| {
+                                let path = PathBuf::from(path.clone());
+                                async move {
+                                    let unix_stream = tokio::net::UnixStream::connect(path).await?;
+                                    Ok::<_, std::io::Error>(TokioIo::new(unix_stream))
+                                }
+                            }))
+                            .await
+                            .map_err(|e| {
+                                BridgeError::ConfigError(format!(
+                                    "Failed to connect to Unix socket {}: {}",
+                                    endpoint, e
+                                ))
+                            })?
+                    }
+
+                    #[cfg(not(unix))]
+                    {
+                        // Windows doesn't support Unix sockets
+                        return Err(BridgeError::ConfigError(format!(
+                            "Unix sockets ({}), are not supported on this platform",
+                            endpoint
+                        )));
+                    }
                 } else {
                     // Handle TCP/HTTP connection
                     let uri = Uri::try_from(endpoint.clone()).map_err(|e| {
