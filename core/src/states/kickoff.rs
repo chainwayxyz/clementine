@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use bitcoin::{OutPoint, Txid, Witness};
+use eyre::Report;
 use statig::prelude::*;
 
 use crate::{
@@ -94,6 +95,18 @@ impl<T: Owner> KickoffStateMachine<T> {
     state(derive(Debug, Clone))
 )]
 impl<T: Owner> KickoffStateMachine<T> {
+    pub fn wrap_err(
+        &'_ self,
+        method: &'static str,
+    ) -> impl FnOnce(BridgeError) -> eyre::Report + '_ {
+        move |e| {
+            Report::from(e).wrap_err(format!(
+                "Error in kickoff state machine for kickoff {:?} in {}",
+                self.kickoff_id, method
+            ))
+        }
+    }
+
     #[action]
     pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
         tracing::debug!(?self.kickoff_id, "Transitioning from {:?} to {:?}", state_a, state_b);
@@ -213,7 +226,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // Add all watchtower challenges and operator asserts to matchers
                 self.add_default_matchers(context).await?;
                 Ok(())
-            })
+            }.map_err(self.wrap_err("on_kickoff_started_entry"))
+        )
             .await;
     }
 
@@ -232,7 +246,12 @@ impl<T: Owner> KickoffStateMachine<T> {
     pub(crate) async fn on_challenge_entry(&mut self, context: &mut StateContext<T>) {
         println!("Watchtower Challenge Stage");
         context
-            .capture_error(async |context| context.dispatch_duty(Duty::WatchtowerChallenge).await)
+            .capture_error(async |context| {
+                context
+                    .dispatch_duty(Duty::WatchtowerChallenge)
+                    .await
+                    .map_err(self.wrap_err("on_watchtower_challenge_entry"))
+            })
             .await;
     }
 }
