@@ -1008,6 +1008,9 @@ dependencies = [
  "futures-util",
  "header-chain",
  "hex",
+ "http 1.2.0",
+ "hyper 1.6.0",
+ "hyper-util",
  "jsonrpsee",
  "lazy_static",
  "prost",
@@ -1025,6 +1028,7 @@ dependencies = [
  "toml",
  "tonic",
  "tonic-build",
+ "tower 0.4.13",
  "tracing",
  "tracing-subscriber 0.3.19",
 ]
