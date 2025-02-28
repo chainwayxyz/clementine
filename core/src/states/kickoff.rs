@@ -20,7 +20,7 @@ pub enum KickoffEvent {
     BurnConnectorSpent,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KickoffStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
     pub(crate) dirty: bool,
@@ -36,9 +36,9 @@ pub struct KickoffStateMachine<T: Owner> {
 }
 
 impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
-    type Event = KickoffEvent;
+    type StateEvent = KickoffEvent;
 
-    fn match_block(&self, block: &BlockCache) -> Vec<Self::Event> {
+    fn match_block(&self, block: &BlockCache) -> Vec<Self::StateEvent> {
         self.matchers
             .iter()
             .filter_map(|(matcher, kickoff_event)| {

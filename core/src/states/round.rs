@@ -26,9 +26,9 @@ pub struct RoundStateMachine<T: Owner> {
 }
 
 impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
-    type Event = RoundEvent;
+    type StateEvent = RoundEvent;
 
-    fn match_block(&self, block: &BlockCache) -> Vec<Self::Event> {
+    fn match_block(&self, block: &BlockCache) -> Vec<Self::StateEvent> {
         self.matchers
             .iter()
             .filter_map(|(matcher, round_event)| {

@@ -50,6 +50,10 @@ fn compile_protobuf() {
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
+        .type_attribute(
+            "clementine.KickoffId",
+            "#[derive(Eq, PartialOrd, Ord, Hash)]",
+        )
         .out_dir("./src/rpc")
         .compile_protos(
             &proto_files,
