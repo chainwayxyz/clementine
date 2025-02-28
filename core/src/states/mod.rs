@@ -281,14 +281,12 @@ impl<T: Owner + 'static> StateManager<T> {
         kickoff_id: crate::rpc::clementine::KickoffId,
         block_height: u32,
         deposit_data: DepositData,
-        num_operators: u32,
         num_watchtowers: u32,
     ) -> Result<(), BridgeError> {
         let machine = kickoff::KickoffStateMachine::<T>::new(
             kickoff_id,
             block_height,
             deposit_data,
-            num_operators,
             num_watchtowers,
         );
         let initialized_machine = machine
