@@ -3,12 +3,19 @@ use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    builder::transaction::{ContractContext, OperatorData, TransactionType},
+    builder::{
+        address::generate_deposit_address,
+        transaction::{ContractContext, OperatorData, TransactionType},
+    },
     errors::BridgeError,
-    states::Duty,
 };
 
-use super::{BlockCache, BlockMatcher, Matcher, Owner, StateContext};
+use super::{
+    block_cache::BlockCache,
+    context::{Duty, StateContext},
+    matcher::{self, BlockMatcher},
+    Owner,
+};
 
 #[derive(Debug, Clone)]
 pub enum RoundEvent {
@@ -19,7 +26,7 @@ pub enum RoundEvent {
 
 #[derive(Debug, Clone)]
 pub struct RoundStateMachine<T: Owner> {
-    pub(crate) matchers: HashMap<Matcher, RoundEvent>,
+    pub(crate) matchers: HashMap<matcher::Matcher, RoundEvent>,
     operator_data: OperatorData,
     operator_idx: u32,
     pub(crate) dirty: bool,
@@ -99,7 +106,7 @@ impl<T: Owner> RoundStateMachine<T> {
     pub(crate) async fn on_initial_collateral_entry(&mut self, context: &mut StateContext<T>) {
         self.matchers = HashMap::new();
         self.matchers.insert(
-            Matcher::SpentUtxo(self.operator_data.collateral_funding_outpoint),
+            matcher::Matcher::SpentUtxo(self.operator_data.collateral_funding_outpoint),
             RoundEvent::RoundSent { round_idx: 0 },
         );
     }
@@ -177,14 +184,14 @@ impl<T: Owner> RoundStateMachine<T> {
                             TransactionType::ReadyToReimburse,
                         ))?;
                     self.matchers.insert(
-                        Matcher::SentTx(*ready_to_reimburse_txhandler.get_txid()),
+                        matcher::Matcher::SentTx(*ready_to_reimburse_txhandler.get_txid()),
                         RoundEvent::ReadyToReimburseSent {
                             round_idx: *round_idx,
                         },
                     );
                     for idx in 1..context.paramset.num_kickoffs_per_round + 1 {
                         self.matchers.insert(
-                            Matcher::SpentUtxo(
+                            matcher::Matcher::SpentUtxo(
                                 *round_txhandler
                                     .get_spendable_output(idx)?
                                     .get_prev_outpoint(),
@@ -239,7 +246,7 @@ impl<T: Owner> RoundStateMachine<T> {
                         .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Round))?
                         .get_txid();
                     self.matchers.insert(
-                        Matcher::SentTx(*next_round_txid),
+                        matcher::Matcher::SentTx(*next_round_txid),
                         RoundEvent::RoundSent {
                             round_idx: *round_idx + 1,
                         },

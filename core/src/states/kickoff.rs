@@ -10,11 +10,15 @@ use crate::{
     },
     errors::BridgeError,
     rpc::clementine::KickoffId,
-    states::Duty,
     utils,
 };
 
-use super::{BlockCache, BlockMatcher, Matcher, Owner, StateContext};
+use super::{
+    block_cache::BlockCache,
+    context::{Duty, StateContext},
+    matcher::{self, BlockMatcher, Matcher},
+    Owner,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum KickoffEvent {
@@ -180,7 +184,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 TransactionType::MiniAssert(assert_idx),
             )?
             .get_txid();
-            let matcher = Matcher::SpentUtxo(OutPoint {
+            let matcher = matcher::Matcher::SpentUtxo(OutPoint {
                 txid: *kickoff_txid,
                 vout: mini_assert_vout as u32,
             });
@@ -202,7 +206,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 TransactionType::WatchtowerChallenge(watchtower_idx as usize),
             )?
             .get_txid();
-            let matcher = Matcher::SpentUtxo(OutPoint {
+            let matcher = matcher::Matcher::SpentUtxo(OutPoint {
                 txid: *kickoff_txid,
                 vout: watchtower_challenge_vout as u32,
             });
@@ -223,11 +227,13 @@ impl<T: Owner> KickoffStateMachine<T> {
         println!("Kickoff Started");
         context
             .capture_error(async |context| {
-                // Add all watchtower challenges and operator asserts to matchers
-                self.add_default_matchers(context).await?;
-                Ok(())
-            }.map_err(self.wrap_err("on_kickoff_started_entry"))
-        )
+                {
+                    // Add all watchtower challenges and operator asserts to matchers
+                    self.add_default_matchers(context).await?;
+                    Ok(())
+                }
+                .map_err(self.wrap_err("on_kickoff_started_entry"))
+            })
             .await;
     }
 
