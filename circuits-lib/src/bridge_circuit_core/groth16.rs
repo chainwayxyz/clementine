@@ -23,28 +23,26 @@ impl CircuitGroth16Proof {
             ark_bn254::Fq::from_be_bytes_mod_order(&seal[32..64]),
         );
 
-        #[cfg(any(target_os = "zkvm", feature = "not_patched"))]
-        let b = G2::new(
-            ark_bn254::Fq2::from_base_prime_field_elems(&[
-                ark_bn254::Fq::from_be_bytes_mod_order(&seal[96..128]),
-                ark_bn254::Fq::from_be_bytes_mod_order(&seal[64..96]),
-            ])
-            .unwrap(),
-            ark_bn254::Fq2::from_base_prime_field_elems(&[
-                ark_bn254::Fq::from_be_bytes_mod_order(&seal[160..192]),
-                ark_bn254::Fq::from_be_bytes_mod_order(&seal[128..160]),
-            ])
-            .unwrap(),
-        );
+        // let b = G2::new(
+        //     ark_bn254::Fq2::from_base_prime_field_elems(&[
+        //         ark_bn254::Fq::from_be_bytes_mod_order(&seal[96..128]),
+        //         ark_bn254::Fq::from_be_bytes_mod_order(&seal[64..96]),
+        //     ])
+        //     .unwrap(),
+        //     ark_bn254::Fq2::from_base_prime_field_elems(&[
+        //         ark_bn254::Fq::from_be_bytes_mod_order(&seal[160..192]),
+        //         ark_bn254::Fq::from_be_bytes_mod_order(&seal[128..160]),
+        //     ])
+        //     .unwrap(),
+        // );
 
-        #[cfg(all(not(target_os = "zkvm"), not(feature = "not_patched")))]
         let b = G2::new(
-            ark_bn254::Fq2::from_base_prime_field_elems([
+            ark_bn254::Fq2::from_base_prime_field_elems(&[
                 ark_bn254::Fq::from_be_bytes_mod_order(&seal[96..128]),
                 ark_bn254::Fq::from_be_bytes_mod_order(&seal[64..96]),
             ])
             .unwrap(),
-            ark_bn254::Fq2::from_base_prime_field_elems([
+            ark_bn254::Fq2::from_base_prime_field_elems(&[
                 ark_bn254::Fq::from_be_bytes_mod_order(&seal[160..192]),
                 ark_bn254::Fq::from_be_bytes_mod_order(&seal[128..160]),
             ])

@@ -2,7 +2,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitInput {
     pub header_chain_circuit_output: BlockHeaderCircuitOutput,

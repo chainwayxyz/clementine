@@ -5,10 +5,10 @@ use alloy::{
 use alloy_primitives::U256;
 use alloy_rpc_types::EIP1186AccountProofResponse;
 use anyhow::bail;
+use circuits_lib::bridge_circuit_core::structs::{LightClientProof, StorageProof};
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;
-use circuits_lib::bridge_circuit_core::structs::{LightClientProof, StorageProof};
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000026");
@@ -32,7 +32,7 @@ pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProo
         .request("lightClientProver_getLightClientProofByL1Height", request)
         .await
         .unwrap();
-    
+
     let proof_str = response["proof"].as_str().expect("Proof is not a string")[2..].to_string();
 
     let bytes = decode(proof_str).expect("Invalid hex");

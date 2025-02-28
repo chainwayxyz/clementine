@@ -6,8 +6,9 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-risc0-zkvm = { version = "=1.2.4", features = ["metal"]}
+risc0-zkvm = { version = "=1.2.4", features = ["metal", "bonsai", "client", "prove" ]}
 risc0-circuit-recursion = "=1.2.4"
+risc0-groth16 = { version = "=1.2.4", default-features=false }
 ark-bn254 = "=0.4.0"
 ark-ff = "=0.4.0"
 ark-ec = "=0.4.0"
@@ -24,7 +25,6 @@ final-spv = { git="https://github.com/chainwayxyz/risc0-to-bitvm2.git", rev="a23
 borsh = {version = "1.5.3", features = ["derive"] }
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
-risc0-groth16 = "1.2.4"
 anyhow = "1.0"
 bitcoin = { version = "0.32.0", features = ["serde"] }
 alloy = {version = "0.1", features = ["provider-http", "serde"]}
