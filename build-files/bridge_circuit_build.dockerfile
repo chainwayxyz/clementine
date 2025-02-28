@@ -8,8 +8,6 @@ COPY risc0-circuits/bridge-circuit risc0-circuits/bridge-circuit
 # Might be heavy in the future, but for now it's fine
 COPY circuits-lib circuits-lib
 
-COPY Cargo.toml Cargo.toml
-
 
 # Set compile-time environment variables
 ENV CARGO_MANIFEST_PATH="risc0-circuits/bridge-circuit/guest/Cargo.toml"

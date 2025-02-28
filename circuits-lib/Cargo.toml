@@ -3,11 +3,13 @@ name = "circuits-lib"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+
 [dependencies]
-sha2 = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-lazy_static = { workspace = true, features = ["spin_no_std"] }
-tracing = { workspace = true, default-features = false }
+sha2 = { version = "=0.10.8", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+lazy_static = { version = "1.5.0", default-features = false, features = ["spin_no_std"] }
+tracing = { version = "0.1.40", default-features = false }
 risc0-zkvm = {version = "1.2.4", default-features = false, features = ["std"]}
 borsh = {version = "1.5.3", features = ["derive"] }
 risc0-groth16 = { version = "1.2.4" }
