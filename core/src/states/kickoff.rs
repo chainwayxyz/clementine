@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use bitcoin::OutPoint;
 use statig::prelude::*;
 
 use crate::{
@@ -25,6 +26,8 @@ pub struct KickoffStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
     pub(crate) dirty: bool,
     kickoff_id: KickoffId,
+    num_operators: u32,
+    num_watchtowers: u32,
     deposit_data: DepositData,
     kickoff_height: u32,
     watchtower_challenges: HashMap<u32, Vec<u8>>,
@@ -53,7 +56,14 @@ impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
 }
 
 impl<T: Owner> KickoffStateMachine<T> {
-    pub fn new(kickoff_id: KickoffId, kickoff_height: u32, deposit_data: DepositData) -> Self {
+    // TODO: num_operators and num_watchtowers in deposit_data in the future
+    pub fn new(
+        kickoff_id: KickoffId,
+        kickoff_height: u32,
+        deposit_data: DepositData,
+        num_operators: u32,
+        num_watchtowers: u32,
+    ) -> Self {
         Self {
             kickoff_id,
             kickoff_height,
@@ -66,6 +76,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             watchtower_challenge_sent: false,
             operator_assert_sent: false,
             verifier_disprove_sent: false,
+            num_operators,
+            num_watchtowers,
         }
     }
 }
@@ -111,7 +123,24 @@ impl<T: Owner> KickoffStateMachine<T> {
             .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Kickoff))?;
         // add operator asserts
         let kickoff_txid = kickoff_txhandler.get_txid();
-        // TODO;
+        for idx in 4..4 + self.num_operators {
+            let matcher = Matcher::SpentUtxo(OutPoint {
+                txid: *kickoff_txid,
+                vout: idx,
+            });
+            self.matchers
+                .insert(matcher, KickoffEvent::OperatorAssertSent);
+        }
+        // add watchtower challenges
+        for idx in 4 + self.num_operators..4 + self.num_operators + self.num_watchtowers {
+            let matcher = Matcher::SpentUtxo(OutPoint {
+                txid: *kickoff_txid,
+                vout: idx,
+            });
+            self.matchers
+                .insert(matcher, KickoffEvent::WatchtowerChallengeSent);
+        }
+        // add challenge tx
         Ok(())
     }
 

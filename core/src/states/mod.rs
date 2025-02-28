@@ -4,15 +4,11 @@ use crate::builder::transaction::{
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::BridgeError;
-use crate::rpc::clementine::KickoffId;
-use bitcoin::hashes::hash160::Hash;
-use bitcoin::secp256k1::Context;
 use bitcoin::{Block, OutPoint, Transaction, Txid};
 use futures::future::{self, join, join_all, Map};
-use futures::{FutureExt, TryFuture};
 use statig::awaitable::InitializedStateMachine;
 use statig::prelude::*;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use thiserror::Error;
@@ -285,9 +281,16 @@ impl<T: Owner + 'static> StateManager<T> {
         kickoff_id: crate::rpc::clementine::KickoffId,
         block_height: u32,
         deposit_data: DepositData,
+        num_operators: u32,
+        num_watchtowers: u32,
     ) -> Result<(), BridgeError> {
-        let machine =
-            kickoff::KickoffStateMachine::<T>::new(kickoff_id, block_height, deposit_data);
+        let machine = kickoff::KickoffStateMachine::<T>::new(
+            kickoff_id,
+            block_height,
+            deposit_data,
+            num_operators,
+            num_watchtowers,
+        );
         let initialized_machine = machine
             .uninitialized_state_machine()
             .init_with_context(&mut self.context)
