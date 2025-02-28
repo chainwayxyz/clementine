@@ -1,17 +1,20 @@
-use crate::builder::transaction::{DepositData, OperatorData};
 use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::ProtocolParamsetName;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use bitcoin::Block;
 use context::Owner;
-use futures::future::{self, join, join_all, Map};
+use eyre::eyre;
+use eyre::Context;
+use futures::future::{join, join_all};
+use kickoff::KickoffEvent;
 use matcher::BlockMatcher;
-use statig::awaitable::InitializedStateMachine;
+use round::RoundEvent;
+use serde::{Deserialize, Serialize};
+use statig::awaitable::{InitializedStateMachine, UninitializedStateMachine};
 use statig::prelude::*;
 use std::future::Future;
 use std::sync::Arc;
-use thiserror::Error;
-use tonic::async_trait;
 
 mod block_cache;
 mod context;
@@ -86,7 +89,7 @@ pub struct StateManager<T: Owner> {
     paramset: &'static ProtocolParamset,
 }
 
-impl<T: Owner + 'static> StateManager<T> {
+impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub fn new(db: Database, handler: T, paramset: &'static ProtocolParamset) -> Self {
         Self {
             context: context::StateContext::new(
@@ -103,13 +106,210 @@ impl<T: Owner + 'static> StateManager<T> {
         }
     }
 
-    pub fn load_from_db(&mut self) -> Result<(), BridgeError> {
-        // TODO: implement
+    /// Loads the state machines from the database.
+    /// This method should be called when initializing the StateManager.
+    ///
+    /// # Errors
+    /// Returns a `BridgeError` if the database operation fails
+    pub async fn load_from_db(&mut self) -> Result<(), BridgeError> {
+        // Start a transaction
+        let mut tx = self.db.begin_transaction().await?;
+
+        // First, check if we have any state saved
+        let status = self
+            .db
+            .get_last_processed_block_height(Some(&mut tx))
+            .await?;
+
+        // If no state is saved, return early
+        let Some(block_height) = status else {
+            tracing::info!("No state machines found in the database");
+            tx.commit().await?;
+            return Ok(());
+        };
+
+        tracing::info!("Loading state machines from block height {}", block_height);
+
+        // Get the owner type from the context
+        let owner_type = &self.context.owner_type;
+
+        // Load kickoff machines
+        let kickoff_machines = self
+            .db
+            .load_kickoff_machines(Some(&mut tx), owner_type)
+            .await?;
+
+        // Process and recreate kickoff machines
+        for (state_json, kickoff_id, saved_block_height) in &kickoff_machines {
+            tracing::debug!(
+                "Loaded kickoff machine: state={}, block_height={}",
+                state_json,
+                saved_block_height
+            );
+
+            // Deserialize the machine state from JSON
+            let machine: Result<UninitializedStateMachine<kickoff::KickoffStateMachine<T>>, _> =
+                serde_json::from_str(state_json);
+
+            match machine {
+                Ok(uninitialized) => {
+                    // Create a context for initialization
+                    let mut ctx = context::StateContext::new(
+                        self.db.clone(),
+                        Arc::new(self.owner.clone()),
+                        Default::default(),
+                        self.paramset,
+                    );
+
+                    // Initialize the machine with the context
+                    let initialized = uninitialized.init_with_context(&mut ctx).await;
+                    self.kickoff_machines.push(initialized);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to deserialize kickoff machine with ID {}: {}",
+                        kickoff_id,
+                        e
+                    );
+                }
+            }
+        }
+
+        // Load round machines
+        let round_machines = self
+            .db
+            .load_round_machines(Some(&mut tx), owner_type)
+            .await?;
+
+        // Process and recreate round machines
+        for (state_json, operator_idx, saved_block_height) in &round_machines {
+            tracing::debug!(
+                "Loaded round machine: state={}, block_height={}",
+                state_json,
+                saved_block_height
+            );
+
+            // Deserialize the machine state from JSON
+            let machine: Result<UninitializedStateMachine<round::RoundStateMachine<T>>, _> =
+                serde_json::from_str(state_json);
+
+            match machine {
+                Ok(uninitialized) => {
+                    // Create a context for initialization
+                    let mut ctx = context::StateContext::new(
+                        self.db.clone(),
+                        Arc::new(self.owner.clone()),
+                        Default::default(),
+                        self.paramset,
+                    );
+
+                    // Initialize the machine with the context
+                    let initialized = uninitialized.init_with_context(&mut ctx).await;
+                    self.round_machines.push(initialized);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to deserialize round machine with operator index {:?}: {}",
+                        operator_idx,
+                        e
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            "Loaded {} kickoff machines and {} round machines from the database",
+            kickoff_machines.len(),
+            round_machines.len()
+        );
+
+        tx.commit().await?;
         Ok(())
     }
 
-    pub fn save_to_db(&self) -> Result<(), BridgeError> {
-        // TODO: implement
+    /// Saves the state machines to the database. Resets the dirty flag for all machines after successful save.
+    ///
+    /// # Errors
+    /// Returns a `BridgeError` if the database operation fails.
+    ///
+    /// # TODO
+    /// We should only save `dirty` machines but we currently save all of them.
+    pub async fn save_state_to_db(&mut self, block_height: u32) -> eyre::Result<()> {
+        // Start a database transaction
+        let mut transaction = self.db.begin_transaction().await?;
+
+        // Get the owner type from the context
+        let owner_type = &self.context.owner_type;
+
+        // Prepare kickoff machines data with direct serialization
+        let kickoff_machines: eyre::Result<Vec<_>> = self
+            .kickoff_machines
+            .iter()
+            .map(|machine| -> eyre::Result<_> {
+                // Directly serialize the machine
+                let state_json = serde_json::to_string(&machine).wrap_err_with(|| {
+                    format!("Failed to serialize kickoff machine: {:?}", machine)
+                })?;
+                let kickoff_id =
+                    serde_json::to_string(&machine.kickoff_id).wrap_err_with(|| {
+                        format!("Failed to serialize kickoff id for machine: {:?}", machine)
+                    })?;
+
+                // Use the machine's dirty flag to determine if it needs updating
+                Ok((state_json, (kickoff_id), owner_type.clone(), machine.dirty))
+            })
+            .collect();
+
+        // Prepare round machines data with direct serialization
+        let round_machines: eyre::Result<Vec<_>> = self
+            .round_machines
+            .iter()
+            .map(|machine| -> eyre::Result<_> {
+                let state_json = serde_json::to_string(machine).wrap_err_with(|| {
+                    format!("Failed to serialize round machine: {:?}", machine)
+                })?;
+                let operator_idx = machine.operator_idx;
+
+                // Use the machine's dirty flag to determine if it needs updating
+                Ok((
+                    state_json,
+                    (operator_idx as i32),
+                    owner_type.clone(),
+                    machine.dirty,
+                ))
+            })
+            .collect();
+
+        // Use the database function to save the state machines
+        self.db
+            .save_state_machines(
+                Some(&mut transaction),
+                kickoff_machines?,
+                round_machines?,
+                block_height as i32,
+            )
+            .await?;
+
+        // Commit the transaction
+        transaction.commit().await?;
+
+        // Reset the dirty flag for all machines after successful save
+        for machine in &mut self.kickoff_machines {
+            if machine.dirty {
+                machine
+                    .handle_with_context(&KickoffEvent::SavedToDb, &mut self.context)
+                    .await;
+            }
+        }
+
+        for machine in &mut self.round_machines {
+            if machine.dirty {
+                machine
+                    .handle_with_context(&RoundEvent::SavedToDb, &mut self.context)
+                    .await;
+            }
+        }
+
         Ok(())
     }
 
@@ -119,14 +319,18 @@ impl<T: Owner + 'static> StateManager<T> {
         cache: block_cache::BlockCache,
         paramset: &'static ProtocolParamset,
     ) -> context::StateContext<T> {
+        let owner = Arc::new(handler);
+        let owner_type = owner.owner_type_str().to_string();
+
         context::StateContext {
             db: db.clone(),
-            owner: Arc::new(handler),
+            owner,
             cache: Arc::new(cache),
             new_kickoff_machines: Vec::new(),
             new_round_machines: Vec::new(),
             errors: Vec::new(),
             paramset,
+            owner_type,
         }
     }
 
@@ -182,7 +386,7 @@ impl<T: Owner + 'static> StateManager<T> {
         &mut self,
         block: &Block,
         block_height: u32,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<(), eyre::Report> {
         let mut cache: block_cache::BlockCache = Default::default();
         cache.update_with_block(block, block_height);
 
@@ -221,7 +425,8 @@ impl<T: Owner + 'static> StateManager<T> {
                 // Return first error or create a combined error
                 return Err(BridgeError::Error(
                     "Multiple errors occurred during state processing".into(),
-                ));
+                )
+                .into());
             }
 
             // Append the newly generated state machines into the changed machines list
@@ -229,12 +434,18 @@ impl<T: Owner + 'static> StateManager<T> {
                 #[cfg(debug_assertions)]
                 for machine in &ctx.new_round_machines {
                     if !machine.dirty {
-                        panic!("Round machine not dirty despite having been newly created: {:?}", machine.state());
+                        panic!(
+                            "Round machine not dirty despite having been newly created: {:?}",
+                            machine.state()
+                        );
                     }
                 }
                 for machine in &ctx.new_kickoff_machines {
                     if !machine.dirty {
-                        panic!("Kickoff machine not dirty despite having been newly created: {:?}", machine.state());
+                        panic!(
+                            "Kickoff machine not dirty despite having been newly created: {:?}",
+                            machine.state()
+                        );
                     }
                 }
                 changed_round_machines.extend(std::mem::take(&mut ctx.new_round_machines));
@@ -242,7 +453,7 @@ impl<T: Owner + 'static> StateManager<T> {
             }
 
             if iterations > 50 {
-                return Err(BridgeError::Error(format!(
+                return Err(eyre!(format!(
                     r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 50 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----
                         {:?}
@@ -279,11 +490,12 @@ impl<T: Owner + 'static> StateManager<T> {
             iterations += 1;
         }
 
-        // TODO: commit to db
-
         // Set back the original machines
         self.round_machines = final_round_machines;
         self.kickoff_machines = final_kickoff_machines;
+
+        // Save the state machines to the database with the current block height
+        self.save_state_to_db(block_height).await?;
 
         Ok(())
     }

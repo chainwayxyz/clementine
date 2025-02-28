@@ -198,7 +198,7 @@ impl Operator {
             TransactionType::MiniAssert(0),
             context,
             None,
-            &mut &mut ReimburseDbCache::new_for_deposit(
+            &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,
                 assert_data.deposit_data.clone(),

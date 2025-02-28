@@ -23,6 +23,26 @@ use super::block_cache;
 use super::kickoff;
 use super::round;
 
+/// Identifies the type of owner that is managing state machines
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum OwnerType {
+    Operator(String),   // String identifier for operator
+    Watchtower(String), // String identifier for watchtower
+    Verifier,           // General verifier (only one per system)
+    User(String),       // String identifier for user
+}
+
+impl OwnerType {
+    pub fn as_string(&self) -> String {
+        match self {
+            OwnerType::Operator(id) => format!("operator-{}", id),
+            OwnerType::Watchtower(id) => format!("watchtower-{}", id),
+            OwnerType::Verifier => "verifier".to_string(),
+            OwnerType::User(id) => format!("user-{}", id),
+        }
+    }
+}
+
 // Duty types that can be dispatched
 #[derive(Debug, Clone)]
 pub enum Duty {
@@ -48,6 +68,10 @@ pub trait Owner: Send + Sync + Clone + Default {
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
+
+    /// Return a string identifier for this owner type
+    /// e.g. "operator", "watchtower", "verifier", "user"
+    fn owner_type_str(&self) -> &'static str;
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +83,7 @@ pub struct StateContext<T: Owner> {
     pub new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     pub errors: Vec<Arc<eyre::Report>>,
     pub paramset: &'static ProtocolParamset,
+    pub owner_type: String,
 }
 
 impl<T: Owner> StateContext<T> {
@@ -68,6 +93,9 @@ impl<T: Owner> StateContext<T> {
         cache: Arc<block_cache::BlockCache>,
         paramset: &'static ProtocolParamset,
     ) -> Self {
+        // Get the owner type string from the owner instance
+        let owner_type = owner.owner_type_str().to_string();
+
         Self {
             db,
             owner,
@@ -76,6 +104,7 @@ impl<T: Owner> StateContext<T> {
             new_kickoff_machines: Vec::new(),
             errors: Vec::new(),
             paramset,
+            owner_type,
         }
     }
 

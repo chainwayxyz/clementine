@@ -15,12 +15,12 @@ use crate::{
 
 use super::{
     block_cache::BlockCache,
-    context::{Duty, StateContext},
-    matcher::{self, BlockMatcher, Matcher},
+    context::StateContext,
+    matcher::{BlockMatcher, Matcher},
     Owner,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum KickoffEvent {
     Challenged,
     WatchtowerChallengeSent {
@@ -36,9 +36,11 @@ pub enum KickoffEvent {
     TimeToSendWatchtowerChallenge,
     TimeToSendOperatorAssert,
     TimeToSendVerifierDisprove,
+    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
+    SavedToDb,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 // TODO: add and save operator challenge acks
 // save watchtower challenge utxo's spending (not only challenge, also timeout)
 // all timelocks
@@ -46,7 +48,7 @@ pub enum KickoffEvent {
 pub struct KickoffStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
     pub(crate) dirty: bool,
-    kickoff_id: KickoffId,
+    pub(crate) kickoff_id: KickoffId,
     num_watchtowers: u32,
     deposit_data: DepositData,
     kickoff_height: u32,
@@ -103,7 +105,7 @@ impl<T: Owner> KickoffStateMachine<T> {
 #[state_machine(
     initial = "State::kickoff_started()",
     on_dispatch = "Self::on_dispatch",
-    state(derive(Debug, Clone))
+    state(derive(Debug, Clone, serde::Serialize, serde::Deserialize))
 )]
 impl<T: Owner> KickoffStateMachine<T> {
     pub fn wrap_err(
@@ -124,8 +126,12 @@ impl<T: Owner> KickoffStateMachine<T> {
         _state: StateOrSuperstate<'_, '_, Self>,
         evt: &KickoffEvent,
     ) {
-        tracing::debug!(?self.kickoff_id, "Dispatching event {:?}", evt);
-        self.dirty = true;
+        if matches!(evt, KickoffEvent::SavedToDb) {
+            self.dirty = false;
+        } else {
+            tracing::debug!(?self.kickoff_id, "Dispatching event {:?}", evt);
+            self.dirty = true;
+        }
     }
 
     #[state(entry_action = "on_kickoff_started_entry")]

@@ -3,10 +3,7 @@ use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    builder::{
-        address::generate_deposit_address,
-        transaction::{ContractContext, OperatorData, TransactionType},
-    },
+    builder::transaction::{ContractContext, OperatorData, TransactionType},
     errors::BridgeError,
 };
 
@@ -17,18 +14,26 @@ use super::{
     Owner,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum RoundEvent {
-    KickoffUtxoUsed { kickoff_idx: usize },
-    ReadyToReimburseSent { round_idx: u32 },
-    RoundSent { round_idx: u32 },
+    KickoffUtxoUsed {
+        kickoff_idx: usize,
+    },
+    ReadyToReimburseSent {
+        round_idx: u32,
+    },
+    RoundSent {
+        round_idx: u32,
+    },
+    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
+    SavedToDb,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RoundStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<matcher::Matcher, RoundEvent>,
     operator_data: OperatorData,
-    operator_idx: u32,
+    pub(crate) operator_idx: u32,
     pub(crate) dirty: bool,
     phantom: std::marker::PhantomData<T>,
 }
@@ -66,7 +71,7 @@ use eyre::Report;
 #[state_machine(
     initial = "State::initial_collateral()",
     on_dispatch = "Self::on_dispatch",
-    state(derive(Debug, Clone))
+    state(derive(Debug, Clone, serde::Serialize, serde::Deserialize))
 )]
 // TODO: Add exit conditions too (ex: burn connector spent on smth else)
 impl<T: Owner> RoundStateMachine<T> {
@@ -83,9 +88,17 @@ impl<T: Owner> RoundStateMachine<T> {
     }
 
     #[action]
-    pub(crate) fn on_dispatch(&mut self, _state: StateOrSuperstate<'_, '_, Self>, evt: &RoundEvent) {
-        tracing::debug!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
-        self.dirty = true;
+    pub(crate) fn on_dispatch(
+        &mut self,
+        _state: StateOrSuperstate<'_, '_, Self>,
+        evt: &RoundEvent,
+    ) {
+        if matches!(evt, RoundEvent::SavedToDb) {
+            self.dirty = false;
+        } else {
+            tracing::debug!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
+            self.dirty = true;
+        }
     }
 
     #[state(entry_action = "on_initial_collateral_entry")]

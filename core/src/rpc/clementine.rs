@@ -99,7 +99,7 @@ pub mod grpc_transaction_id {
         NumberedTransaction(super::NumberedTransactionId),
     }
 }
-#[derive(Eq, PartialOrd, Ord, Hash)]
+#[derive(Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct KickoffId {
     #[prost(uint32, tag = "1")]

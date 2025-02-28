@@ -12,6 +12,7 @@ use sqlx::{Pool, Postgres};
 mod bitcoin_syncer;
 mod header_chain_prover;
 mod operator;
+mod state_machine;
 mod tx_sender;
 mod verifier;
 mod watchtower;

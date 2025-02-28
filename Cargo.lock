@@ -3692,6 +3692,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42c467cc59664639bf70b8225b1b4a9c30d926f3e010c29e804bf940d618c663"
 dependencies = [
+ "serde",
  "statig_macro",
 ]
 

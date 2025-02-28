@@ -7,8 +7,7 @@
 
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
-    create_txhandlers, ContractContext, DepositData, OperatorData, ReimburseDbCache,
-    TransactionType, TxHandler,
+    create_txhandlers, ContractContext, DepositData, ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -17,7 +16,7 @@ use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::KickoffId;
 use crate::utils;
 use async_stream::try_stream;
-use bitcoin::{Address, OutPoint, TapSighash, XOnlyPublicKey};
+use bitcoin::{OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
 impl BridgeConfig {
