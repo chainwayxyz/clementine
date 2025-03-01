@@ -58,6 +58,7 @@ jobs:
           POSTGRES_USER: clementine
           POSTGRES_PASSWORD: clementine
           POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+          RUST_MIN_STACK: 33554432
         ports:
           - 5432:5432
         options: >-
@@ -93,6 +94,7 @@ jobs:
           POSTGRES_USER: clementine
           POSTGRES_PASSWORD: clementine
           POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+          RUST_MIN_STACK: 33554432
         ports:
           - 5432:5432
         options: >-
