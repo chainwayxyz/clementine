@@ -61,7 +61,7 @@ sha2 = { version = "=0.10.8", default-features = false }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.3", default-features = false }
-header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "a233e27" }
+risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", branch = "main" }
 risc0-build = "=1.2.4"
 risc0-zkvm = { version = "=1.2.4" }
 

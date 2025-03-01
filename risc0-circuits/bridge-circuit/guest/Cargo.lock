@@ -909,8 +909,6 @@ dependencies = [
  "borsh",
  "crypto-bigint",
  "derive_more 1.0.0",
- "final-spv",
- "header-chain",
  "hex",
  "hex-literal",
  "jmt",
@@ -921,6 +919,7 @@ dependencies = [
  "rand",
  "ripemd",
  "risc0-groth16",
+ "risc0-to-bitvm2-core",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -1216,7 +1215,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys",
 ]
 
 [[package]]
@@ -1255,21 +1254,6 @@ checksum = "ded41244b729663b1e574f1b4fb731469f69f79c17667b5d776b16cda0479449"
 dependencies = [
  "rand_core",
  "subtle",
-]
-
-[[package]]
-name = "final-spv"
-version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/risc0-to-bitvm2.git?rev=a233e27#a233e276a8f783018bb556880401ea5bce4c2424"
-dependencies = [
- "bitcoin",
- "blake3",
- "borsh",
- "crypto-bigint",
- "header-chain",
- "risc0-zkvm",
- "serde",
- "sha2",
 ]
 
 [[package]]
@@ -1399,19 +1383,6 @@ checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
 dependencies = [
  "foldhash",
  "serde",
-]
-
-[[package]]
-name = "header-chain"
-version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/risc0-to-bitvm2.git?rev=a233e27#a233e276a8f783018bb556880401ea5bce4c2424"
-dependencies = [
- "bitcoin",
- "borsh",
- "crypto-bigint",
- "risc0-zkvm",
- "serde",
- "sha2",
 ]
 
 [[package]]
@@ -2072,7 +2043,7 @@ dependencies = [
  "getrandom 0.2.15",
  "libc",
  "untrusted",
- "windows-sys 0.52.0",
+ "windows-sys",
 ]
 
 [[package]]
@@ -2175,6 +2146,19 @@ dependencies = [
  "risc0-zkp",
  "serde",
  "stability",
+]
+
+[[package]]
+name = "risc0-to-bitvm2-core"
+version = "1.0.0"
+source = "git+https://github.com/chainwayxyz/risc0-to-bitvm2.git?branch=main#84c4c6edf18bf30894db800afd091930f0205a40"
+dependencies = [
+ "bitcoin",
+ "borsh",
+ "crypto-bigint",
+ "risc0-zkvm",
+ "serde",
+ "sha2",
 ]
 
 [[package]]
@@ -2333,7 +2317,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys",
 ]
 
 [[package]]
@@ -2638,7 +2622,7 @@ dependencies = [
  "getrandom 0.3.1",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys",
 ]
 
 [[package]]
@@ -3005,15 +2989,6 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
-dependencies = [
- "windows-targets",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets",
 ]

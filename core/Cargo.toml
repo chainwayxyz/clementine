@@ -27,7 +27,7 @@ futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
-header-chain = { workspace = true }
+risc0-to-bitvm2-core = { workspace = true }
 borsh = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }

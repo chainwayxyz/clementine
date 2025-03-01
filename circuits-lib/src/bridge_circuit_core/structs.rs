@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use header_chain::header_chain::BlockHeaderCircuitOutput;
+use risc0_to_bitvm2_core::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]

@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 risc0-zkvm = { version = "=1.2.4", features = ["metal", "bonsai", "client", "prove"]}
 risc0-circuit-recursion = "=1.2.4"
-risc0-zkp = "1.2.4"
+risc0-zkp = "=1.2.4"
 risc0-groth16 = { version = "=1.2.4", default-features=false }
 ark-bn254 = "=0.4.0"
 ark-ff = "=0.4.0"
@@ -21,8 +21,7 @@ ark-groth16 = "=0.4.0"
 serde = "1.0"
 rand = { version = "0.8", features = ["small_rng"] }
 circuits-lib = { path = "../circuits-lib", features = ["not_patched"] }
-header-chain = { git="https://github.com/chainwayxyz/risc0-to-bitvm2.git", rev="a233e27" }
-final-spv = { git="https://github.com/chainwayxyz/risc0-to-bitvm2.git", rev="a233e27" }
+risc0-to-bitvm2-core = { git="https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "main" }
 borsh = {version = "1.5.3", features = ["derive"] }
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
