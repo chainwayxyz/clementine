@@ -14,8 +14,8 @@ use utils::hash160;
 pub struct WinternitzHandler {
     pub pub_key: PublicKey,
     pub params: Parameters,
-    pub signature: Vec<Vec<u8>>,
-    pub message: Vec<u8>,
+    pub signature: Option<Vec<Vec<u8>>>,
+    pub message: Option<Vec<u8>>,
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -26,6 +26,32 @@ pub struct WinternitzCircuitInput {
     pub lcp: LightClientProof,
     pub operator_id: u32,
     pub sp: StorageProof,
+    pub num_watchtowers: u32,
+}
+
+impl WinternitzCircuitInput {
+    pub fn new(
+        winternitz_details: Vec<WinternitzHandler>,
+        hcp: BlockHeaderCircuitOutput,
+        payout_spv: SPV,
+        lcp: LightClientProof,
+        operator_id: u32,
+        sp: StorageProof,
+        num_watchtowers: u32,
+    ) -> Result<Self, &'static str> {
+        if num_watchtowers > (1 << 20) - 1 {
+            return Err("num_watchtowers exceeds u20 limit");
+        }
+        Ok(Self {
+            winternitz_details,
+            hcp,
+            payout_spv,
+            lcp,
+            operator_id,
+            sp,
+            num_watchtowers,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -35,21 +61,23 @@ pub struct WinternitzCircuitOutput {
     pub payout_tx_blockhash: [u8; 32],
     pub last_blockhash: [u8; 32],
     pub deposit_txid: [u8; 32],
-    pub operator_id: Vec<u8>,
+    pub operator_id: [u8; 32],
 }
 
 pub fn verify_winternitz_signature(input: &WinternitzHandler) -> bool {
+    let message = input.message.as_ref().unwrap();
+    let signature = input.signature.as_ref().unwrap();
     if input.pub_key.len() != input.params.n as usize
-        || input.signature.len() != input.params.n as usize
-        || input.message.len() != input.params.n0 as usize
+        || signature.len() != input.params.n as usize
+        || message.len() != input.params.n0 as usize
     {
         return false;
     }
 
-    let checksum = get_message_checksum(&input.params, &input.message);
+    let checksum = get_message_checksum(&input.params, &message);
 
-    for (i, &digit) in input.message.iter().enumerate() {
-        let signature_byte_arr: [u8; 20] = input.signature[i].as_slice().try_into().unwrap();
+    for (i, &digit) in message.iter().enumerate() {
+        let signature_byte_arr: [u8; 20] = signature[i].as_slice().try_into().unwrap();
 
         let hash_bytes =
             (0..(input.params.d - digit as u32)).fold(signature_byte_arr, |hash, _| hash160(&hash));
@@ -62,8 +90,8 @@ pub fn verify_winternitz_signature(input: &WinternitzHandler) -> bool {
 
     for ((&checksum, sig), &pubkey) in checksum
         .iter()
-        .zip(&input.signature[input.message.len()..])
-        .zip(&input.pub_key[input.message.len()..])
+        .zip(&signature[message.len()..])
+        .zip(&input.pub_key[message.len()..])
     {
         let signature_byte_arr: [u8; 20] = sig.as_slice().try_into().unwrap();
         let hash_bytes = (0..(input.params.d - checksum as u32))

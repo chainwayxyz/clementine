@@ -54,7 +54,7 @@ pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProo
 }
 
 pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof {
-    let ind = 34;
+    let ind = 37;
     let tx_index: u32 = ind * 2;
 
     let storage_address_bytes = keccak256(UTXOS_STORAGE_INDEX);
@@ -122,7 +122,6 @@ fn receipt_from_inner(inner: InnerReceipt) -> anyhow::Result<Receipt> {
     let Some(output) = output else {
         bail!("Output body is empty");
     };
-
     let journal = output
         .journal
         .value()

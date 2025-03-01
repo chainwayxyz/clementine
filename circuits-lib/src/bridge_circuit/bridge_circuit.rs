@@ -1,15 +1,14 @@
 use bitcoin::hashes::Hash;
 use bridge_circuit_core::groth16::CircuitGroth16Proof;
-use bridge_circuit_core::utils::hash160;
 use bridge_circuit_core::winternitz::{
-    verify_winternitz_signature, WinternitzCircuitInput, WinternitzCircuitOutput, WinternitzHandler,
+    verify_winternitz_signature, WinternitzCircuitInput, WinternitzHandler,
 };
 use bridge_circuit_core::zkvm::ZkvmGuest;
 use lc_proof::lc_proof_verifier;
 use risc0_zkvm::guest::env;
 use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
-
+use sha2::{Digest, Sha256};
 use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
 use crate::bridge_circuit_core;
 
@@ -56,13 +55,22 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     let mut watchtower_flags: Vec<bool> = vec![];
     let mut wt_messages_with_idxs: Vec<(usize, Vec<u8>)> = vec![];
 
+    if input.winternitz_details.len() != input.num_watchtowers as usize {
+        panic!("Invalid number of watchtowers");
+    }
+
     // Verify Winternitz signatures
     for (wt_idx, winternitz_handler) in input.winternitz_details.iter().enumerate() {
+        if winternitz_handler.signature == None || winternitz_handler.message == None {
+            watchtower_flags.push(false);
+            continue;
+        }
+        
         let flag = verify_winternitz_signature(winternitz_handler);
         watchtower_flags.push(flag);
 
         if flag {
-            wt_messages_with_idxs.push((wt_idx, winternitz_handler.message.clone()));
+            wt_messages_with_idxs.push((wt_idx, winternitz_handler.message.clone().unwrap()));
         }
     }
 
@@ -134,17 +142,56 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     let last_output_script = last_output.script_pubkey.to_bytes();
 
     assert!(last_output_script[0] == 0x6a);
-    let len = last_output_script[1];
-    let operator_id = last_output_script[2..(2 + len as usize)].to_vec();
+    let len: u8 = last_output_script[1];
+    let mut operator_id: [u8; 32] = [0u8; 32];
+    if len > 32 {
+        panic!("Invalid operator id length");
+    }
+    else {
+        operator_id[..len as usize].copy_from_slice(&last_output_script[2..(2 + len) as usize]);
+    }
+    println!("Operator ID: {:?}", operator_id);
 
-    guest.commit(&WinternitzCircuitOutput {
-        winternitz_pubkeys_digest: hash160(&pub_key_concat),
-        correct_watchtowers: watchtower_flags,
-        payout_tx_blockhash: input.payout_spv.block_header.compute_block_hash(),
-        last_blockhash: [0u8; 32], // TODO: Change here - WE'LL CHANGE WHEN WITHDRAWAL IS AVAILABLE
-        deposit_txid: input.sp.txid_hex,
-        operator_id: operator_id,
-    });
+
+    
+    let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).try_into().unwrap();
+    let mut pre_deposit_constant: [u8; 96] = [0u8; 96];
+
+
+    // prepare the deposit constant
+    pre_deposit_constant[0..32].copy_from_slice(&input.sp.txid_hex);
+    pre_deposit_constant[32..64].copy_from_slice(&wintertniz_pubkeys_digest);
+    pre_deposit_constant[64..96].copy_from_slice(&operator_id);
+
+    let deposit_constant: [u8; 32] = Sha256::digest(&pre_deposit_constant).try_into().unwrap();
+    let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
+    // Convert bools to bit flags
+    for (i, &flag) in watchtower_flags.iter().enumerate() {
+        if flag {
+            challenge_sending_watchtowers[i / 8] |= 1 << (i % 8);
+        }
+    }
+    
+    let latest_blockhash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32].try_into().unwrap();
+    let payout_tx_blockhash: [u8; 20] = input.payout_spv.block_header.compute_block_hash()[12..32].try_into().unwrap();
+
+    let mut concatenated_data: [u8; 60] = [0u8; 60];
+
+    concatenated_data[0..20].copy_from_slice(&payout_tx_blockhash);
+    concatenated_data[20..40].copy_from_slice(&latest_blockhash);
+    concatenated_data[40..60].copy_from_slice(&challenge_sending_watchtowers);
+
+    let blake3_hash_concatenated_data = blake3::hash(&concatenated_data);
+
+    let hash_bytes: &[u8; 32] = blake3_hash_concatenated_data.as_bytes();
+    
+    let mut concat_journal: [u8; 64] = [0u8; 64];
+    concat_journal[0..32].copy_from_slice(&deposit_constant);
+    concat_journal[32..64].copy_from_slice(hash_bytes); 
+
+    let journal_hash = blake3::hash(&concat_journal);
+
+    guest.commit(journal_hash.as_bytes());
     let end = env::cycle_count();
     println!("WNT: {}", end - start);
 }

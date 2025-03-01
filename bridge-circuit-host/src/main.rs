@@ -12,22 +12,23 @@ use final_spv::spv::SPV;
 use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
 use header_chain::mmr_native::MMRNative;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-use risc0_groth16::verifying_key;
 use risc0_zkvm::{
-    compute_image_id, default_executor, default_prover, ExecutorEnv, ProverOpts, Receipt,
+    compute_image_id, default_executor, default_prover, ExecutorEnv, ProverOpts, Receipt
 };
 use std::convert::TryInto;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt};
+
 const HEADERS: &[u8] = include_bytes!("bin-files/testnet4-headers.bin");
-const TESTNET_BLOCK_47029: &[u8] = include_bytes!("bin-files/testnet4_block_47029.bin");
+const TESTNET_BLOCK_47029: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
 const BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
-const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/first_70000_proof.bin");
+const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/testnet4_first_72041_proof.bin");
+const L1_BLOCK_HEIGHT: u32 = 72041;
 
 const PAYOUT_TX: [u8; 301] = hex_literal::hex!("02000000000102d43afcd7236286bee4eb5316c597b9977cae4ac69eb8f40d4a47155b94db64540000000000fdffffffeb0577a0d00e1774686e4ef6107d85509a83b63f63056a87ee4a9ff551846bf20100000000fdffffff032036963b00000000160014b9d8ffd3b02047bc33442a2c427abc54ba53a6f83a906b1e020000001600142551d4ad0ab54037f8770ae535ce2e3e56e3f9d50000000000000000036a010101418c1976233f4523d6c988d6c9430b292d5cac77d2358117eeb7dc4dfab728da305ed183fdd44054d368398b64de7ed057fe28c31c689d8ca8c9ea813e100f9203830140b452bea0f0b6ca19442142034d3d9fedfa10bec5e58c12f1f407905214a8c8594f906cb67ffac173fedfcabff55c09e2d44cb9b2cd48f87deae15f729283bf2900000000");
-
+const PAYOUT_TX_INDEX: u32 = 15;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -40,9 +41,7 @@ async fn main() {
 
     println!("WINTERNITZ_ID: {:?}", winternitz_id);
     println!("WORK_ONLY_ID: {:?}", work_only_id);
-
     let headerchain_proof: Receipt = Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
-
     let headers = HEADERS
         .chunks(80)
         .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
@@ -89,8 +88,7 @@ async fn main() {
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
-    let l1_hegith = 72041;
-    let (light_client_proof, lcp_receipt) = fetch_light_client_proof(l1_hegith).await.unwrap();
+    let (light_client_proof, lcp_receipt) = fetch_light_client_proof(L1_BLOCK_HEIGHT).await.unwrap();
 
     let storage_proof = fetch_storage_proof(&"latest".to_string()).await;
     let block_vec = TESTNET_BLOCK_47029.to_vec();
@@ -103,9 +101,9 @@ async fn main() {
         .iter()
         .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
         .collect();
-    let mmr_inclusion_proof = mmr_native.generate_proof(72041);
+    let mmr_inclusion_proof = mmr_native.generate_proof(L1_BLOCK_HEIGHT);
     let block_47029_mt = BitcoinMerkleTree::new(block_47029_txids);
-    let payout_tx_proof = block_47029_mt.generate_proof(15); // 16th tx
+    let payout_tx_proof = block_47029_mt.generate_proof(PAYOUT_TX_INDEX); // 16th tx
 
     let spv: SPV = SPV {
         transaction: payout_tx.into(),
@@ -117,8 +115,8 @@ async fn main() {
     let winternitz_details = WinternitzHandler {
         pub_key,
         params,
-        signature,
-        message: compressed_proof_and_total_work,
+        signature: Some(signature),
+        message: Some(compressed_proof_and_total_work),
     };
 
     let winternitz_circuit_input: WinternitzCircuitInput = WinternitzCircuitInput {
@@ -128,6 +126,7 @@ async fn main() {
         lcp: light_client_proof,
         operator_id: 1,
         sp: storage_proof,
+        num_watchtowers: 1,
     };
 
     let mut binding = ExecutorEnv::builder();
