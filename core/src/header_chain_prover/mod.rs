@@ -7,7 +7,7 @@ use crate::{
 };
 use bitcoin::{hashes::Hash, BlockHash};
 use bitcoincore_rpc::RpcApi;
-use header_chain::header_chain::BlockHeaderCircuitOutput;
+use risc0_to_bitvm2_core::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
 use std::{
     fs::File,

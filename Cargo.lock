@@ -4373,9 +4373,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-groth16"
-version = "1.2.4"
+version = "1.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0c5595a48efc6e94d303a0d4a87aedec1a0162fa696e2e1b944aba997c8f808"
+checksum = "0017c18151e017a154f4b4bbeec2a0656a3a7822fab3cd0dc1a15e2654dde4fe"
 dependencies = [
  "anyhow",
  "ark-bn254 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -4409,7 +4409,7 @@ dependencies = [
 [[package]]
 name = "risc0-to-bitvm2-core"
 version = "1.0.0"
-source = "git+https://github.com/chainwayxyz/risc0-to-bitvm2?branch=main#84c4c6edf18bf30894db800afd091930f0205a40"
+source = "git+https://github.com/chainwayxyz/risc0-to-bitvm2.git?branch=main#932b7578508aa0f5964bbb30a8348c0d101f79fc"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -4451,9 +4451,9 @@ dependencies = [
 
 [[package]]
 name = "risc0-zkvm"
-version = "1.2.4"
+version = "1.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d041321ecfe340e112dcbbf1d45fe2f4655e6c53851ede39e2b38c173eac41e3"
+checksum = "9fd97c60815994da62fa000dec9470c0d0e3045a554354e279695f2213b0182f"
 dependencies = [
  "addr2line 0.22.0",
  "anyhow",

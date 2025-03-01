@@ -12,7 +12,7 @@ bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
-risc0-zkvm = { version = "1.2.4", features = [ "prove" ] }
+risc0-zkvm = { version = "=1.2.5", features = [ "prove" ] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }

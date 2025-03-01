@@ -4,7 +4,7 @@
 
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
 use bitcoin::Network;
-use header_chain::header_chain::{
+use risc0_to_bitvm2_core::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use lazy_static::lazy_static;
@@ -176,7 +176,7 @@ mod tests {
         BlockHash, CompactTarget, TxMerkleNode,
     };
     use bitcoincore_rpc::RpcApi;
-    use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
+    use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
 
     async fn mine_and_get_first_n_block_headers(
         rpc: ExtendedRpc,
