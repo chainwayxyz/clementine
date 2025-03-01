@@ -37,7 +37,7 @@ fn main() {
             .current_dir(project_root) // Set working directory to project root
             .output()
             .expect("Failed to execute Docker command");
-
+        
         if !output.status.success() {
             eprintln!("Docker build failed:");
             eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
@@ -46,4 +46,5 @@ fn main() {
         }
     }
 
+    risc0_build::embed_methods();
 }

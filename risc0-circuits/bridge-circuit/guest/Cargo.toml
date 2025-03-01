@@ -9,9 +9,6 @@ edition = "2021"
 circuits-lib = { path = "../../../circuits-lib" }
 hex-literal = "0.4.1"
 
-[[example]]
-name = "guest"
-path ="src/main.rs"
 
 [patch.crates-io]
 sha2 = { git = "https://github.com/risc0/RustCrypto-hashes", tag = "sha2-v0.10.8-risczero.0" }
