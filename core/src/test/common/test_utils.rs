@@ -5,7 +5,9 @@
 use std::net::TcpListener;
 use std::str::FromStr;
 
+use bitcoin::consensus::serde::With;
 use bitcoin::secp256k1::schnorr;
+use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
 use crate::builder::script::SpendPath;
@@ -16,7 +18,13 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::NormalSignatureKind;
+use crate::rpc::get_clients;
+use crate::servers::{
+    create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
+    create_watchtower_unix_server,
+};
 use crate::utils::initialize_logger;
+use crate::verifier::Verifier;
 use crate::{
     actor::Actor,
     builder,
@@ -300,14 +308,26 @@ pub async fn initialize_database(config: &BridgeConfig) {
         .expect("Failed to run schema script");
 }
 
+pub struct ActorsCleanup(
+    Vec<oneshot::Sender<()>>,
+    tempfile::TempDir,
+    WithProcessCleanup,
+);
+
+impl ActorsCleanup {
+    pub fn rpc(&self) -> &ExtendedRpc {
+        self.2.rpc()
+    }
+}
+
 /// Starts operators, verifiers, aggregator and watchtower servers.
 ///
-/// Depends on create_regtest_rpc and get_available_port! for dynamic port allocation.
+/// Uses Unix sockets with temporary files for communication between services.
 ///
 /// # Returns
 ///
-/// Returns a tuple of vectors of clients, handles, and addresses for the
-/// verifiers, operators, aggregator and watchtowers.
+/// Returns a tuple of vectors of clients, handles, and socket paths for the
+/// verifiers, operators, aggregator and watchtowers, along with shutdown channels.
 pub async fn create_actors(
     config: &BridgeConfig,
 ) -> (
@@ -315,7 +335,7 @@ pub async fn create_actors(
     Vec<ClementineOperatorClient<Channel>>,
     ClementineAggregatorClient<Channel>,
     Vec<ClementineWatchtowerClient<Channel>>,
-    WithProcessCleanup,
+    ActorsCleanup,
 ) {
     let regtest = create_regtest_rpc(&mut config.clone()).await;
     let rpc = regtest.rpc();
@@ -334,66 +354,89 @@ pub async fn create_actors(
             .unwrap_or_else(|| {
                 panic!("All secret keys of the watchtowers are required for testing");
             });
+
+    // Collect all shutdown channels
+    let mut shutdown_channels = Vec::new();
+
+    // Create temporary directory for Unix sockets
+    let socket_dir = tempfile::tempdir().expect("Failed to create temporary directory for sockets");
+
     let verifier_futures = all_verifiers_secret_keys
         .iter()
         .enumerate()
         .map(|(i, sk)| {
-            let port = get_available_port();
-            // println!("Port: {}", port);
+            let socket_path = socket_dir.path().join(format!("verifier_{}.sock", i));
             let i = i.to_string();
             let mut config_with_new_db = config.clone();
             async move {
                 config_with_new_db.db_name += &i;
                 initialize_database(&config_with_new_db).await;
 
-                let verifier = create_verifier_grpc_server(BridgeConfig {
-                    secret_key: *sk,
-                    port,
-                    ..config_with_new_db.clone()
-                })
+                let (socket_path, shutdown_tx) = create_verifier_unix_server(
+                    BridgeConfig {
+                        secret_key: *sk,
+                        ..config_with_new_db.clone()
+                    },
+                    socket_path,
+                )
                 .await?;
-                Ok::<((std::net::SocketAddr,), BridgeConfig), BridgeError>((
-                    verifier,
+
+                Ok::<((std::path::PathBuf, oneshot::Sender<()>), BridgeConfig), BridgeError>((
+                    (socket_path, shutdown_tx),
                     config_with_new_db,
                 ))
             }
         })
         .collect::<Vec<_>>();
+
     let verifier_results = futures::future::try_join_all(verifier_futures)
         .await
         .expect("Failed to join verifier futures");
-    let verifier_endpoints = verifier_results.iter().map(|(v, _)| *v).collect::<Vec<_>>();
-    let verifier_configs = verifier_results
-        .iter()
-        .map(|(_, c)| c.clone())
-        .collect::<Vec<_>>();
+
+    let (verifier_tmp, verifier_configs) =
+        verifier_results.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+    let (verifier_paths, verifier_shutdown_channels) =
+        verifier_tmp.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+
+    shutdown_channels.extend(verifier_shutdown_channels);
 
     let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the operators are required for testing");
     });
 
-    // Create futures for operator gRPC servers
+    // Create futures for operator Unix socket servers
     let operator_futures = all_operators_secret_keys
         .iter()
         .enumerate()
         .map(|(i, sk)| {
-            let port = get_available_port();
+            let socket_path = socket_dir.path().join(format!("operator_{}.sock", i));
             let verifier_config = verifier_configs[i].clone();
             async move {
-                let socket_addr = create_operator_grpc_server(BridgeConfig {
-                    secret_key: *sk,
-                    port,
-                    ..verifier_config
-                })
+                let (socket_path, shutdown_tx) = create_operator_unix_server(
+                    BridgeConfig {
+                        secret_key: *sk,
+                        ..verifier_config
+                    },
+                    socket_path,
+                )
                 .await?;
-                Ok::<(std::net::SocketAddr,), BridgeError>(socket_addr)
+
+                Ok::<(std::path::PathBuf, oneshot::Sender<()>), BridgeError>((
+                    socket_path,
+                    shutdown_tx,
+                ))
             }
         })
         .collect::<Vec<_>>();
 
-    let operator_endpoints = futures::future::try_join_all(operator_futures)
+    let operator_results = futures::future::try_join_all(operator_futures)
         .await
         .expect("Failed to join operator futures");
+
+    let (operator_paths, operator_shutdown_channels) =
+        operator_results.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+
+    shutdown_channels.extend(operator_shutdown_channels);
 
     let verifier_configs = verifier_configs.clone();
 
@@ -401,75 +444,107 @@ pub async fn create_actors(
         .iter()
         .enumerate()
         .map(|(i, sk)| {
-            let port = get_available_port();
-            println!("Watchtower {i} start port: {port}");
-            create_watchtower_grpc_server(BridgeConfig {
-                index: i as u32,
-                secret_key: *sk,
-                port,
-                ..verifier_configs[i].clone()
-            })
+            let socket_path = socket_dir.path().join(format!("watchtower_{}.sock", i));
+            create_watchtower_unix_server(
+                BridgeConfig {
+                    index: i as u32,
+                    secret_key: *sk,
+                    ..verifier_configs[i].clone()
+                },
+                socket_path,
+            )
         })
         .collect::<Vec<_>>();
 
-    let watchtower_endpoints = futures::future::try_join_all(watchtower_futures)
+    let watchtower_results = futures::future::try_join_all(watchtower_futures)
         .await
         .expect("Failed to join watchtower futures");
 
-    let port = get_available_port();
-    println!("Aggregator port: {}", port);
-    // + all_operators_secret_keys.len() as u16;
-    let aggregator = create_aggregator_grpc_server(BridgeConfig {
-        port,
-        verifier_endpoints: Some(
-            verifier_endpoints
-                .iter()
-                .map(|(socket_addr,)| format!("http://{}", socket_addr))
-                .collect(),
-        ),
-        operator_endpoints: Some(
-            operator_endpoints
-                .iter()
-                .map(|(socket_addr,)| format!("http://{}", socket_addr))
-                .collect(),
-        ),
-        watchtower_endpoints: Some(
-            watchtower_endpoints
-                .iter()
-                .map(|(socket_addr,)| format!("http://{}", socket_addr))
-                .collect(),
-        ),
-        ..verifier_configs[0].clone()
-    })
+    let (watchtower_paths, watchtower_shutdown_channels) = watchtower_results
+        .into_iter()
+        .unzip::<_, _, Vec<_>, Vec<_>>();
+
+    shutdown_channels.extend(watchtower_shutdown_channels);
+
+    let aggregator_socket_path = socket_dir.path().join("aggregator.sock");
+
+    let (aggregator_path, aggregator_shutdown_tx) = create_aggregator_unix_server(
+        BridgeConfig {
+            verifier_endpoints: Some(
+                verifier_paths
+                    .iter()
+                    .map(|path| format!("unix://{}", path.display()))
+                    .collect(),
+            ),
+            operator_endpoints: Some(
+                operator_paths
+                    .iter()
+                    .map(|path| format!("unix://{}", path.display()))
+                    .collect(),
+            ),
+            watchtower_endpoints: Some(
+                watchtower_paths
+                    .iter()
+                    .map(|path| format!("unix://{}", path.display()))
+                    .collect(),
+            ),
+            ..verifier_configs[0].clone()
+        },
+        aggregator_socket_path,
+    )
     .await
     .expect("Failed to create aggregator");
 
-    let verifiers =
-        futures_util::future::join_all(verifier_endpoints.iter().map(|verifier| async move {
-            ClementineVerifierClient::connect(format!("http://{}", verifier.0))
-                .await
-                .expect("Failed to connect to verifier")
-        }))
-        .await;
-    let operators =
-        futures_util::future::join_all(operator_endpoints.iter().map(|operator| async move {
-            ClementineOperatorClient::connect(format!("http://{}", operator.0))
-                .await
-                .expect("Failed to connect to operator")
-        }))
-        .await;
-    let aggregator = ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-        .await
-        .expect("Failed to connect to aggregator");
-    let watchtowers =
-        futures_util::future::join_all(watchtower_endpoints.iter().map(|watchtower| async move {
-            ClementineWatchtowerClient::connect(format!("http://{}", watchtower.0))
-                .await
-                .expect("Failed to connect to watchtower")
-        }))
-        .await;
+    // Add aggregator shutdown channel
+    shutdown_channels.push(aggregator_shutdown_tx);
 
-    (verifiers, operators, aggregator, watchtowers, regtest)
+    // Connect to the Unix socket servers
+    let verifiers = get_clients(
+        verifier_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineVerifierClient::new,
+    )
+    .await
+    .expect("could not connect to verifiers");
+
+    let operators = get_clients(
+        operator_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineOperatorClient::new,
+    )
+    .await
+    .expect("could not connect to operators");
+
+    let aggregator = get_clients(
+        vec![format!("unix://{}", aggregator_path.display())],
+        ClementineAggregatorClient::new,
+    )
+    .await
+    .expect("could not connect to aggregator")
+    .pop()
+    .expect("could not connect to aggregator");
+
+    let watchtowers = get_clients(
+        watchtower_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineWatchtowerClient::new,
+    )
+    .await
+    .expect("could not connect to watchtowers");
+
+    (
+        verifiers,
+        operators,
+        aggregator,
+        watchtowers,
+        ActorsCleanup(shutdown_channels, socket_dir, regtest),
+    )
 }
 
 /// Gets the the deposit address for the user.

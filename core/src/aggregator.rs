@@ -59,10 +59,10 @@ impl Aggregator {
                 .verifier_endpoints
                 .clone()
                 .ok_or(BridgeError::ConfigError(
-                    "Couldn't find operator endpoints in config file!".to_string(),
+                    "Couldn't find verifier endpoints in config file!".to_string(),
                 ))?;
         let verifier_clients =
-            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::connect).await?;
+            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::new).await?;
 
         let operator_endpoints =
             config
@@ -72,7 +72,7 @@ impl Aggregator {
                     "Couldn't find operator endpoints in config file!".to_string(),
                 ))?;
         let operator_clients =
-            rpc::get_clients(operator_endpoints, ClementineOperatorClient::connect).await?;
+            rpc::get_clients(operator_endpoints, ClementineOperatorClient::new).await?;
 
         let watchtower_endpoints =
             config
@@ -83,7 +83,7 @@ impl Aggregator {
                 ))?;
 
         let watchtower_clients =
-            rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::connect).await?;
+            rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::new).await?;
 
         let signer = Actor::new(config.secret_key, None, config.protocol_paramset().network);
         let rpc = ExtendedRpc::connect(
