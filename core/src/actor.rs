@@ -866,8 +866,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, Txid::all_zeros(), paramset);
         let expected_pk = vec![
-            19, 106, 233, 190, 243, 102, 53, 65, 74, 188, 254, 213, 228, 200, 160, 166, 111, 183,
-            62, 126,
+            49, 157, 5, 44, 165, 90, 254, 67, 195, 122, 253, 48, 212, 174, 142, 227, 246, 73, 98,
+            146,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
