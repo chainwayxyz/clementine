@@ -11,9 +11,9 @@ COPY circuits-lib circuits-lib
 COPY Cargo.toml Cargo.toml
 
 # Set compile-time environment variables
-ENV CARGO_MANIFEST_PATH="/src/risc0-circuits/bridge-circuit/guest/Cargo.toml"
+ENV CARGO_MANIFEST_PATH="risc0-circuits/bridge-circuit/guest/Cargo.toml"
 ENV RUSTFLAGS="-C passes=loweratomic -C link-arg=-Ttext=0x00200800 -C link-arg=--fatal-warnings"
-ENV CARGO_TARGET_DIR="/src/risc0-circuits/bridge-circuit/guest/target"
+ENV CARGO_TARGET_DIR="risc0-circuits/bridge-circuit/guest/target"
 ENV CC_riscv32im_risc0_zkvm_elf="/root/.local/share/cargo-risczero/cpp/bin/riscv32-unknown-elf-gcc"
 ENV CFLAGS_riscv32im_risc0_zkvm_elf="-march=rv32im -nostdlib"
 
