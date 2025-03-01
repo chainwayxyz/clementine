@@ -497,7 +497,7 @@ pub fn get_deposit_address(
 ///
 /// - [`TxHandler`]: Withdrawal transaction
 /// - [`Signature`]: Signature of the withdrawal transaction
-pub async fn generate_withdrawal_transaction_and_signature(
+pub async fn _generate_withdrawal_transaction_and_signature(
     config: &BridgeConfig,
     rpc: &ExtendedRpc,
     withdrawal_address: &bitcoin::Address,

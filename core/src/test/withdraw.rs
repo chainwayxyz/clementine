@@ -1,12 +1,15 @@
+use crate::test::common::citrea::SATS_TO_WEI_MULTIPLIER;
+use crate::test::withdraw::primitives::address;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self, EVM_ADDRESSES, SECRET_KEYS},
-        create_test_config_with_thread_name, generate_withdrawal_transaction_and_signature,
+        citrea::{self, BRIDGE_CONTRACT, CITREA_CHAIN_ID, EVM_ADDRESSES, SECRET_KEYS},
+        create_test_config_with_thread_name,
     },
     utils::SECP,
     EVMAddress,
 };
+use alloy::primitives::FixedBytes;
 use alloy::signers::Signer;
 use alloy::{
     network::{EthereumWallet, TransactionBuilder},
@@ -17,6 +20,7 @@ use alloy::{
 };
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
 use async_trait::async_trait;
+use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
@@ -24,7 +28,6 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
-use std::str::FromStr;
 
 struct CitreaWithdraw;
 #[async_trait]
@@ -77,14 +80,13 @@ impl TestCase for CitreaWithdraw {
         .await?;
 
         // EVM_ADDRESSES[0]
-        let evm_address = EVMAddress([
-            0xf3, 0x9F, 0xd6, 0xe5, 0x1a, 0xad, 0x88, 0xF6, 0xF4, 0xce, 0x6a, 0xB8, 0x82, 0x72,
-            0x79, 0xcf, 0xff, 0xb9, 0x22, 0x66,
-        ]);
+        let evm_address: EVMAddress = hex::decode(EVM_ADDRESSES[0]).unwrap().try_into().unwrap();
 
         let balance = citrea::eth_get_balance(sequencer.client.http_client().clone(), evm_address)
             .await
             .unwrap();
+
+        tracing::info!("Balance: {}", balance);
         // Wallet has initial funds and should be greater than the bridge amount
         // to start test.
         assert!(
@@ -98,88 +100,36 @@ impl TestCase for CitreaWithdraw {
             None,
             config.protocol_paramset().network,
         );
-        // We are giving enough sats to the user so that the operator can pay the
-        // withdrawal and profit.
-        let withdrawal_amount = Amount::from_sat(
-            config.protocol_paramset().bridge_amount.to_sat()
-                - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
-        );
-        let (withdrawal_tx, _withdrawal_tx_signature) =
-            generate_withdrawal_transaction_and_signature(
-                &config,
-                &rpc,
-                &withdrawal_address,
-                withdrawal_amount,
-            )
-            .await;
 
-        let chain_id: u64 = 5655;
+        let withdrawal_utxo = rpc
+            .send_to_address(&withdrawal_address, Amount::from_sat(330))
+            .await
+            .unwrap();
+
         let key = SECRET_KEYS[0]
             .parse::<PrivateKeySigner>()
             .unwrap()
-            .with_chain_id(Some(chain_id));
+            .with_chain_id(Some(CITREA_CHAIN_ID));
+
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(key))
             .on_http(Url::parse(&config.citrea_rpc_url).unwrap());
 
-        let alice = primitives::Address::from_str(EVM_ADDRESSES[0]).unwrap();
-        let bob = primitives::Address::from_str(EVM_ADDRESSES[1]).unwrap();
-
-        let nonce =
-            citrea::eth_get_transaction_count(sequencer.client.http_client().clone(), evm_address)
-                .await
-                .unwrap();
-
-        let tx_req = TransactionRequest::default()
-            .with_from(alice)
-            .with_to(bob)
-            .with_nonce(nonce.try_into().unwrap())
-            .with_chain_id(chain_id)
-            .with_value(U256::from(withdrawal_amount.to_sat()))
-            .with_max_priority_fee_per_gas(10)
-            .with_max_fee_per_gas(1000000001);
-        let gas = provider.estimate_gas(&tx_req).await.unwrap();
-        let gas_price = provider.get_gas_price().await.unwrap();
-        let tx_req = tx_req.gas_limit(gas);
-        tracing::info!("Gas: {}, gas price: {}", gas, gas_price);
-
-        let call_set_value_req = provider.send_transaction(tx_req).await.unwrap();
-        let tx_hash = call_set_value_req
-            .get_receipt()
-            .await
-            .unwrap()
-            .transaction_hash;
-        tracing::info!("EVM tx hash: {:?}", tx_hash);
-
-        let balance_after =
-            citrea::eth_get_balance(sequencer.client.http_client().clone(), evm_address)
-                .await
-                .unwrap();
-        assert_ne!(balance, balance_after);
-
-        assert_eq!(
-            citrea::get_withdrawal_count(sequencer.client.http_client().clone())
-                .await
-                .unwrap(),
-            0
+        let contract = BRIDGE_CONTRACT::new(
+            address!("3100000000000000000000000000000000000002"),
+            provider,
         );
-
-        let nonce =
-            citrea::eth_get_transaction_count(sequencer.client.http_client().clone(), evm_address)
-                .await
-                .unwrap();
-        citrea::withdraw(
-            sequencer.client.http_client().clone(),
-            EVM_ADDRESSES[0],
-            *withdrawal_tx.get_txid(),
-            0,
-            withdrawal_amount.to_sat(),
-            gas,
-            gas_price,
-            nonce,
-        )
-        .await
-        .unwrap();
+        let x = contract
+            .withdraw(
+                FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
+                FixedBytes::from(withdrawal_utxo.vout.to_be_bytes()),
+            )
+            .value(U256::from(
+                config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
+            ))
+            .call()
+            .await
+            .unwrap();
 
         Ok(())
     }
