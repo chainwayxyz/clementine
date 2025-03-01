@@ -28,7 +28,7 @@ const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/testnet4_first
 const L1_BLOCK_HEIGHT: u32 = 72041;
 
 const PAYOUT_TX: [u8; 301] = hex_literal::hex!("02000000000102d43afcd7236286bee4eb5316c597b9977cae4ac69eb8f40d4a47155b94db64540000000000fdffffffeb0577a0d00e1774686e4ef6107d85509a83b63f63056a87ee4a9ff551846bf20100000000fdffffff032036963b00000000160014b9d8ffd3b02047bc33442a2c427abc54ba53a6f83a906b1e020000001600142551d4ad0ab54037f8770ae535ce2e3e56e3f9d50000000000000000036a010101418c1976233f4523d6c988d6c9430b292d5cac77d2358117eeb7dc4dfab728da305ed183fdd44054d368398b64de7ed057fe28c31c689d8ca8c9ea813e100f9203830140b452bea0f0b6ca19442142034d3d9fedfa10bec5e58c12f1f407905214a8c8594f906cb67ffac173fedfcabff55c09e2d44cb9b2cd48f87deae15f729283bf2900000000");
-const PAYOUT_TX_INDEX: u32 = 15;
+const PAYOUT_TX_INDEX: u32 = 51;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -47,8 +47,8 @@ async fn main() {
         .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
         .collect::<Vec<CircuitBlockHeader>>();
     let mut mmr_native = MMRNative::new();
-    for header in headers.iter() {
-        mmr_native.append(header.compute_block_hash());
+    for i in 0..=L1_BLOCK_HEIGHT {
+        mmr_native.append(headers[i as usize].compute_block_hash());
     }
 
     let block_header_circuit_output: BlockHeaderCircuitOutput =
