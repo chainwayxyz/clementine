@@ -1,4 +1,5 @@
 use crate::test::common::citrea::SATS_TO_WEI_MULTIPLIER;
+use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::test::withdraw::primitives::address;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -93,11 +94,15 @@ impl TestCase for CitreaWithdraw {
             None,
             config.protocol_paramset().network,
         );
-
-        let withdrawal_utxo = rpc
-            .send_to_address(&withdrawal_address, Amount::from_sat(330))
-            .await
-            .unwrap();
+        let withdrawal_utxo = generate_withdrawal_transaction_and_signature(
+            &config,
+            &rpc,
+            &withdrawal_address,
+            Amount::from_sat(330),
+        )
+        .await
+        .0
+        .outpoint;
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(key))
