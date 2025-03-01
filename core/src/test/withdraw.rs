@@ -3,19 +3,17 @@ use crate::test::withdraw::primitives::address;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self, BRIDGE_CONTRACT, CITREA_CHAIN_ID, EVM_ADDRESSES, SECRET_KEYS},
+        citrea::{self, BRIDGE_CONTRACT, CITREA_CHAIN_ID, SECRET_KEYS},
         create_test_config_with_thread_name,
     },
     utils::SECP,
-    EVMAddress,
 };
 use alloy::primitives::FixedBytes;
+use alloy::providers::Provider;
 use alloy::signers::Signer;
 use alloy::{
-    network::{EthereumWallet, TransactionBuilder},
+    network::EthereumWallet,
     primitives::{self, U256},
-    providers::Provider,
-    rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
 use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
@@ -79,19 +77,14 @@ impl TestCase for CitreaWithdraw {
         )
         .await?;
 
-        // EVM_ADDRESSES[0]
-        let evm_address: EVMAddress = hex::decode(EVM_ADDRESSES[0]).unwrap().try_into().unwrap();
+        // Create the wallet first
+        let key = SECRET_KEYS[0]
+            .parse::<PrivateKeySigner>()
+            .unwrap()
+            .with_chain_id(Some(CITREA_CHAIN_ID));
 
-        let balance = citrea::eth_get_balance(sequencer.client.http_client().clone(), evm_address)
-            .await
-            .unwrap();
-
-        tracing::info!("Balance: {}", balance);
-        // Wallet has initial funds and should be greater than the bridge amount
-        // to start test.
-        assert!(
-            balance / 10_000_000_000 >= (config.protocol_paramset().bridge_amount.to_sat()).into()
-        );
+        // Get the address from the wallet's signer
+        let wallet_address = key.address();
 
         let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
         let withdrawal_address = Address::p2tr(
@@ -106,19 +99,18 @@ impl TestCase for CitreaWithdraw {
             .await
             .unwrap();
 
-        let key = SECRET_KEYS[0]
-            .parse::<PrivateKeySigner>()
-            .unwrap()
-            .with_chain_id(Some(CITREA_CHAIN_ID));
-
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(key))
             .on_http(Url::parse(&config.citrea_rpc_url).unwrap());
+
+        let balance = provider.get_balance(wallet_address).await.unwrap();
+        println!("Balance: {}", balance);
 
         let contract = BRIDGE_CONTRACT::new(
             address!("3100000000000000000000000000000000000002"),
             provider,
         );
+
         let x = contract
             .withdraw(
                 FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
@@ -127,9 +119,12 @@ impl TestCase for CitreaWithdraw {
             .value(U256::from(
                 config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
             ))
-            .call()
+            .send()
             .await
             .unwrap();
+
+        let receipt = x.get_receipt().await.unwrap();
+        println!("Withdrawal: {:?}", receipt);
 
         Ok(())
     }
