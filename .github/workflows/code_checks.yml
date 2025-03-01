@@ -6,6 +6,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
+  RUST_MIN_STACK: 33554432
 
 jobs:
   formatting:
