@@ -14,6 +14,11 @@ mod bitcoin_merke;
 mod parameters;
 mod requests;
 
+pub const CITREA_CHAIN_ID: u64 = 5655;
+pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
+pub const BRIDGE_CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
+pub const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
+
 /// Citrea e2e hardcoded secret keys.
 pub const SECRET_KEYS: [&str; 10] = [
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",

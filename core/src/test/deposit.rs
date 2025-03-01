@@ -1,7 +1,7 @@
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self},
+        citrea::{self, SATS_TO_WEI_MULTIPLIER},
         create_test_config_with_thread_name, run_single_deposit,
     },
     EVMAddress,
@@ -105,7 +105,7 @@ impl TestCase for DepositToCitrea {
                 .unwrap();
         assert_eq!(
             balance,
-            (config.protocol_paramset().bridge_amount.to_sat() * 10_000_000_000).into()
+            (config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER).into()
         );
 
         Ok(())
