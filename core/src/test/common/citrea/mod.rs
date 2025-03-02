@@ -8,6 +8,7 @@ use citrea_e2e::{
     framework::TestFramework,
     node::{Node, NodeKind},
 };
+pub use parameters::*;
 pub use requests::*;
 
 mod bitcoin_merke;

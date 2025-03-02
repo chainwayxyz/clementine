@@ -1,7 +1,8 @@
 use crate::errors::BridgeError;
-use crate::test::common::citrea::parameters::get_deposit_params;
+use crate::test::common::citrea::parameters::get_transaction_params;
 use crate::test::common::citrea::{BRIDGE_CONTRACT_ADDRESS, LIGHT_CLIENT_ADDRESS};
 use crate::EVMAddress;
+use alloy::sol_types::SolValue;
 use bitcoin::hashes::Hash;
 use bitcoin::{Block, Transaction, Txid};
 use jsonrpsee::core::client::ClientT;
@@ -102,12 +103,12 @@ pub async fn deposit(
 ) -> Result<(), BridgeError> {
     let txid = transaction.compute_txid();
 
-    let params = get_deposit_params(transaction, block, block_height, txid)?;
+    let params = get_transaction_params(transaction, block, block_height, txid)?;
 
     let _response: () = client
         .request(
             "citrea_sendRawDepositTransaction",
-            rpc_params!(hex::encode(params)),
+            rpc_params!(hex::encode(params.abi_encode())),
         )
         .await?;
 
