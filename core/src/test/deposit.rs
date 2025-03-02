@@ -1,3 +1,4 @@
+use super::common::citrea::BRIDGE_PARAMS;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -45,9 +46,8 @@ impl TestCase for DepositToCitrea {
 
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            // min_soft_confirmations_per_commitment: 50,
             test_mode: false,
-            bridge_initialize_params: "000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a20423a0b35060e62053765e2aba342f1c242e78d68f5248aca26e703c0c84ca322ac0063066369747265611400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000".to_string(),
+            bridge_initialize_params: BRIDGE_PARAMS.to_string(),
             ..Default::default()
         }
     }
@@ -75,10 +75,7 @@ impl TestCase for DepositToCitrea {
             .client
             .get_raw_transaction_info(&move_txid, None)
             .await?;
-        let block = rpc
-            .client
-            .get_block(&tx_info.blockhash.expect("Not None"))
-            .await?;
+        let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
         rpc.mine_blocks(101).await.unwrap();
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
 
