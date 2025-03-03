@@ -1,8 +1,9 @@
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::{
+    citrea::SATS_TO_WEI_MULTIPLIER,
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self, SATS_TO_WEI_MULTIPLIER},
+        citrea::{self},
         create_test_config_with_thread_name, run_single_deposit,
     },
     EVMAddress,
@@ -17,9 +18,9 @@ use citrea_e2e::{
 };
 use std::{thread::sleep, time::Duration};
 
-struct DepositToCitrea;
+struct CitreaDeposit;
 #[async_trait]
-impl TestCase for DepositToCitrea {
+impl TestCase for CitreaDeposit {
     fn bitcoin_config() -> BitcoinConfig {
         BitcoinConfig {
             extra_args: vec![
@@ -89,7 +90,7 @@ impl TestCase for DepositToCitrea {
         while citrea::block_number(sequencer.client.http_client().clone()).await?
             < block_height.try_into().unwrap()
         {
-            tracing::debug!("Waiting for block to be mined");
+            println!("Waiting for block to be mined");
             rpc.mine_blocks(1).await.unwrap();
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
@@ -117,6 +118,6 @@ impl TestCase for DepositToCitrea {
 }
 
 #[tokio::test]
-async fn send_deposit_details_to_citrea() -> Result<()> {
-    TestCaseRunner::new(DepositToCitrea).run().await
+async fn citrea_deposit() -> Result<()> {
+    TestCaseRunner::new(CitreaDeposit).run().await
 }

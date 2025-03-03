@@ -1,10 +1,12 @@
 use super::common::citrea::BRIDGE_PARAMS;
-use crate::test::common::citrea::{BRIDGE_CONTRACT_ADDRESS, SATS_TO_WEI_MULTIPLIER};
+use crate::citrea::{
+    BRIDGE_CONTRACT, BRIDGE_CONTRACT_ADDRESS, CITREA_CHAIN_ID, SATS_TO_WEI_MULTIPLIER,
+};
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self, BRIDGE_CONTRACT, CITREA_CHAIN_ID, SECRET_KEYS},
+        citrea::{self, SECRET_KEYS},
         create_test_config_with_thread_name,
     },
     utils::SECP,
@@ -24,9 +26,9 @@ use citrea_e2e::{
     Result,
 };
 
-struct CitreaWithdraw;
+struct CitreaWithdrawAndGetUTXO;
 #[async_trait]
-impl TestCase for CitreaWithdraw {
+impl TestCase for CitreaWithdrawAndGetUTXO {
     fn bitcoin_config() -> BitcoinConfig {
         BitcoinConfig {
             extra_args: vec![
@@ -102,9 +104,13 @@ impl TestCase for CitreaWithdraw {
         .await
         .0
         .outpoint;
+        println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
         let balance = provider.get_balance(wallet_address).await.unwrap();
-        tracing::debug!("Balance: {}", balance);
+        println!("Balance: {}", balance);
+
+        let withdrawal_count = contract.getWithdrawalCount().call().await.unwrap();
+        assert_eq!(withdrawal_count._0, U256::from(0));
 
         let citrea_withdrawal_tx = contract
             .withdraw(
@@ -119,13 +125,21 @@ impl TestCase for CitreaWithdraw {
             .unwrap();
 
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
-        tracing::debug!("Citrea withdrawal tx receipt: {:?}", receipt);
+        println!("Citrea withdrawal tx receipt: {:?}", receipt);
+
+        let withdrawal_count = contract.getWithdrawalCount().call().await.unwrap();
+        assert_eq!(withdrawal_count._0, U256::from(1));
+
+        let citrea_withdrawal_utxo = crate::citrea::withdrawal_utxos(provider, 0).await.unwrap();
+        println!("Citrea withdrawal UTXO: {:?}", citrea_withdrawal_utxo);
+
+        assert_eq!(citrea_withdrawal_utxo, withdrawal_utxo);
 
         Ok(())
     }
 }
 
 #[tokio::test]
-async fn citrea_withdraw() -> Result<()> {
-    TestCaseRunner::new(CitreaWithdraw).run().await
+async fn citrea_withdraw_and_get_utxo() -> Result<()> {
+    TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
 }

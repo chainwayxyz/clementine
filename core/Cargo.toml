@@ -42,11 +42,11 @@ http = { workspace = true }
 hyper = { workspace = true }
 tower = { workspace = true }
 hyper-util = { workspace = true }
+alloy = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
-alloy = { workspace = true }
 citrea-e2e = { workspace = true }
 
 [[bin]]

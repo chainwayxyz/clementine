@@ -1,6 +1,6 @@
 //! # Parameter Builder For Citrea Requests
 
-use super::Bridge::TransactionParams;
+use crate::citrea::Bridge::TransactionParams;
 use crate::errors::BridgeError;
 use crate::test::common::citrea::bitcoin_merke::BitcoinMerkleTree;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
