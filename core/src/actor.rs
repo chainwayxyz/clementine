@@ -220,7 +220,7 @@ impl Actor {
         txid: Txid,
         paramset: &'static ProtocolParamset,
     ) -> Result<ClementineBitVMPublicKeys, BridgeError> {
-        let mut pks = ClementineBitVMPublicKeys::create_dummy();
+        let mut pks = ClementineBitVMPublicKeys::create_replacable();
         let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
             20, 0, 0, txid, paramset,
         ))?;

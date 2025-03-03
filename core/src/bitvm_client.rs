@@ -143,7 +143,7 @@ fn generate_fresh_data() -> BitvmCache {
         ark_groth16::VerifyingKey::deserialize_uncompressed(&vk_bytes[..])
             .expect("Failed to deserialize verifying key");
 
-    let dummy_pks = ClementineBitVMPublicKeys::create_dummy();
+    let dummy_pks = ClementineBitVMPublicKeys::create_replacable();
 
     let partial_scripts = api_generate_partial_script(&vk);
 
@@ -263,7 +263,7 @@ impl Default for ClementineBitVMReplacementData {
 }
 
 impl ClementineBitVMPublicKeys {
-    pub fn get_dummy_value(pk_type_idx: u8, pk_idx: u16, digit_idx: u8) -> [u8; 20] {
+    pub fn get_replacable_value(pk_type_idx: u8, pk_idx: u16, digit_idx: u8) -> [u8; 20] {
         let mut dummy_value = [255u8; 20];
         dummy_value[0] = pk_type_idx;
         dummy_value[1] = pk_idx.to_be_bytes()[0];
@@ -272,36 +272,36 @@ impl ClementineBitVMPublicKeys {
         dummy_value
     }
 
-    pub fn get_dummy_wpk<const DIGIT_LEN: usize>(
+    pub fn get_replacable_wpks<const DIGIT_LEN: usize>(
         pk_type_idx: u8,
         pk_idx: u16,
     ) -> [[u8; 20]; DIGIT_LEN] {
         (0..DIGIT_LEN as u8)
-            .map(|digit_idx| Self::get_dummy_value(pk_type_idx, pk_idx, digit_idx))
+            .map(|digit_idx| Self::get_replacable_value(pk_type_idx, pk_idx, digit_idx))
             .collect::<Vec<_>>()
             .try_into()
             .expect("Should be able to convert to array")
     }
 
-    pub fn get_multiple_dummy_wpks<const DIGIT_LEN: usize, const PK_LEN: usize>(
+    pub fn get_multiple_replacable_wpks<const DIGIT_LEN: usize, const PK_LEN: usize>(
         pk_type_idx: u8,
     ) -> [[[u8; 20]; DIGIT_LEN]; PK_LEN] {
         (0..PK_LEN as u16)
-            .map(|pk_idx| Self::get_dummy_wpk(pk_type_idx, pk_idx))
+            .map(|pk_idx| Self::get_replacable_wpks(pk_type_idx, pk_idx))
             .collect::<Vec<_>>()
             .try_into()
             .expect("Should be able to convert to array")
     }
 
-    pub fn create_dummy() -> Self {
+    pub fn create_replacable() -> Self {
         let combined_method_id_constant = [255u8; 32];
         let deposit_constant = [255u8; 32];
-        let payout_tx_blockhash_pk = Self::get_dummy_wpk(0, 0);
-        let latest_blockhash_pk = Self::get_dummy_wpk(1, 0);
-        let challenge_sending_watchtowers_pk = Self::get_dummy_wpk(2, 0);
-        let bitvm_part_1 = Self::get_multiple_dummy_wpks(3);
-        let bitvm_part_2 = Self::get_multiple_dummy_wpks(4);
-        let bitvm_part_3 = Self::get_multiple_dummy_wpks(5);
+        let payout_tx_blockhash_pk = Self::get_replacable_wpks(0, 0);
+        let latest_blockhash_pk = Self::get_replacable_wpks(1, 0);
+        let challenge_sending_watchtowers_pk = Self::get_replacable_wpks(2, 0);
+        let bitvm_part_1 = Self::get_multiple_replacable_wpks(3);
+        let bitvm_part_2 = Self::get_multiple_replacable_wpks(4);
+        let bitvm_part_3 = Self::get_multiple_replacable_wpks(5);
         let bitvm_pks = (bitvm_part_1, bitvm_part_2, bitvm_part_3);
         Self {
             combined_method_id_constant,
@@ -559,7 +559,7 @@ mod tests {
     use crate::{actor::Actor, test::common::create_test_config_with_thread_name};
     #[test]
     fn test_to_flattened_vec() {
-        let bitvm_pks = ClementineBitVMPublicKeys::create_dummy();
+        let bitvm_pks = ClementineBitVMPublicKeys::create_replacable();
         let flattened_vec = bitvm_pks.to_flattened_vec();
         let from_vec_to_array = ClementineBitVMPublicKeys::from_flattened_vec(&flattened_vec);
         assert_eq!(bitvm_pks, from_vec_to_array);
