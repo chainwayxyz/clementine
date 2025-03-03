@@ -26,8 +26,8 @@ use bitcoin::{
 };
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
-use tonic::Status;
 use tokio::time::{timeout, Duration};
+use tonic::Status;
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
@@ -127,7 +127,7 @@ impl Aggregator {
 
         // Create channels with larger capacity to prevent blocking
         let (operator_keys_tx, operator_keys_rx) =
-            tokio::sync::broadcast::channel(self.config.num_operators * 2);
+            tokio::sync::broadcast::channel(self.config.num_operators * self.config.num_verifiers);
         let operator_rx_handles = (0..self.config.num_verifiers)
             .map(|_| operator_keys_rx.resubscribe())
             .collect::<Vec<_>>();
@@ -138,33 +138,40 @@ impl Aggregator {
 
         tracing::info!("Starting operator key collection");
         let get_operators_keys_handle = tokio::spawn(async move {
-            let operator_futures = operators
-                .iter_mut()
-                .enumerate()
-                .map(|(idx, operator_client)| {
-                    let deposit_params = deposit.clone();
-                    let tx = operator_keys_tx.clone();
-                    async move {
-                        tracing::debug!("Requesting keys from operator {}", idx);
-                        let start = std::time::Instant::now();
-                        let operator_keys = timeout(
-                            OPERATION_TIMEOUT,
-                            operator_client.get_deposit_keys(deposit_params.clone()),
-                        )
-                        .await
-                        .map_err(|_| Status::deadline_exceeded("Operator key retrieval timed out"))??
-                        .into_inner();
-                        tracing::debug!("Got keys from operator {} in {:?}", idx, start.elapsed());
+            let operator_futures =
+                operators
+                    .iter_mut()
+                    .enumerate()
+                    .map(|(idx, operator_client)| {
+                        let deposit_params = deposit.clone();
+                        let tx = operator_keys_tx.clone();
+                        async move {
+                            tracing::debug!("Requesting keys from operator {}", idx);
+                            let start = std::time::Instant::now();
+                            let operator_keys = timeout(
+                                OPERATION_TIMEOUT,
+                                operator_client.get_deposit_keys(deposit_params.clone()),
+                            )
+                            .await
+                            .map_err(|_| {
+                                Status::deadline_exceeded("Operator key retrieval timed out")
+                            })??
+                            .into_inner();
+                            tracing::debug!(
+                                "Got keys from operator {} in {:?}",
+                                idx,
+                                start.elapsed()
+                            );
 
-                        tx.send(OperatorKeysWithDeposit {
-                            deposit_params: Some(deposit_params),
-                            operator_keys: Some(operator_keys),
-                            operator_idx: idx as u32,
-                        })
-                        .map_err(|_| Status::internal("Failed to send operator keys"))?;
-                        Ok::<_, Status>(())
-                    }
-                });
+                            tx.send(OperatorKeysWithDeposit {
+                                deposit_params: Some(deposit_params),
+                                operator_keys: Some(operator_keys),
+                                operator_idx: idx as u32,
+                            })
+                            .map_err(|_| Status::internal("Failed to send operator keys"))?;
+                            Ok::<_, Status>(())
+                        }
+                    });
             try_join_all(operator_futures).await
         });
 
@@ -174,17 +181,32 @@ impl Aggregator {
             let distribution_futures = verifiers.iter_mut().zip(operator_rx_handles).map(
                 |(verifier, mut rx)| async move {
                     // Only wait for expected number of messages
-                    for i in 0..num_operators {
-                        tracing::debug!("Waiting for operator key {}", i);
+                    let mut received_keys = std::collections::HashSet::new();
+                    while received_keys.len() < num_operators {
+                        tracing::debug!(
+                            "Waiting for operator key (received {}/{})",
+                            received_keys.len(),
+                            num_operators
+                        );
                         let start = std::time::Instant::now();
                         match timeout(OPERATION_TIMEOUT, rx.recv()).await {
                             Ok(Ok(operator_keys)) => {
-                                tracing::debug!("Received operator key {} in {:?}", i, start.elapsed());
-                                timeout(OPERATION_TIMEOUT, verifier.set_operator_keys(operator_keys))
+                                let operator_idx = operator_keys.operator_idx;
+                                if received_keys.insert(operator_idx) {
+                                    tracing::debug!(
+                                        "Received operator key {} in {:?}",
+                                        operator_idx,
+                                        start.elapsed()
+                                    );
+                                    timeout(
+                                        OPERATION_TIMEOUT,
+                                        verifier.set_operator_keys(operator_keys),
+                                    )
                                     .await
                                     .map_err(|_| {
                                         Status::deadline_exceeded("Setting operator keys timed out")
                                     })??;
+                                }
                             }
                             Ok(Err(_)) => break, // Channel closed
                             Err(_) => {
@@ -212,33 +234,40 @@ impl Aggregator {
         let deposit = deposit_params.clone();
 
         let get_watchtowers_keys_handle = tokio::spawn(async move {
-            let watchtower_futures = watchtowers
-                .iter_mut()
-                .enumerate()
-                .map(|(idx, watchtower_client)| {
-                    let deposit_params = deposit.clone();
-                    let tx = watchtower_keys_tx.clone();
-                    async move {
-                        tracing::debug!("Requesting keys from watchtower {}", idx);
-                        let start = std::time::Instant::now();
-                        let watchtower_keys = timeout(
-                            OPERATION_TIMEOUT,
-                            watchtower_client.get_challenge_keys(deposit_params.clone()),
-                        )
-                        .await
-                        .map_err(|_| Status::deadline_exceeded("Watchtower key retrieval timed out"))??
-                        .into_inner();
-                        tracing::debug!("Got keys from watchtower {} in {:?}", idx, start.elapsed());
+            let watchtower_futures =
+                watchtowers
+                    .iter_mut()
+                    .enumerate()
+                    .map(|(idx, watchtower_client)| {
+                        let deposit_params = deposit.clone();
+                        let tx = watchtower_keys_tx.clone();
+                        async move {
+                            tracing::debug!("Requesting keys from watchtower {}", idx);
+                            let start = std::time::Instant::now();
+                            let watchtower_keys = timeout(
+                                OPERATION_TIMEOUT,
+                                watchtower_client.get_challenge_keys(deposit_params.clone()),
+                            )
+                            .await
+                            .map_err(|_| {
+                                Status::deadline_exceeded("Watchtower key retrieval timed out")
+                            })??
+                            .into_inner();
+                            tracing::debug!(
+                                "Got keys from watchtower {} in {:?}",
+                                idx,
+                                start.elapsed()
+                            );
 
-                        tx.send(WatchtowerKeysWithDeposit {
-                            deposit_params: Some(deposit_params),
-                            watchtower_keys: Some(watchtower_keys),
-                            watchtower_idx: idx as u32,
-                        })
-                        .map_err(|_| Status::internal("Failed to send watchtower keys"))?;
-                        Ok::<_, Status>(())
-                    }
-                });
+                            tx.send(WatchtowerKeysWithDeposit {
+                                deposit_params: Some(deposit_params),
+                                watchtower_keys: Some(watchtower_keys),
+                                watchtower_idx: idx as u32,
+                            })
+                            .map_err(|_| Status::internal("Failed to send watchtower keys"))?;
+                            Ok::<_, Status>(())
+                        }
+                    });
             try_join_all(watchtower_futures).await
         });
 
@@ -253,12 +282,19 @@ impl Aggregator {
                         let start = std::time::Instant::now();
                         match timeout(OPERATION_TIMEOUT, rx.recv()).await {
                             Ok(Ok(watchtower_keys)) => {
-                                tracing::debug!("Received watchtower key {} in {:?}", i, start.elapsed());
-                                timeout(OPERATION_TIMEOUT, verifier.set_watchtower_keys(watchtower_keys))
-                                    .await
-                                    .map_err(|_| {
-                                        Status::deadline_exceeded("Setting watchtower keys timed out")
-                                    })??;
+                                tracing::debug!(
+                                    "Received watchtower key {} in {:?}",
+                                    i,
+                                    start.elapsed()
+                                );
+                                timeout(
+                                    OPERATION_TIMEOUT,
+                                    verifier.set_watchtower_keys(watchtower_keys),
+                                )
+                                .await
+                                .map_err(|_| {
+                                    Status::deadline_exceeded("Setting watchtower keys timed out")
+                                })??;
                             }
                             Ok(Err(_)) => break, // Channel closed
                             Err(_) => {

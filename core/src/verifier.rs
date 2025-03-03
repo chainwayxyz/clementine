@@ -781,6 +781,7 @@ impl Verifier {
             .collect::<Vec<_>>();
 
         // TODO: Use correct verification key and along with a dummy proof.
+        let start = std::time::Instant::now();
         let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts();
 
         let taproot_builder = taproot_builder_with_scripts(&scripts);
@@ -789,6 +790,8 @@ impl Verifier {
             .expect("taproot builder always builds a full taptree")
             .root_hash();
         let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+        tracing::debug!("Built taproot tree in {:?}", start.elapsed());
+        // let root_hash_bytes = [0u8; 32];
 
         // Save the public input wots to db along with the root hash
         self.db

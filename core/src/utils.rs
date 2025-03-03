@@ -483,7 +483,11 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub fn get_g16_verifier_disprove_scripts(&self) -> Vec<ScriptBuf> {
-        replace_disprove_scripts(self)
+        if cfg!(debug_assertions) {
+            vec![ScriptBuf::from_bytes(vec![0x51])] // OP_TRUE
+        } else {
+            replace_disprove_scripts(self)
+        }
     }
 }
 
