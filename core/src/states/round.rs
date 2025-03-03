@@ -82,8 +82,22 @@ impl<T: Owner> RoundStateMachine<T> {
         }
     }
 
+    async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &RoundEvent) {
+        context
+            .capture_error(async |_context| {
+                let event_str = format!("{:?}", event);
+                Err(BridgeError::UnhandledEvent(event_str))
+                    .map_err(self.wrap_err("round unhandled event"))
+            })
+            .await;
+    }
+
     #[action]
-    pub(crate) fn on_dispatch(&mut self, _state: StateOrSuperstate<'_, '_, Self>, evt: &RoundEvent) {
+    pub(crate) fn on_dispatch(
+        &mut self,
+        _state: StateOrSuperstate<'_, '_, Self>,
+        evt: &RoundEvent,
+    ) {
         tracing::debug!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
         self.dirty = true;
     }
@@ -127,7 +141,10 @@ impl<T: Owner> RoundStateMachine<T> {
             RoundEvent::ReadyToReimburseSent { round_idx } => {
                 Transition(State::ready_to_reimburse(*round_idx))
             }
-            _ => Handled,
+            _ => {
+                self.unhandled_event(context, event).await;
+                Handled
+            }
         }
     }
 
@@ -217,7 +234,10 @@ impl<T: Owner> RoundStateMachine<T> {
             RoundEvent::RoundSent { round_idx } => {
                 Transition(State::round_tx(*round_idx, HashSet::new()))
             }
-            _ => Handled,
+            _ => {
+                self.unhandled_event(context, event).await;
+                Handled
+            }
         }
     }
 

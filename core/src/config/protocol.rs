@@ -1,9 +1,9 @@
 use bitcoin::{Amount, Network};
 use serde::{Deserialize, Serialize};
 
-const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
+pub const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
 
-const BLOCKS_PER_DAY: u16 = 6 * 24;
+pub const BLOCKS_PER_DAY: u16 = 6 * 24;
 
 /// This is the log_d used across the codebase.
 ///
@@ -82,9 +82,9 @@ pub struct ProtocolParamset {
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)
     pub watchtower_challenge_timeout_timelock: u16,
     /// Time to wait after a kickoff to send a watchtower challenge
-    pub wait_to_send_watchtower_challenge: u16,
+    pub time_to_send_watchtower_challenge: u16,
     /// Time to wait before trying to disprove (so that you collect all operator challenge acks before disproving)
-    pub wait_to_disprove: u16,
+    pub time_to_disprove: u16,
 }
 
 pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -106,8 +106,8 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
     operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
-    wait_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
-    wait_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
+    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
 };
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -129,8 +129,8 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
     operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
-    wait_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
-    wait_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
+    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -152,6 +152,6 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
     operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
-    wait_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
-    wait_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
+    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
 };
