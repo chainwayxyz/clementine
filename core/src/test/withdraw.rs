@@ -1,4 +1,5 @@
 use super::common::citrea::BRIDGE_PARAMS;
+use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaContractClient, SATS_TO_WEI_MULTIPLIER};
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
@@ -8,7 +9,6 @@ use crate::{
         citrea::{self},
         create_test_config_with_thread_name,
     },
-    utils::SECP,
 };
 use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;

@@ -120,7 +120,18 @@ impl Operator {
                 outpoint
             }
         };
+        dbtx.commit().await?;
 
+        let citrea_contract_client = if !config.citrea_rpc_url.is_empty() {
+            Some(CitreaContractClient::new(
+                Url::parse(&config.citrea_rpc_url).map_err(|e| {
+                    BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
+                })?,
+                None,
+            )?)
+        } else {
+            None
+        };
         let citrea_client = if !config.citrea_rpc_url.is_empty() {
             Some(HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?)
         } else {

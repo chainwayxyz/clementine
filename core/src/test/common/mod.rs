@@ -129,6 +129,7 @@ pub async fn run_single_deposit(
     );
     let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
+    let setup_start = std::time::Instant::now();
     aggregator.setup(Request::new(Empty {})).await?;
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
