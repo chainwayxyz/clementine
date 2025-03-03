@@ -44,6 +44,9 @@ pub async fn eth_get_balance(
     Ok(ret)
 }
 
+/// Deposits a transaction to Citrea. This function is different from `contract.deposit` because it
+/// won't directly talk with EVM but with Citrea. So that authorization can be done (Citrea will
+/// block this call if it isn't an operator).
 pub async fn deposit(
     client: HttpClient,
     block: Block,

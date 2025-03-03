@@ -77,6 +77,8 @@ impl TestCase for CitreaDeposit {
             _deposit_outpoint,
             move_txid,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
+        // Mine blocks, so Citrea can fetch the block that contains the transaction.
+        rpc.mine_blocks(101).await.unwrap();
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
         let tx_info = rpc
@@ -84,11 +86,10 @@ impl TestCase for CitreaDeposit {
             .get_raw_transaction_info(&move_txid, None)
             .await?;
         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
-        rpc.mine_blocks(101).await.unwrap();
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
 
         while citrea::block_number(sequencer.client.http_client().clone()).await?
-            < block_height.try_into().unwrap()
+            <= block_height.try_into().unwrap()
         {
             println!("Waiting for block to be mined");
             rpc.mine_blocks(1).await.unwrap();
@@ -98,7 +99,7 @@ impl TestCase for CitreaDeposit {
         citrea::deposit(
             sequencer.client.http_client().clone(),
             block,
-            block_height.try_into().expect("Will not fail"),
+            block_height.try_into().unwrap(),
             tx,
         )
         .await?;
