@@ -34,7 +34,7 @@ pub async fn run_multiple_deposits(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers) = create_actors(config).await;
+    let (verifiers, operators, mut aggregator, watchtowers, _) = create_actors(config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
     let actor = Actor::new(
@@ -200,7 +200,7 @@ pub async fn run_single_deposit(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers) = create_actors(config).await;
+    let (verifiers, operators, mut aggregator, watchtowers, _) = create_actors(config).await;
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(

@@ -872,7 +872,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name(None).await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let (_, _, mut aggregator, _) = create_actors(&config).await;
+        let (_, _, mut aggregator, _, _) = create_actors(&config).await;
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -890,7 +890,7 @@ mod tests {
     async fn aggregator_setup_and_deposit() {
         let config = create_test_config_with_thread_name(None).await;
 
-        let (_, _, mut aggregator, _) = create_actors(&config).await;
+        let (_, _, mut aggregator, _, _) = create_actors(&config).await;
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();
@@ -929,7 +929,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name(None).await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors(&config).await;
+        let (_verifiers, _operators, mut aggregator, _watchtowers, _) =
+            create_actors(&config).await;
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(

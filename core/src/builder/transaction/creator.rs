@@ -580,7 +580,7 @@ mod tests {
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let paramset = config.protocol_paramset();
-        let (mut verifiers, mut operators, mut aggregator, mut watchtowers) =
+        let (mut verifiers, mut operators, mut aggregator, mut watchtowers, _) =
             create_actors(&config).await;
 
         tracing::info!("Setting up aggregator");

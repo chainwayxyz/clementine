@@ -157,7 +157,7 @@ pub async fn create_verifier_grpc_server(
 
 pub async fn create_operator_grpc_server(
     config: BridgeConfig,
-) -> Result<(std::net::SocketAddr,), BridgeError> {
+) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     tracing::info!(
         "config host and port are: {} and {}",
         config.host,

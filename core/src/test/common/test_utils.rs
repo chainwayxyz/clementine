@@ -16,23 +16,14 @@ use crate::servers::{
     create_watchtower_unix_server,
 };
 use crate::utils::initialize_logger;
-use crate::verifier::Verifier;
 use crate::{
-    actor::Actor,
-    builder,
-    config::BridgeConfig,
-    database::Database,
-    errors::BridgeError,
-    extended_rpc::ExtendedRpc,
-    musig2::AggregateFromPublicKeys,
-    servers::{
-        create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
-        create_watchtower_grpc_server,
-    },
+    actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
+    extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
 use std::net::TcpListener;
+use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
 pub struct WithProcessCleanup(
@@ -303,18 +294,6 @@ pub async fn initialize_database(config: &BridgeConfig) {
         .expect("Failed to run schema script");
 }
 
-pub struct ActorsCleanup(
-    Vec<oneshot::Sender<()>>,
-    tempfile::TempDir,
-    WithProcessCleanup,
-);
-
-impl ActorsCleanup {
-    pub fn rpc(&self) -> &ExtendedRpc {
-        self.2.rpc()
-    }
-}
-
 /// Starts operators, verifiers, aggregator and watchtower servers.
 ///
 /// Uses Unix sockets with temporary files for communication between services.
@@ -330,6 +309,7 @@ pub async fn create_actors(
     Vec<ClementineOperatorClient<Channel>>,
     ClementineAggregatorClient<Channel>,
     Vec<ClementineWatchtowerClient<Channel>>,
+    (Vec<oneshot::Sender<()>>, tempfile::TempDir),
 ) {
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
@@ -485,7 +465,53 @@ pub async fn create_actors(
     // Add aggregator shutdown channel
     shutdown_channels.push(aggregator_shutdown_tx);
 
-    (verifiers, operators, aggregator, watchtowers)
+    // Connect to the Unix socket servers
+    let verifiers = get_clients(
+        verifier_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineVerifierClient::new,
+    )
+    .await
+    .expect("could not connect to verifiers");
+
+    let operators = get_clients(
+        operator_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineOperatorClient::new,
+    )
+    .await
+    .expect("could not connect to operators");
+
+    let aggregator = get_clients(
+        vec![format!("unix://{}", aggregator_path.display())],
+        ClementineAggregatorClient::new,
+    )
+    .await
+    .expect("could not connect to aggregator")
+    .pop()
+    .expect("could not connect to aggregator");
+
+    let watchtowers = get_clients(
+        watchtower_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineWatchtowerClient::new,
+    )
+    .await
+    .expect("could not connect to watchtowers");
+
+    (
+        verifiers,
+        operators,
+        aggregator,
+        watchtowers,
+        (shutdown_channels, socket_dir),
+    )
 }
 
 /// Gets the the deposit address for the user.

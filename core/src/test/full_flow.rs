@@ -24,7 +24,7 @@ pub async fn run_happy_path(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, _watchtowers) = create_actors(config).await;
+    let (_verifiers, mut operators, mut aggregator, _watchtowers, _) = create_actors(config).await;
 
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
