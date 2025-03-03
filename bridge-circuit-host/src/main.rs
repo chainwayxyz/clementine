@@ -1,3 +1,5 @@
+use alloy::providers::{ProviderBuilder, RootProvider};
+use alloy::transports::http::{Client, Http};
 use bitcoin::consensus::Decodable;
 use bitcoin::hashes::Hash;
 use borsh::{self, BorshDeserialize};
@@ -18,6 +20,9 @@ use std::convert::TryInto;
 use std::fs;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt};
+
+const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
+const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
 
 const HEADERS: &[u8] = include_bytes!("bin-files/testnet4_headers.bin");
 const TESTNET_BLOCK_72041: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
@@ -86,12 +91,15 @@ async fn main() {
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
-    let (light_client_proof, _lcp_receipt) = fetch_light_client_proof(PARAMETERS.l1_block_height)
+    let provider: RootProvider<Http<Client>>  = ProviderBuilder::new().on_http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
+
+    let (light_client_proof, _lcp_receipt) = fetch_light_client_proof(PARAMETERS.l1_block_height, provider)
         .await
         .unwrap();
 
+    let provider = ProviderBuilder::new().on_http(CITREA_TESTNET_RPC.parse().unwrap());
     // Check if L2 height is correct ??
-    let storage_proof = fetch_storage_proof(&light_client_proof.l2_height).await;
+    let storage_proof = fetch_storage_proof(&light_client_proof.l2_height, provider).await;
     let block_vec = TESTNET_BLOCK_72041.to_vec();
     let block_72041 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
     let payout_tx =

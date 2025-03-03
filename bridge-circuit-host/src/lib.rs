@@ -1,6 +1,7 @@
 use alloy::{
     primitives::keccak256,
-    providers::{Provider, ProviderBuilder},
+    providers::{Provider, ProviderBuilder, RootProvider},
+    transports::http::{Http, Client},
 };
 use alloy_primitives::U256;
 use alloy_rpc_types::EIP1186AccountProofResponse;
@@ -20,11 +21,7 @@ const DEPOSIT_MAPPING_STORAGE_INDEX: [u8; 32] =
 
 const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
-const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
-const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
-
-pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProof, Receipt), ()> {
-    let provider = ProviderBuilder::new().on_http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
+pub async fn fetch_light_client_proof(l1_height: u32, provider: RootProvider<Http<Client>>) -> Result<(LightClientProof, Receipt), ()> {
     let client = provider.client();
     let request = json!({
         "l1_height": l1_height
@@ -34,8 +31,6 @@ pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProo
         .request("lightClientProver_getLightClientProofByL1Height", request)
         .await
         .unwrap();
-
-    println!("Response: {:?}", response);
 
     let proof_str = response["proof"].as_str().expect("Proof is not a string")[2..].to_string();
 
@@ -57,7 +52,7 @@ pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProo
     ))
 }
 
-pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof {
+pub async fn fetch_storage_proof(l2_height: &String, provider: RootProvider<Http<Client>>) -> StorageProof {
     let ind = PARAMETERS.deposit_index;
     let tx_index: u32 = ind * 2;
 
@@ -84,9 +79,7 @@ pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof {
         &storage_address_deposit_hex
     );
 
-    let citrea_provider = ProviderBuilder::new().on_http(CITREA_TESTNET_RPC.parse().unwrap());
-
-    let citrea_client = citrea_provider.client();
+    let citrea_client = provider.client();
     let request = json!([
         CONTRACT_ADDRESS,
         [storage_key_hex, storage_address_deposit_hex],
