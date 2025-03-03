@@ -1,6 +1,7 @@
 use bitcoin::consensus::Decodable;
 use bitcoin::hashes::Hash;
 use borsh::{self, BorshDeserialize};
+use bridge_circuit_host::config::PARAMETERS;
 use bridge_circuit_host::{fetch_light_client_proof, fetch_storage_proof};
 use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
@@ -19,15 +20,13 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt};
 
 const HEADERS: &[u8] = include_bytes!("bin-files/testnet4_headers.bin");
-const TESTNET_BLOCK_47029: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
-const BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
+const TESTNET_BLOCK_72041: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
 const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/testnet4_first_72075.bin");
-const L1_BLOCK_HEIGHT: u32 = 72075;
+const PAYOUT_TX: &[u8; 303] = include_bytes!("bin-files/payout_tx.bin");
+const BRIDGE_CIRCUIT_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
 
-const PAYOUT_TX: [u8; 303] = hex_literal::hex!("0200000000010293cf02dd919c889519ee6ed3f5331eedeef581efdf907f256b3fa193178e575b0000000000fdffffff826492b5a975f732b60a59e2e8edc5397ce584c62af3b90dee755ba6ddef44d90000000000fdffffff032036963b0000000017a914f69543fb49aad08ce76bab6cc3b046792142289a876c0a06000000000017a914027806c946952bb0233ef92fc5b199c173e39aed870000000000000000036a0102014170a2b77c9c773c26033fdb1315238462c0d2b74d88b48a81e4d9b9d834a4dadd0547e8cb73e3bd774ca11a7ae4f7d59a498b2d0c7fdec45a9c13864de1c309f483014033d561c6f8ef430eafd0f7923312e81351212f5350193d9521c4c6b6c814336935565160f5790708389dc9395f1f833eb5a6d56b39debda9830a239dafa657b400000000");
-const PAYOUT_TX_INDEX: u32 = 51;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -46,7 +45,7 @@ async fn main() {
         .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
         .collect::<Vec<CircuitBlockHeader>>();
     let mut mmr_native = MMRNative::new();
-    for i in 0..=L1_BLOCK_HEIGHT {
+    for i in 0..=PARAMETERS.l1_block_height {
         mmr_native.append(headers[i as usize].compute_block_hash());
     }
 
@@ -87,29 +86,30 @@ async fn main() {
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
-    let (light_client_proof, lcp_receipt) =
-        fetch_light_client_proof(L1_BLOCK_HEIGHT).await.unwrap();
+    let (light_client_proof, _lcp_receipt) = fetch_light_client_proof(PARAMETERS.l1_block_height)
+        .await
+        .unwrap();
 
     // Check if L2 height is correct ??
     let storage_proof = fetch_storage_proof(&light_client_proof.l2_height).await;
-    let block_vec = TESTNET_BLOCK_47029.to_vec();
-    let block_47029 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
+    let block_vec = TESTNET_BLOCK_72041.to_vec();
+    let block_72041 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
     let payout_tx =
         bitcoin::transaction::Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
 
-    let block_47029_txids: Vec<[u8; 32]> = block_47029
+    let block_72041_txids: Vec<[u8; 32]> = block_72041
         .txdata
         .iter()
         .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
         .collect();
-    let mmr_inclusion_proof = mmr_native.generate_proof(72041);
-    let block_47029_mt = BitcoinMerkleTree::new(block_47029_txids);
-    let payout_tx_proof = block_47029_mt.generate_proof(PAYOUT_TX_INDEX);
+    let mmr_inclusion_proof = mmr_native.generate_proof(PARAMETERS.payment_block_height);
+    let block_72041_mt = BitcoinMerkleTree::new(block_72041_txids);
+    let payout_tx_proof = block_72041_mt.generate_proof(PARAMETERS.payout_tx_index);
 
     let spv: SPV = SPV {
         transaction: payout_tx.into(),
         block_inclusion_proof: payout_tx_proof,
-        block_header: block_47029.header.into(),
+        block_header: block_72041.header.into(),
         mmr_inclusion_proof: mmr_inclusion_proof.1,
     };
 

@@ -26,7 +26,7 @@ fn main() {
                 "-f",
                 "build-files/work_only_build.dockerfile",
                 "--output",
-                &format!("type=local,dest=."),
+                "type=local,dest=.",
                 ".", // Use current directory as context
                 "--build-arg",
                 &format!(

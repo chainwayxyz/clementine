@@ -6,20 +6,22 @@ use alloy_primitives::U256;
 use alloy_rpc_types::EIP1186AccountProofResponse;
 use anyhow::bail;
 use circuits_lib::bridge_circuit_core::structs::{LightClientProof, StorageProof};
+use config::PARAMETERS;
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;
+
+pub mod config;
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000026");
 const DEPOSIT_MAPPING_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000027");
-const TX_ID: [u8; 32] =
-    hex_literal::hex!("BB25103468A467382ED9F585129AD40331B54425155D6F0FAE8C799391EE2E7F");
+
+const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
 const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
 const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
-const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
 pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProof, Receipt), ()> {
     let provider = ProviderBuilder::new().on_http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
@@ -56,7 +58,7 @@ pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProo
 }
 
 pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof {
-    let ind = 37;
+    let ind = PARAMETERS.deposit_index;
     let tx_index: u32 = ind * 2;
 
     let storage_address_bytes = keccak256(UTXOS_STORAGE_INDEX);
@@ -71,7 +73,7 @@ pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof {
 
     let mut concantenated: [u8; 64] = [0; 64];
 
-    concantenated[0..32].copy_from_slice(&TX_ID);
+    concantenated[0..32].copy_from_slice(&PARAMETERS.move_tx_id);
     concantenated[32..64].copy_from_slice(&DEPOSIT_MAPPING_STORAGE_INDEX);
 
     let storage_address_deposit = keccak256(concantenated);
@@ -109,7 +111,7 @@ pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof {
         storage_proof_utxo: serialized_utxo,
         storage_proof_deposit_idx: serialized_deposit,
         index: ind,
-        txid_hex: TX_ID,
+        txid_hex: PARAMETERS.move_tx_id,
     }
 }
 
