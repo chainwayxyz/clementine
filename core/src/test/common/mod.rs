@@ -12,7 +12,9 @@ use crate::rpc::clementine::{DepositParams, Empty};
 use crate::EVMAddress;
 use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
+use tempfile::TempDir;
 pub use test_utils::*;
+use tokio::sync::oneshot;
 use tonic::transport::Channel;
 use tonic::Request;
 
@@ -29,12 +31,13 @@ pub async fn run_multiple_deposits(
         Vec<ClementineOperatorClient<Channel>>,
         ClementineAggregatorClient<Channel>,
         Vec<ClementineWatchtowerClient<Channel>>,
+        (Vec<oneshot::Sender<()>>, TempDir),
         Vec<OutPoint>,
         Vec<Txid>,
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers, _) = create_actors(config).await;
+    let (verifiers, operators, mut aggregator, watchtowers, cleanup) = create_actors(config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
     let actor = Actor::new(
@@ -96,6 +99,7 @@ pub async fn run_multiple_deposits(
         operators,
         aggregator,
         watchtowers,
+        cleanup,
         deposit_outpoints,
         move_txids,
     ))
@@ -195,12 +199,13 @@ pub async fn run_single_deposit(
         Vec<ClementineOperatorClient<Channel>>,
         ClementineAggregatorClient<Channel>,
         Vec<ClementineWatchtowerClient<Channel>>,
+        (Vec<oneshot::Sender<()>>, TempDir),
         OutPoint,
         Txid,
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers, _) = create_actors(config).await;
+    let (verifiers, operators, mut aggregator, watchtowers, cleanup) = create_actors(config).await;
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
@@ -257,6 +262,7 @@ pub async fn run_single_deposit(
         operators,
         aggregator,
         watchtowers,
+        cleanup,
         deposit_outpoint,
         move_txid,
     ))

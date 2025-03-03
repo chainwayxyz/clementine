@@ -302,6 +302,7 @@ pub async fn initialize_database(config: &BridgeConfig) {
 ///
 /// Returns a tuple of vectors of clients, handles, and socket paths for the
 /// verifiers, operators, aggregator and watchtowers, along with shutdown channels.
+#[must_use]
 pub async fn create_actors(
     config: &BridgeConfig,
 ) -> (
