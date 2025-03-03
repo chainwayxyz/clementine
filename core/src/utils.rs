@@ -428,9 +428,9 @@ impl ClementineBitVMPublicKeys {
         let mut scripts = Vec::new();
         let first_script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
             vec![
-                (self.latest_blockhash_pk.to_vec(), 20),
-                (self.challenge_sending_watchtowers_pk.to_vec(), 20),
-                (self.bitvm_pks.0[0].to_vec(), 32),
+                (self.latest_blockhash_pk.to_vec(), 40),
+                (self.challenge_sending_watchtowers_pk.to_vec(), 40),
+                (self.bitvm_pks.0[0].to_vec(), 64),
             ],
             xonly_public_key,
             4,
@@ -442,7 +442,7 @@ impl ClementineBitVMPublicKeys {
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.1[i..last_idx]
                     .iter()
-                    .map(|x| (x.to_vec(), 32))
+                    .map(|x| (x.to_vec(), 64))
                     .collect::<Vec<_>>(),
                 xonly_public_key,
                 4,
@@ -455,7 +455,7 @@ impl ClementineBitVMPublicKeys {
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.2[i..last_idx]
                     .iter()
-                    .map(|x| (x.to_vec(), 20))
+                    .map(|x| (x.to_vec(), 40))
                     .collect::<Vec<_>>(),
                 xonly_public_key,
                 4,
