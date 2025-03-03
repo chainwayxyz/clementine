@@ -2,7 +2,7 @@
 //!
 //! Helper functions for the MuSig2 signature scheme.
 
-use crate::{errors::BridgeError, utils::SECP};
+use crate::{bitvm_client::SECP, errors::BridgeError};
 use bitcoin::{
     hashes::Hash,
     key::Keypair,
@@ -228,6 +228,7 @@ mod tests {
     use crate::builder::transaction::{TransactionType, DEFAULT_SEQUENCE};
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::{
+        bitvm_client::{self, SECP},
         builder::{
             self,
             transaction::{input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder},
@@ -237,7 +238,6 @@ mod tests {
             aggregate_nonces, aggregate_partial_signatures, create_key_agg_cache, from_secp_xonly,
             partial_sign, AggregateFromPublicKeys,
         },
-        utils::{self, SECP},
     };
     use bitcoin::{
         hashes::Hash,
@@ -502,7 +502,7 @@ mod tests {
             vec![Arc::new(OtherSpendable::new(dummy_script))];
         let receiving_address = bitcoin::Address::p2tr(
             &SECP,
-            *utils::UNSPENDABLE_XONLY_PUBKEY,
+            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
         );
@@ -610,7 +610,7 @@ mod tests {
 
         let receiving_address = bitcoin::Address::p2tr(
             &SECP,
-            *utils::UNSPENDABLE_XONLY_PUBKEY,
+            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
         );

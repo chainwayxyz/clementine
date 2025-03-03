@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+use crate::bitvm_client::SECP;
 use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
@@ -6,7 +7,6 @@ use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQ
 use crate::builder::{self};
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::test::common::*;
-use crate::utils::SECP;
 use bitcoin::{Amount, TxOut};
 use bitcoincore_rpc::RpcApi;
 use std::sync::Arc;

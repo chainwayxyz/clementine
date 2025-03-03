@@ -1,3 +1,4 @@
+use self::input::get_kickoff_utxo_vout;
 use self::output::UnspentTxOut;
 use crate::builder;
 pub use crate::builder::transaction::txhandler::TxHandler;
@@ -14,6 +15,7 @@ pub fn create_disprove_timeout_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::DisproveTimeout)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
             kickoff_txhandler.get_spendable_output(3)?,
@@ -38,9 +40,10 @@ pub fn create_mini_asserts(
     for idx in 0..num_asserts {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::MiniAssert(idx))
+                .with_version(Version::non_standard(3))
                 .add_input(
                     NormalSignatureKind::MiniAssert1,
-                    kickoff_txhandler.get_spendable_output(4 + idx)?,
+                    kickoff_txhandler.get_spendable_output(get_kickoff_utxo_vout(idx))?,
                     SpendPath::ScriptSpend(1),
                     DEFAULT_SEQUENCE,
                 )

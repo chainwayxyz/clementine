@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub mod actor;
 pub mod aggregator;
 pub mod bitcoin_syncer;
+pub mod bitvm_client;
 pub mod builder;
 pub mod cli;
 pub mod config;

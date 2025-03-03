@@ -10,6 +10,7 @@
 //! The `round_tx` is used to create a collateral for the withdrawal, kickoff utxos for the current
 //! round and the reimburse connectors for the previous round.
 
+use super::input::get_kickoff_utxo_vout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use crate::builder;
 use crate::builder::address::create_taproot_address;
@@ -142,9 +143,10 @@ pub fn create_assert_timeout_txhandlers(
     for idx in 0..num_asserts {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::AssertTimeout(idx))
+                .with_version(Version::non_standard(3))
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout1, idx as i32),
-                    kickoff_txhandler.get_spendable_output(5 + idx)?,
+                    kickoff_txhandler.get_spendable_output(get_kickoff_utxo_vout(idx))?,
                     SpendPath::ScriptSpend(0),
                     Sequence::from_height(paramset.assert_timeout_timelock),
                 )
@@ -169,7 +171,7 @@ pub fn create_assert_timeout_txhandlers(
     Ok(txhandlers)
 }
 
-/// Creates the nth (0-indexed) `sequential_collateral_txhandler` and `reimburse_generator_txhandler` pair
+/// Creates the nth (0-indexed) `round_txhandler` and `reimburse_generator_txhandler` pair
 /// for a specific operator.
 pub fn create_round_nth_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
@@ -237,6 +239,7 @@ pub fn create_unspent_kickoff_txhandlers(
     for idx in 0..paramset.num_kickoffs_per_round {
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::UnspentKickoff(idx))
+                .with_version(Version::non_standard(3))
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff1, idx as i32),
                     ready_to_reimburse_txhandler.get_spendable_output(0)?,
@@ -256,4 +259,30 @@ pub fn create_unspent_kickoff_txhandlers(
         );
     }
     Ok(txhandlers)
+}
+
+pub fn create_burn_unused_kickoff_connectors_txhandler(
+    round_txhandler: &TxHandler,
+    unused_kickoff_connectors_indices: &[usize], // indices of the kickoff connectors that are not used, 0 indexed, 0 => first kickoff connector
+    change_address: &Address,
+) -> Result<TxHandler, BridgeError> {
+    let mut tx_handler_builder =
+        TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
+            .with_version(Version::non_standard(3));
+    for idx in unused_kickoff_connectors_indices {
+        tx_handler_builder = tx_handler_builder.add_input(
+            NormalSignatureKind::OperatorSighashDefault,
+            round_txhandler.get_spendable_output(1 + idx)?,
+            SpendPath::ScriptSpend(1),
+            Sequence::from_height(1),
+        );
+    }
+    tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
+        value: MIN_TAPROOT_AMOUNT,
+        script_pubkey: change_address.script_pubkey(),
+    }));
+    tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(
+        builder::transaction::anchor_output(),
+    ));
+    Ok(tx_handler_builder.finalize())
 }

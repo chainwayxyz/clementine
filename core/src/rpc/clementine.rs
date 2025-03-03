@@ -224,6 +224,13 @@ pub struct WithdrawalFinalizedParams {
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FinalizedPayoutParams {
+    #[prost(bytes = "vec", tag = "1")]
+    pub payout_blockhash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "2")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierParams {
     #[prost(uint32, tag = "1")]
     pub id: u32,
@@ -371,6 +378,7 @@ pub enum NormalSignatureKind {
     MiniAssert1 = 11,
     OperatorChallengeAck1 = 12,
     NotStored = 13,
+    WatchtowerChallenge1 = 14,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -393,6 +401,7 @@ impl NormalSignatureKind {
             Self::MiniAssert1 => "MiniAssert1",
             Self::OperatorChallengeAck1 => "OperatorChallengeAck1",
             Self::NotStored => "NotStored",
+            Self::WatchtowerChallenge1 => "WatchtowerChallenge1",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -412,6 +421,7 @@ impl NormalSignatureKind {
             "MiniAssert1" => Some(Self::MiniAssert1),
             "OperatorChallengeAck1" => Some(Self::OperatorChallengeAck1),
             "NotStored" => Some(Self::NotStored),
+            "WatchtowerChallenge1" => Some(Self::WatchtowerChallenge1),
             _ => None,
         }
     }
@@ -494,6 +504,7 @@ pub enum NormalTransactionId {
     ReadyToReimburse = 11,
     KickoffNotFinalized = 12,
     ChallengeTimeout = 13,
+    BurnUnusedKickoffConnectors = 14,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -516,6 +527,7 @@ impl NormalTransactionId {
             Self::ReadyToReimburse => "READY_TO_REIMBURSE",
             Self::KickoffNotFinalized => "KICKOFF_NOT_FINALIZED",
             Self::ChallengeTimeout => "CHALLENGE_TIMEOUT",
+            Self::BurnUnusedKickoffConnectors => "BURN_UNUSED_KICKOFF_CONNECTORS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -535,6 +547,7 @@ impl NormalTransactionId {
             "READY_TO_REIMBURSE" => Some(Self::ReadyToReimburse),
             "KICKOFF_NOT_FINALIZED" => Some(Self::KickoffNotFinalized),
             "CHALLENGE_TIMEOUT" => Some(Self::ChallengeTimeout),
+            "BURN_UNUSED_KICKOFF_CONNECTORS" => Some(Self::BurnUnusedKickoffConnectors),
             _ => None,
         }
     }
@@ -908,6 +921,55 @@ pub mod clementine_operator_client {
                         "clementine.ClementineOperator",
                         "WithdrawalFinalized",
                     ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn internal_finalized_payout(
+            &mut self,
+            request: impl tonic::IntoRequest<super::FinalizedPayoutParams>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/InternalFinalizedPayout",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineOperator",
+                        "InternalFinalizedPayout",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn internal_end_round(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/InternalEndRound",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineOperator", "InternalEndRound"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1715,6 +1777,14 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::WithdrawalFinalizedParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        async fn internal_finalized_payout(
+            &self,
+            request: tonic::Request<super::FinalizedPayoutParams>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        async fn internal_end_round(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     /// An operator is responsible for paying withdrawals. It has an unique ID and
     /// chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
@@ -2114,6 +2184,102 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = WithdrawalFinalizedSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/InternalFinalizedPayout" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalFinalizedPayoutSvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<
+                        T: ClementineOperator,
+                    > tonic::server::UnaryService<super::FinalizedPayoutParams>
+                    for InternalFinalizedPayoutSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::FinalizedPayoutParams>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::internal_finalized_payout(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalFinalizedPayoutSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/InternalEndRound" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalEndRoundSvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty>
+                    for InternalEndRoundSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::internal_end_round(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalEndRoundSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

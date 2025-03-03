@@ -30,6 +30,7 @@ enum NormalSignatureKind {
   MiniAssert1 = 11;
   OperatorChallengeAck1 = 12;
   NotStored = 13;
+  WatchtowerChallenge1 = 14;
 }
 
 // Signatures that are needed multiple times per an operators kickoff.
@@ -106,6 +107,7 @@ enum NormalTransactionId {
     READY_TO_REIMBURSE = 11;
     KICKOFF_NOT_FINALIZED = 12;
     CHALLENGE_TIMEOUT = 13;
+    BURN_UNUSED_KICKOFF_CONNECTORS = 14;
 }
 
 enum NumberedTransactionType {
@@ -221,6 +223,11 @@ message WithdrawalFinalizedParams {
   Outpoint deposit_outpoint = 2;
 }
 
+message FinalizedPayoutParams {
+  bytes payout_blockhash = 1;
+  Outpoint deposit_outpoint = 2;
+}
+
 // An operator is responsible for paying withdrawals. It has an unique ID and
 // chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
 // connected to the same database and both have access to watchtowers'
@@ -291,6 +298,11 @@ service ClementineOperator {
   // - withdrawal_id: Withdrawal's ID
   // - deposit_outpoint: Withdrawal's deposit UTXO
   rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
+
+
+  rpc InternalFinalizedPayout(FinalizedPayoutParams) returns (Empty) {}
+
+  rpc InternalEndRound(Empty) returns (Empty) {}
 }
 
 // Verifier --------------------------------------------------------------------
