@@ -1,7 +1,20 @@
 //! # Citrea Related Utilities
 
 use crate::errors::BridgeError;
-use alloy::{primitives::U256, sol};
+use alloy::{
+    network::EthereumWallet,
+    primitives::U256,
+    providers::{
+        fillers::{
+            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+            WalletFiller,
+        },
+        ProviderBuilder, RootProvider,
+    },
+    signers::{local::PrivateKeySigner, Signer},
+    sol,
+    transports::http::reqwest::Url,
+};
 use bitcoin::{hashes::Hash, OutPoint, Txid};
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
@@ -17,41 +30,93 @@ sol!(
     "src/Bridge.json"
 );
 
-/// Fetches an UTXO from Citrea for the given withdrawal with the index.
-///
-/// # Parameters
-///
-/// - `provider`: Provider to interact with the Ethereum network.
-/// - `withdrawal_index`: Index of the withdrawal.
-///
-/// # Returns
-///
-/// - [`OutPoint`]: UTXO for the given withdrawal.
-pub async fn withdrawal_utxos<T, P>(
-    provider: P,
-    withdrawal_index: u64,
-) -> Result<OutPoint, BridgeError>
-where
-    P: alloy::contract::private::Provider<T, alloy::network::Ethereum>,
-    T: alloy::contract::private::Transport + Clone,
-{
-    let contract = BRIDGE_CONTRACT::new(
-        BRIDGE_CONTRACT_ADDRESS.parse().map_err(|e| {
-            BridgeError::Error(format!("Can't create bridge contract address {:?}", e))
-        })?,
-        provider,
-    );
+// Ugly typedefs.
+type Contract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
+    (),
+    FillProvider<
+        JoinFill<
+            JoinFill<
+                alloy::providers::Identity,
+                JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+            >,
+            WalletFiller<EthereumWallet>,
+        >,
+        RootProvider,
+    >,
+>;
+type Provider = FillProvider<
+    JoinFill<
+        JoinFill<
+            alloy::providers::Identity,
+            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+        >,
+        WalletFiller<EthereumWallet>,
+    >,
+    RootProvider,
+>;
 
-    let withdrawal_utxo = contract
-        .withdrawalUTXOs(U256::from(withdrawal_index))
-        .call()
-        .await?;
+/// Citrea contract client is responsible for creating contracts and interacting
+/// with the EVM.
+#[derive(Clone, Debug)]
+pub struct CitreaContractClient {
+    pub wallet_address: alloy::primitives::Address,
+    pub provider: Provider,
+    pub contract: Contract,
+}
 
-    let txid = withdrawal_utxo.txId.0;
-    let txid = Txid::from_slice(txid.as_slice())?;
+impl CitreaContractClient {
+    /// # Parameters
+    ///
+    /// - `secret_key`: Etherium secret key of the EVM user.
+    /// - `citrea_rpc_url`: URL of the Citrea RPC.
+    pub fn new(secret_key: String, citrea_rpc_url: Url) -> Result<Self, BridgeError> {
+        let key = secret_key
+            .parse::<PrivateKeySigner>()
+            .map_err(|e| BridgeError::Error(format!("Can't parse secret key: {:?}", e)))?
+            .with_chain_id(Some(CITREA_CHAIN_ID));
+        let wallet_address = key.address();
 
-    let vout = withdrawal_utxo.outputId.0;
-    let vout = u32::from_be_bytes(vout);
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(key))
+            .on_http(citrea_rpc_url);
 
-    Ok(OutPoint { txid, vout })
+        let contract = BRIDGE_CONTRACT::new(
+            BRIDGE_CONTRACT_ADDRESS.parse().map_err(|e| {
+                BridgeError::Error(format!("Can't create bridge contract address {:?}", e))
+            })?,
+            provider.clone(),
+        );
+
+        Ok(CitreaContractClient {
+            wallet_address,
+            provider,
+            contract,
+        })
+    }
+
+    /// Fetches an UTXO from Citrea for the given withdrawal with the index.
+    ///
+    /// # Parameters
+    ///
+    /// - `provider`: Provider to interact with the Ethereum network.
+    /// - `withdrawal_index`: Index of the withdrawal.
+    ///
+    /// # Returns
+    ///
+    /// - [`OutPoint`]: UTXO for the given withdrawal.
+    pub async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
+        let withdrawal_utxo = self
+            .contract
+            .withdrawalUTXOs(U256::from(withdrawal_index))
+            .call()
+            .await?;
+
+        let txid = withdrawal_utxo.txId.0;
+        let txid = Txid::from_slice(txid.as_slice())?;
+
+        let vout = withdrawal_utxo.outputId.0;
+        let vout = u32::from_be_bytes(vout);
+
+        Ok(OutPoint { txid, vout })
+    }
 }

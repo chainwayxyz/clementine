@@ -1,21 +1,19 @@
 use super::common::citrea::BRIDGE_PARAMS;
-use crate::citrea::{
-    BRIDGE_CONTRACT, BRIDGE_CONTRACT_ADDRESS, CITREA_CHAIN_ID, SATS_TO_WEI_MULTIPLIER,
-};
+use crate::citrea::{CitreaContractClient, SATS_TO_WEI_MULTIPLIER};
+use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self, SECRET_KEYS},
+        citrea::{self},
         create_test_config_with_thread_name,
     },
     utils::SECP,
 };
 use alloy::primitives::FixedBytes;
+use alloy::primitives::U256;
 use alloy::providers::Provider;
-use alloy::signers::Signer;
-use alloy::{network::EthereumWallet, primitives::U256, signers::local::PrivateKeySigner};
-use alloy::{providers::ProviderBuilder, transports::http::reqwest::Url};
+use alloy::transports::http::reqwest::Url;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
@@ -76,18 +74,6 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         )
         .await?;
 
-        let key = SECRET_KEYS[0]
-            .parse::<PrivateKeySigner>()
-            .unwrap()
-            .with_chain_id(Some(CITREA_CHAIN_ID));
-        let wallet_address = key.address();
-
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(key))
-            .on_http(Url::parse(&config.citrea_rpc_url).unwrap());
-        let contract =
-            BRIDGE_CONTRACT::new(BRIDGE_CONTRACT_ADDRESS.parse().unwrap(), provider.clone());
-
         let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
         let withdrawal_address = Address::p2tr(
             &SECP,
@@ -106,13 +92,29 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         .outpoint;
         println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
-        let balance = provider.get_balance(wallet_address).await.unwrap();
-        println!("Balance: {}", balance);
+        let citrea_contract_client = CitreaContractClient::new(
+            SECRET_KEYS[0].to_string(),
+            Url::parse(&config.citrea_rpc_url).unwrap(),
+        )
+        .unwrap();
 
-        let withdrawal_count = contract.getWithdrawalCount().call().await.unwrap();
+        let balance = citrea_contract_client
+            .provider
+            .get_balance(citrea_contract_client.wallet_address)
+            .await
+            .unwrap();
+        println!("Initial balance: {}", balance);
+
+        let withdrawal_count = citrea_contract_client
+            .contract
+            .getWithdrawalCount()
+            .call()
+            .await
+            .unwrap();
         assert_eq!(withdrawal_count._0, U256::from(0));
 
-        let citrea_withdrawal_tx = contract
+        let citrea_withdrawal_tx = citrea_contract_client
+            .contract
             .withdraw(
                 FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
                 FixedBytes::from(withdrawal_utxo.vout.to_be_bytes()),
@@ -127,10 +129,15 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
 
-        let withdrawal_count = contract.getWithdrawalCount().call().await.unwrap();
+        let withdrawal_count = citrea_contract_client
+            .contract
+            .getWithdrawalCount()
+            .call()
+            .await
+            .unwrap();
         assert_eq!(withdrawal_count._0, U256::from(1));
 
-        let citrea_withdrawal_utxo = crate::citrea::withdrawal_utxos(provider, 0).await.unwrap();
+        let citrea_withdrawal_utxo = citrea_contract_client.withdrawal_utxos(0).await.unwrap();
         println!("Citrea withdrawal UTXO: {:?}", citrea_withdrawal_utxo);
 
         assert_eq!(citrea_withdrawal_utxo, withdrawal_utxo);
