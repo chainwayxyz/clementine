@@ -671,9 +671,10 @@ impl ClementineAggregator for Aggregator {
         request: Request<DepositParams>,
     ) -> Result<Response<clementine::Txid>, Status> {
         let deposit_params = request.into_inner();
-
         // Collect and distribute keys needed keys from operators and watchtowers to verifiers
+        let start = std::time::Instant::now();
         self.collect_and_distribute_keys(&deposit_params).await?;
+        tracing::info!("Collected and distributed keys in {:?}", start.elapsed());
 
         // Generate nonce streams for all verifiers.
         let num_required_sigs = self.config.get_num_required_nofn_sigs();
@@ -704,7 +705,6 @@ impl ClementineAggregator for Aggregator {
         };
 
         tracing::debug!("Sending deposit sign session to verifiers");
-        tracing::error!("Sending deposit sign session to verifiers");
         for (_, tx) in partial_sig_streams.iter_mut() {
             let deposit_sign_param: VerifierDepositSignParams = deposit_sign_session.clone().into();
 
@@ -853,8 +853,6 @@ impl ClementineAggregator for Aggregator {
 
         tracing::debug!("Waiting for deposit finalization");
 
-        tracing::error!("Waiting for deposit finalization");
-
         // Collect partial signatures for move transaction
         let move_tx_partial_sigs =
             try_join_all(deposit_finalize_futures.iter_mut().map(|fut| async {
@@ -869,8 +867,6 @@ impl ClementineAggregator for Aggregator {
             .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
 
         tracing::debug!("Received move tx partial sigs: {:?}", move_tx_partial_sigs);
-
-        tracing::error!("Received move tx partial sigs");
 
         // Create the final move transaction and check the signatures
         let movetx_agg_nonce = nonce_agg_handle.await?;

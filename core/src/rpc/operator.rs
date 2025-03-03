@@ -146,6 +146,7 @@ impl ClementineOperator for Operator {
         &self,
         request: Request<DepositParams>,
     ) -> Result<Response<OperatorKeys>, Status> {
+        let start = std::time::Instant::now();
         let deposit_req = request.into_inner();
         let deposit_data = parse_deposit_params(deposit_req)?;
 
@@ -153,6 +154,7 @@ impl ClementineOperator for Operator {
             self.generate_assert_winternitz_pubkeys(deposit_data.deposit_outpoint.txid)?;
         let hashes =
             self.generate_challenge_ack_preimages_and_hashes(deposit_data.deposit_outpoint.txid)?;
+        tracing::info!("Generated deposit keys in {:?}", start.elapsed());
 
         Ok(Response::new(OperatorKeys {
             winternitz_pubkeys: winternitz_keys

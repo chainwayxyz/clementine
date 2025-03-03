@@ -267,13 +267,19 @@ pub async fn run_single_deposit(
     let (verifiers, operators, mut aggregator, watchtowers, _regtest) =
         create_actors(&config).await;
 
+    // Start timing setup
+    let setup_start = std::time::Instant::now();
     aggregator.setup(Request::new(Empty {})).await?;
+    let setup_elapsed = setup_start.elapsed();
+    tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
     rpc.mine_blocks(18).await?;
 
+    // Start timing new_deposit
+    let new_deposit_start = std::time::Instant::now();
     let _move_tx = aggregator
         .new_deposit(DepositParams {
             deposit_outpoint: Some(deposit_outpoint.into()),
@@ -282,6 +288,8 @@ pub async fn run_single_deposit(
         })
         .await?
         .into_inner();
+    let new_deposit_elapsed = new_deposit_start.elapsed();
+    tracing::info!("New deposit completed in: {:?}", new_deposit_elapsed);
 
     // let move_tx: Transaction =
     //     Transaction::consensus_decode(&mut move_tx.raw_tx.as_slice())?;
