@@ -67,9 +67,12 @@ pub struct CitreaContractClient {
 impl CitreaContractClient {
     /// # Parameters
     ///
-    /// - `secret_key`: Etherium secret key of the EVM user.
     /// - `citrea_rpc_url`: URL of the Citrea RPC.
-    pub fn new(secret_key: String, citrea_rpc_url: Url) -> Result<Self, BridgeError> {
+    /// - `secret_key`: Etherium secret key of the EVM user. If not give, dummy
+    ///   secret key is used (wallet is not required).
+    pub fn new(citrea_rpc_url: Url, secret_key: Option<String>) -> Result<Self, BridgeError> {
+        let secret_key = secret_key.unwrap_or(["01"; 32].concat());
+
         let key = secret_key
             .parse::<PrivateKeySigner>()
             .map_err(|e| BridgeError::Error(format!("Can't parse secret key: {:?}", e)))?

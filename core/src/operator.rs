@@ -15,7 +15,6 @@ use crate::{builder, UTXO};
 use alloy::transports::http::reqwest::Url;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
-use bitcoin::hex::DisplayHex;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey};
@@ -113,11 +112,11 @@ impl Operator {
 
         let citrea_contract_client = if !config.citrea_rpc_url.is_empty() {
             Some(CitreaContractClient::new(
-                config.secret_key.secret_bytes().to_lower_hex_string(),
                 Url::parse(&config.citrea_rpc_url).map_err(|e| {
                     BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
                 })?,
-            )?) // TODO: Secret key is incorrect
+                None,
+            )?)
         } else {
             None
         };

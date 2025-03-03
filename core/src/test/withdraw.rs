@@ -93,8 +93,8 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
         let citrea_contract_client = CitreaContractClient::new(
-            SECRET_KEYS[0].to_string(),
             Url::parse(&config.citrea_rpc_url).unwrap(),
+            Some(SECRET_KEYS[0].to_string()),
         )
         .unwrap();
 
