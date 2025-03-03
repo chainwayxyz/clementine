@@ -1,7 +1,7 @@
 use circuits_lib::{bridge_circuit_core, bridge_circuit::bridge_circuit::bridge_circuit};
 
 pub static PRE_STATE: [u8; 32] =
-    hex_literal::hex!("1ca7d092fbc3233ba9910d5f60e593705a0aca14c325ff59500f407364e7f949");
+    hex_literal::hex!("74ff37ef63067e274b964f368c66f137d7ac19739c14b7a214314998bc56df84");
 
 fn main() {
     let zkvm_guest = bridge_circuit_core::zkvm::Risc0Guest::new();

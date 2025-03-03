@@ -121,6 +121,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     // Storage proof verification for deposit tx index and withdrawal outpoint
     let user_wd_outpoint_str = verify_storage_proofs(&input.sp, state_root);
 
+    println!("User withdrawal outpoint: {:?}", user_wd_outpoint_str);
+
     let user_wd_outpoint = num_bigint::BigUint::from_str(&user_wd_outpoint_str).unwrap();
     let user_wd_txid = bitcoin::Txid::from_byte_array(
         user_wd_outpoint
@@ -129,6 +131,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
             .try_into()
             .unwrap(),
     );
+    
     assert_eq!(
         user_wd_txid,
         input.payout_spv.transaction.input[0].previous_output.txid

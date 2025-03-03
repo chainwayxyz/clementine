@@ -33,6 +33,8 @@ pub async fn fetch_light_client_proof(l1_height: u32) -> Result<(LightClientProo
         .await
         .unwrap();
 
+    println!("Response: {:?}", response);
+
     let proof_str = response["proof"].as_str().expect("Proof is not a string")[2..].to_string();
 
     let bytes = decode(proof_str).expect("Invalid hex");
@@ -96,7 +98,8 @@ pub async fn fetch_storage_proof(l2_height: &String) -> StorageProof {
 
     let response: EIP1186AccountProofResponse = serde_json::from_value(response).unwrap();
 
-    println!("HOST VALUE: {:?}", &response.storage_proof[1].value);
+    println!("HOST VALUE INDEX: {:?}", &response.storage_proof[1].value);
+    println!("HOST VALUE MOVE TX: {:?}", &response.storage_proof[0].value);
 
     let serialized_utxo = serde_json::to_string(&response.storage_proof[0]).unwrap();
 

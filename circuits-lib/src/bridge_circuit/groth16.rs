@@ -107,9 +107,6 @@ impl CircuitGroth16WithTotalWork {
 
         let end = env::cycle_count();
         println!("PPI: {}", end - start);
-        println!("Public inputs: {:?}", public_inputs);
-        println!("Proof: {:?}", ark_proof);
-        println!("Prepared VK: {:?}", prepared_vk);
         let res =
             ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
                 .unwrap();

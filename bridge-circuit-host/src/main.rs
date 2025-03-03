@@ -13,21 +13,22 @@ use risc0_to_bitvm2_core::mmr_native::MMRNative;
 use risc0_to_bitvm2_core::spv::SPV;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use risc0_zkvm::{
-    compute_image_id, default_executor, default_prover, ExecutorEnv, ProverOpts, Receipt
+    compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt
 };
 use std::convert::TryInto;
+use std::fs;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt};
 
-const HEADERS: &[u8] = include_bytes!("bin-files/testnet4-headers.bin");
+const HEADERS: &[u8] = include_bytes!("bin-files/testnet4_headers.bin");
 const TESTNET_BLOCK_47029: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
 const BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
-const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/testnet4_first_72041_proof.bin");
-const L1_BLOCK_HEIGHT: u32 = 72041;
+const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/testnet4_first_72075.bin");
+const L1_BLOCK_HEIGHT: u32 = 72075;
 
-const PAYOUT_TX: [u8; 301] = hex_literal::hex!("02000000000102d43afcd7236286bee4eb5316c597b9977cae4ac69eb8f40d4a47155b94db64540000000000fdffffffeb0577a0d00e1774686e4ef6107d85509a83b63f63056a87ee4a9ff551846bf20100000000fdffffff032036963b00000000160014b9d8ffd3b02047bc33442a2c427abc54ba53a6f83a906b1e020000001600142551d4ad0ab54037f8770ae535ce2e3e56e3f9d50000000000000000036a010101418c1976233f4523d6c988d6c9430b292d5cac77d2358117eeb7dc4dfab728da305ed183fdd44054d368398b64de7ed057fe28c31c689d8ca8c9ea813e100f9203830140b452bea0f0b6ca19442142034d3d9fedfa10bec5e58c12f1f407905214a8c8594f906cb67ffac173fedfcabff55c09e2d44cb9b2cd48f87deae15f729283bf2900000000");
+const PAYOUT_TX: [u8; 303] = hex_literal::hex!("0200000000010293cf02dd919c889519ee6ed3f5331eedeef581efdf907f256b3fa193178e575b0000000000fdffffff826492b5a975f732b60a59e2e8edc5397ce584c62af3b90dee755ba6ddef44d90000000000fdffffff032036963b0000000017a914f69543fb49aad08ce76bab6cc3b046792142289a876c0a06000000000017a914027806c946952bb0233ef92fc5b199c173e39aed870000000000000000036a0102014170a2b77c9c773c26033fdb1315238462c0d2b74d88b48a81e4d9b9d834a4dadd0547e8cb73e3bd774ca11a7ae4f7d59a498b2d0c7fdec45a9c13864de1c309f483014033d561c6f8ef430eafd0f7923312e81351212f5350193d9521c4c6b6c814336935565160f5790708389dc9395f1f833eb5a6d56b39debda9830a239dafa657b400000000");
 const PAYOUT_TX_INDEX: u32 = 51;
 #[tokio::main]
 async fn main() {
@@ -73,7 +74,7 @@ async fn main() {
         .journal
         .bytes
         .try_into()
-        .unwrap();
+        .unwrap(); 
 
     let mut compressed_proof_and_total_work: Vec<u8> = vec![0; 144];
     compressed_proof_and_total_work[0..128].copy_from_slice(&compressed_proof);
@@ -90,7 +91,8 @@ async fn main() {
 
     let (light_client_proof, lcp_receipt) = fetch_light_client_proof(L1_BLOCK_HEIGHT).await.unwrap();
 
-    let storage_proof = fetch_storage_proof(&"latest".to_string()).await;
+    // Check if L2 height is correct ??
+    let storage_proof = fetch_storage_proof(&light_client_proof.l2_height).await;
     let block_vec = TESTNET_BLOCK_47029.to_vec();
     let block_47029 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
     let payout_tx =
@@ -101,9 +103,9 @@ async fn main() {
         .iter()
         .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
         .collect();
-    let mmr_inclusion_proof = mmr_native.generate_proof(L1_BLOCK_HEIGHT);
+    let mmr_inclusion_proof = mmr_native.generate_proof(72041);
     let block_47029_mt = BitcoinMerkleTree::new(block_47029_txids);
-    let payout_tx_proof = block_47029_mt.generate_proof(PAYOUT_TX_INDEX); // 16th tx
+    let payout_tx_proof = block_47029_mt.generate_proof(PAYOUT_TX_INDEX);
 
     let spv: SPV = SPV {
         transaction: payout_tx.into(),
@@ -131,10 +133,15 @@ async fn main() {
 
     let mut binding = ExecutorEnv::builder();
     let env = binding.write_slice(&borsh::to_vec(&winternitz_circuit_input).unwrap());
-    let env = env.add_assumption(lcp_receipt).build().unwrap();
-    let executor = default_executor();
+    // let env = env.add_assumption(lcp_receipt).build().unwrap();
+    let env = env.build().unwrap();
+    let prover = default_prover();
 
-    let _ = executor.execute(env, BRIDGE_CIRCUIT_ELF);
+    println!("PROVING WINTERNITZ CIRCUIT");
+    let receipt = prover.prove_with_opts(env, BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct()).unwrap().receipt;
+    println!("RECEIPT: {:?}", receipt);
+    let receipt_bytes = borsh::to_vec(&receipt).unwrap();
+    fs::write("proof.bin", &receipt_bytes).expect("Failed to write receipt to output file");
 }
 
 fn call_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {

@@ -18,7 +18,7 @@ pub struct WinternitzHandler {
     pub message: Option<Vec<u8>>,
 }
 
-#[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WinternitzCircuitInput {
     pub winternitz_details: Vec<WinternitzHandler>,
     pub hcp: BlockHeaderCircuitOutput, // This will be removed once the LightClientProof includes the MMRGuest of the Bitcoin blockhashes
