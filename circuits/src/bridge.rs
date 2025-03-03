@@ -259,7 +259,7 @@ pub fn bridge_proof<E: Environment>() -> (U256, [u8; 32], u8) {
     total_pow = total_pow.wrapping_add(&k_deep_work);
 
     if verifiers_challenge_period != last_period as u8 {
-        // For this to work, we need to make sure opeator can't use more than K_DEEP blocks
+        // For this to work, we need to make sure operator can't use more than K_DEEP blocks
         if total_pow > verifiers_pow {
             win(); // win instantly since the challenge is for wrong period
         } else {
