@@ -1,6 +1,4 @@
 //! # Testing Utilities
-//!
-//! This crate provides testing utilities.
 
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
@@ -26,8 +24,9 @@ use std::net::TcpListener;
 use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
+/// TODO: This won't block `let _ =`.
 #[must_use = "Servers will die if not used"]
-pub struct ServerHandles(pub (Vec<oneshot::Sender<()>>, tempfile::TempDir));
+pub struct ActorsCleanup(pub (Vec<oneshot::Sender<()>>, tempfile::TempDir));
 
 pub struct WithProcessCleanup(
     /// Handle to the bitcoind process
@@ -312,7 +311,7 @@ pub async fn create_actors(
     Vec<ClementineOperatorClient<Channel>>,
     ClementineAggregatorClient<Channel>,
     Vec<ClementineWatchtowerClient<Channel>>,
-    ServerHandles,
+    ActorsCleanup,
 ) {
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
@@ -513,7 +512,7 @@ pub async fn create_actors(
         operators,
         aggregator,
         watchtowers,
-        ServerHandles((shutdown_channels, socket_dir)),
+        ActorsCleanup((shutdown_channels, socket_dir)),
     )
 }
 
