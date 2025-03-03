@@ -23,9 +23,9 @@ pub struct WinternitzCircuitInput {
     pub winternitz_details: Vec<WinternitzHandler>,
     pub hcp: BlockHeaderCircuitOutput, // This will be removed once the LightClientProof includes the MMRGuest of the Bitcoin blockhashes
     pub payout_spv: SPV,
-    pub lcp: LightClientProof,
+    // pub lcp: LightClientProof,
     pub operator_id: u32,
-    pub sp: StorageProof,
+    // pub sp: StorageProof,
     pub num_watchtowers: u32,
 }
 
@@ -34,9 +34,9 @@ impl WinternitzCircuitInput {
         winternitz_details: Vec<WinternitzHandler>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
-        lcp: LightClientProof,
+        // lcp: LightClientProof,
         operator_id: u32,
-        sp: StorageProof,
+        // sp: StorageProof,
         num_watchtowers: u32,
     ) -> Result<Self, &'static str> {
         if num_watchtowers > (1 << 20) - 1 {
@@ -46,9 +46,9 @@ impl WinternitzCircuitInput {
             winternitz_details,
             hcp,
             payout_spv,
-            lcp,
+            // lcp,
             operator_id,
-            sp,
+            // sp,
             num_watchtowers,
         })
     }

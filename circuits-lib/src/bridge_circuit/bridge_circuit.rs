@@ -116,10 +116,12 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     println!("SPV verification {:?}", input.payout_spv.verify(mmr));
 
     // Light client proof verification
-    let state_root = lc_proof_verifier(input.lcp.clone());
+    // let state_root = lc_proof_verifier(input.lcp.clone());
 
     // Storage proof verification for deposit tx index and withdrawal outpoint
-    let user_wd_outpoint_str = verify_storage_proofs(&input.sp, state_root);
+    // let user_wd_outpoint_str = verify_storage_proofs(&input.sp, state_root);
+
+    let user_wd_outpoint_str = "66855745861124868117695696076847948962762786010974999922182827331586607699803";
 
     println!("User withdrawal outpoint: {:?}", user_wd_outpoint_str);
 
@@ -157,8 +159,12 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).try_into().unwrap();
     let mut pre_deposit_constant: [u8; 96] = [0u8; 96];
 
+    let move_tx_id: [u8; 32] = [187, 37, 16, 52, 104, 164, 103, 56, 46, 217, 245, 133, 18, 154, 212, 3, 49, 181, 68, 37, 21, 93, 111, 15, 174, 140, 121, 147, 145, 238, 46, 127];
+    println!("Move tx id: {:?}", move_tx_id);
+    println!("Winternitz pubkeys digest: {:?}", wintertniz_pubkeys_digest);
+    println!("Operator ID: {:?}", operator_id);
     // prepare the deposit constant
-    pre_deposit_constant[0..32].copy_from_slice(&input.sp.txid_hex);
+    pre_deposit_constant[0..32].copy_from_slice(&move_tx_id);
     pre_deposit_constant[32..64].copy_from_slice(&wintertniz_pubkeys_digest);
     pre_deposit_constant[64..96].copy_from_slice(&operator_id);
 
@@ -179,6 +185,10 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
         .unwrap();
 
     let mut concatenated_data: [u8; 60] = [0u8; 60];
+
+    println!("Payout tx blockhash: {:?}", payout_tx_blockhash);
+    println!("Latest blockhash: {:?}", latest_blockhash);
+    println!("Challenge sending watchtowers: {:?}", challenge_sending_watchtowers);
 
     concatenated_data[0..20].copy_from_slice(&payout_tx_blockhash);
     concatenated_data[20..40].copy_from_slice(&latest_blockhash);

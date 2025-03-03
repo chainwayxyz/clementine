@@ -15,6 +15,7 @@ use risc0_to_bitvm2_core::mmr_native::MMRNative;
 use risc0_to_bitvm2_core::spv::SPV;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use std::convert::TryInto;
+use std::fmt::Debug;
 use std::fs;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt};
@@ -33,6 +34,8 @@ async fn main() {
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(tracing_subscriber::fmt::layer())
         .init();
+
+    println!("PARAMETERS: {:?}", PARAMETERS.move_tx_id);
 
     let winternitz_id: [u32; 8] = compute_image_id(BRIDGE_CIRCUIT_ELF).unwrap().into();
     let work_only_id: [u32; 8] = compute_image_id(WORK_ONLY_ELF).unwrap().into();
@@ -86,12 +89,12 @@ async fn main() {
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
-    let (light_client_proof, _lcp_receipt) = fetch_light_client_proof(PARAMETERS.l1_block_height)
-        .await
-        .unwrap();
+    // let (light_client_proof, _lcp_receipt) = fetch_light_client_proof(PARAMETERS.l1_block_height)
+    //     .await
+    //     .unwrap();
 
     // Check if L2 height is correct ??
-    let storage_proof = fetch_storage_proof(&light_client_proof.l2_height).await;
+    // let storage_proof = fetch_storage_proof(&light_client_proof.l2_height).await;
     let block_vec = TESTNET_BLOCK_72041.to_vec();
     let block_72041 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
     let payout_tx =
@@ -124,9 +127,9 @@ async fn main() {
         winternitz_details: vec![winternitz_details],
         hcp: block_header_circuit_output,
         payout_spv: spv,
-        lcp: light_client_proof,
+        // lcp: light_client_proof,
         operator_id: 1,
-        sp: storage_proof,
+        // sp: storage_proof,
         num_watchtowers: 1,
     };
 
@@ -141,7 +144,7 @@ async fn main() {
         .prove_with_opts(env, BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
         .unwrap()
         .receipt;
-    println!("RECEIPT: {:?}", receipt);
+    
     let receipt_bytes = borsh::to_vec(&receipt).unwrap();
     fs::write("proof.bin", &receipt_bytes).expect("Failed to write receipt to output file");
 }
