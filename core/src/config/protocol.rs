@@ -1,9 +1,11 @@
 use bitcoin::{Amount, Network};
 use serde::{Deserialize, Serialize};
 
-const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
+const BLOCKS_PER_HOUR: u16 = 6;
 
-const BLOCKS_PER_DAY: u16 = 6 * 24;
+const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
+
+const BLOCKS_PER_WEEK: u16 = BLOCKS_PER_DAY * 7;
 
 /// This is the log_d used across the codebase.
 ///
@@ -117,12 +119,12 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
     user_takes_after: 200,
-    operator_challenge_timeout_timelock: 100,
-    operator_challenge_nack_timelock: 300,
-    disprove_timeout_timelock: 250,
-    assert_timeout_timelock: 200,
-    operator_reimburse_timelock: 48,
-    watchtower_challenge_timeout_timelock: 200,
+    operator_challenge_timeout_timelock: BLOCKS_PER_DAY,
+    operator_challenge_nack_timelock: BLOCKS_PER_DAY * 3,
+    disprove_timeout_timelock: BLOCKS_PER_DAY * 5,
+    assert_timeout_timelock: BLOCKS_PER_DAY * 4,
+    operator_reimburse_timelock: BLOCKS_PER_HOUR * 2,
+    watchtower_challenge_timeout_timelock: BLOCKS_PER_DAY * 2,
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
