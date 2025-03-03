@@ -4,8 +4,9 @@ use crate::common::zkvm::ZkvmGuest;
 use bitcoin::hashes::Hash;
 use bridge_circuit_core::groth16::CircuitGroth16Proof;
 use bridge_circuit_core::winternitz::{
-    verify_winternitz_signature, WinternitzCircuitInput, WinternitzHandler,
+    verify_winternitz_signature, WinternitzHandler,
 };
+use bridge_circuit_core::structs::BridgeCircuitInput;
 use lc_proof::lc_proof_verifier;
 use risc0_zkvm::guest::env;
 use sha2::{Digest, Sha256};
@@ -50,7 +51,7 @@ pub fn convert_to_groth16_and_verify(message: &Vec<u8>, pre_state: &[u8; 32]) ->
 
 pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     let start = env::cycle_count();
-    let input: WinternitzCircuitInput = guest.read_from_host();
+    let input: BridgeCircuitInput = guest.read_from_host();
 
     let mut watchtower_flags: Vec<bool> = vec![];
     let mut wt_messages_with_idxs: Vec<(usize, Vec<u8>)> = vec![];

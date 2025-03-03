@@ -1,6 +1,6 @@
 use alloy::{
     primitives::keccak256,
-    providers::{Provider, ProviderBuilder, RootProvider},
+    providers::{Provider, RootProvider},
     transports::http::{Http, Client},
 };
 use alloy_primitives::U256;

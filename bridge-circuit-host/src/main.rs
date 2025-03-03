@@ -6,9 +6,9 @@ use borsh::{self, BorshDeserialize};
 use bridge_circuit_host::config::PARAMETERS;
 use bridge_circuit_host::{fetch_light_client_proof, fetch_storage_proof};
 use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
+use circuits_lib::bridge_circuit_core::structs::{WorkOnlyCircuitInput, BridgeCircuitInput};
 use circuits_lib::bridge_circuit_core::winternitz::{
-    generate_public_key, sign_digits, Parameters, WinternitzCircuitInput, WinternitzHandler,
+    generate_public_key, sign_digits, Parameters, WinternitzHandler,
 };
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
@@ -128,7 +128,7 @@ async fn main() {
         message: Some(compressed_proof_and_total_work),
     };
 
-    let winternitz_circuit_input: WinternitzCircuitInput = WinternitzCircuitInput {
+    let winternitz_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         winternitz_details: vec![winternitz_details],
         hcp: block_header_circuit_output,
         payout_spv: spv,
