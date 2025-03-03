@@ -1,3 +1,4 @@
+use crate::bitvm_client::SECP;
 use crate::builder::script::{CheckSig, OtherSpendable, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
@@ -8,12 +9,11 @@ use crate::musig2::{
 };
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::test::common::*;
-use crate::utils::SECP;
 use crate::{
+    bitvm_client,
     builder::{self},
     config::BridgeConfig,
     musig2::{nonce_pair, partial_sign, MuSigNoncePair},
-    utils,
 };
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
@@ -287,7 +287,7 @@ async fn script_spend() {
 
     let to_address = bitcoin::Address::p2tr(
         &SECP,
-        *utils::UNSPENDABLE_XONLY_PUBKEY,
+        *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
         None,
         bitcoin::Network::Regtest,
     );
@@ -353,7 +353,7 @@ async fn script_spend() {
     )
     .unwrap();
 
-    utils::SECP
+    bitvm_client::SECP
         .verify_schnorr(&final_signature, &message, &agg_xonly_pubkey)
         .unwrap();
 
@@ -439,7 +439,7 @@ async fn key_and_script_spend() {
     // Doesn't matter
     let to_address = bitcoin::Address::p2pkh(
         PublicKey::from(bitcoin::secp256k1::PublicKey::from_x_only_public_key(
-            *utils::UNSPENDABLE_XONLY_PUBKEY,
+            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
             key::Parity::Even,
         )),
         Regtest,
@@ -560,7 +560,7 @@ async fn key_and_script_spend() {
     // -- Verify Script Spend --
     // Verify signature for script spend
     // The script will verify the aggregate public key with the signature of sighash_1
-    utils::SECP
+    bitvm_client::SECP
         .verify_schnorr(&final_signature_1, &sighash_1, &agg_pk)
         .unwrap();
 
@@ -583,7 +583,7 @@ async fn key_and_script_spend() {
     // Verify signature for key spend
     // The key will verify the aggregate public key with the signature of sighash_2
     // The signature should be valid with the tweaked aggregate public key
-    utils::SECP
+    bitvm_client::SECP
         .verify_schnorr(&final_signature_2, &sighash_2, &agg_pk_tweaked)
         .unwrap();
 

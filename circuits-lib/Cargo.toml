@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 sha2 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-lazy_static = { workspace = true, features = ["spin_no_std"] }
 tracing = { workspace = true, default-features = false }
 risc0-zkvm = {version = "1.2.0", default-features = false, features = ["std"]}
 borsh = {version = "1.5.3", features = ["derive"] }

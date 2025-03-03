@@ -1,9 +1,11 @@
 use bitcoin::{Amount, Network};
 use serde::{Deserialize, Serialize};
 
-const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
+const BLOCKS_PER_HOUR: u16 = 6;
 
-const BLOCKS_PER_DAY: u16 = 6 * 24;
+const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
+
+const BLOCKS_PER_WEEK: u16 = BLOCKS_PER_DAY * 7;
 
 /// This is the log_d used across the codebase.
 ///
@@ -88,7 +90,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     num_round_txs: 2,
     num_kickoffs_per_round: 200,
     bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(40_000),
+    kickoff_amount: Amount::from_sat(55_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
@@ -109,7 +111,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     num_round_txs: 2,
     num_kickoffs_per_round: 2,
     bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(40_000),
+    kickoff_amount: Amount::from_sat(55_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
@@ -117,12 +119,12 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 4,
     user_takes_after: 200,
-    operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
-    operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
-    disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
-    assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
-    operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
-    watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
+    operator_challenge_timeout_timelock: BLOCKS_PER_DAY,
+    operator_challenge_nack_timelock: BLOCKS_PER_DAY * 3,
+    disprove_timeout_timelock: BLOCKS_PER_DAY * 5,
+    assert_timeout_timelock: BLOCKS_PER_DAY * 4,
+    operator_reimburse_timelock: BLOCKS_PER_HOUR * 2,
+    watchtower_challenge_timeout_timelock: BLOCKS_PER_DAY * 2,
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -130,7 +132,7 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     num_round_txs: 2,
     num_kickoffs_per_round: 2,
     bridge_amount: Amount::from_sat(10_000_000),
-    kickoff_amount: Amount::from_sat(40_000),
+    kickoff_amount: Amount::from_sat(55_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,

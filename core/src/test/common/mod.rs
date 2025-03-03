@@ -130,6 +130,8 @@ pub async fn run_single_deposit(
     let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
     aggregator.setup(Request::new(Empty {})).await?;
+    let setup_elapsed = setup_start.elapsed();
+    tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)

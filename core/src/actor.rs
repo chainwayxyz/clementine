@@ -1,3 +1,4 @@
+use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
@@ -6,7 +7,6 @@ use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
-use crate::utils::{self, SECP};
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::taproot::{self, LeafVersion, TaprootSpendInfo};
@@ -16,9 +16,7 @@ use bitcoin::{
     Address, ScriptBuf, TapSighash, TapTweakHash, Txid,
 };
 use bitcoin::{TapNodeHash, TapSighashType, Witness};
-use bitvm::signatures::winternitz::{
-    self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
-};
+use bitvm::signatures::winternitz::{self, ListpickVerifier, ToBytesConverter, Winternitz};
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
@@ -28,8 +26,8 @@ pub enum WinternitzDerivationPath {
     /// operator_idx, deposit_txid
     /// Message length is fixed WATCHTOWER_CHALLENGE_MESSAGE_LENGTH
     WatchtowerChallenge(u32, Txid, &'static ProtocolParamset),
-    /// message_length, intermediate_step_name, deposit_txid
-    BitvmAssert(u32, String, Txid, &'static ProtocolParamset),
+    /// message_length, pk_type_idx, pk_idx, deposit_txid
+    BitvmAssert(u32, u32, u32, Txid, &'static ProtocolParamset),
     /// watchtower_idx, deposit_txid
     /// message length is fixed to 1 (because its for one hash)
     ChallengeAckHash(u32, Txid, &'static ProtocolParamset),
@@ -60,12 +58,14 @@ impl WinternitzDerivationPath {
             }
             WinternitzDerivationPath::BitvmAssert(
                 message_length,
-                intermediate_step_name,
+                pk_type_idx,
+                pk_idx,
                 deposit_txid,
                 _,
             ) => {
                 bytes.extend_from_slice(&message_length.to_be_bytes());
-                bytes.extend_from_slice(intermediate_step_name.as_bytes());
+                bytes.extend_from_slice(&pk_type_idx.to_be_bytes());
+                bytes.extend_from_slice(&pk_idx.to_be_bytes());
                 bytes.extend_from_slice(&deposit_txid.to_byte_array());
             }
             WinternitzDerivationPath::ChallengeAckHash(watchtower_idx, deposit_txid, _) => {
@@ -90,7 +90,7 @@ impl WinternitzDerivationPath {
                     paramset.winternitz_log_d,
                 )
             }
-            WinternitzDerivationPath::BitvmAssert(message_length, _, _, paramset) => {
+            WinternitzDerivationPath::BitvmAssert(message_length, _, _, _, paramset) => {
                 winternitz::Parameters::new(*message_length, paramset.winternitz_log_d)
             }
             WinternitzDerivationPath::ChallengeAckHash(_, _, paramset) => {
@@ -137,7 +137,7 @@ impl Actor {
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        Ok(utils::SECP.sign_schnorr(
+        Ok(bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair.add_xonly_tweak(
                 &SECP,
@@ -148,7 +148,7 @@ impl Actor {
 
     #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
-        utils::SECP.sign_schnorr(
+        bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair,
         )
@@ -184,7 +184,7 @@ impl Actor {
         path: WinternitzDerivationPath,
         data: Vec<u8>,
     ) -> Result<Witness, BridgeError> {
-        let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
+        let winternitz = Winternitz::<ListpickVerifier, ToBytesConverter>::new();
 
         let winternitz_params = path.get_params();
 
@@ -213,6 +213,43 @@ impl Actor {
         let preimage = self.generate_preimage_from_path(path)?;
         let hash = hash160::Hash::hash(&preimage);
         Ok(hash.to_byte_array())
+    }
+
+    pub fn generate_bitvm_pks_for_deposit(
+        &self,
+        txid: Txid,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<ClementineBitVMPublicKeys, BridgeError> {
+        let mut pks = ClementineBitVMPublicKeys::create_replacable();
+        let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+            20, 0, 0, txid, paramset,
+        ))?;
+        pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+        let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+            20, 1, 0, txid, paramset,
+        ))?;
+        pks.challenge_sending_watchtowers_pk =
+            ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+        for i in 0..pks.bitvm_pks.0.len() {
+            let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+                32, 2, i as u32, txid, paramset,
+            ))?;
+            pks.bitvm_pks.0[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
+        }
+        for i in 0..pks.bitvm_pks.1.len() {
+            let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+                32, 3, i as u32, txid, paramset,
+            ))?;
+            pks.bitvm_pks.1[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
+        }
+        for i in 0..pks.bitvm_pks.2.len() {
+            let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+                20, 4, i as u32, txid, paramset,
+            ))?;
+            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+        }
+
+        Ok(pks)
     }
 
     fn get_saved_signature(
@@ -522,8 +559,8 @@ mod tests {
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandler, TxHandlerBuilder};
 
+    use crate::bitvm_client::SECP;
     use crate::rpc::clementine::NormalSignatureKind;
-    use crate::utils::SECP;
     use crate::{actor::WinternitzDerivationPath, test::common::*};
     use bitcoin::secp256k1::{schnorr, Message, SecretKey};
 
@@ -533,9 +570,7 @@ mod tests {
     use bitcoin::{Amount, Network, OutPoint};
     use bitvm::{
         execute_script,
-        signatures::winternitz::{
-            self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
-        },
+        signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz},
         treepp::script,
     };
     use rand::thread_rng;
@@ -829,15 +864,10 @@ mod tests {
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::BitvmAssert(
-            3,
-            "step0".to_string(),
-            Txid::all_zeros(),
-            paramset,
-        );
+        let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, Txid::all_zeros(), paramset);
         let expected_pk = vec![
-            19, 106, 233, 190, 243, 102, 53, 65, 74, 188, 254, 213, 228, 200, 160, 166, 111, 183,
-            62, 126,
+            49, 157, 5, 44, 165, 90, 254, 67, 195, 122, 253, 48, 212, 174, 142, 227, 246, 73, 98,
+            146,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -873,12 +903,8 @@ mod tests {
         let message_len = data.len() as u32 * 2;
         let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
 
-        let path = WinternitzDerivationPath::BitvmAssert(
-            message_len,
-            "step1".to_string(),
-            Txid::all_zeros(),
-            paramset,
-        );
+        let path =
+            WinternitzDerivationPath::BitvmAssert(message_len, 0, 0, Txid::all_zeros(), paramset);
         let params = winternitz::Parameters::new(message_len, paramset.winternitz_log_d);
 
         let witness = actor
@@ -886,7 +912,7 @@ mod tests {
             .unwrap();
         let pk = actor.derive_winternitz_pk(path.clone()).unwrap();
 
-        let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
+        let winternitz = Winternitz::<BinarysearchVerifier, ToBytesConverter>::new();
         let check_sig_script = winternitz.checksig_verify(&params, &pk);
 
         let message_checker = script! {

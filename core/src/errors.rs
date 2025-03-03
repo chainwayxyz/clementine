@@ -226,6 +226,9 @@ pub enum BridgeError {
     #[error("ConversionError: {0}")]
     ConversionError(String),
 
+    #[error("IntConversionError: {0}")]
+    IntConversionError(#[from] std::num::TryFromIntError),
+
     #[error("ERROR: {0}")]
     Error(String),
 

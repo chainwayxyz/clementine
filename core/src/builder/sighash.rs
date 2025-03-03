@@ -5,6 +5,7 @@
 //! under which conditions the input is signed. For more, see:
 //! https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types
 
+use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
     create_txhandlers, DepositData, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
@@ -14,7 +15,6 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::KickoffId;
-use crate::utils;
 use async_stream::try_stream;
 use bitcoin::{Address, OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
@@ -38,11 +38,12 @@ impl BridgeConfig {
 
     pub fn get_num_required_nofn_sigs_per_kickoff(&self) -> usize {
         6 + 4 * self.protocol_paramset().num_watchtowers
-            + utils::COMBINED_ASSERT_DATA.num_steps.len() * 2
+            + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
     }
 
     pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {
-        2 + utils::COMBINED_ASSERT_DATA.num_steps.len() + self.protocol_paramset().num_watchtowers
+        2 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
+            + self.protocol_paramset().num_watchtowers
     }
 
     /// Returns the total number of winternitz pks used in kickoff utxos for blockhash commits
@@ -61,10 +62,10 @@ impl BridgeConfig {
         self.protocol_paramset().num_watchtowers
     }
 
-    /// Returns the number of winternitz pks needed for a single operator for each round
-    pub fn get_num_assert_winternitz_pks(&self) -> usize {
-        crate::utils::BITVM_CACHE.intermediate_variables.len()
-    }
+    // /// Returns the number of winternitz pks needed for a single operator for each round
+    // pub fn get_num_assert_winternitz_pks(&self) -> usize {
+    //     crate::utils::BITVM_CACHE.num_intermediate_variables
+    // }
 }
 
 #[derive(Copy, Clone, Debug)]

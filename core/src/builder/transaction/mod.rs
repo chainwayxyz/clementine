@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use super::script::SpendPath;
 use super::script::{CheckSig, DepositScript, TimelockScript};
 use crate::builder::transaction::challenge::*;
@@ -31,6 +33,9 @@ use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 pub use crate::builder::transaction::txhandler::*;
 pub use creator::{
     create_round_txhandlers, create_txhandlers, KickoffWinternitzKeys, ReimburseDbCache,
+};
+pub use operator_collateral::{
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
 };
 pub use operator_reimburse::create_payout_txhandler;
 pub use txhandler::Unsigned;
@@ -66,7 +71,7 @@ pub struct OperatorData {
 
 /// Types of all transactions that can be created. Some transactions have an (usize) to as they are created
 /// multiple times per kickoff.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum TransactionType {
     Round,
     Kickoff,
@@ -88,6 +93,7 @@ pub enum TransactionType {
     ReadyToReimburse,
     KickoffNotFinalized,
     ChallengeTimeout,
+    BurnUnusedKickoffConnectors,
 }
 
 // converter from proto type to rust enum
@@ -116,6 +122,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::KickoffNotFinalized => Ok(Self::KickoffNotFinalized),
                     Normal::ChallengeTimeout => Ok(Self::ChallengeTimeout),
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
+                    Normal::BurnUnusedKickoffConnectors => Ok(Self::BurnUnusedKickoffConnectors),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -218,6 +225,9 @@ impl From<TransactionType> for GrpcTransactionId {
                         transaction_type: Numbered::WatchtowerChallengeTimeout as i32,
                         index: index as i32,
                     })
+                }
+                TransactionType::BurnUnusedKickoffConnectors => {
+                    NormalTransaction(Normal::BurnUnusedKickoffConnectors as i32)
                 }
             }),
         }

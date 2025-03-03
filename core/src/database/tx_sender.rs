@@ -6,13 +6,14 @@ use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
-    tx_sender::{ActivedWithOutpoint, ActivedWithTxid, FeePayingType},
+    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging},
 };
 use bitcoin::{
     consensus::{deserialize, serialize},
     Amount, FeeRate, Transaction, Txid,
 };
-use std::ops::DerefMut; // Add this at the top with other imports
+use std::ops::DerefMut;
+// Add this at the top with other imports
 
 impl Database {
     pub async fn confirm_transactions(
@@ -49,7 +50,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -62,7 +63,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -75,7 +76,7 @@ impl Database {
             AND ctt.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -88,7 +89,7 @@ impl Database {
             AND cto.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -101,7 +102,7 @@ impl Database {
             AND fpu.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -114,7 +115,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -127,7 +128,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -173,7 +174,7 @@ impl Database {
             WHERE txs.seen_block_id = $1;
             "#,
         )
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_id)?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -201,10 +202,10 @@ impl Database {
             "INSERT INTO tx_sender_fee_payer_utxos (bumped_id, fee_payer_txid, vout, amount, replacement_of_id)
              VALUES ($1, $2, $3, $4, $5)",
         )
-        .bind(i32::try_from(bumped_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(bumped_id)?)
         .bind(TxidDB(fee_payer_txid))
-        .bind(i32::try_from(vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
-        .bind(i64::try_from(amount.to_sat()).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(vout)?)
+        .bind(i64::try_from(amount.to_sat())?)
         .bind(replacement_of_id.map(|id| -> Result<i32, BridgeError> {
             i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
         }).transpose()?);
@@ -235,7 +236,7 @@ impl Database {
               )
             ",
         )
-        .bind(i32::try_from(bumped_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(bumped_id)?);
 
         let results: Vec<(i32, TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
@@ -267,7 +268,7 @@ impl Database {
              FROM tx_sender_fee_payer_utxos fpu
              WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NOT NULL",
         )
-        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(id)?);
 
         let results: Vec<(TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
@@ -291,17 +292,21 @@ impl Database {
     pub async fn save_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_data_for_logging: Option<TxDataForLogging>,
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
+        txid: Txid,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type) VALUES ($1, $2::fee_paying_type) RETURNING id"
+            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_data_for_logging, txid) VALUES ($1, $2::fee_paying_type, $3, $4) RETURNING id"
         )
         .bind(serialize(raw_tx))
-        .bind(fee_paying_type);
+        .bind(fee_paying_type)
+        .bind(serde_json::to_string(&tx_data_for_logging).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(TxidDB(txid));
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
+        u32::try_from(id).map_err(BridgeError::IntConversionError)
     }
 
     pub async fn save_rbf_txid(
@@ -311,7 +316,7 @@ impl Database {
         txid: Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO tx_sender_rbf_txids (id, txid) VALUES ($1, $2)")
-            .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+            .bind(i32::try_from(id)?)
             .bind(TxidDB(txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -327,9 +332,9 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, txid, vout) VALUES ($1, $2, $3)"
         )
-        .bind(i32::try_from(cancelled_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(cancelled_id)?)
         .bind(TxidDB(outpoint.txid))
-        .bind(i32::try_from(outpoint.vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(outpoint.vout)?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -344,7 +349,7 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO tx_sender_cancel_try_to_send_txids (cancelled_id, txid) VALUES ($1, $2)",
         )
-        .bind(i32::try_from(cancelled_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(cancelled_id)?)
         .bind(TxidDB(txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -355,14 +360,14 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         activated_id: u32,
-        prerequisite_tx: &ActivedWithTxid,
+        prerequisite_tx: &ActivatedWithTxid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO tx_sender_activate_try_to_send_txids (activated_id, txid, timelock) VALUES ($1, $2, $3)"
         )
-        .bind(i32::try_from(activated_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(activated_id)?)
         .bind(TxidDB(prerequisite_tx.txid))
-        .bind(i32::try_from(prerequisite_tx.timelock.0).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(prerequisite_tx.relative_block_height)?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -372,14 +377,15 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         activated_id: u32,
-        activated_outpoint: &ActivedWithOutpoint,
+        activated_outpoint: &ActivatedWithOutpoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout) VALUES ($1, $2, $3)"
+            "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout, timelock) VALUES ($1, $2, $3, $4)"
         )
-        .bind(i32::try_from(activated_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(activated_id)?)
         .bind(TxidDB(activated_outpoint.outpoint.txid))
-        .bind(i32::try_from(activated_outpoint.outpoint.vout).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(activated_outpoint.outpoint.vout)?)
+        .bind(i32::try_from(activated_outpoint.relative_block_height)?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -392,55 +398,80 @@ impl Database {
         current_tip_height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
-            "WITH valid_activated_txs AS (
-                    -- Select all tx_sender_try_to_send_txs IDs
-                    SELECT txs.id AS activated_id
-                    FROM tx_sender_try_to_send_txs AS txs
-                    LEFT JOIN tx_sender_activate_try_to_send_txids AS activate_txid
-                        ON txs.id = activate_txid.activated_id
-                    LEFT JOIN tx_sender_activate_try_to_send_outpoints AS activate_outpoint
-                        ON txs.id = activate_outpoint.activated_id
-                    LEFT JOIN bitcoin_syncer AS syncer_txid
-                        ON activate_txid.seen_block_id = syncer_txid.id
-                    LEFT JOIN bitcoin_syncer AS syncer_outpoint
-                        ON activate_outpoint.seen_block_id = syncer_outpoint.id
-                    GROUP BY txs.id
-                    HAVING
-                        -- If the transaction has no prerequisites, it is valid
-                        (COUNT(activate_txid.txid) = 0 AND COUNT(activate_outpoint.txid) = 0)
-                        -- If it has txid-based prerequisites, all must be activated
-                        OR COUNT(activate_txid.txid) = COUNT(CASE WHEN (syncer_txid.height + activate_txid.timelock) <= $2 THEN 1 END)
-                        -- If it has outpoint-based prerequisites, all must be activated
-                        OR COUNT(activate_outpoint.txid) = COUNT(CASE WHEN (syncer_outpoint.height + activate_outpoint.timelock) <= $2 THEN 1 END)
+            "WITH 
+                -- Find non-active transactions (not seen or timelock not passed)
+                non_active_txs AS (
+                    -- Transactions with txid activations that aren't active yet
+                    SELECT DISTINCT
+                        activate_txid.activated_id AS tx_id
+                    FROM 
+                        tx_sender_activate_try_to_send_txids AS activate_txid
+                    LEFT JOIN 
+                        bitcoin_syncer AS syncer ON activate_txid.seen_block_id = syncer.id
+                    WHERE 
+                        activate_txid.seen_block_id IS NULL 
+                        OR (syncer.height + activate_txid.timelock > $2)
+                    
+                    UNION
+                    
+                    -- Transactions with outpoint activations that aren't active yet
+                    SELECT DISTINCT
+                        activate_outpoint.activated_id AS tx_id
+                    FROM 
+                        tx_sender_activate_try_to_send_outpoints AS activate_outpoint
+                    LEFT JOIN 
+                        bitcoin_syncer AS syncer ON activate_outpoint.seen_block_id = syncer.id
+                    WHERE 
+                        activate_outpoint.seen_block_id IS NULL 
+                        OR (syncer.height + activate_outpoint.timelock > $2)
                 ),
-                valid_cancel_outpoints AS (
-                    SELECT cancelled_id
-                    FROM tx_sender_cancel_try_to_send_outpoints
-                    WHERE seen_block_id IS NOT NULL
-                ),
-                valid_cancel_txids AS (
-                    SELECT cancelled_id
-                    FROM tx_sender_cancel_try_to_send_txids
-                    WHERE seen_block_id IS NOT NULL
+
+                -- Transactions with cancelled conditions
+                cancelled_txs AS (
+                    -- Transactions with cancelled outpoints
+                    SELECT DISTINCT
+                        cancelled_id AS tx_id
+                    FROM 
+                        tx_sender_cancel_try_to_send_outpoints
+                    WHERE 
+                        seen_block_id IS NOT NULL
+                    
+                    UNION
+                    
+                    -- Transactions with cancelled txids
+                    SELECT DISTINCT
+                        cancelled_id AS tx_id
+                    FROM 
+                        tx_sender_cancel_try_to_send_txids
+                    WHERE 
+                        seen_block_id IS NOT NULL
                 )
-                SELECT txs.id
-                FROM tx_sender_try_to_send_txs AS txs
-                WHERE
-                    txs.id IN (SELECT activated_id FROM valid_activated_txs)
-                    AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_outpoints)
-                    AND txs.id NOT IN (SELECT cancelled_id FROM valid_cancel_txids)
-                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);
-",
+
+                -- Final query to get sendable transactions
+                SELECT 
+                    txs.id
+                FROM 
+                    tx_sender_try_to_send_txs AS txs
+                WHERE 
+                    -- Transaction must not be in the non-active list
+                    txs.id NOT IN (SELECT tx_id FROM non_active_txs)
+                    -- Transaction must not be in the cancelled list
+                    AND txs.id NOT IN (SELECT tx_id FROM cancelled_txs)
+                    -- Transaction must not be already confirmed
+                    AND txs.seen_block_id IS NULL
+                    -- Check if fee_rate is lower than the provided fee rate or null
+                    AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
-        .bind(i64::try_from(fee_rate.to_sat_per_vb_ceil())
-            .map_err(|e| BridgeError::ConversionError(e.to_string()))?)
-        .bind(i32::try_from(current_tip_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i64::try_from(fee_rate.to_sat_per_vb_ceil())?)
+        .bind(i32::try_from(current_tip_height)?);
 
         let results = execute_query_with_tx!(self.connection, tx, select_query, fetch_all)?;
 
         let txs = results
             .into_iter()
-            .map(|(id,)| u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string())))
+            .map(|(id,)| -> Result<u32, BridgeError> {
+                u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
+            })
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         Ok(txs)
@@ -455,11 +486,8 @@ impl Database {
         let query = sqlx::query(
             "UPDATE tx_sender_try_to_send_txs SET effective_fee_rate = $1 WHERE id = $2",
         )
-        .bind(
-            i64::try_from(effective_fee_rate.to_sat_per_vb_ceil())
-                .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
-        )
-        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i64::try_from(effective_fee_rate.to_sat_per_vb_ceil())?)
+        .bind(i32::try_from(id)?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -470,24 +498,37 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: u32,
-    ) -> Result<(Transaction, FeePayingType, Option<u32>), BridgeError> {
-        let query = sqlx::query_as::<_, (Vec<u8>, FeePayingType, Option<i32>)>(
-            "SELECT raw_tx, fee_paying_type::fee_paying_type, seen_block_id
+    ) -> Result<
+        (
+            Option<TxDataForLogging>,
+            Transaction,
+            FeePayingType,
+            Option<u32>,
+        ),
+        BridgeError,
+    > {
+        let query =
+            sqlx::query_as::<_, (Option<String>, Option<Vec<u8>>, FeePayingType, Option<i32>)>(
+                "SELECT tx_data_for_logging, raw_tx, fee_paying_type, seen_block_id
              FROM tx_sender_try_to_send_txs
              WHERE id = $1 LIMIT 1",
-        )
-        .bind(i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+            )
+            .bind(i32::try_from(id)?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
-            deserialize(&result.0)
-                .map_err(|e| BridgeError::Error(format!("Bitcoin deserialization error: {}", e)))?,
-            result.1,
             result
-                .2
-                .map(|id| {
-                    u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
-                })
+                .0
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(|e| BridgeError::ConversionError(e.to_string()))?
+                .ok_or_else(|| BridgeError::ConversionError("TxDataForLogging".to_string()))?,
+            deserialize(&result.1.unwrap_or_default())
+                .map_err(|e| BridgeError::Error(format!("Bitcoin deserialization error: {}", e)))?,
+            result.2,
+            result
+                .3
+                .map(|id| u32::try_from(id).map_err(BridgeError::IntConversionError))
                 .transpose()?,
         ))
     }
@@ -521,10 +562,14 @@ mod tests {
         };
 
         // Test saving tx
-        let id = db.save_tx(None, &tx, FeePayingType::CPFP).await.unwrap();
+        let txid = tx.compute_txid();
+        let id = db
+            .save_tx(None, None, &tx, FeePayingType::CPFP, txid)
+            .await
+            .unwrap();
 
         // Test retrieving tx
-        let (retrieved_tx, fee_paying_type, seen_block_id) = db.get_tx(None, id).await.unwrap();
+        let (_, retrieved_tx, fee_paying_type, seen_block_id) = db.get_tx(None, id).await.unwrap();
         assert_eq!(tx.version, retrieved_tx.version);
         assert_eq!(fee_paying_type, FeePayingType::CPFP);
         assert_eq!(seen_block_id, None);
@@ -545,7 +590,13 @@ mod tests {
 
         // Save the transaction first
         let tx_id = db
-            .save_tx(Some(&mut dbtx), &tx, FeePayingType::CPFP)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
 
@@ -586,7 +637,13 @@ mod tests {
             output: vec![],
         };
         let tx_id = db
-            .save_tx(Some(&mut dbtx), &tx, FeePayingType::CPFP)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
 
@@ -629,7 +686,13 @@ mod tests {
 
         // Save the transaction first
         let tx_id = db
-            .save_tx(Some(&mut dbtx), &tx, FeePayingType::CPFP)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
 
@@ -670,11 +733,23 @@ mod tests {
         };
 
         let id1 = db
-            .save_tx(Some(&mut dbtx), &tx1, FeePayingType::CPFP)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx1,
+                FeePayingType::CPFP,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
         let id2 = db
-            .save_tx(Some(&mut dbtx), &tx2, FeePayingType::RBF)
+            .save_tx(
+                Some(&mut dbtx),
+                None,
+                &tx2,
+                FeePayingType::RBF,
+                Txid::all_zeros(),
+            )
             .await
             .unwrap();
 
