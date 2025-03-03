@@ -1,7 +1,7 @@
 use super::{structs, utils};
 use borsh::{BorshDeserialize, BorshSerialize};
-use risc0_to_bitvm2_core::spv::SPV;
 use risc0_to_bitvm2_core::header_chain::BlockHeaderCircuitOutput;
+use risc0_to_bitvm2_core::spv::SPV;
 use serde::{Deserialize, Serialize};
 pub type HashOut = [u8; 20];
 pub type PublicKey = Vec<HashOut>;

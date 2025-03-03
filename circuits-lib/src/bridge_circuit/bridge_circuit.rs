@@ -1,3 +1,5 @@
+use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
+use crate::bridge_circuit_core;
 use bitcoin::hashes::Hash;
 use bridge_circuit_core::groth16::CircuitGroth16Proof;
 use bridge_circuit_core::winternitz::{
@@ -6,11 +8,9 @@ use bridge_circuit_core::winternitz::{
 use bridge_circuit_core::zkvm::ZkvmGuest;
 use lc_proof::lc_proof_verifier;
 use risc0_zkvm::guest::env;
+use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
-use sha2::{Digest, Sha256};
-use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
-use crate::bridge_circuit_core;
 
 use super::{lc_proof, storage_proof};
 
@@ -65,7 +65,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
             watchtower_flags.push(false);
             continue;
         }
-        
+
         let flag = verify_winternitz_signature(winternitz_handler);
         watchtower_flags.push(flag);
 
@@ -131,7 +131,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
             .try_into()
             .unwrap(),
     );
-    
+
     assert_eq!(
         user_wd_txid,
         input.payout_spv.transaction.input[0].previous_output.txid
@@ -149,17 +149,13 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     let mut operator_id: [u8; 32] = [0u8; 32];
     if len > 32 {
         panic!("Invalid operator id length");
-    }
-    else {
+    } else {
         operator_id[..len as usize].copy_from_slice(&last_output_script[2..(2 + len) as usize]);
     }
     println!("Operator ID: {:?}", operator_id);
 
-
-    
     let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).try_into().unwrap();
     let mut pre_deposit_constant: [u8; 96] = [0u8; 96];
-
 
     // prepare the deposit constant
     pre_deposit_constant[0..32].copy_from_slice(&input.sp.txid_hex);
@@ -174,9 +170,13 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
             challenge_sending_watchtowers[i / 8] |= 1 << (i % 8);
         }
     }
-    
-    let latest_blockhash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32].try_into().unwrap();
-    let payout_tx_blockhash: [u8; 20] = input.payout_spv.block_header.compute_block_hash()[12..32].try_into().unwrap();
+
+    let latest_blockhash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32]
+        .try_into()
+        .unwrap();
+    let payout_tx_blockhash: [u8; 20] = input.payout_spv.block_header.compute_block_hash()[12..32]
+        .try_into()
+        .unwrap();
 
     let mut concatenated_data: [u8; 60] = [0u8; 60];
 
@@ -187,10 +187,10 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     let blake3_hash_concatenated_data = blake3::hash(&concatenated_data);
 
     let hash_bytes: &[u8; 32] = blake3_hash_concatenated_data.as_bytes();
-    
+
     let mut concat_journal: [u8; 64] = [0u8; 64];
     concat_journal[0..32].copy_from_slice(&deposit_constant);
-    concat_journal[32..64].copy_from_slice(hash_bytes); 
+    concat_journal[32..64].copy_from_slice(hash_bytes);
 
     let journal_hash = blake3::hash(&concat_journal);
 

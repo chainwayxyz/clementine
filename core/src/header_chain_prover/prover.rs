@@ -4,10 +4,10 @@
 
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
 use bitcoin::Network;
+use lazy_static::lazy_static;
 use risc0_to_bitvm2_core::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
-use lazy_static::lazy_static;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
 use std::time::Duration;
 use tokio::time::sleep;
