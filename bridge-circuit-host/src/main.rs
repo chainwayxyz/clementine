@@ -6,7 +6,7 @@ use borsh::{self, BorshDeserialize};
 use bridge_circuit_host::config::PARAMETERS;
 use bridge_circuit_host::{fetch_light_client_proof, fetch_storage_proof};
 use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit_core::structs::{WorkOnlyCircuitInput, BridgeCircuitInput};
+use circuits_lib::bridge_circuit_core::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit_core::winternitz::{
     generate_public_key, sign_digits, Parameters, WinternitzHandler,
 };
@@ -91,11 +91,13 @@ async fn main() {
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
-    let provider: RootProvider<Http<Client>>  = ProviderBuilder::new().on_http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
+    let provider: RootProvider<Http<Client>> =
+        ProviderBuilder::new().on_http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
 
-    let (light_client_proof, _lcp_receipt) = fetch_light_client_proof(PARAMETERS.l1_block_height, provider)
-        .await
-        .unwrap();
+    let (light_client_proof, _lcp_receipt) =
+        fetch_light_client_proof(PARAMETERS.l1_block_height, provider)
+            .await
+            .unwrap();
 
     let provider = ProviderBuilder::new().on_http(CITREA_TESTNET_RPC.parse().unwrap());
     // Check if L2 height is correct ??

@@ -3,16 +3,13 @@ use crate::bridge_circuit_core;
 use crate::common::zkvm::ZkvmGuest;
 use bitcoin::hashes::Hash;
 use bridge_circuit_core::groth16::CircuitGroth16Proof;
-use bridge_circuit_core::winternitz::{
-    verify_winternitz_signature, WinternitzHandler,
-};
 use bridge_circuit_core::structs::BridgeCircuitInput;
+use bridge_circuit_core::winternitz::{verify_winternitz_signature, WinternitzHandler};
 use lc_proof::lc_proof_verifier;
 use risc0_zkvm::guest::env;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
-
 use super::{lc_proof, storage_proof};
 
 pub fn verify_winternitz_and_groth16(input: &WinternitzHandler) -> bool {
@@ -156,12 +153,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     println!("Operator ID: {:?}", operator_id);
 
     let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).try_into().unwrap();
-    let mut pre_deposit_constant: [u8; 96] = [0u8; 96];
-
-    // prepare the deposit constant
-    pre_deposit_constant[0..32].copy_from_slice(&input.sp.txid_hex);
-    pre_deposit_constant[32..64].copy_from_slice(&wintertniz_pubkeys_digest);
-    pre_deposit_constant[64..96].copy_from_slice(&operator_id);
+    let pre_deposit_constant = [input.sp.txid_hex, wintertniz_pubkeys_digest, operator_id].concat();
 
     let deposit_constant: [u8; 32] = Sha256::digest(&pre_deposit_constant).try_into().unwrap();
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
@@ -179,20 +171,12 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
         .try_into()
         .unwrap();
 
-    let mut concatenated_data: [u8; 60] = [0u8; 60];
 
-    concatenated_data[0..20].copy_from_slice(&payout_tx_blockhash);
-    concatenated_data[20..40].copy_from_slice(&latest_blockhash);
-    concatenated_data[40..60].copy_from_slice(&challenge_sending_watchtowers);
+    let concatenated_data = [payout_tx_blockhash, latest_blockhash, challenge_sending_watchtowers].concat();
+    let binding = blake3::hash(&concatenated_data);
+    let hash_bytes = binding.as_bytes();
 
-    let blake3_hash_concatenated_data = blake3::hash(&concatenated_data);
-
-    let hash_bytes: &[u8; 32] = blake3_hash_concatenated_data.as_bytes();
-
-    let mut concat_journal: [u8; 64] = [0u8; 64];
-    concat_journal[0..32].copy_from_slice(&deposit_constant);
-    concat_journal[32..64].copy_from_slice(hash_bytes);
-
+    let concat_journal = [deposit_constant, *hash_bytes].concat();
     let journal_hash = blake3::hash(&concat_journal);
 
     guest.commit(journal_hash.as_bytes());

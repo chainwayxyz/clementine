@@ -1,7 +1,7 @@
 use alloy::{
     primitives::keccak256,
     providers::{Provider, RootProvider},
-    transports::http::{Http, Client},
+    transports::http::{Client, Http},
 };
 use alloy_primitives::U256;
 use alloy_rpc_types::EIP1186AccountProofResponse;
@@ -21,7 +21,10 @@ const DEPOSIT_MAPPING_STORAGE_INDEX: [u8; 32] =
 
 const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
-pub async fn fetch_light_client_proof(l1_height: u32, provider: RootProvider<Http<Client>>) -> Result<(LightClientProof, Receipt), ()> {
+pub async fn fetch_light_client_proof(
+    l1_height: u32,
+    provider: RootProvider<Http<Client>>,
+) -> Result<(LightClientProof, Receipt), ()> {
     let client = provider.client();
     let request = json!({
         "l1_height": l1_height
@@ -52,7 +55,10 @@ pub async fn fetch_light_client_proof(l1_height: u32, provider: RootProvider<Htt
     ))
 }
 
-pub async fn fetch_storage_proof(l2_height: &String, provider: RootProvider<Http<Client>>) -> StorageProof {
+pub async fn fetch_storage_proof(
+    l2_height: &String,
+    provider: RootProvider<Http<Client>>,
+) -> StorageProof {
     let ind = PARAMETERS.deposit_index;
     let tx_index: u32 = ind * 2;
 
