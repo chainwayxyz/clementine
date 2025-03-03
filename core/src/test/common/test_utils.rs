@@ -26,6 +26,9 @@ use std::net::TcpListener;
 use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
+#[must_use = "Servers will die if not used"]
+pub struct ServerHandles(pub (Vec<oneshot::Sender<()>>, tempfile::TempDir));
+
 pub struct WithProcessCleanup(
     /// Handle to the bitcoind process
     pub Option<std::process::Child>,
@@ -302,7 +305,6 @@ pub async fn initialize_database(config: &BridgeConfig) {
 ///
 /// Returns a tuple of vectors of clients, handles, and socket paths for the
 /// verifiers, operators, aggregator and watchtowers, along with shutdown channels.
-#[must_use]
 pub async fn create_actors(
     config: &BridgeConfig,
 ) -> (
@@ -310,7 +312,7 @@ pub async fn create_actors(
     Vec<ClementineOperatorClient<Channel>>,
     ClementineAggregatorClient<Channel>,
     Vec<ClementineWatchtowerClient<Channel>>,
-    (Vec<oneshot::Sender<()>>, tempfile::TempDir),
+    ServerHandles,
 ) {
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
@@ -511,7 +513,7 @@ pub async fn create_actors(
         operators,
         aggregator,
         watchtowers,
-        (shutdown_channels, socket_dir),
+        ServerHandles((shutdown_channels, socket_dir)),
     )
 }
 
