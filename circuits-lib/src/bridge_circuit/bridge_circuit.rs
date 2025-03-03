@@ -1,11 +1,11 @@
 use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
 use crate::bridge_circuit_core;
+use crate::common::zkvm::ZkvmGuest;
 use bitcoin::hashes::Hash;
 use bridge_circuit_core::groth16::CircuitGroth16Proof;
 use bridge_circuit_core::winternitz::{
     verify_winternitz_signature, WinternitzCircuitInput, WinternitzHandler,
 };
-use crate::common::zkvm::ZkvmGuest;
 use lc_proof::lc_proof_verifier;
 use risc0_zkvm::guest::env;
 use sha2::{Digest, Sha256};
