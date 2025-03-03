@@ -26,7 +26,6 @@ use bitcoin::{
 };
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
-use tokio::time::{timeout, Duration};
 use tonic::Status;
 
 /// Aggregator struct.
