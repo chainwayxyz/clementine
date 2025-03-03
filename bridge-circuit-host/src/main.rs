@@ -7,14 +7,12 @@ use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit_core::winternitz::{
     generate_public_key, sign_digits, Parameters, WinternitzCircuitInput, WinternitzHandler,
 };
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
 use risc0_to_bitvm2_core::merkle_tree::BitcoinMerkleTree;
 use risc0_to_bitvm2_core::mmr_native::MMRNative;
 use risc0_to_bitvm2_core::spv::SPV;
-use rand::{rngs::SmallRng, Rng, SeedableRng};
-use risc0_zkvm::{
-    compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt
-};
+use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use std::convert::TryInto;
 use std::fs;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -74,7 +72,7 @@ async fn main() {
         .journal
         .bytes
         .try_into()
-        .unwrap(); 
+        .unwrap();
 
     let mut compressed_proof_and_total_work: Vec<u8> = vec![0; 144];
     compressed_proof_and_total_work[0..128].copy_from_slice(&compressed_proof);
@@ -89,7 +87,8 @@ async fn main() {
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
-    let (light_client_proof, lcp_receipt) = fetch_light_client_proof(L1_BLOCK_HEIGHT).await.unwrap();
+    let (light_client_proof, lcp_receipt) =
+        fetch_light_client_proof(L1_BLOCK_HEIGHT).await.unwrap();
 
     // Check if L2 height is correct ??
     let storage_proof = fetch_storage_proof(&light_client_proof.l2_height).await;
@@ -138,7 +137,10 @@ async fn main() {
     let prover = default_prover();
 
     println!("PROVING WINTERNITZ CIRCUIT");
-    let receipt = prover.prove_with_opts(env, BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct()).unwrap().receipt;
+    let receipt = prover
+        .prove_with_opts(env, BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
+        .unwrap()
+        .receipt;
     println!("RECEIPT: {:?}", receipt);
     let receipt_bytes = borsh::to_vec(&receipt).unwrap();
     fs::write("proof.bin", &receipt_bytes).expect("Failed to write receipt to output file");
