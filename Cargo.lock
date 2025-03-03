@@ -1036,7 +1036,6 @@ name = "circuits-lib"
 version = "0.1.0"
 dependencies = [
  "borsh",
- "lazy_static",
  "risc0-zkvm",
  "serde",
  "sha2",

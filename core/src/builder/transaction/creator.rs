@@ -1,5 +1,6 @@
 use crate::actor::Actor;
 use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
+use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::script::WinternitzCommit;
 use crate::builder::transaction::{
@@ -13,7 +14,6 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
-use crate::utils::ClementineBitVMPublicKeys;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::XOnlyPublicKey;
 use std::collections::BTreeMap;
@@ -553,8 +553,8 @@ pub fn create_round_txhandlers(
 #[cfg(test)]
 mod tests {
 
+    use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::rpc::clementine::{self};
-    use crate::utils::ClementineBitVMPublicKeys;
     use crate::{rpc::clementine::DepositParams, test::common::*, EVMAddress};
     use bitcoin::Txid;
     use futures::future::try_join_all;

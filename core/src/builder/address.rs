@@ -4,9 +4,9 @@
 //! addresses.
 
 use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript};
+use crate::bitvm_client::SECP;
 use crate::errors::BridgeError;
-use crate::utils::SECP;
-use crate::{utils, EVMAddress};
+use crate::{bitvm_client, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Amount;
 use bitcoin::{
@@ -78,7 +78,7 @@ pub fn create_taproot_address(
             .finalize(&SECP, xonly_pk)
             .expect("builder return is finalizable"),
         None => taproot_builder
-            .finalize(&SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
+            .finalize(&SECP, *bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
             .expect("builder return is finalizable"),
     };
     // Create the address
@@ -86,7 +86,7 @@ pub fn create_taproot_address(
         Some(xonly_pk) => Address::p2tr(&SECP, xonly_pk, tree_info.merkle_root(), network),
         None => Address::p2tr(
             &SECP,
-            *utils::UNSPENDABLE_XONLY_PUBKEY,
+            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
             tree_info.merkle_root(),
             network,
         ),
@@ -162,9 +162,9 @@ pub fn create_checksig_address(
 #[cfg(test)]
 mod tests {
     use crate::{
+        bitvm_client::{self, SECP},
         builder,
         musig2::AggregateFromPublicKeys,
-        utils::{self, SECP},
     };
     use bitcoin::{
         key::{Keypair, TapTweak},
@@ -185,12 +185,15 @@ mod tests {
             builder::address::create_taproot_address(&[], None, bitcoin::Network::Regtest);
         assert_eq!(address.address_type().unwrap(), AddressType::P2tr);
         assert!(address.is_related_to_xonly_pubkey(
-            &utils::UNSPENDABLE_XONLY_PUBKEY
+            &bitvm_client::UNSPENDABLE_XONLY_PUBKEY
                 .tap_tweak(&SECP, spend_info.merkle_root())
                 .0
                 .to_inner()
         ));
-        assert_eq!(spend_info.internal_key(), *utils::UNSPENDABLE_XONLY_PUBKEY);
+        assert_eq!(
+            spend_info.internal_key(),
+            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY
+        );
         assert!(spend_info.merkle_root().is_none());
 
         // Key path spend.
@@ -294,7 +297,7 @@ mod tests {
                 .collect::<Vec<_>>();
             let builder = super::taproot_builder_with_scripts(&scripts);
             let tree_info = builder
-                .finalize(&SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
+                .finalize(&SECP, *bitvm_client::UNSPENDABLE_XONLY_PUBKEY)
                 .unwrap();
 
             assert_eq!(tree_info.script_map().len(), i as usize);

@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
@@ -17,7 +18,6 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
 use crate::tx_sender::TxSender;
-use crate::utils::{self, ClementineBitVMPublicKeys, SECP};
 use crate::{bitcoin_syncer, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -226,7 +226,7 @@ impl Verifier {
                         .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
                     for sighash in sighashes {
                         let message = Message::from_digest(sighash.0.to_byte_array());
-                        utils::SECP
+                        bitvm_client::SECP
                             .verify_schnorr(
                                 &unspent_kickoff_sigs[cur_sig_index],
                                 &message,
@@ -501,7 +501,7 @@ impl Verifier {
                 .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
-            utils::SECP
+            bitvm_client::SECP
                 .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
                 .map_err(|x| {
                     BridgeError::Error(format!(
@@ -623,7 +623,7 @@ impl Verifier {
                     operator_idx
                 );
 
-                utils::SECP
+                bitvm_client::SECP
                     .verify_schnorr(
                         &operator_sig,
                         &Message::from(sighash.0),

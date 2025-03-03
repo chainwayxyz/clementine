@@ -1,7 +1,7 @@
+use crate::bitvm_client;
 use crate::builder::script::SpendableScript;
 use crate::builder::{address::create_taproot_address, script::SpendPath};
 use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::utils;
 use bitcoin::{
     taproot::{LeafVersion, TaprootSpendInfo},
     Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram, XOnlyPublicKey,
@@ -41,11 +41,11 @@ pub fn get_kickoff_utxo_vout(kickoff_idx: usize) -> usize {
 }
 
 pub fn get_watchtower_challenge_utxo_vout(watchtower_idx: usize) -> usize {
-    2 * watchtower_idx + 4 + utils::ClementineBitVMPublicKeys::number_of_assert_txs()
+    2 * watchtower_idx + 4 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
 }
 
 pub fn get_challenge_ack_vout(watchtower_idx: usize) -> usize {
-    2 * watchtower_idx + 4 + utils::ClementineBitVMPublicKeys::number_of_assert_txs() + 1
+    2 * watchtower_idx + 4 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() + 1
 }
 
 impl SpendableTxIn {

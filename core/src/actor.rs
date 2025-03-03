@@ -1,3 +1,4 @@
+use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
@@ -6,7 +7,6 @@ use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
-use crate::utils::{self, ClementineBitVMPublicKeys, SECP};
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::taproot::{self, LeafVersion, TaprootSpendInfo};
@@ -137,7 +137,7 @@ impl Actor {
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        Ok(utils::SECP.sign_schnorr(
+        Ok(bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair.add_xonly_tweak(
                 &SECP,
@@ -148,7 +148,7 @@ impl Actor {
 
     #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
-        utils::SECP.sign_schnorr(
+        bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair,
         )
@@ -559,8 +559,8 @@ mod tests {
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandler, TxHandlerBuilder};
 
+    use crate::bitvm_client::SECP;
     use crate::rpc::clementine::NormalSignatureKind;
-    use crate::utils::SECP;
     use crate::{actor::WinternitzDerivationPath, test::common::*};
     use bitcoin::secp256k1::{schnorr, Message, SecretKey};
 

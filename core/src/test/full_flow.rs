@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+use crate::bitvm_client::SECP;
 use crate::builder::transaction::TransactionType;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -8,7 +9,6 @@ use crate::rpc::clementine::{
 };
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxSender};
-use crate::utils::SECP;
 use crate::EVMAddress;
 use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;

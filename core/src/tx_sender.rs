@@ -949,9 +949,9 @@ impl TxSender {
 mod tests {
     use super::*;
     use crate::bitcoin_syncer;
+    use crate::bitvm_client::SECP;
     use crate::builder::script::{CheckSig, SpendableScript};
     use crate::builder::transaction::TransactionType;
-    use crate::utils::SECP;
     use crate::{database::Database, test::common::*};
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;

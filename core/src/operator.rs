@@ -1,4 +1,5 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
+use crate::bitvm_client::SECP;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
@@ -17,7 +18,6 @@ use crate::rpc::clementine::KickoffId;
 use crate::tx_sender::{
     ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging, TxSender,
 };
-use crate::utils::SECP;
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;

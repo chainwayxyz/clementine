@@ -5,6 +5,7 @@
 //! under which conditions the input is signed. For more, see:
 //! https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types
 
+use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
     create_txhandlers, DepositData, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
@@ -14,7 +15,6 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::KickoffId;
-use crate::utils;
 use async_stream::try_stream;
 use bitcoin::{Address, OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
@@ -38,11 +38,11 @@ impl BridgeConfig {
 
     pub fn get_num_required_nofn_sigs_per_kickoff(&self) -> usize {
         6 + 4 * self.protocol_paramset().num_watchtowers
-            + utils::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
+            + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
     }
 
     pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {
-        2 + utils::ClementineBitVMPublicKeys::number_of_assert_txs()
+        2 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
             + self.protocol_paramset().num_watchtowers
     }
 

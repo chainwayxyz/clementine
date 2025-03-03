@@ -5,7 +5,7 @@
 // Currently generate_witness functions are not yet used.
 #![allow(dead_code)]
 
-use crate::{utils, EVMAddress};
+use crate::EVMAddress;
 use bitcoin::hashes::{hash160, Hash};
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::script::PushBytesBuf;
@@ -350,7 +350,7 @@ impl SpendableScript for WithdrawalScript {
     fn to_script_buf(&self) -> ScriptBuf {
         let mut push_bytes = PushBytesBuf::new();
         push_bytes
-            .extend_from_slice(&utils::usize_to_var_len_bytes(self.0))
+            .extend_from_slice(&crate::utils::usize_to_var_len_bytes(self.0))
             .expect("Not possible to panic while adding a 4 to 8 bytes of slice");
 
         Builder::new()
@@ -388,8 +388,8 @@ fn get_script_from_arr<T: SpendableScript>(
 #[cfg(test)]
 mod tests {
     use crate::actor::Actor;
+    use crate::bitvm_client;
     use crate::extended_rpc::ExtendedRpc;
-    use crate::utils;
     use std::sync::Arc;
 
     use super::*;
@@ -402,7 +402,7 @@ mod tests {
     // Note: These values are not cryptographically secure and are only used for tests.
     fn dummy_xonly() -> XOnlyPublicKey {
         // 32 bytes array filled with 0x03.
-        *utils::UNSPENDABLE_XONLY_PUBKEY
+        *bitvm_client::UNSPENDABLE_XONLY_PUBKEY
     }
 
     fn dummy_scriptbuf() -> ScriptBuf {
@@ -410,7 +410,7 @@ mod tests {
     }
 
     fn dummy_pubkey() -> PublicKey {
-        *utils::UNSPENDABLE_PUBKEY
+        *bitvm_client::UNSPENDABLE_PUBKEY
     }
 
     fn dummy_params() -> Parameters {
@@ -468,10 +468,10 @@ mod tests {
 
     #[test]
     fn test_dynamic_casting() {
-        use crate::utils;
+        use crate::bitvm_client;
         let scripts: Vec<Box<dyn SpendableScript>> = vec![
             Box::new(OtherSpendable(ScriptBuf::from_hex("51").expect(""))),
-            Box::new(CheckSig(*utils::UNSPENDABLE_XONLY_PUBKEY)),
+            Box::new(CheckSig(*bitvm_client::UNSPENDABLE_XONLY_PUBKEY)),
         ];
 
         let otherspendable = scripts
@@ -531,11 +531,11 @@ mod tests {
         }
     }
     // Tests for the spendability of all scripts
+    use crate::bitvm_client::SECP;
     use crate::builder;
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use crate::utils::SECP;
     use bitcoin::{Amount, Sequence, TxOut};
 
     async fn create_taproot_test_tx(
