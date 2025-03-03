@@ -119,7 +119,7 @@ impl Aggregator {
         deposit_params: &DepositParams,
     ) -> Result<(), Status> {
         use tokio::time::{timeout, Duration};
-        const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
+        const OPERATION_TIMEOUT: Duration = Duration::from_secs(500);
 
         tracing::info!("Starting collect_and_distribute_keys");
         let start_time = std::time::Instant::now();
