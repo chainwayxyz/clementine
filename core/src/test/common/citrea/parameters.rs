@@ -2,7 +2,7 @@
 
 use crate::citrea::Bridge::TransactionParams;
 use crate::errors::BridgeError;
-use crate::test::common::citrea::bitcoin_merke::BitcoinMerkleTree;
+use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;

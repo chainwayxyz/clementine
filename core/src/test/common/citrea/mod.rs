@@ -10,7 +10,7 @@ use citrea_e2e::{
 pub use parameters::*;
 pub use requests::*;
 
-mod bitcoin_merke;
+mod bitcoin_merkle;
 mod parameters;
 mod requests;
 
