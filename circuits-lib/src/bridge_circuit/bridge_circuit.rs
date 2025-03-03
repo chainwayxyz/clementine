@@ -5,7 +5,7 @@ use bridge_circuit_core::groth16::CircuitGroth16Proof;
 use bridge_circuit_core::winternitz::{
     verify_winternitz_signature, WinternitzCircuitInput, WinternitzHandler,
 };
-use bridge_circuit_core::zkvm::ZkvmGuest;
+use crate::common::zkvm::ZkvmGuest;
 use lc_proof::lc_proof_verifier;
 use risc0_zkvm::guest::env;
 use sha2::{Digest, Sha256};
