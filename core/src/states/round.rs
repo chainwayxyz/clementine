@@ -1,6 +1,9 @@
 use eyre::Context;
 use statig::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::DerefMut,
+};
 
 use crate::{
     builder::{
@@ -17,7 +20,7 @@ use super::{
     Owner,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum RoundEvent {
     KickoffUtxoUsed { kickoff_idx: usize },
     ReadyToReimburseSent { round_idx: u32 },
@@ -40,12 +43,12 @@ impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
         self.matchers
             .iter()
             .filter_map(|(matcher, round_event)| {
-                if matcher.matches(block) {
-                    Some(round_event.clone())
-                } else {
-                    None
-                }
+                matcher.matches(block).map(|ord| (ord, round_event))
             })
+            .min()
+            .map(|(_, round_event)| round_event)
+            .into_iter()
+            .cloned()
             .collect()
     }
 }
@@ -100,6 +103,12 @@ impl<T: Owner> RoundStateMachine<T> {
     ) {
         tracing::debug!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
         self.dirty = true;
+
+        // Remove the matcher corresponding to the event.
+        if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
+            let matcher = matcher.clone();
+            self.matchers.remove(&matcher);
+        }
     }
 
     #[state(entry_action = "on_initial_collateral_entry")]

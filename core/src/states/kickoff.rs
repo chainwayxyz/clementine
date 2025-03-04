@@ -20,7 +20,7 @@ use super::{
     Owner,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum KickoffEvent {
     Challenged,
     WatchtowerChallengeSent {
@@ -72,12 +72,12 @@ impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
         self.matchers
             .iter()
             .filter_map(|(matcher, kickoff_event)| {
-                if matcher.matches(block) {
-                    Some(kickoff_event.clone())
-                } else {
-                    None
-                }
+                matcher.matches(block).map(|ord| (ord, kickoff_event))
             })
+            .min()
+            .map(|(_, kickoff_event)| kickoff_event)
+            .into_iter()
+            .cloned()
             .collect()
     }
 }
@@ -126,6 +126,12 @@ impl<T: Owner> KickoffStateMachine<T> {
     ) {
         tracing::debug!(?self.kickoff_id, "Dispatching event {:?}", evt);
         self.dirty = true;
+
+        // Remove the matcher corresponding to the event.
+        if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
+            let matcher = matcher.clone();
+            self.matchers.remove(&matcher);
+        }
     }
 
     async fn check_time_to_send_asserts(&mut self, context: &mut StateContext<T>) {
