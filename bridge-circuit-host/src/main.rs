@@ -1,4 +1,4 @@
-use alloy::providers::ProviderBuilder;
+use alloy_rpc_client::ClientBuilder;
 use bitcoin::consensus::Decodable;
 use bitcoin::hashes::Hash;
 use bitcoin::transaction::Transaction;
@@ -36,14 +36,14 @@ const BRIDGE_CIRCUIT_ELF: &[u8] =
 
 #[tokio::main]
 async fn main() {
-    let citrea_provider = ProviderBuilder::new().on_http(CITREA_TESTNET_RPC.parse().unwrap());
-    let light_client_provider =
-        ProviderBuilder::new().on_http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
+    let citrea_rpc_client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
+    let light_client_rpc_client =
+        ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
     let headerchain_proof: Receipt = Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
     let spv = create_spv().await;
     let bridge_circuit_host_params = BridgeCircuitHostParams {
-        light_client_provider,
-        citrea_provider,
+        light_client_rpc_client,
+        citrea_rpc_client,
         headerchain_proof,
         spv,
     };
@@ -104,17 +104,15 @@ async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostParam
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
-    let (light_client_proof, _lcp_receipt) = fetch_light_client_proof(
-        PARAMETERS.l1_block_height,
-        bridge_circuit_host_params.light_client_provider,
-    )
-    .await
-    .unwrap();
+    let (light_client_proof, _lcp_receipt) =
+        fetch_light_client_proof(72471, bridge_circuit_host_params.light_client_rpc_client)
+            .await
+            .unwrap();
 
     // Check if L2 height is correct ??
     let storage_proof = fetch_storage_proof(
         &light_client_proof.l2_height,
-        bridge_circuit_host_params.citrea_provider,
+        bridge_circuit_host_params.citrea_rpc_client,
     )
     .await;
 

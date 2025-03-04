@@ -1,9 +1,6 @@
-use alloy::{
-    primitives::keccak256,
-    providers::{Provider, RootProvider},
-    transports::http::{Client, Http},
-};
+use alloy::primitives::keccak256;
 use alloy_primitives::U256;
+use alloy_rpc_client::RpcClient;
 use alloy_rpc_types::EIP1186AccountProofResponse;
 use anyhow::bail;
 use circuits_lib::bridge_circuit_core::structs::{LightClientProof, StorageProof};
@@ -23,9 +20,8 @@ const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
 pub async fn fetch_light_client_proof(
     l1_height: u32,
-    provider: RootProvider<Http<Client>>,
+    client: RpcClient,
 ) -> Result<(LightClientProof, Receipt), ()> {
-    let client = provider.client();
     let request = json!({
         "l1_height": l1_height
     });
@@ -55,10 +51,7 @@ pub async fn fetch_light_client_proof(
     ))
 }
 
-pub async fn fetch_storage_proof(
-    l2_height: &String,
-    provider: RootProvider<Http<Client>>,
-) -> StorageProof {
+pub async fn fetch_storage_proof(l2_height: &String, client: RpcClient) -> StorageProof {
     let ind = PARAMETERS.deposit_index;
     let tx_index: u32 = ind * 2;
 
@@ -82,17 +75,13 @@ pub async fn fetch_storage_proof(
         &storage_address_deposit_hex
     );
 
-    let citrea_client = provider.client();
     let request = json!([
         CONTRACT_ADDRESS,
         [storage_key_hex, storage_address_deposit_hex],
         l2_height
     ]);
 
-    let response: serde_json::Value = citrea_client
-        .request("eth_getProof", request)
-        .await
-        .unwrap();
+    let response: serde_json::Value = client.request("eth_getProof", request).await.unwrap();
 
     let response: EIP1186AccountProofResponse = serde_json::from_value(response).unwrap();
 
