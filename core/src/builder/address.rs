@@ -6,7 +6,7 @@
 use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript};
 use crate::bitvm_client::SECP;
 use crate::errors::BridgeError;
-use crate::{bitvm_client, EVMAddress};
+use crate::{bitvm_client, utils::EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Amount;
 use bitcoin::{
@@ -165,6 +165,7 @@ mod tests {
         bitvm_client::{self, SECP},
         builder,
         musig2::AggregateFromPublicKeys,
+        utils::EVMAddress,
     };
     use bitcoin::{
         key::{Keypair, TapTweak},
@@ -275,7 +276,7 @@ mod tests {
         let deposit_address = builder::address::generate_deposit_address(
             nofn_xonly_pk,
             recovery_taproot_address.as_unchecked(),
-            crate::EVMAddress(evm_address),
+            EVMAddress(evm_address),
             Amount::from_sat(100_000_000),
             bitcoin::Network::Regtest,
             200,

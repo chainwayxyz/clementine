@@ -1,7 +1,7 @@
 use crate::citrea::LIGHT_CLIENT_ADDRESS;
 use crate::errors::BridgeError;
 use crate::test::common::citrea::parameters::get_transaction_params;
-use crate::EVMAddress;
+use crate::utils::EVMAddress;
 use alloy::sol_types::SolValue;
 use bitcoin::{Block, Transaction};
 use jsonrpsee::core::client::ClientT;

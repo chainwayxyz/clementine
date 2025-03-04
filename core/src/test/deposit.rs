@@ -6,7 +6,7 @@ use crate::{
         citrea::{self},
         create_test_config_with_thread_name, run_single_deposit,
     },
-    EVMAddress,
+    utils::EVMAddress,
 };
 use async_trait::async_trait;
 use bitcoincore_rpc::RpcApi;

@@ -5,7 +5,7 @@ use super::error;
 use crate::builder::transaction::sign::{AssertRequestData, TransactionRequestData};
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::errors::BridgeError;
-use crate::EVMAddress;
+use crate::utils::EVMAddress;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, Txid};

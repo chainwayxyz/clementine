@@ -18,7 +18,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
 use crate::tx_sender::TxSender;
-use crate::{bitcoin_syncer, EVMAddress};
+use crate::{bitcoin_syncer, utils::EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -443,6 +443,7 @@ impl Verifier {
         Ok(partial_sig_rx)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn deposit_finalize(
         &self,
         deposit_outpoint: OutPoint,

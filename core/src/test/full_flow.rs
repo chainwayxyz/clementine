@@ -9,7 +9,7 @@ use crate::rpc::clementine::{
 };
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxSender};
-use crate::EVMAddress;
+use crate::utils::EVMAddress;
 use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;
 use bitcoin::Transaction;

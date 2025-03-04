@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::builder;
 use crate::errors::BridgeError;
-use crate::EVMAddress;
+use crate::utils::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
 use bitcoin::Amount;
@@ -132,6 +132,7 @@ impl ExtendedRpc {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::too_many_arguments)]
     pub async fn check_deposit_utxo(
         &self,
         nofn_xonly_pk: XOnlyPublicKey,

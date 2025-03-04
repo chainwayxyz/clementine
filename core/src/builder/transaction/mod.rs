@@ -22,7 +22,7 @@ use crate::rpc::clementine::GrpcTransactionId;
 use crate::rpc::clementine::{
     NormalSignatureKind, NormalTransactionId, NumberedTransactionId, NumberedTransactionType,
 };
-use crate::EVMAddress;
+use crate::utils::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;

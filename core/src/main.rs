@@ -1,10 +1,35 @@
-use clementine_core::database::Database;
-use clementine_core::servers::{
+use database::Database;
+use servers::{
     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
     create_watchtower_grpc_server,
 };
-use clementine_core::utils::get_configuration_for_binaries;
 use std::process::exit;
+use utils::get_configuration_for_binaries;
+
+pub mod actor;
+pub mod aggregator;
+pub mod bitcoin_syncer;
+pub mod bitvm_client;
+pub mod builder;
+pub mod citrea;
+pub mod cli;
+pub mod config;
+pub mod constants;
+pub mod database;
+pub mod errors;
+pub mod extended_rpc;
+pub mod header_chain_prover;
+pub mod musig2;
+pub mod operator;
+pub mod rpc;
+pub mod servers;
+pub mod tx_sender;
+pub mod utils;
+pub mod verifier;
+pub mod watchtower;
+
+#[cfg(test)]
+pub mod test;
 
 #[tokio::main]
 async fn main() {

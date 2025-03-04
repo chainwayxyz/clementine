@@ -2,7 +2,7 @@
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
-use crate::{errors::BridgeError, EVMAddress};
+use crate::{errors::BridgeError, utils::EVMAddress};
 use bitcoin::{
     address::NetworkUnchecked,
     block,
@@ -269,7 +269,7 @@ mod tests {
         database::Database,
         rpc::clementine::TaggedSignature,
         test::common::*,
-        EVMAddress,
+        utils::EVMAddress,
     };
     use bitcoin::{
         block::{self, Version},

@@ -552,15 +552,13 @@ pub fn create_round_txhandlers(
 
 #[cfg(test)]
 mod tests {
-
     use crate::bitvm_client::ClementineBitVMPublicKeys;
+    use crate::builder::transaction::TransactionType;
     use crate::rpc::clementine::{self};
-    use crate::{rpc::clementine::DepositParams, test::common::*, EVMAddress};
+    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
+    use crate::{rpc::clementine::DepositParams, test::common::*, utils::EVMAddress};
     use bitcoin::Txid;
     use futures::future::try_join_all;
-
-    use crate::builder::transaction::TransactionType;
-    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
     #[tokio::test(flavor = "multi_thread")]

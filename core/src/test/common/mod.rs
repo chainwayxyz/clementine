@@ -9,7 +9,7 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::{DepositParams, Empty};
-use crate::EVMAddress;
+use crate::utils::EVMAddress;
 use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 pub use test_utils::*;

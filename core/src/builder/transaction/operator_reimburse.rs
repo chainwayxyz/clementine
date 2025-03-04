@@ -13,7 +13,7 @@ use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::KickoffId;
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::{builder, UTXO};
+use crate::{builder, utils::UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -31,6 +31,7 @@ pub enum AssertScripts<'a> {
 }
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
+#[allow(clippy::too_many_arguments)]
 pub fn create_kickoff_txhandler(
     kickoff_id: KickoffId,
     deposit_outpoint: OutPoint,

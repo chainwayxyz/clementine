@@ -15,7 +15,7 @@ use crate::{
     execute_query_with_tx,
     operator::PublicHash,
     rpc::clementine::{DepositSignatures, TaggedSignature},
-    UTXO,
+    utils::UTXO,
 };
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
@@ -732,7 +732,7 @@ mod tests {
     use crate::rpc::clementine::{
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
-    use crate::UTXO;
+    use crate::utils::UTXO;
     use crate::{database::Database, test::common::*};
     use std::str::FromStr;
 

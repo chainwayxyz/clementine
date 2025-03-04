@@ -285,6 +285,7 @@ impl TxSender {
     /// It will automatically save inputs as cancelled outpoints.
     /// It will automatically save inputs as activated outpoints.
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::too_many_arguments)]
     pub async fn try_to_send(
         &self,
         dbtx: DatabaseTransaction<'_, '_>,

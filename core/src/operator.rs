@@ -19,7 +19,7 @@ use crate::rpc::clementine::KickoffId;
 use crate::tx_sender::{
     ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging, TxSender,
 };
-use crate::{builder, UTXO};
+use crate::{builder, utils::UTXO};
 use alloy::transports::http::reqwest::Url;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;

@@ -13,12 +13,11 @@ use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
     create_watchtower_unix_server,
 };
-use crate::utils::initialize_logger;
+use crate::utils::{initialize_logger, EVMAddress, UTXO};
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
     extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
 };
-use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
 use std::net::TcpListener;
 use tokio::sync::oneshot;

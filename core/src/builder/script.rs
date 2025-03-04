@@ -5,7 +5,7 @@
 // Currently generate_witness functions are not yet used.
 #![allow(dead_code)]
 
-use crate::EVMAddress;
+use crate::utils::EVMAddress;
 use bitcoin::hashes::{hash160, Hash};
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::script::PushBytesBuf;

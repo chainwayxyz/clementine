@@ -884,7 +884,7 @@ mod tests {
     use crate::actor::Actor;
     use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{self};
-    use crate::{builder, EVMAddress};
+    use crate::{builder, utils::EVMAddress};
     use crate::{rpc::clementine::DepositParams, test::common::*};
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;

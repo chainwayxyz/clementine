@@ -17,7 +17,7 @@ use crate::{
         },
         error::{self, invalid_argument},
     },
-    EVMAddress,
+    utils::EVMAddress,
 };
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;

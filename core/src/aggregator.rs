@@ -16,7 +16,7 @@ use crate::{
         },
     },
     tx_sender::TxSender,
-    EVMAddress,
+    utils::EVMAddress,
 };
 use bitcoin::hashes::Hash;
 use bitcoin::{
