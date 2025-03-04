@@ -13,6 +13,7 @@ pub mod aggregator;
 pub mod bitcoin_syncer;
 pub mod bitvm_client;
 pub mod builder;
+pub mod citrea;
 pub mod cli;
 pub mod config;
 pub mod constants;

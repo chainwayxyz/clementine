@@ -8,6 +8,7 @@ use crate::builder::transaction::{
     create_round_txhandlers, DepositData, KickoffWinternitzKeys, OperatorData, TransactionType,
     TxHandler,
 };
+use crate::citrea::CitreaContractClient;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
@@ -19,6 +20,7 @@ use crate::tx_sender::{
     ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging, TxSender,
 };
 use crate::{builder, UTXO};
+use alloy::transports::http::reqwest::Url;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -50,6 +52,7 @@ pub struct Operator {
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSender,
     pub citrea_client: Option<jsonrpsee::http_client::HttpClient>,
+    pub citrea_contract_client: Option<CitreaContractClient>,
 }
 
 impl Operator {
@@ -119,6 +122,16 @@ impl Operator {
         };
         dbtx.commit().await?;
 
+        let citrea_contract_client = if !config.citrea_rpc_url.is_empty() {
+            Some(CitreaContractClient::new(
+                Url::parse(&config.citrea_rpc_url).map_err(|e| {
+                    BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
+                })?,
+                None,
+            )?)
+        } else {
+            None
+        };
         let citrea_client = if !config.citrea_rpc_url.is_empty() {
             Some(HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?)
         } else {
@@ -141,6 +154,7 @@ impl Operator {
             collateral_funding_outpoint,
             tx_sender,
             citrea_client,
+            citrea_contract_client,
             reimburse_addr,
         })
     }
@@ -328,23 +342,12 @@ impl Operator {
         };
 
         // Check Citrea for the withdrawal state.
-        if let Some(citrea_client) = &self.citrea_client {
-            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
-            let params = rpc_params![
-                json!({
-                    "to": "0x3100000000000000000000000000000000000002",
-                    "data": format!("0x471ba1e300000000000000000000000000000000000000000000000000000000{}",
-                    hex::encode(withdrawal_index.to_be_bytes())),
-                }),
-                "latest"
-            ];
-            let response: String = citrea_client.request("eth_call", params).await?;
+        if let Some(citrea_contract_client) = &self.citrea_contract_client {
+            let txid = citrea_contract_client
+                .withdrawal_utxos(withdrawal_index.into())
+                .await?
+                .txid;
 
-            let txid_response = &response[2..66];
-            let txid = hex::decode(txid_response).map_err(|e| BridgeError::Error(e.to_string()))?;
-            // txid.reverse(); // TODO: we should need to reverse this, test this with declareWithdrawalFiller
-
-            let txid = Txid::from_slice(&txid)?;
             if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
                 // TODO: Fix this, vout can be different from 0 as well
                 return Err(BridgeError::InvalidInputUTXO(
