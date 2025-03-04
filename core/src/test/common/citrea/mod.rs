@@ -3,7 +3,7 @@
 use crate::config::BridgeConfig;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
-    config::{EmptyConfig, SequencerConfig},
+    config::{EmptyConfig, LightClientProverConfig, SequencerConfig},
     framework::TestFramework,
     node::{Node, NodeKind},
 };
@@ -51,19 +51,14 @@ pub const EVM_ADDRESSES: [&str; 10] = [
 pub async fn start_citrea(
     sequencer_config: SequencerConfig,
     f: &mut TestFramework,
-) -> citrea_e2e::Result<(&Node<SequencerConfig>, &mut Node<EmptyConfig>, &BitcoinNode)> {
+) -> citrea_e2e::Result<(&Node<SequencerConfig>, &mut Node<EmptyConfig>, Option<&Node<LightClientProverConfig>>, &BitcoinNode)> {
     let sequencer = f.sequencer.as_ref().expect("Sequencer is present");
     let full_node = f.full_node.as_mut().expect("Full node is present");
+    let light_client_prover = f.light_client_prover.as_ref();
     let da = f.bitcoin_nodes.get(0).expect("There is a bitcoin node");
 
     let min_soft_confirmations_per_commitment =
         sequencer_config.min_soft_confirmations_per_commitment;
-
-    // sequencer_config.test_mode = true;
-    // sequencer.config.node.test_mode
-    // for _ in 0..min_soft_confirmations_per_commitment {
-    //     sequencer.client.send_publish_batch_request().await?;
-    // }
 
     // Wait for blob inscribe tx to be in mempool
     da.wait_mempool_len(1, None).await?;
@@ -75,7 +70,13 @@ pub async fn start_citrea(
         .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
         .await?;
 
-    Ok((sequencer, full_node, da))
+    if let Some(light_client_prover) = light_client_prover {
+        light_client_prover
+            .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
+            .await?;
+    }
+
+    Ok((sequencer, full_node, light_client_prover, da))
 }
 
 /// Updates given config with the values set by the Citrea e2e.
