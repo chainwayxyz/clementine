@@ -1,9 +1,12 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::str::FromStr;
+use std::{collections::BTreeMap, env, time::Duration};
 
 use bitcoin::{
     transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
 };
 use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
+use bitcoincore_rpc::{PackageSubmissionResult, RawTx};
+use eyre::Context;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -12,6 +15,7 @@ use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
     builder::{
         self,
+        address::{self, create_taproot_address},
         script::SpendPath,
         transaction::{
             input::{get_watchtower_challenge_utxo_vout, SpendableTxIn},
@@ -347,11 +351,11 @@ impl TxSender {
 
         for input in signed_tx.input.iter() {
             let relative_block_height = if input.sequence.is_relative_lock_time() {
-                let relatetive_locktime = input
+                let relative_locktime = input
                     .sequence
                     .to_relative_lock_time()
                     .expect("Invalid relative locktime");
-                match relatetive_locktime {
+                match relative_locktime {
                     bitcoin::relative::LockTime::Blocks(height) => height.value() as u32,
                     _ => {
                         return Err(BridgeError::Error("Invalid relative locktime".to_string()));
@@ -755,15 +759,30 @@ impl TxSender {
             tx_data_for_logging.as_ref().map(|d| d.operator_idx),
             tx_data_for_logging.as_ref().map(|d| d.verifier_idx),
             tx_data_for_logging.as_ref().map(|d| d.deposit_outpoint),
-            package
-                .iter()
-                .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
-                .collect::<Vec<_>>()
+            if env::var("DBG_PACKAGE_HEX").is_ok() {
+                package
+                    .iter()
+                    .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                    .collect::<Vec<_>>()
+            } else {
+                vec!["use DBG_PACKAGE_HEX=1 to print the package as hex".into()]
+            }
         );
-        let submit_package_result = self
+        let submit_package_result: PackageSubmissionResult = self
             .rpc
             .client
-            .submit_package(&package_refs[..])
+            .call(
+                // TODO: implement a maxburnamount arg in upstream
+                "submitpackage",
+                &[
+                    package_refs
+                        .into_iter()
+                        .map(|r| -> serde_json::Value { r.raw_hex().into() })
+                        .collect(),
+                    "0.1".into(),   // maxfeerate = default
+                    "100.0".into(), // maxburnamount = 100 BTC
+                ],
+            )
             .await
             .inspect_err(|e| {
                 tracing::warn!(
@@ -773,7 +792,7 @@ impl TxSender {
                 );
             })?;
 
-        tracing::error!(
+        tracing::info!(
             self.consumer_handle,
             ?tx_data_for_logging,
             "Submit package result: {submit_package_result:?}"
@@ -789,10 +808,14 @@ impl TxSender {
             if let PackageTransactionResult::Failure { error, .. } = result {
                 tracing::error!("Error submitting package: {:?}", error);
                 early_exit = true;
-                break;
             }
         }
         if early_exit {
+            #[cfg(test)]
+            {
+                tracing::error!("Error submitting package, panicking for early exit in tests");
+                panic!("Error submitting package, panicking for early exit in tests");
+            }
             return Ok(());
         }
 
@@ -859,11 +882,11 @@ impl TxSender {
                 }
                 Err(e) => match e {
                     BridgeError::BumpFeeUTXOSpent(outpoint) => {
-                        tracing::error!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping : {:?}", self.consumer_handle, bumped_id, outpoint);
+                        tracing::info!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping : {:?}", self.consumer_handle, bumped_id, outpoint);
                         continue;
                     }
                     e => {
-                        tracing::error!("{}: failed to bump fee the fee payer tx {} of bumped tx {} with error {e}, skipping", self.consumer_handle, fee_payer_txid, bumped_id);
+                        tracing::warn!("{}: failed to bump fee the fee payer tx {} of bumped tx {} with error {e}, skipping", self.consumer_handle, fee_payer_txid, bumped_id);
                         continue;
                     }
                 },
@@ -886,7 +909,7 @@ impl TxSender {
             .await?;
 
         if !txs.is_empty() {
-            tracing::error!(
+            tracing::info!(
                 self.consumer_handle,
                 "Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}, txs: {txs:?}"
             );
