@@ -540,17 +540,6 @@ dependencies = [
 
 [[package]]
 name = "alloy-serde"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dff0ab1cdd43ca001e324dc27ee0e8606bd2161d6623c63e0e0b8c4dfc13600"
-dependencies = [
- "alloy-primitives 0.8.22",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "alloy-serde"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8732058f5ca28c1d53d241e8504620b997ef670315d7c8afab856b3e3b80d945"
@@ -1961,7 +1950,6 @@ dependencies = [
  "alloy-primitives 0.8.22",
  "alloy-rpc-types",
  "alloy-rpc-types-eth 0.11.1",
- "alloy-serde 0.4.2",
  "ark-bn254 0.4.0",
  "ark-crypto-primitives 0.4.0",
  "ark-ec 0.4.0",
@@ -1980,7 +1968,6 @@ dependencies = [
  "hex-literal",
  "itertools 0.14.0",
  "jmt",
- "lazy_static",
  "num-bigint 0.4.6",
  "num-traits",
  "once_cell",
@@ -1993,7 +1980,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tracing",
- "tracing-subscriber 0.3.19",
 ]
 
 [[package]]
