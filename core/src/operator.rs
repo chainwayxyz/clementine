@@ -536,7 +536,6 @@ impl Operator {
             .signer
             .generate_bitvm_pks_for_deposit(deposit_txid, self.config.protocol_paramset())?;
         let flattened_wpks = bitvm_pks.to_flattened_vec();
-        tracing::error!("Flattened wpks: {:?}", flattened_wpks);
         Ok(flattened_wpks)
     }
     /// Generates Winternitz public keys for every blockhash commit to be used in kickoff utxos.

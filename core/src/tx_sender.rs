@@ -317,9 +317,9 @@ impl TxSender {
                         change_type: None,
                         include_watching: None,
                         lock_unspents: None,
-                        fee_rate: None,
+                        fee_rate: Some(Amount::from_sat(1000)), // We will bump this later
                         subtract_fee_from_outputs: None,
-                        replaceable: None,
+                        replaceable: Some(true),
                         conf_target: None,
                         estimate_mode: None,
                     }),
@@ -689,7 +689,7 @@ impl TxSender {
         let (tx_data_for_logging, tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
 
         if fee_paying_type == FeePayingType::RBF {
-            let txid = tx.compute_txid();
+            let txid = self.rpc.client.send_raw_transaction(&tx).await?;
             let bumped_txid = self.rpc.bump_fee_with_fee_rate(txid, fee_rate).await?;
             self.db.save_rbf_txid(None, id, bumped_txid).await?;
             return Ok(());
@@ -810,11 +810,22 @@ impl TxSender {
 
             match new_txi_result {
                 Ok(new_txid) => {
-                    self.db
-                        .save_fee_payer_tx(None, bumped_id, new_txid, vout, amount, Some(id))
-                        .await?;
+                    if new_txid != fee_payer_txid {
+                        self.db
+                            .save_fee_payer_tx(None, bumped_id, new_txid, vout, amount, Some(id))
+                            .await?;
+                    }
                 }
                 Err(e) => match e {
+                    BridgeError::TransactionAlreadyInBlock(block_hash) => {
+                        tracing::info!(
+                            "{}: Fee payer tx {} is already in block {}, skipping",
+                            self.consumer_handle,
+                            fee_payer_txid,
+                            block_hash
+                        );
+                        continue;
+                    }
                     BridgeError::BumpFeeUTXOSpent(outpoint) => {
                         tracing::error!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping : {:?}", self.consumer_handle, bumped_id, outpoint);
                         continue;
@@ -865,7 +876,7 @@ impl TxSender {
                     }
                     BridgeError::InsufficientFeePayerAmount => {
                         tracing::info!("{}: Bumping Tx {} : Insufficient fee payer amount, creating new fee payer UTXO", self.consumer_handle, id);
-                        let (_, tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
+                        let (_, tx, _, _) = self.db.get_tx(None, id).await?;
                         let fee_payer_utxos =
                             self.db.get_confirmed_fee_payer_utxos(None, id).await?;
                         let total_fee_payer_amount = fee_payer_utxos
