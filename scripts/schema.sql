@@ -134,8 +134,12 @@ create table if not exists bitcoin_syncer_spent_utxos (
     foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
 );
 
--- enum for bitcoin_syncer_events
-create type bitcoin_syncer_event_type as enum ('new_block', 'reorged_block');
+DO $$ 
+begin
+    if not exists (SELECT 1 FROM pg_type WHERE typname = 'bitcoin_syncer_event_type') then
+        create type bitcoin_syncer_event_type AS ENUM ('new_block', 'reorged_block');
+    end if;
+END $$;
 
 create table if not exists bitcoin_syncer_events (
     id serial primary key,
@@ -154,8 +158,12 @@ create table if not exists bitcoin_syncer_event_handlers (
 
 -------- TX SENDER --------
 
-
-create type fee_paying_type as enum ('cpfp', 'rbf');
+DO $$ 
+begin
+    if not exists (SELECT 1 FROM pg_type WHERE typname = 'fee_paying_type') then
+        create type bitcoin_syncer_event_type AS ENUM ('cpfp', 'rbf');
+    end if;
+END $$;
 
 -- Table to store txs that needs to be fee bumped
 create table if not exists tx_sender_try_to_send_txs (
