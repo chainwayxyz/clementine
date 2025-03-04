@@ -9,7 +9,6 @@ use clap::Parser;
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::process::exit;
 
 /// Clementine (C) 2024 Chainway Limited
 #[derive(Parser, Debug, Clone)]
@@ -48,31 +47,6 @@ where
     match Args::try_parse_from(itr) {
         Ok(c) => Ok(c),
         Err(e) => Err(BridgeError::ConfigError(e.to_string())),
-    }
-}
-
-/// Parses cli arguments, reads configuration file, parses it and generates a
-/// `BridgeConfig`.
-///
-/// # Exits
-///
-/// Prints help + error messages and kills process on error. This will not panic
-/// intentionally, just to print a user friendly message and not a trace.
-pub fn get_configuration() -> BridgeConfig {
-    let args = match parse() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{}", e);
-            exit(1);
-        }
-    };
-
-    match get_configuration_from(args) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{}", e);
-            exit(1);
-        }
     }
 }
 

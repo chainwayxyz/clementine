@@ -1,7 +1,7 @@
 use crate::cli::Args;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use bitcoin::{OutPoint, Txid};
+use bitcoin::OutPoint;
 use serde::{Deserialize, Serialize};
 use std::process::exit;
 use std::str::FromStr;
@@ -26,10 +26,10 @@ macro_rules! impl_try_from_vec_u8 {
     };
 }
 
-pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
+// pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 // pub type HashTree = Vec<Vec<HashType>>;
 // pub type PreimageTree = Vec<Vec<PreimageType>>;
-pub type InscriptionTxs = (OutPoint, Txid);
+// pub type InscriptionTxs = (OutPoint, Txid);
 
 /// Type alias for EVM address
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]

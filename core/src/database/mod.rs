@@ -131,24 +131,27 @@ mod tests {
     #[tokio::test]
     #[should_panic]
     async fn invalid_database_connection() {
-        let mut config = BridgeConfig::new();
-        config.db_host = "nonexistinghost".to_string();
-        config.db_name = "nonexistingpassword".to_string();
-        config.db_user = "nonexistinguser".to_string();
-        config.db_password = "nonexistingpassword".to_string();
-        config.db_port = 123;
+        let config = BridgeConfig {
+            db_host: "nonexistinghost".to_string(),
+            db_name: "nonexistingpassword".to_string(),
+            db_user: "nonexistinguser".to_string(),
+            db_password: "nonexistingpassword".to_string(),
+            db_port: 123,
+            ..Default::default()
+        };
 
         Database::new(&config).await.unwrap();
     }
 
     #[test]
     fn get_postgresql_url() {
-        let mut config = BridgeConfig::new();
-
-        config.db_password = "sofun".to_string();
-        config.db_port = 45;
-        config.db_user = "iam".to_string();
-        config.db_host = "parties".to_string();
+        let config = BridgeConfig {
+            db_password: "sofun".to_string(),
+            db_port: 45,
+            db_user: "iam".to_string(),
+            db_host: "parties".to_string(),
+            ..Default::default()
+        };
 
         assert_eq!(
             &Database::get_postgresql_url(&config),
@@ -158,13 +161,14 @@ mod tests {
 
     #[test]
     fn get_postgresql_database_url() {
-        let mut config = BridgeConfig::new();
-
-        config.db_name = "times".to_string();
-        config.db_password = "funnier".to_string();
-        config.db_port = 45;
-        config.db_user = "butyouare".to_string();
-        config.db_host = "parties".to_string();
+        let config = BridgeConfig {
+            db_name: "times".to_string(),
+            db_password: "funnier".to_string(),
+            db_port: 45,
+            db_user: "butyouare".to_string(),
+            db_host: "parties".to_string(),
+            ..Default::default()
+        };
 
         assert_eq!(
             &Database::get_postgresql_database_url(&config),

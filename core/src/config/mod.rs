@@ -93,13 +93,6 @@ pub struct BridgeConfig {
 }
 
 impl BridgeConfig {
-    /// Create a new `BridgeConfig` with default values.
-    pub fn new() -> Self {
-        BridgeConfig {
-            ..Default::default()
-        }
-    }
-
     /// Get the protocol paramset defined by the paramset name.
     pub fn protocol_paramset(&self) -> &'static ProtocolParamset {
         self.protocol_paramset.into()
@@ -321,7 +314,7 @@ mod tests {
         let content = "brokenfilecontent";
         assert!(BridgeConfig::try_parse_from(content.to_string()).is_err());
 
-        let init = BridgeConfig::new();
+        let init = BridgeConfig::default();
         BridgeConfig::try_parse_from(toml::to_string(&init).unwrap()).unwrap();
     }
 

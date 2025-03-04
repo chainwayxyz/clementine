@@ -9,8 +9,6 @@ use bitcoin::{
 use std::sync::Arc;
 use thiserror::Error;
 
-pub type BlockHeight = u16;
-
 #[derive(Debug, Clone)]
 pub struct SpendableTxIn {
     /// The reference to the previous output that is being used as an input.
@@ -31,9 +29,6 @@ pub enum SpendableTxInError {
 
     #[error("The script_pubkey of the previous output does not match the expected script_pubkey for the taproot spending information.")]
     IncorrectScriptPubkey,
-
-    #[error("Error creating a spendable txin: {0}")]
-    Error(String),
 }
 
 pub fn get_kickoff_utxo_vout(kickoff_idx: usize) -> usize {
