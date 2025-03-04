@@ -25,7 +25,7 @@ pub fn verify_winternitz_signature(input: &WinternitzHandler) -> bool {
         return false;
     }
 
-    let checksum = get_message_checksum(&input.params, &message);
+    let checksum = get_message_checksum(&input.params, message);
 
     for (i, &digit) in message.iter().enumerate() {
         let signature_byte_arr: [u8; 20] = signature[i].as_slice().try_into().unwrap();

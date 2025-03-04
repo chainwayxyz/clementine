@@ -3,6 +3,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=work_only_build.dockerfile");
+    std::env::remove_var("RUSTC_WORKSPACE_WRAPPER");
 
     if env::var("REPR_GUEST_BUILD").is_ok() {
         // Get the absolute path to the project root

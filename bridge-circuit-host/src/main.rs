@@ -42,42 +42,12 @@ async fn main() {
     let headerchain_proof: Receipt = Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
     let spv = create_spv().await;
     let bridge_circuit_host_params = BridgeCircuitHostParams {
-        light_client_provider: light_client_provider,
-        citrea_provider: citrea_provider,
-        headerchain_proof: headerchain_proof,
-        spv: spv,
+        light_client_provider,
+        citrea_provider,
+        headerchain_proof,
+        spv,
     };
     prove_bridge_circuit(bridge_circuit_host_params).await;
-}
-
-async fn create_spv() -> SPV {
-    let payout_tx = Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
-    let headers = HEADERS
-        .chunks(80)
-        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-        .collect::<Vec<CircuitBlockHeader>>();
-    let mut mmr_native = MMRNative::new();
-    for i in 0..=PARAMETERS.l1_block_height {
-        mmr_native.append(headers[i as usize].compute_block_hash());
-    }
-    let block_vec = TESTNET_BLOCK_72041.to_vec();
-    let block_72041 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
-
-    let block_72041_txids: Vec<[u8; 32]> = block_72041
-        .txdata
-        .iter()
-        .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
-        .collect();
-    let mmr_inclusion_proof = mmr_native.generate_proof(PARAMETERS.payment_block_height);
-    let block_72041_mt = BitcoinMerkleTree::new(block_72041_txids);
-    let payout_tx_proof = block_72041_mt.generate_proof(PARAMETERS.payout_tx_index);
-
-    SPV {
-        transaction: payout_tx.into(),
-        block_inclusion_proof: payout_tx_proof,
-        block_header: block_72041.header.into(),
-        mmr_inclusion_proof: mmr_inclusion_proof.1,
-    }
 }
 
 async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostParams) {
@@ -191,4 +161,34 @@ fn call_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
         .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
         .unwrap()
         .receipt
+}
+
+async fn create_spv() -> SPV {
+    let payout_tx = Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
+    let headers = HEADERS
+        .chunks(80)
+        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+        .collect::<Vec<CircuitBlockHeader>>();
+    let mut mmr_native = MMRNative::new();
+    for i in 0..=PARAMETERS.l1_block_height {
+        mmr_native.append(headers[i as usize].compute_block_hash());
+    }
+    let block_vec = TESTNET_BLOCK_72041.to_vec();
+    let block_72041 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
+
+    let block_72041_txids: Vec<[u8; 32]> = block_72041
+        .txdata
+        .iter()
+        .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
+        .collect();
+    let mmr_inclusion_proof = mmr_native.generate_proof(PARAMETERS.payment_block_height);
+    let block_72041_mt = BitcoinMerkleTree::new(block_72041_txids);
+    let payout_tx_proof = block_72041_mt.generate_proof(PARAMETERS.payout_tx_index);
+
+    SPV {
+        transaction: payout_tx.into(),
+        block_inclusion_proof: payout_tx_proof,
+        block_header: block_72041.header.into(),
+        mmr_inclusion_proof: mmr_inclusion_proof.1,
+    }
 }

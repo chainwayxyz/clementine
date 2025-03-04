@@ -37,7 +37,7 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
     concantenated[32..].copy_from_slice(&DEPOSIT_MAPPING_STORAGE_INDEX);
 
     let mut keccak = Keccak256::new();
-    keccak.update(&concantenated);
+    keccak.update(concantenated);
     let mut hash = keccak.finalize().0;
     hash.reverse(); // To match endianess
 
