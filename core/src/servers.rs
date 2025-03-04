@@ -158,13 +158,6 @@ pub async fn create_verifier_grpc_server(
 pub async fn create_operator_grpc_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
-    let _rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await?;
-
     tracing::info!(
         "config host and port are: {} and {}",
         config.host,

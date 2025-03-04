@@ -342,6 +342,9 @@ pub enum BridgeError {
     /// 0: Data name, 1: Error message
     #[error("Error while sending {0} data: {1}")]
     SendError(&'static str, String),
+
+    #[error("Error while creating contract: {0}")]
+    AlloyContract(#[from] alloy::contract::Error),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
