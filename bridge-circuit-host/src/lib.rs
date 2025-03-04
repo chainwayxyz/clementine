@@ -72,10 +72,7 @@ pub async fn fetch_storage_proof(
     println!("Storage key: {:?}", &storage_key_hex);
     let storage_key_hex = format!("0x{}", storage_key_hex);
 
-    let mut concantenated: [u8; 64] = [0; 64];
-
-    concantenated[0..32].copy_from_slice(&PARAMETERS.move_tx_id);
-    concantenated[32..64].copy_from_slice(&DEPOSIT_MAPPING_STORAGE_INDEX);
+    let concantenated = [PARAMETERS.move_tx_id, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
 
     let storage_address_deposit = keccak256(concantenated);
     let storage_address_deposit_hex = hex::encode(storage_address_deposit);
