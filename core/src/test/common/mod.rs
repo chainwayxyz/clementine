@@ -45,11 +45,7 @@ pub async fn run_multiple_deposits(
     );
     let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
-    // Start timing setup
-    let setup_start = std::time::Instant::now();
     aggregator.setup(Request::new(Empty {})).await?;
-    let setup_elapsed = setup_start.elapsed();
-    tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
     let mut deposit_outpoints = Vec::new();
     let mut move_txids = Vec::new();

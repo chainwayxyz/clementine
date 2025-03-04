@@ -429,8 +429,6 @@ impl TxSender {
                 + MIN_TAPROOT_AMOUNT
         };
 
-        // let required_amount = Amount::from_sat(5000);
-
         tracing::info!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
             required_amount,

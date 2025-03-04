@@ -14,7 +14,6 @@ use crate::servers::{
     create_watchtower_unix_server,
 };
 use crate::utils::initialize_logger;
-use crate::verifier::Verifier;
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
     extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
@@ -295,18 +294,6 @@ pub async fn initialize_database(config: &BridgeConfig) {
     Database::run_schema_script(config)
         .await
         .expect("Failed to run schema script");
-}
-
-pub struct ActorsCleanup(
-    Vec<oneshot::Sender<()>>,
-    tempfile::TempDir,
-    WithProcessCleanup,
-);
-
-impl ActorsCleanup {
-    pub fn rpc(&self) -> &ExtendedRpc {
-        self.2.rpc()
-    }
 }
 
 /// Starts operators, verifiers, aggregator and watchtower servers.
