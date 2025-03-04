@@ -134,7 +134,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    async fn check_time_to_send_asserts(&mut self, context: &mut StateContext<T>) {
+    async fn send_asserts(&mut self, context: &mut StateContext<T>) {
         context
             .capture_error(async |context| {
                 {
@@ -142,12 +142,13 @@ impl<T: Owner> KickoffStateMachine<T> {
                         .owner
                         .handle_duty(Duty::SendOperatorAsserts {
                             kickoff_id: self.kickoff_id,
+                            deposit_data: self.deposit_data.clone(),
                             watchtower_challenges: self.watchtower_challenges.clone(),
                         })
                         .await?;
                     Ok(())
                 }
-                .map_err(self.wrap_err("on_check_time_to_send_asserts"))
+                .map_err(self.wrap_err("on send_asserts"))
             })
             .await;
     }
@@ -160,11 +161,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                         .owner
                         .handle_duty(Duty::WatchtowerChallenge {
                             kickoff_id: self.kickoff_id,
+                            deposit_data: self.deposit_data.clone(),
                         })
                         .await?;
                     Ok(())
                 }
-                .map_err(self.wrap_err("on_check_time_to_send_asserts"))
+                .map_err(self.wrap_err("on send_watchtower_challenge"))
             })
             .await;
     }
@@ -177,6 +179,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         .owner
                         .handle_duty(Duty::VerifierDisprove {
                             kickoff_id: self.kickoff_id,
+                            deposit_data: self.deposit_data.clone(),
                             operator_asserts: self.operator_asserts.clone(),
                             operator_acks: self.operator_challenge_acks.clone(),
                         })
@@ -242,7 +245,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Challenge outpoint that got matched should be in block");
                 // save challenge witness
                 self.watchtower_challenges.insert(*watchtower_idx, witness);
-                self.check_time_to_send_asserts(context).await;
+                self.send_asserts(context).await;
                 Handled
             }
             KickoffEvent::OperatorAssertSent {
@@ -280,7 +283,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             }
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.check_time_to_send_asserts(context).await;
+                self.send_asserts(context).await;
                 Handled
             }
             KickoffEvent::TimeToSendWatchtowerChallenge => {
@@ -320,7 +323,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Challenge outpoint that got matched should be in block");
                 // save challenge witness
                 self.watchtower_challenges.insert(*watchtower_idx, witness);
-                self.check_time_to_send_asserts(context).await;
+                self.send_asserts(context).await;
                 Handled
             }
             KickoffEvent::OperatorAssertSent {
@@ -358,7 +361,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             }
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.check_time_to_send_asserts(context).await;
+                self.send_asserts(context).await;
                 Handled
             }
             _ => {

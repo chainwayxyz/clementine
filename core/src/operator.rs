@@ -999,7 +999,10 @@ impl Owner for Operator {
             } => {
                 tracing::warn!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", round_idx, operator_idx, used_kickoffs);
             }
-            Duty::WatchtowerChallenge { kickoff_id } => {
+            Duty::WatchtowerChallenge {
+                kickoff_id,
+                deposit_data,
+            } => {
                 tracing::warn!(
                     "called watchtower challenge with kickoff_id: {:?}",
                     kickoff_id
@@ -1007,12 +1010,14 @@ impl Owner for Operator {
             }
             Duty::SendOperatorAsserts {
                 kickoff_id,
+                deposit_data,
                 watchtower_challenges,
             } => {
                 tracing::warn!("called send operator asserts with kickoff_id: {:?}, watchtower_challenges: {:?}", kickoff_id, watchtower_challenges);
             }
             Duty::VerifierDisprove {
                 kickoff_id,
+                deposit_data,
                 operator_asserts,
                 operator_acks,
             } => {

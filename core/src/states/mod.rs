@@ -113,7 +113,7 @@ impl<T: Owner + 'static> StateManager<T> {
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             consumer_handle,
-            last_processed_block_height: 0,
+            last_processed_block_height: start_block_height,
             start_block_height,
         }
     }

@@ -1,3 +1,4 @@
+use crate::builder::transaction::DepositData;
 use crate::config::protocol::ProtocolParamset;
 use crate::rpc::clementine::KickoffId;
 
@@ -37,13 +38,16 @@ pub enum Duty {
     },
     WatchtowerChallenge {
         kickoff_id: KickoffId,
+        deposit_data: DepositData,
     },
     SendOperatorAsserts {
         kickoff_id: KickoffId,
+        deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Witness>,
     },
     VerifierDisprove {
         kickoff_id: KickoffId,
+        deposit_data: DepositData,
         operator_asserts: HashMap<usize, Witness>,
         operator_acks: HashMap<usize, Witness>,
     },

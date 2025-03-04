@@ -170,7 +170,7 @@ impl Verifier {
             verifier.clone(),
             config.protocol_paramset(),
             format!("Verifier{}_states", idx).to_string(),
-            0,
+            config.protocol_paramset().start_height,
         )));
         verifier.state_manager = Some(state_manager.clone());
         let _state_manager_handle =
@@ -292,10 +292,11 @@ impl Verifier {
         )?;
 
         let operator_winternitz_public_keys = kickoff_wpks.keys;
+        let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
             .set_operator(
-                None,
+                Some(&mut dbtx),
                 operator_index as i32,
                 operator_xonly_pk,
                 wallet_reimburse_address.to_string(),
@@ -305,7 +306,7 @@ impl Verifier {
 
         self.db
             .set_operator_kickoff_winternitz_public_keys(
-                None,
+                Some(&mut dbtx),
                 operator_index,
                 operator_winternitz_public_keys,
             )
@@ -320,9 +321,27 @@ impl Verifier {
 
         for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
             self.db
-                .set_unspent_kickoff_sigs(None, operator_index as usize, round_idx, sigs)
+                .set_unspent_kickoff_sigs(Some(&mut dbtx), operator_index as usize, round_idx, sigs)
                 .await?;
         }
+
+        let operator_data = OperatorData {
+            xonly_pk: operator_xonly_pk,
+            collateral_funding_outpoint,
+            reimburse_addr: wallet_reimburse_address,
+        };
+
+        if let Some(ref state_machine) = self.state_manager {
+            states::syncer::add_new_round_machine(
+                state_machine.clone(),
+                operator_data,
+                operator_index,
+            )
+            .await?;
+        } else {
+            return Err(BridgeError::StateMachineNotInitialized);
+        }
+        dbtx.commit().await?;
 
         Ok(())
     }
@@ -1144,7 +1163,10 @@ impl Owner for Verifier {
             } => {
                 tracing::warn!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", round_idx, operator_idx, used_kickoffs);
             }
-            Duty::WatchtowerChallenge { kickoff_id } => {
+            Duty::WatchtowerChallenge {
+                kickoff_id,
+                deposit_data,
+            } => {
                 tracing::warn!(
                     "called watchtower challenge with kickoff_id: {:?}",
                     kickoff_id
@@ -1152,12 +1174,14 @@ impl Owner for Verifier {
             }
             Duty::SendOperatorAsserts {
                 kickoff_id,
+                deposit_data,
                 watchtower_challenges,
             } => {
                 tracing::warn!("called send operator asserts with kickoff_id: {:?}, watchtower_challenges: {:?}", kickoff_id, watchtower_challenges);
             }
             Duty::VerifierDisprove {
                 kickoff_id,
+                deposit_data,
                 operator_asserts,
                 operator_acks,
             } => {

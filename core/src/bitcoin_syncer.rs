@@ -67,6 +67,8 @@ pub(crate) async fn save_block(
         )
         .await?;
 
+    db.store_full_block(Some(dbtx), block, block_height).await?;
+
     tracing::debug!(
         "Saving {} transactions to a block with hash {}",
         block.txdata.len(),
@@ -150,6 +152,7 @@ pub async fn set_initial_block_info_if_not_exists(
         return Ok(());
     }
 
+    // TODO: save blocks starting from start_height in config paramset
     let current_height = u32::try_from(rpc.client.get_block_count().await?)
         .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
     let block_info = fetch_block_info_from_height(rpc, current_height).await?;
@@ -188,6 +191,7 @@ async fn fetch_new_blocks(
         Ok(hash) => hash,
         Err(_) => return Ok(None),
     };
+    tracing::warn!("New block hash: {:?}, height {}", block_hash, next_height);
 
     // Fetch its header.
     let mut block_header = rpc.client.get_block_header(&block_hash).await?;
@@ -252,8 +256,6 @@ async fn process_new_blocks(
         let block = rpc.client.get_block(&block_info.hash).await?;
 
         let block_id = save_block(db, dbtx, &block, block_info.height).await?;
-        db.store_full_block(Some(dbtx), &block, block_info.height)
-            .await?;
         db.add_event(Some(dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await?;
     }
@@ -282,9 +284,10 @@ pub async fn start_bitcoin_syncer(
                 // Try to fetch new blocks (if any) from the RPC.
                 let maybe_new_blocks = fetch_new_blocks(&db, &rpc, current_height).await?;
 
-                tracing::debug!(
-                    "BitcoinSyncer: Maybe new blocks: {:?}",
-                    maybe_new_blocks.is_some()
+                tracing::warn!(
+                    "BitcoinSyncer: Maybe new blocks: {:?} {}",
+                    maybe_new_blocks.is_some(),
+                    current_height,
                 );
 
                 // If there are no new blocks, wait for a while and continue.
@@ -299,7 +302,7 @@ pub async fn start_bitcoin_syncer(
                     }
                 };
 
-                tracing::debug!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
+                tracing::warn!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
 
                 // The common ancestor is the block preceding the first new block.
                 let common_ancestor_height = new_blocks[0].height - 1;
