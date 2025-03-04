@@ -29,6 +29,9 @@ pub struct Args {
     /// Enable aggregator server.
     #[clap(long)]
     pub aggregator_server: bool,
+    /// Enable watchtower server.
+    #[clap(long)]
+    pub watchtower_server: bool,
 }
 
 /// Parse all the command line arguments and generate a `BridgeConfig`.
