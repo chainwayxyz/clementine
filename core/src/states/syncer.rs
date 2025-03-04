@@ -32,9 +32,6 @@ where
                 let mut dbtx = db.begin_transaction().await?;
                 let is_chain_tip_update = async {
                     let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
-                    if event.is_some() {
-                        tracing::warn!("State machines Event: {:?}", event);
-                    }
                     Ok::<bool, BridgeError>(match event {
                         Some(event) => match event {
                             BitcoinSyncerEvent::NewBlock(block_id) => {
@@ -44,21 +41,12 @@ where
                                     .await?
                                     .ok_or(BridgeError::Error("Block not found".to_string()))?
                                     .1;
-                                tracing::warn!(
-                                    "Current tip height: {}, last processed height: {}",
-                                    current_tip_height,
-                                    states.last_processed_block_height
-                                );
                                 let mut new_tip = false;
                                 // update states to catch up to finalized chain
                                 while states.last_processed_block_height
                                     < current_tip_height - states.paramset.finalized_depth + 1
                                 {
                                     let next_height = states.last_processed_block_height + 1;
-                                    tracing::warn!(
-                                        "updating state to catch up to finalized chain block {}",
-                                        next_height
-                                    );
                                     let block =
                                         db.get_full_block(Some(&mut dbtx), next_height).await?;
                                     if let Some(block) = block {
@@ -113,7 +101,6 @@ pub async fn add_new_round_machine<T>(
 where
     T: Owner + 'static,
 {
-    // maybe new tokio_spawn to not wait for lock in thread?
     let mut state_manager = state_manager.lock().await;
     let round_state_machine = super::round::RoundStateMachine::new(operator_data, operator_idx)
         .uninitialized_state_machine();

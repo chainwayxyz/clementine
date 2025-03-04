@@ -191,7 +191,7 @@ async fn fetch_new_blocks(
         Ok(hash) => hash,
         Err(_) => return Ok(None),
     };
-    tracing::warn!("New block hash: {:?}, height {}", block_hash, next_height);
+    tracing::debug!("New block hash: {:?}, height {}", block_hash, next_height);
 
     // Fetch its header.
     let mut block_header = rpc.client.get_block_header(&block_hash).await?;
@@ -284,7 +284,7 @@ pub async fn start_bitcoin_syncer(
                 // Try to fetch new blocks (if any) from the RPC.
                 let maybe_new_blocks = fetch_new_blocks(&db, &rpc, current_height).await?;
 
-                tracing::warn!(
+                tracing::debug!(
                     "BitcoinSyncer: Maybe new blocks: {:?} {}",
                     maybe_new_blocks.is_some(),
                     current_height,
@@ -302,7 +302,7 @@ pub async fn start_bitcoin_syncer(
                     }
                 };
 
-                tracing::warn!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
+                tracing::debug!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
 
                 // The common ancestor is the block preceding the first new block.
                 let common_ancestor_height = new_blocks[0].height - 1;

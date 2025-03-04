@@ -273,7 +273,7 @@ pub async fn run_single_deposit(
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
     tracing::warn!("before mining extra blocks");
-    rpc.mine_blocks(180).await?;
+    rpc.mine_blocks(18).await?;
 
     let _move_tx = aggregator
         .new_deposit(DepositParams {
@@ -290,7 +290,6 @@ pub async fn run_single_deposit(
     // let move_txid = rpc.client.send_raw_transaction(&move_tx).await?;
     // println!("Move txid: {:?}", move_txid);
     // println!("Move tx weight: {:?}", move_tx.weight());
-    tokio::time::sleep(tokio::time::Duration::from_secs(1000)).await;
     Ok((
         verifiers,
         operators,

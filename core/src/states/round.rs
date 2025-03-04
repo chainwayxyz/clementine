@@ -101,7 +101,7 @@ impl<T: Owner> RoundStateMachine<T> {
         _state: StateOrSuperstate<'_, '_, Self>,
         evt: &RoundEvent,
     ) {
-        tracing::debug!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
+        tracing::warn!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
         self.dirty = true;
 
         // Remove the matcher corresponding to the event.

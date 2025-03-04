@@ -97,7 +97,7 @@ impl TxSender {
                     let is_block_update = async {
                         let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
                         if event.is_some() {
-                            tracing::warn!("TXSENDER: Event: {:?}", event);
+                            tracing::debug!("TXSENDER: Event: {:?}", event);
                         }
                         Ok::<bool, BridgeError>(match event {
                             Some(event) => match event {

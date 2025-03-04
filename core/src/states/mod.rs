@@ -7,10 +7,11 @@ use futures::future::{self, join, join_all, Map};
 use matcher::BlockMatcher;
 use statig::awaitable::InitializedStateMachine;
 use statig::prelude::*;
+use std::alloc::System;
+use std::cmp::max;
 use std::future::Future;
 use std::sync::Arc;
-use thiserror::Error;
-use tonic::async_trait;
+use tokio::sync::mpsc;
 
 mod block_cache;
 mod context;
@@ -78,6 +79,17 @@ where
     }
 }
 
+pub enum SystemEvent {
+    NewBlock {
+        block: bitcoin::Block,
+        height: u32,
+    },
+    NewOperator {
+        operator_data: OperatorData,
+        operator_idx: u32,
+    },
+}
+
 // New state manager to hold and coordinate state machines
 #[derive(Debug)]
 pub struct StateManager<T: Owner> {
@@ -117,6 +129,8 @@ impl<T: Owner + 'static> StateManager<T> {
             start_block_height,
         }
     }
+
+    pub fn handle_event(event: SystemEvent) {}
 
     pub fn load_from_db(&mut self) -> Result<(), BridgeError> {
         // TODO: implement
@@ -335,6 +349,7 @@ impl<T: Owner + 'static> StateManager<T> {
         // Set back the original machines
         self.round_machines = final_round_machines;
         self.kickoff_machines = final_kickoff_machines;
+        self.last_processed_block_height = max(block_height, self.last_processed_block_height);
 
         Ok(())
     }
