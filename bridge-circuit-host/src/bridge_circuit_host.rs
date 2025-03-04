@@ -6,34 +6,32 @@ use circuits_lib::bridge_circuit_core::winternitz::{
     generate_public_key, sign_digits, Parameters, WinternitzHandler,
 };
 use rand::{rngs::SmallRng, Rng, SeedableRng};
-use risc0_to_bitvm2_core::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt};
 use std::convert::TryInto;
 use std::fs;
 use crate::structs::BridgeCircuitHostParams;
 
-const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
 const BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
+const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
+
+
+pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
+    let mut binding = ExecutorEnv::builder();
+    binding.add_assumption(receipt);
+    let env = binding.write_slice(&borsh::to_vec(&input).unwrap());
+    let env = env.build().unwrap();
+    let prover = default_prover();
+    prover
+        .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
+        .unwrap()
+        .receipt
+}
 
 pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostParams) {
 
-    let block_header_circuit_output: BlockHeaderCircuitOutput =
-        borsh::BorshDeserialize::try_from_slice(
-            &bridge_circuit_host_params.headerchain_proof.journal.bytes[..],
-        )
-        .unwrap();
-
-    let work_only_circuit_input: WorkOnlyCircuitInput = WorkOnlyCircuitInput {
-        header_chain_circuit_output: block_header_circuit_output.clone(),
-    };
-    let work_only_groth16_proof_receipt: Receipt = call_work_only(
-        bridge_circuit_host_params.headerchain_proof,
-        &work_only_circuit_input,
-    );
-
     let g16_proof_receipt: &risc0_zkvm::Groth16Receipt<risc0_zkvm::ReceiptClaim> =
-        work_only_groth16_proof_receipt.inner.groth16().unwrap();
+        bridge_circuit_host_params.work_only_groth16_proof_receipt.inner.groth16().unwrap();
     println!("G16 PROOF RECEIPT: {:?}", g16_proof_receipt);
 
     let seal =
@@ -41,7 +39,7 @@ pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostP
 
     let compressed_proof = seal.to_compressed().unwrap();
 
-    let commited_total_work: [u8; 16] = work_only_groth16_proof_receipt
+    let commited_total_work: [u8; 16] = bridge_circuit_host_params.work_only_groth16_proof_receipt
         .journal
         .bytes
         .try_into()
@@ -79,9 +77,9 @@ pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostP
         message: Some(compressed_proof_and_total_work),
     };
 
-    let winternitz_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
+    let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         winternitz_details: vec![winternitz_details],
-        hcp: block_header_circuit_output,
+        hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
         payout_spv: bridge_circuit_host_params.spv,
         lcp: light_client_proof,
         operator_id: 1,
@@ -90,7 +88,7 @@ pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostP
     };
 
     let mut binding = ExecutorEnv::builder();
-    let env = binding.write_slice(&borsh::to_vec(&winternitz_circuit_input).unwrap());
+    let env = binding.write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap());
     // let env = env.add_assumption(lcp_receipt).build().unwrap();
     let env = env.build().unwrap();
     let prover = default_prover();
@@ -105,21 +103,11 @@ pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostP
     fs::write("proof.bin", &receipt_bytes).expect("Failed to write receipt to output file");
 }
 
-fn call_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
-    let mut binding = ExecutorEnv::builder();
-    binding.add_assumption(receipt);
-    let env = binding.write_slice(&borsh::to_vec(&input).unwrap());
-    let env = env.build().unwrap();
-    let prover = default_prover();
-    prover
-        .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
-        .unwrap()
-        .receipt
-}
-
 
 #[cfg(test)]
 mod tests{
+    use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
+    use risc0_to_bitvm2_core::header_chain::BlockHeaderCircuitOutput;
     use alloy_rpc_client::ClientBuilder;
     use bitcoin::consensus::Decodable;
     use bitcoin::hashes::Hash;
@@ -129,6 +117,7 @@ mod tests{
     use risc0_to_bitvm2_core::merkle_tree::BitcoinMerkleTree;
     use risc0_to_bitvm2_core::mmr_native::MMRNative;
     use risc0_to_bitvm2_core::spv::SPV;
+    use risc0_zkvm::Receipt;
     use crate::config::PARAMETERS;
 
     use super::*;
@@ -140,7 +129,6 @@ mod tests{
     const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/testnet4_first_72075.bin");
     const PAYOUT_TX: &[u8; 303] = include_bytes!("bin-files/payout_tx.bin");
     const TESTNET_BLOCK_72041: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
-
 
     async fn create_spv() -> SPV {
         let payout_tx = Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
@@ -175,17 +163,36 @@ mod tests{
     #[tokio::test]
     #[ignore = "This test will take an eternity. Only for debugging purposes."]
     async fn bridge_circuit_test() {
+
         let citrea_rpc_client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
         let light_client_rpc_client =
             ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
         let headerchain_proof: Receipt = Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
         let spv = create_spv().await;
+
+        let block_header_circuit_output: BlockHeaderCircuitOutput =
+        borsh::BorshDeserialize::try_from_slice(
+            &headerchain_proof.journal.bytes[..],
+        )
+        .unwrap();
+
+        let work_only_circuit_input: WorkOnlyCircuitInput = WorkOnlyCircuitInput {
+            header_chain_circuit_output: block_header_circuit_output.clone(),
+        };
+        println!("PROVING WORK ONLY CIRCUIT");
+        let work_only_groth16_proof_receipt: Receipt = prove_work_only(
+            headerchain_proof,
+            &work_only_circuit_input,
+        );
+
         let bridge_circuit_host_params = BridgeCircuitHostParams {
             light_client_rpc_client,
             citrea_rpc_client,
-            headerchain_proof,
+            work_only_groth16_proof_receipt,
             spv,
+            block_header_circuit_output,
         };
+        println!("PROVING BRIDGE CIRCUIT");
         prove_bridge_circuit(bridge_circuit_host_params).await;
     }
 }
