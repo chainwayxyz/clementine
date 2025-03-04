@@ -161,7 +161,7 @@ create table if not exists bitcoin_syncer_event_handlers (
 DO $$ 
 begin
     if not exists (SELECT 1 FROM pg_type WHERE typname = 'fee_paying_type') then
-        create type bitcoin_syncer_event_type AS ENUM ('cpfp', 'rbf');
+        create type fee_paying_type AS ENUM ('cpfp', 'rbf');
     end if;
 END $$;
 
