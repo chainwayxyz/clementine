@@ -252,6 +252,8 @@ async fn process_new_blocks(
         let block = rpc.client.get_block(&block_info.hash).await?;
 
         let block_id = save_block(db, dbtx, &block, block_info.height).await?;
+        db.store_full_block(Some(dbtx), &block, block_info.height)
+            .await?;
         db.add_event(Some(dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await?;
     }

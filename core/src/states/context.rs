@@ -51,7 +51,7 @@ pub enum Duty {
 
 /// Owner trait with async handling and tx handler creation
 #[async_trait]
-pub trait Owner: Send + Sync + Clone + Default {
+pub trait Owner: Send + Sync + Clone {
     /// Handle a duty
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError>;
     async fn create_txhandlers(
@@ -92,20 +92,6 @@ impl<T: Owner> StateContext<T> {
 
     pub async fn dispatch_duty(&self, duty: Duty) -> Result<(), BridgeError> {
         self.owner.handle_duty(duty).await
-    }
-
-    pub fn add_new_round_machine(
-        &mut self,
-        machine: InitializedStateMachine<round::RoundStateMachine<T>>,
-    ) {
-        self.new_round_machines.push(machine);
-    }
-
-    pub fn add_new_kickoff_machine(
-        &mut self,
-        machine: InitializedStateMachine<kickoff::KickoffStateMachine<T>>,
-    ) {
-        self.new_kickoff_machines.push(machine);
     }
 
     /// Run an async closure and capture any errors in execution.

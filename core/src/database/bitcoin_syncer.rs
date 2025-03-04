@@ -80,6 +80,46 @@ impl Database {
         .transpose()
     }
 
+    pub async fn store_full_block(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block: &bitcoin::Block,
+        block_height: u32,
+    ) -> Result<(), BridgeError> {
+        let block_bytes = bitcoin::consensus::serialize(block);
+        let query = sqlx::query(
+            "INSERT INTO bitcoin_blocks (height, block_data) VALUES ($1, $2) 
+             ON CONFLICT (height) DO UPDATE SET block_data = $2",
+        )
+        .bind(i32::try_from(block_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(&block_bytes);
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn get_full_block(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_height: u32,
+    ) -> Result<Option<bitcoin::Block>, BridgeError> {
+        let query = sqlx::query_as("SELECT block_data FROM bitcoin_blocks WHERE height = $1").bind(
+            i32::try_from(block_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+        );
+
+        let block_data: Option<(Vec<u8>,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match block_data {
+            Some((bytes,)) => {
+                let block = bitcoin::consensus::deserialize(&bytes)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                Ok(Some(block))
+            }
+            None => Ok(None),
+        }
+    }
+
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -293,9 +333,8 @@ mod tests {
     use super::*;
     use crate::database::Database;
     use crate::test::common::*;
-
     use bitcoin::hashes::Hash;
-    use bitcoin::BlockHash;
+    use bitcoin::{BlockHash, CompactTarget};
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name(None).await;
@@ -351,6 +390,88 @@ mod tests {
         assert!(matches!(event, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
 
         dbtx.commit().await.unwrap();
+    }
+    #[tokio::test]
+    async fn test_store_and_get_block() {
+        let db = setup_test_db().await;
+        let block_height = 123u32;
+
+        // Create a dummy block
+        let dummy_header = bitcoin::block::Header {
+            version: bitcoin::block::Version::TWO,
+            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array([0x42; 32])),
+            merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+            time: 1_000_000,
+            bits: CompactTarget::from_consensus(0),
+            nonce: 12345,
+        };
+
+        let dummy_txs = vec![bitcoin::Transaction {
+            version: bitcoin::blockdata::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        }];
+
+        let dummy_block = bitcoin::Block {
+            header: dummy_header,
+            txdata: dummy_txs.clone(),
+        };
+
+        // Store the block
+        db.store_full_block(None, &dummy_block, block_height)
+            .await
+            .unwrap();
+
+        // Retrieve the block
+        let retrieved_block = db
+            .get_full_block(None, block_height)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Verify block fields match
+        assert_eq!(retrieved_block.header.version, dummy_block.header.version);
+        assert_eq!(
+            retrieved_block.header.prev_blockhash,
+            dummy_block.header.prev_blockhash
+        );
+        assert_eq!(
+            retrieved_block.header.merkle_root,
+            dummy_block.header.merkle_root
+        );
+        assert_eq!(retrieved_block.header.time, dummy_block.header.time);
+        assert_eq!(retrieved_block.header.bits, dummy_block.header.bits);
+        assert_eq!(retrieved_block.header.nonce, dummy_block.header.nonce);
+        assert_eq!(retrieved_block.txdata.len(), dummy_block.txdata.len());
+
+        // Non-existent block should return None
+        assert!(db.get_full_block(None, 999).await.unwrap().is_none());
+
+        // Overwrite the block
+        let updated_dummy_header = bitcoin::block::Header {
+            version: bitcoin::block::Version::ONE, // Changed version
+            ..dummy_header
+        };
+        let updated_dummy_block = bitcoin::Block {
+            header: updated_dummy_header,
+            txdata: dummy_txs.clone(),
+        };
+
+        db.store_full_block(None, &updated_dummy_block, block_height)
+            .await
+            .unwrap();
+
+        // Verify the update worked
+        let retrieved_updated_block = db
+            .get_full_block(None, block_height)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            retrieved_updated_block.header.version,
+            bitcoin::block::Version::ONE
+        );
     }
 
     #[tokio::test]

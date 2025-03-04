@@ -6,7 +6,7 @@ use bitcoin::{OutPoint, Txid};
 pub(crate) trait BlockMatcher {
     type StateEvent;
 
-    fn match_block(& self, block: &super::block_cache::BlockCache) -> Vec<Self::StateEvent>;
+    fn match_block(&self, block: &super::block_cache::BlockCache) -> Vec<Self::StateEvent>;
 }
 
 // Matcher for state machines to define what they're interested in

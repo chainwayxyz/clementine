@@ -122,6 +122,19 @@ impl ReimburseDbCache {
         }
     }
 
+    pub fn from_context(db: Database, context: ContractContext) -> Self {
+        if context.deposit_data.is_some() {
+            Self::new_for_deposit(
+                db,
+                context.operator_idx,
+                context.deposit_data.expect("checked in if statement"),
+                context.paramset,
+            )
+        } else {
+            Self::new_for_rounds(db, context.operator_idx, context.paramset)
+        }
+    }
+
     pub async fn get_operator_data(&mut self) -> Result<&OperatorData, BridgeError> {
         match self.operator_data {
             Some(ref data) => Ok(data),

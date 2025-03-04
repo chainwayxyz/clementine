@@ -85,6 +85,8 @@ pub struct ProtocolParamset {
     pub time_to_send_watchtower_challenge: u16,
     /// Time to wait before trying to disprove (so that you collect all operator challenge acks before disproving)
     pub time_to_disprove: u16,
+    /// Amount of depth a block should have from the current head to be considered finalized
+    pub finalized_depth: u32,
 }
 
 pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -108,6 +110,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    finalized_depth: 6,
 };
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -131,6 +134,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    finalized_depth: 1,
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -154,4 +158,5 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    finalized_depth: 60,
 };
