@@ -1,7 +1,7 @@
-use alloy::providers::{ProviderBuilder, RootProvider};
-use alloy::transports::http::{Client, Http};
+use alloy::providers::ProviderBuilder;
 use bitcoin::consensus::Decodable;
 use bitcoin::hashes::Hash;
+use bitcoin::transaction::Transaction;
 use borsh::{self, BorshDeserialize};
 use bridge_circuit_host::config::PARAMETERS;
 use bridge_circuit_host::{fetch_light_client_proof, fetch_storage_proof};
@@ -18,8 +18,10 @@ use risc0_to_bitvm2_core::spv::SPV;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use std::convert::TryInto;
 use std::fs;
+use structs::BridgeCircuitHostParams;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt};
+pub mod structs;
 
 const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
 const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
@@ -34,6 +36,51 @@ const BRIDGE_CIRCUIT_ELF: &[u8] =
 
 #[tokio::main]
 async fn main() {
+    let citrea_provider = ProviderBuilder::new().on_http(CITREA_TESTNET_RPC.parse().unwrap());
+    let light_client_provider =
+        ProviderBuilder::new().on_http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
+    let headerchain_proof: Receipt = Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
+    let spv = create_spv().await;
+    let bridge_circuit_host_params = BridgeCircuitHostParams {
+        light_client_provider: light_client_provider,
+        citrea_provider: citrea_provider,
+        headerchain_proof: headerchain_proof,
+        spv: spv,
+    };
+    prove_bridge_circuit(bridge_circuit_host_params).await;
+}
+
+async fn create_spv() -> SPV {
+    let payout_tx = Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
+    let headers = HEADERS
+        .chunks(80)
+        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+        .collect::<Vec<CircuitBlockHeader>>();
+    let mut mmr_native = MMRNative::new();
+    for i in 0..=PARAMETERS.l1_block_height {
+        mmr_native.append(headers[i as usize].compute_block_hash());
+    }
+    let block_vec = TESTNET_BLOCK_72041.to_vec();
+    let block_72041 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
+
+    let block_72041_txids: Vec<[u8; 32]> = block_72041
+        .txdata
+        .iter()
+        .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
+        .collect();
+    let mmr_inclusion_proof = mmr_native.generate_proof(PARAMETERS.payment_block_height);
+    let block_72041_mt = BitcoinMerkleTree::new(block_72041_txids);
+    let payout_tx_proof = block_72041_mt.generate_proof(PARAMETERS.payout_tx_index);
+
+    SPV {
+        transaction: payout_tx.into(),
+        block_inclusion_proof: payout_tx_proof,
+        block_header: block_72041.header.into(),
+        mmr_inclusion_proof: mmr_inclusion_proof.1,
+    }
+}
+
+async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostParams) {
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(tracing_subscriber::fmt::layer())
@@ -44,24 +91,20 @@ async fn main() {
 
     println!("WINTERNITZ_ID: {:?}", winternitz_id);
     println!("WORK_ONLY_ID: {:?}", work_only_id);
-    let headerchain_proof: Receipt = Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
-    let headers = HEADERS
-        .chunks(80)
-        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-        .collect::<Vec<CircuitBlockHeader>>();
-    let mut mmr_native = MMRNative::new();
-    for i in 0..=PARAMETERS.l1_block_height {
-        mmr_native.append(headers[i as usize].compute_block_hash());
-    }
 
     let block_header_circuit_output: BlockHeaderCircuitOutput =
-        borsh::BorshDeserialize::try_from_slice(&headerchain_proof.journal.bytes[..]).unwrap();
+        borsh::BorshDeserialize::try_from_slice(
+            &bridge_circuit_host_params.headerchain_proof.journal.bytes[..],
+        )
+        .unwrap();
 
     let work_only_circuit_input: WorkOnlyCircuitInput = WorkOnlyCircuitInput {
         header_chain_circuit_output: block_header_circuit_output.clone(),
     };
-    let work_only_groth16_proof_receipt: Receipt =
-        call_work_only(headerchain_proof, &work_only_circuit_input);
+    let work_only_groth16_proof_receipt: Receipt = call_work_only(
+        bridge_circuit_host_params.headerchain_proof,
+        &work_only_circuit_input,
+    );
 
     let g16_proof_receipt: &risc0_zkvm::Groth16Receipt<risc0_zkvm::ReceiptClaim> =
         work_only_groth16_proof_receipt.inner.groth16().unwrap();
@@ -91,37 +134,19 @@ async fn main() {
     let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
     let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
 
-    let provider: RootProvider<Http<Client>> =
-        ProviderBuilder::new().on_http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
+    let (light_client_proof, _lcp_receipt) = fetch_light_client_proof(
+        PARAMETERS.l1_block_height,
+        bridge_circuit_host_params.light_client_provider,
+    )
+    .await
+    .unwrap();
 
-    let (light_client_proof, _lcp_receipt) =
-        fetch_light_client_proof(PARAMETERS.l1_block_height, provider)
-            .await
-            .unwrap();
-
-    let provider = ProviderBuilder::new().on_http(CITREA_TESTNET_RPC.parse().unwrap());
     // Check if L2 height is correct ??
-    let storage_proof = fetch_storage_proof(&light_client_proof.l2_height, provider).await;
-    let block_vec = TESTNET_BLOCK_72041.to_vec();
-    let block_72041 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
-    let payout_tx =
-        bitcoin::transaction::Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
-
-    let block_72041_txids: Vec<[u8; 32]> = block_72041
-        .txdata
-        .iter()
-        .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
-        .collect();
-    let mmr_inclusion_proof = mmr_native.generate_proof(PARAMETERS.payment_block_height);
-    let block_72041_mt = BitcoinMerkleTree::new(block_72041_txids);
-    let payout_tx_proof = block_72041_mt.generate_proof(PARAMETERS.payout_tx_index);
-
-    let spv: SPV = SPV {
-        transaction: payout_tx.into(),
-        block_inclusion_proof: payout_tx_proof,
-        block_header: block_72041.header.into(),
-        mmr_inclusion_proof: mmr_inclusion_proof.1,
-    };
+    let storage_proof = fetch_storage_proof(
+        &light_client_proof.l2_height,
+        bridge_circuit_host_params.citrea_provider,
+    )
+    .await;
 
     let winternitz_details = WinternitzHandler {
         pub_key,
@@ -133,7 +158,7 @@ async fn main() {
     let winternitz_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         winternitz_details: vec![winternitz_details],
         hcp: block_header_circuit_output,
-        payout_spv: spv,
+        payout_spv: bridge_circuit_host_params.spv,
         lcp: light_client_proof,
         operator_id: 1,
         sp: storage_proof,

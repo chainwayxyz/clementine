@@ -1,3 +1,4 @@
+use super::{lc_proof, storage_proof};
 use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
 use crate::bridge_circuit_core;
 use crate::common::zkvm::ZkvmGuest;
@@ -10,7 +11,6 @@ use risc0_zkvm::guest::env;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
-use super::{lc_proof, storage_proof};
 
 pub fn verify_winternitz_and_groth16(input: &WinternitzHandler) -> bool {
     let start = env::cycle_count();
@@ -171,8 +171,12 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
         .try_into()
         .unwrap();
 
-
-    let concatenated_data = [payout_tx_blockhash, latest_blockhash, challenge_sending_watchtowers].concat();
+    let concatenated_data = [
+        payout_tx_blockhash,
+        latest_blockhash,
+        challenge_sending_watchtowers,
+    ]
+    .concat();
     let binding = blake3::hash(&concatenated_data);
     let hash_bytes = binding.as_bytes();
 
