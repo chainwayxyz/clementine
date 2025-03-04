@@ -258,14 +258,11 @@ pub async fn run_single_deposit(
     ),
     BridgeError,
 > {
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
-
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
 
-    let (verifiers, operators, mut aggregator, watchtowers, _regtest) =
-        create_actors(&config).await;
+    let (verifiers, operators, mut aggregator, watchtowers, regtest) = create_actors(&config).await;
+    let rpc = regtest.rpc().clone();
 
     aggregator.setup(Request::new(Empty {})).await?;
 
