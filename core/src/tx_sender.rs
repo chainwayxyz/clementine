@@ -304,13 +304,50 @@ impl TxSender {
                 .unwrap_or(TransactionType::Dummy),
             tx_data_for_logging
         );
+        let signed_tx = if fee_paying_type == FeePayingType::RBF {
+            let funded_tx = self
+                .rpc
+                .client
+                .fund_raw_transaction(
+                    signed_tx,
+                    Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+                        add_inputs: Some(true),
+                        change_address: None,
+                        change_position: Some(1),
+                        change_type: None,
+                        include_watching: None,
+                        lock_unspents: None,
+                        fee_rate: None,
+                        subtract_fee_from_outputs: None,
+                        replaceable: None,
+                        conf_target: None,
+                        estimate_mode: None,
+                    }),
+                    None,
+                )
+                .await?
+                .hex;
+
+            let signed_tx: Transaction = bitcoin::consensus::deserialize(
+                &self
+                    .rpc
+                    .client
+                    .sign_raw_transaction_with_wallet(&funded_tx, None, None)
+                    .await?
+                    .hex,
+            )?;
+            signed_tx
+        } else {
+            signed_tx.clone()
+        };
+
         let txid = signed_tx.compute_txid();
         let try_to_send_id = self
             .db
             .save_tx(
                 Some(dbtx),
                 tx_data_for_logging,
-                signed_tx,
+                &signed_tx,
                 fee_paying_type,
                 txid,
             )
@@ -390,14 +427,12 @@ impl TxSender {
         Ok(try_to_send_id)
     }
 
-    /// Creates a fee payer UTXO for a transaction.
-    /// The fee paying type can be either CPFP or RBF.
+    /// Creates a fee payer UTXO for a CPFP transaction.
     async fn create_fee_payer_utxo(
         &self,
         bumped_id: u32,
         tx: &Transaction,
         fee_rate: FeeRate,
-        fee_paying_type: FeePayingType,
         total_fee_payer_amount: Amount,
         fee_payer_utxos_len: usize,
     ) -> Result<(), BridgeError> {
@@ -405,29 +440,14 @@ impl TxSender {
             tx.weight(),
             fee_payer_utxos_len + 1,
             fee_rate,
-            fee_paying_type,
+            FeePayingType::CPFP,
         )?;
 
-        // calculate additional if the tx is bumpable by RBF
-        // This will only be non-zero for the Challenge Tx
-        let additional_amount = if fee_paying_type == FeePayingType::RBF {
-            // We assume the input amount is always the minimum amount.
-            tx.output.iter().map(|output| output.value).sum::<Amount>()
-        } else {
-            Amount::from_sat(0)
-        };
-
-        let required_amount = if additional_amount > total_fee_payer_amount {
-            // This means we haven't added the additional amount for the Challenge Tx
-            assert!(total_fee_payer_amount == Amount::from_sat(0));
-            additional_amount + required_fee + required_fee + required_fee + MIN_TAPROOT_AMOUNT
-        } else {
-            (additional_amount + required_fee - total_fee_payer_amount)
-                + required_fee
-                + required_fee
-                + required_fee
-                + MIN_TAPROOT_AMOUNT
-        };
+        let required_amount = (required_fee - total_fee_payer_amount)
+            + required_fee
+            + required_fee
+            + required_fee
+            + MIN_TAPROOT_AMOUNT;
 
         tracing::info!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
@@ -606,98 +626,30 @@ impl TxSender {
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
 
-    /// Adds fee payer utxos to a tx that is bumpable by RBF.
-    fn add_fee_payer_utxos_to_tx(
-        &self,
-        tx: Transaction,
-        fee_payer_utxos: Vec<SpendableTxIn>,
-        fee_rate: FeeRate,
-    ) -> Result<Transaction, BridgeError> {
-        let required_fee = Self::calculate_required_fee(
-            tx.weight(),
-            fee_payer_utxos.len(),
-            fee_rate,
-            FeePayingType::RBF,
-        )?;
-
-        let input_amount = MIN_TAPROOT_AMOUNT; // We assume the input amount is always the minimum amount.
-        let output_amount = tx.output.iter().map(|output| output.value).sum::<Amount>();
-
-        if input_amount < output_amount + required_fee {
-            return Err(BridgeError::InsufficientFeePayerAmount);
-        }
-
-        let change_amount = input_amount - output_amount - required_fee;
-
-        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy).with_version(tx.version);
-
-        for input in tx.input {
-            builder = builder.add_input_with_witness(
-                SpendableTxIn::new_partial(input.previous_output, TxOut::NULL),
-                input.sequence,
-                input.witness,
-            );
-        }
-
-        for fee_payer_utxo in fee_payer_utxos {
-            builder = builder.add_input(
-                NormalSignatureKind::NotStored,
-                fee_payer_utxo,
-                SpendPath::KeySpend,
-                DEFAULT_SEQUENCE,
-            );
-        }
-
-        for output in tx.output {
-            builder = builder.add_output(UnspentTxOut::from_partial(output));
-        }
-
-        builder = builder.add_output(UnspentTxOut::from_partial(TxOut {
-            value: change_amount,
-            script_pubkey: self.signer.address.script_pubkey(),
-        }));
-
-        let mut tx_handler: builder::transaction::TxHandler = builder.finalize();
-
-        self.signer.tx_sign_and_fill_sigs(&mut tx_handler, &[])?;
-
-        Ok(tx_handler.get_cached_tx().clone())
-    }
-
     /// Creates a package of txs that will be submitted to the network.
-    /// The package will be a CPFP package if fee_paying_type is CPFP,
-    /// otherwise it will be a single tx with fee payer utxos.
+    /// The package will be a CPFP package
     fn create_package(
         &self,
         tx: Transaction,
         fee_rate: FeeRate,
         fee_payer_utxos: Vec<SpendableTxIn>,
-        fee_paying_type: FeePayingType,
     ) -> Result<Vec<Transaction>, BridgeError> {
-        match fee_paying_type {
-            FeePayingType::CPFP => {
-                let p2a_vout = self.find_p2a_vout(&tx)?;
-                let txid = tx.compute_txid();
+        let txid = tx.compute_txid();
 
-                let child_tx = self.create_child_tx(
-                    OutPoint {
-                        txid,
-                        vout: p2a_vout as u32,
-                    },
-                    fee_payer_utxos,
-                    tx.weight(),
-                    fee_rate,
-                    self.signer.address.clone(),
-                )?;
+        let p2a_vout = self.find_p2a_vout(&tx)?;
 
-                Ok(vec![tx, child_tx])
-            }
-            FeePayingType::RBF => {
-                let tx = self.add_fee_payer_utxos_to_tx(tx, fee_payer_utxos, fee_rate)?;
+        let child_tx = self.create_child_tx(
+            OutPoint {
+                txid,
+                vout: p2a_vout as u32,
+            },
+            fee_payer_utxos,
+            tx.weight(),
+            fee_rate,
+            self.signer.address.clone(),
+        )?;
 
-                Ok(vec![tx])
-            }
-        }
+        Ok(vec![tx, child_tx])
     }
 
     /// Sends the tx with the given fee_rate.
@@ -736,7 +688,14 @@ impl TxSender {
 
         let (tx_data_for_logging, tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
 
-        let package = self.create_package(tx, fee_rate, fee_payer_utxos, fee_paying_type)?;
+        if fee_paying_type == FeePayingType::RBF {
+            let txid = tx.compute_txid();
+            let bumped_txid = self.rpc.bump_fee_with_fee_rate(txid, fee_rate).await?;
+            self.db.save_rbf_txid(None, id, bumped_txid).await?;
+            return Ok(());
+        }
+
+        let package = self.create_package(tx, fee_rate, fee_payer_utxos)?;
         let package_refs: Vec<&Transaction> = package.iter().collect();
 
         // If the tx is RBF, we should note the txid of the package.
@@ -918,7 +877,6 @@ impl TxSender {
                             id,
                             &tx,
                             new_fee_rate,
-                            fee_paying_type,
                             total_fee_payer_amount,
                             fee_payer_utxos_len,
                         )
