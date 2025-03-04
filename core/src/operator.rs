@@ -1,18 +1,31 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
-use crate::builder::sighash::create_operator_sighash_stream;
-use crate::builder::transaction::DepositData;
+use crate::bitvm_client::SECP;
+use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
+use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::builder::transaction::{
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+    create_round_txhandlers, DepositData, KickoffWinternitzKeys, OperatorData, TransactionType,
+    TxHandler,
+};
 use crate::config::BridgeConfig;
 use crate::database::Database;
+use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::tx_sender::TxSender;
-use crate::utils::SECP;
+use crate::rpc::clementine::KickoffId;
+use crate::tx_sender::{
+    ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging, TxSender,
+};
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+};
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
@@ -41,16 +54,20 @@ pub struct Operator {
 
 impl Operator {
     /// Creates a new `Operator`.
-    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
-            config.network,
+            config.protocol_paramset().network,
         );
 
         let db = Database::new(&config).await?;
-
-        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
@@ -63,6 +80,14 @@ impl Operator {
                 signer.xonly_public_key
             ))))?;
 
+        let tx_sender = TxSender::new(
+            signer.clone(),
+            rpc.clone(),
+            db.clone(),
+            &format!("operator_{}", idx).to_string(),
+            config.protocol_paramset().network,
+        );
+
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
         }
@@ -73,7 +98,8 @@ impl Operator {
             .assume_checked();
 
         // check if we store our collateral outpoint already in db
-        let op_data = db.get_operator(None, idx as i32).await?;
+        let mut dbtx = db.begin_transaction().await?;
+        let op_data = db.get_operator(Some(&mut dbtx), idx as i32).await?;
         let collateral_funding_outpoint = match op_data {
             Some(op_data) => op_data.collateral_funding_outpoint,
             None => {
@@ -81,7 +107,7 @@ impl Operator {
                     .send_to_address(&signer.address, config.collateral_funding_amount)
                     .await?;
                 db.set_operator(
-                    None,
+                    Some(&mut dbtx),
                     idx as i32,
                     signer.xonly_public_key,
                     reimburse_addr.to_string(),
@@ -91,6 +117,7 @@ impl Operator {
                 outpoint
             }
         };
+        dbtx.commit().await?;
 
         let citrea_client = if !config.citrea_rpc_url.is_empty() {
             Some(HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?)
@@ -130,23 +157,79 @@ impl Operator {
     ///   [`PublicHash`] and size of operator's challenge ack preimages & hashes
     ///   count
     ///
-    pub async fn get_params(&self) -> Result<mpsc::Receiver<winternitz::PublicKey>, BridgeError> {
+    pub async fn get_params(
+        &self,
+    ) -> Result<
+        (
+            mpsc::Receiver<winternitz::PublicKey>,
+            mpsc::Receiver<schnorr::Signature>,
+        ),
+        BridgeError,
+    > {
         let wpks = self.generate_kickoff_winternitz_pubkeys()?;
-        let wpk_channel = mpsc::channel(wpks.len());
+        let (wpk_tx, wpk_rx) = mpsc::channel(wpks.len());
+        let kickoff_wpks = KickoffWinternitzKeys::new(
+            wpks,
+            self.config.protocol_paramset().num_kickoffs_per_round,
+        );
+        let kickoff_sigs = self.generate_unspent_kickoff_sigs(&kickoff_wpks)?;
+        let wpks = kickoff_wpks.keys.clone();
+        let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
+
+        // try to send the first round tx
+        let (mut first_round_tx, _) = create_round_nth_txhandler(
+            self.signer.xonly_public_key,
+            self.collateral_funding_outpoint,
+            self.config.collateral_funding_amount,
+            0, // index 0 for the first round
+            &kickoff_wpks,
+            self.config.protocol_paramset(),
+        )?;
+
+        self.signer
+            .tx_sign_and_fill_sigs(&mut first_round_tx, &[])?;
+
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .try_to_send(
+                &mut dbtx,
+                Some(TxDataForLogging {
+                    tx_type: TransactionType::Round,
+                    operator_idx: Some(self.idx as u32),
+                    verifier_idx: None,
+                    round_idx: Some(0),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                first_round_tx.get_cached_tx(),
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit().await?;
 
         tokio::spawn(async move {
             for wpk in wpks {
-                wpk_channel
-                    .0
+                wpk_tx
                     .send(wpk)
                     .await
                     .map_err(|e| BridgeError::SendError("winternitz public key", e.to_string()))?;
             }
 
+            for sig in kickoff_sigs {
+                sig_tx
+                    .send(sig)
+                    .await
+                    .map_err(|e| BridgeError::SendError("kickoff signature", e.to_string()))?;
+            }
+
             Ok::<(), BridgeError>(())
         });
 
-        Ok(wpk_channel.1)
+        Ok((wpk_rx, sig_rx))
     }
 
     pub async fn deposit_sign(
@@ -183,233 +266,6 @@ impl Operator {
         Ok(sig_rx)
     }
 
-    // /// Public endpoint for every depositor to call.
-    // ///
-    // /// It will get signatures from all verifiers:
-    // ///
-    // /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
-    // /// 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
-    // /// 3. Create a kickoff transaction but do not broadcast it
-    // ///
-    // /// TODO: Create multiple kickoffs in single transaction
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // pub async fn new_deposit(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    // ) -> Result<(UTXO, schnorr::Signature), BridgeError> {
-    //     tracing::info!(
-    //         "New deposit request for UTXO: {:?}, EVM address: {:?} and recovery taproot address of: {:?}",
-    //         deposit_outpoint,
-    //         evm_address,
-    //         recovery_taproot_address
-    //     );
-
-    //     // 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
-    //     self.rpc
-    //         .check_deposit_utxo(
-    //             self.nofn_xonly_pk,
-    //             &deposit_outpoint,
-    //             &recovery_taproot_address,
-    //             evm_address,
-    //             self.config.bridge_amount_sats,
-    //             self.config.confirmation_threshold,
-    //             self.config.network,
-    //             self.config.user_takes_after,
-    //         )
-    //         .await?;
-
-    //     let mut tx = self.db.begin_transaction().await?;
-
-    //     self.db.lock_operators_kickoff_utxo_table(&mut tx).await?;
-
-    //     // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
-    //     let kickoff_utxo = self
-    //         .db
-    //         .get_kickoff_utxo(Some(&mut tx), deposit_outpoint)
-    //         .await?;
-    //     // if we already have a kickoff UTXO for this deposit UTXO, return it
-    //     if let Some(kickoff_utxo) = kickoff_utxo {
-    //         tracing::debug!(
-    //             "Kickoff UTXO found: {:?} already exists for deposit UTXO: {:?}",
-    //             kickoff_utxo,
-    //             deposit_outpoint
-    //         );
-    //         let kickoff_sig_hash = crate::sha256_hash!(
-    //             deposit_outpoint.txid,
-    //             deposit_outpoint.vout.to_be_bytes(),
-    //             kickoff_utxo.outpoint.txid,
-    //             kickoff_utxo.outpoint.vout.to_be_bytes()
-    //         );
-
-    //         let sig = self
-    //             .signer
-    //             .sign(TapSighash::from_byte_array(kickoff_sig_hash));
-
-    //         // self.db.unlock_operators_kickoff_utxo_table(&mut tx).await?;
-    //         tx.commit().await?;
-    //         return Ok((kickoff_utxo, sig));
-    //     }
-
-    //     // Check if we already have an unused kickoff UTXO available
-    //     let unused_kickoff_utxo = self
-    //         .db
-    //         .get_unused_kickoff_utxo_and_increase_idx(Some(&mut tx))
-    //         .await?;
-    //     if let Some(unused_kickoff_utxo) = unused_kickoff_utxo {
-    //         self.db
-    //             .save_kickoff_utxo(Some(&mut tx), deposit_outpoint, unused_kickoff_utxo.clone())
-    //             .await?;
-
-    //         // self.db.unlock_operators_kickoff_utxo_table(&mut tx).await?;
-    //         tx.commit().await?;
-
-    //         tracing::debug!(
-    //             "Unused kickoff UTXO found: {:?} found for deposit UTXO: {:?}",
-    //             unused_kickoff_utxo,
-    //             deposit_outpoint
-    //         );
-    //         let kickoff_sig_hash = crate::sha256_hash!(
-    //             deposit_outpoint.txid,
-    //             deposit_outpoint.vout.to_be_bytes(),
-    //             unused_kickoff_utxo.outpoint.txid,
-    //             unused_kickoff_utxo.outpoint.vout.to_be_bytes()
-    //         );
-
-    //         let sig = self
-    //             .signer
-    //             .sign(TapSighash::from_byte_array(kickoff_sig_hash));
-
-    //         Ok((unused_kickoff_utxo, sig))
-    //     } else {
-    //         // 3. Create a kickoff transaction but do not broadcast it
-
-    //         // To create a kickoff tx, we first need a funding utxo
-    //         let funding_utxo = self.db.get_funding_utxo(Some(&mut tx)).await?.ok_or(
-    //             BridgeError::OperatorFundingUtxoNotFound(self.signer.address.clone()),
-    //         )?;
-
-    //         // if the amount is not enough, return an error
-    //         // The amount will be calculated as if the transaction has 1 input
-    //         // and (num_kickoff_utxos + 2) outputs where the first k outputs are
-    //         // the kickoff outputs, the penultimante output is the change output,
-    //         // and the last output is the anyonecanpay output for fee bumping.
-    //         let kickoff_tx_min_relay_fee = match self.config.operator_num_kickoff_utxos_per_tx {
-    //             0..=250 => 154 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
-    //             _ => 156 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all other values
-    //         };
-    //         if funding_utxo.txout.value.to_sat()
-    //             < (KICKOFF_UTXO_AMOUNT_SATS.to_sat()
-    //                 * self.config.operator_num_kickoff_utxos_per_tx as u64
-    //                 + kickoff_tx_min_relay_fee as u64
-    //                 + 330)
-    //         {
-    //             return Err(BridgeError::OperatorFundingUtxoAmountNotEnough(
-    //                 self.signer.address.clone(),
-    //             ));
-    //         }
-    //         let mut kickoff_tx_handler = builder::transaction::create_kickoff_utxo_txhandler(
-    //             &funding_utxo,
-    //             self.nofn_xonly_pk,
-    //             self.signer.xonly_public_key,
-    //             self.config.network,
-    //             self.config.operator_num_kickoff_utxos_per_tx,
-    //         );
-    //         tracing::debug!(
-    //             "Funding UTXO found: {:?} kickoff UTXO is created for deposit UTXO: {:?}",
-    //             funding_utxo,
-    //             deposit_outpoint
-    //         );
-    //         let sig = self
-    //             .signer
-    //             .sign_taproot_pubkey_spend(&mut kickoff_tx_handler, 0, None)?;
-    //         handle_taproot_witness_new(&mut kickoff_tx_handler, &[sig.as_ref()], 0, None)?;
-    //         tracing::debug!(
-    //             "Created kickoff tx with weight: {:#?}",
-    //             kickoff_tx_handler.tx.weight()
-    //         );
-    //         // tracing::debug!(
-    //         //     "Created kickoff tx: {:#?}",
-    //         //     kickoff_tx_handler.tx.raw_hex()
-    //         // );
-    //         // tracing::debug!(
-    //         //     "For operator index: {:?} Kickoff tx handler: {:#?}",
-    //         //     self.idx,
-    //         //     kickoff_tx_handler
-    //         // );
-
-    //         let change_utxo = UTXO {
-    //             outpoint: OutPoint {
-    //                 txid: kickoff_tx_handler.tx.compute_txid(),
-    //                 vout: self.config.operator_num_kickoff_utxos_per_tx as u32,
-    //             },
-    //             txout: kickoff_tx_handler.tx.output[self.config.operator_num_kickoff_utxos_per_tx]
-    //                 .clone(),
-    //         };
-    //         tracing::debug!(
-    //             "Change UTXO: {:?} after new kickoff UTXOs are generated for deposit UTXO: {:?}",
-    //             change_utxo,
-    //             deposit_outpoint
-    //         );
-
-    //         let kickoff_utxo = UTXO {
-    //             outpoint: OutPoint {
-    //                 txid: kickoff_tx_handler.tx.compute_txid(),
-    //                 vout: 0,
-    //             },
-    //             txout: kickoff_tx_handler.tx.output[0].clone(),
-    //         };
-    //         tracing::debug!(
-    //             "Kickoff UTXO: {:?} after new kickoff UTXOs are generated for deposit UTXO: {:?}",
-    //             kickoff_utxo,
-    //             deposit_outpoint
-    //         );
-
-    //         // In a db tx, save the kickoff_utxo for this deposit_outpoint
-    //         // and update the db with the new funding_utxo as the change
-
-    //         // let db_transaction = self.db.begin_transaction().await?;
-
-    //         // We save the funding txid and the kickoff txid to be able to track them later
-    //         self.db
-    //             .save_kickoff_utxo(Some(&mut tx), deposit_outpoint, kickoff_utxo.clone())
-    //             .await?;
-
-    //         self.db
-    //             .add_deposit_kickoff_generator_tx(
-    //                 Some(&mut tx),
-    //                 kickoff_tx_handler.tx.compute_txid(),
-    //                 kickoff_tx_handler.tx.raw_hex(),
-    //                 self.config.operator_num_kickoff_utxos_per_tx,
-    //                 funding_utxo.outpoint.txid,
-    //             )
-    //             .await?;
-
-    //         self.db.set_funding_utxo(Some(&mut tx), change_utxo).await?;
-
-    //         tx.commit().await?;
-
-    //         let kickoff_sig_hash = crate::sha256_hash!(
-    //             deposit_outpoint.txid,
-    //             deposit_outpoint.vout.to_be_bytes(),
-    //             kickoff_utxo.outpoint.txid,
-    //             kickoff_utxo.outpoint.vout.to_be_bytes()
-    //         );
-
-    //         let sig = self
-    //             .signer
-    //             .sign(TapSighash::from_byte_array(kickoff_sig_hash));
-
-    //         Ok((kickoff_utxo, sig))
-    //     }
-    // }
-
-    // /// Saves funding UTXO to the database.
-    // async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-    //     self.db.set_funding_utxo(None, funding_utxo).await
-    // }
-
     /// Checks if the withdrawal amount is within the acceptable range.
     fn is_profitable(
         input_amount: Amount,
@@ -442,36 +298,33 @@ impl Operator {
     /// # Parameters
     ///
     /// - `withdrawal_idx`: Citrea withdrawal UTXO index
-    /// - `user_sig`: User's signature that is going to be used for signing
+    /// - `in_signature`: User's signature that is going to be used for signing
     ///   withdrawal transaction input
-    /// - `users_intent_outpoint`: User's input for the payout transaction
-    /// - `users_intent_script_pubkey`: User's script pubkey which will be used
+    /// - `in_outpoint`: User's input for the payout transaction
+    /// - `out_script_pubkey`: User's script pubkey which will be used
     ///   in the payout transaction's output
-    /// - `users_intent_amount`: Payout transaction output's value
+    /// - `out_amount`: Payout transaction output's value
     ///
     /// # Returns
     ///
     /// - [`Txid`]: Payout transaction's txid
-    pub async fn new_withdrawal_sig(
+    pub async fn withdraw(
         &self,
         withdrawal_index: u32,
-        user_signature: schnorr::Signature,
-        users_intent_outpoint: OutPoint,
-        users_intent_script_pubkey: ScriptBuf,
-        users_intent_amount: Amount,
+        in_signature: schnorr::Signature,
+        in_outpoint: OutPoint,
+        out_script_pubkey: ScriptBuf,
+        out_amount: Amount,
     ) -> Result<Txid, BridgeError> {
         // Prepare input and output of the payout transaction.
-        let input_prevout = self
-            .rpc
-            .get_txout_from_outpoint(&users_intent_outpoint)
-            .await?;
+        let input_prevout = self.rpc.get_txout_from_outpoint(&in_outpoint).await?;
         let input_utxo = UTXO {
-            outpoint: users_intent_outpoint,
+            outpoint: in_outpoint,
             txout: input_prevout,
         };
         let output_txout = TxOut {
-            value: users_intent_amount,
-            script_pubkey: users_intent_script_pubkey,
+            value: out_amount,
+            script_pubkey: out_script_pubkey,
         };
 
         // Check Citrea for the withdrawal state.
@@ -511,7 +364,7 @@ impl Operator {
         if !Self::is_profitable(
             input_utxo.txout.value,
             output_txout.value,
-            self.config.bridge_amount_sats,
+            self.config.protocol_paramset().bridge_amount,
             operator_withdrawal_fee_sats,
         ) {
             return Err(BridgeError::NotEnoughFeeForOperator);
@@ -524,17 +377,15 @@ impl Operator {
             input_utxo,
             output_txout,
             self.idx,
-            user_signature,
-            self.config.network,
+            in_signature,
+            self.config.protocol_paramset().network,
         )?;
 
-        let sighash = payout_txhandler.calculate_pubkey_spend_sighash(
-            0,
-            bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-        )?;
+        let sighash = payout_txhandler
+            .calculate_sighash_txin(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)?;
 
         SECP.verify_schnorr(
-            &user_signature,
+            &in_signature,
             &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,
         )?;
@@ -629,8 +480,8 @@ impl Operator {
             // let move_txid = builder::transaction::create_move_to_vault_tx(
             //     deposit_outpoint,
             //     self.nofn_xonly_pk,
-            //     self.config.bridge_amount_sats,
-            //     self.config.network,
+            //     self.config.protocol_paramset().bridge_amount,
+            //     self.config.protocol_paramset().network,
             // )
             // .compute_txid();
 
@@ -667,139 +518,6 @@ impl Operator {
         Ok(())
     }
 
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // pub(crate) async fn withdrawal_proved_on_citrea(
-    //     &self,
-    //     withdrawal_idx: u32,
-    //     deposit_outpoint: OutPoint,
-    // ) -> Result<Vec<String>, BridgeError> {
-    //     self.check_citrea_for_withdrawal(withdrawal_idx, deposit_outpoint)
-    //         .await?;
-
-    //     let kickoff_utxo = self
-    //         .db
-    //         .get_kickoff_utxo(None, deposit_outpoint)
-    //         .await?
-    //         .ok_or(BridgeError::KickoffOutpointsNotFound)?;
-    //     tracing::debug!("Kickoff UTXO FOUND after withdrawal: {:?}", kickoff_utxo);
-
-    //     // Check if current TxId is onchain or in mempool.
-    //     let mut txs_to_be_sent = vec![];
-    //     let mut current_searching_txid = kickoff_utxo.outpoint.txid;
-    //     let mut found_txid = false;
-    //     for _ in 0..25 {
-    //         if self
-    //             .rpc
-    //             .client
-    //             .get_raw_transaction(&current_searching_txid, None)
-    //             .await
-    //             .is_ok()
-    //         {
-    //             found_txid = true;
-    //             break;
-    //         }
-
-    //         // Fetch the transaction and continue the loop.
-    //         let (raw_signed_tx, _, _, funding_txid) = self
-    //             .db
-    //             .get_deposit_kickoff_generator_tx(current_searching_txid)
-    //             .await?
-    //             .ok_or(BridgeError::KickoffGeneratorTxNotFound)?;
-
-    //         txs_to_be_sent.push(raw_signed_tx);
-    //         current_searching_txid = funding_txid;
-    //     }
-    //     txs_to_be_sent.reverse();
-
-    //     if !found_txid {
-    //         return Err(BridgeError::KickoffGeneratorTxsTooManyIterations); // TODO: Fix this error
-    //     }
-
-    //     let mut slash_or_take_tx_handler = builder::transaction::create_slash_or_take_tx(
-    //         deposit_outpoint,
-    //         kickoff_utxo.clone(),
-    //         self.signer.xonly_public_key,
-    //         self.idx,
-    //         self.nofn_xonly_pk,
-    //         self.config.network,
-    //         self.config.user_takes_after,
-    //         self.config.operator_takes_after,
-    //         self.config.bridge_amount_sats,
-    //     );
-
-    //     let slash_or_take_utxo = UTXO {
-    //         outpoint: OutPoint {
-    //             txid: slash_or_take_tx_handler.tx.compute_txid(),
-    //             vout: 0,
-    //         },
-    //         txout: slash_or_take_tx_handler.tx.output[0].clone(),
-    //     };
-
-    //     let nofn_sig = self
-    //         .db
-    //         .get_slash_or_take_sig(deposit_outpoint, kickoff_utxo.clone())
-    //         .await?
-    //         .ok_or(BridgeError::OperatorSlashOrTakeSigNotFound)?;
-
-    //     let our_sig =
-    //         self.signer
-    //             .sign_taproot_script_spend_tx(&mut slash_or_take_tx_handler, 0, 0)?;
-
-    //     handle_taproot_witness_new(
-    //         &mut slash_or_take_tx_handler,
-    //         &[our_sig.as_ref(), nofn_sig.as_ref()],
-    //         0,
-    //         Some(0),
-    //     )?;
-
-    //     txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
-
-    //     let move_tx = builder::transaction::create_move_to_vault_tx(
-    //         deposit_outpoint,
-    //         self.nofn_xonly_pk,
-    //         self.config.bridge_amount_sats,
-    //         self.config.network,
-    //     );
-    //     let bridge_fund_outpoint = OutPoint {
-    //         txid: move_tx.compute_txid(),
-    //         vout: 0,
-    //     };
-
-    //     let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
-    //         bridge_fund_outpoint,
-    //         slash_or_take_utxo,
-    //         self.signer.xonly_public_key,
-    //         self.nofn_xonly_pk,
-    //         self.config.network,
-    //         self.config.operator_takes_after,
-    //         self.config.bridge_amount_sats,
-    //         self.config.operator_wallet_addresses[self.idx].clone(),
-    //     );
-
-    //     let operator_takes_nofn_sig = self
-    //         .db
-    //         .get_operator_take_sig(deposit_outpoint, kickoff_utxo)
-    //         .await?
-    //         .ok_or(BridgeError::OperatorTakesSigNotFound)?;
-    //     tracing::debug!("Operator Found nofn sig: {:?}", operator_takes_nofn_sig);
-
-    //     let our_sig = self
-    //         .signer
-    //         .sign_taproot_script_spend_tx(&mut operator_takes_tx, 1, 0)?;
-
-    //     handle_taproot_witness_new(
-    //         &mut operator_takes_tx,
-    //         &[operator_takes_nofn_sig.as_ref()],
-    //         0,
-    //         None,
-    //     )?;
-    //     handle_taproot_witness_new(&mut operator_takes_tx, &[our_sig.as_ref()], 1, Some(0))?;
-
-    //     txs_to_be_sent.push(operator_takes_tx.tx.raw_hex());
-
-    //     Ok(txs_to_be_sent)
-    // }
-
     /// Generates Winternitz public keys for every  BitVM assert tx for a deposit.
     ///
     /// # Returns
@@ -810,21 +528,13 @@ impl Operator {
         &self,
         deposit_txid: Txid,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
-        // TODO: Misleading name
-        let mut winternitz_pubkeys = Vec::new();
-
-        for (intermediate_step, intermediate_step_size) in
-            crate::utils::BITVM_CACHE.intermediate_variables.iter()
-        {
-            let path = WinternitzDerivationPath::BitvmAssert(
-                *intermediate_step_size as u32 * 2,
-                intermediate_step.to_owned(),
-                deposit_txid,
-            );
-            winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
-        }
-
-        Ok(winternitz_pubkeys)
+        tracing::error!("Generating assert winternitz pubkeys");
+        let bitvm_pks = self
+            .signer
+            .generate_bitvm_pks_for_deposit(deposit_txid, self.config.protocol_paramset())?;
+        let flattened_wpks = bitvm_pks.to_flattened_vec();
+        tracing::error!("Flattened wpks: {:?}", flattened_wpks);
+        Ok(flattened_wpks)
     }
     /// Generates Winternitz public keys for every blockhash commit to be used in kickoff utxos.
     /// Unique for each kickoff utxo of operator.
@@ -836,33 +546,393 @@ impl Operator {
     pub fn generate_kickoff_winternitz_pubkeys(
         &self,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
-        let mut winternitz_pubkeys = Vec::new();
+        let mut winternitz_pubkeys =
+            Vec::with_capacity(self.config.get_num_kickoff_winternitz_pks());
 
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
-        for round_idx in 0..self.config.num_round_txs + 1 {
-            for kickoff_idx in 0..self.config.num_kickoffs_per_round {
-                let path = WinternitzDerivationPath::Kickoff(round_idx as u32, kickoff_idx as u32);
+        for round_idx in 0..self.config.protocol_paramset().num_round_txs + 1 {
+            for kickoff_idx in 0..self.config.protocol_paramset().num_kickoffs_per_round {
+                let path = WinternitzDerivationPath::Kickoff(
+                    round_idx as u32,
+                    kickoff_idx as u32,
+                    self.config.protocol_paramset(),
+                );
                 winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
             }
         }
 
+        if winternitz_pubkeys.len() != self.config.get_num_kickoff_winternitz_pks() {
+            return Err(BridgeError::Error(format!(
+                "Expected {} number of kickoff winternitz pubkeys, but got {}",
+                self.config.get_num_kickoff_winternitz_pks(),
+                winternitz_pubkeys.len()
+            )));
+        }
+
         Ok(winternitz_pubkeys)
+    }
+
+    pub fn generate_unspent_kickoff_sigs(
+        &self,
+        kickoff_wpks: &KickoffWinternitzKeys,
+    ) -> Result<Vec<Signature>, BridgeError> {
+        let mut sigs: Vec<Signature> =
+            Vec::with_capacity(self.config.get_num_unspent_kickoff_sigs());
+        let mut prev_ready_to_reimburse: Option<TxHandler> = None;
+        let operator_data = OperatorData {
+            xonly_pk: self.signer.xonly_public_key,
+            collateral_funding_outpoint: self.collateral_funding_outpoint,
+            reimburse_addr: self.reimburse_addr.clone(),
+        };
+        for idx in 0..self.config.protocol_paramset().num_round_txs {
+            let txhandlers = create_round_txhandlers(
+                self.config.protocol_paramset(),
+                idx,
+                &operator_data,
+                kickoff_wpks,
+                prev_ready_to_reimburse.clone(),
+            )?;
+            for txhandler in txhandlers {
+                if let TransactionType::UnspentKickoff(kickoff_idx) =
+                    txhandler.get_transaction_type()
+                {
+                    let partial = PartialSignatureInfo {
+                        operator_idx: self.idx,
+                        round_idx: idx,
+                        kickoff_utxo_idx: kickoff_idx,
+                    };
+                    let sighashes = txhandler
+                        .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
+                    sigs.extend(
+                        sighashes
+                            .into_iter()
+                            .map(|sighash| self.signer.sign(sighash.0)),
+                    );
+                }
+                if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
+                    prev_ready_to_reimburse = Some(txhandler);
+                }
+            }
+        }
+        if sigs.len() != self.config.get_num_unspent_kickoff_sigs() {
+            return Err(BridgeError::Error(format!(
+                "Expected {} number of unspent kickoff sigs, but got {}",
+                self.config.get_num_unspent_kickoff_sigs(),
+                sigs.len()
+            )));
+        }
+        Ok(sigs)
     }
 
     pub fn generate_challenge_ack_preimages_and_hashes(
         &self,
         deposit_txid: Txid,
     ) -> Result<Vec<PublicHash>, BridgeError> {
-        let mut hashes = Vec::new();
+        let mut hashes = Vec::with_capacity(self.config.get_num_challenge_ack_hashes());
 
-        for watchtower_idx in 0..self.config.num_watchtowers {
-            let path =
-                WinternitzDerivationPath::ChallengeAckHash(watchtower_idx as u32, deposit_txid);
+        for watchtower_idx in 0..self.config.protocol_paramset().num_watchtowers {
+            let path = WinternitzDerivationPath::ChallengeAckHash(
+                watchtower_idx as u32,
+                deposit_txid,
+                self.config.protocol_paramset(),
+            );
             let hash = self.signer.generate_public_hash_from_path(path)?;
             hashes.push(hash);
         }
-        tracing::info!("Public hashes len: {:?}", hashes.len());
+
+        if hashes.len() != self.config.get_num_challenge_ack_hashes() {
+            return Err(BridgeError::Error(format!(
+                "Expected {} number of challenge ack hashes, but got {}",
+                self.config.get_num_challenge_ack_hashes(),
+                hashes.len()
+            )));
+        }
+
         Ok(hashes)
+    }
+
+    pub async fn handle_finalized_payout<'a>(
+        &'a self,
+        dbtx: DatabaseTransaction<'a, '_>,
+        deposit_outpoint: OutPoint,
+        payout_tx_blockhash: BlockHash,
+    ) -> Result<(), BridgeError> {
+        let (deposit_id, deposit_data) = self
+            .db
+            .get_deposit_data(Some(dbtx), deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+
+        // get unused kickoff connector
+        let (round_idx, kickoff_idx) = self
+            .db
+            .get_unused_and_signed_kickoff_connector(Some(dbtx), deposit_id)
+            .await?
+            .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
+
+        // get signed txs,
+        let kickoff_id = KickoffId {
+            operator_idx: self.idx as u32,
+            round_idx,
+            kickoff_idx,
+        };
+
+        let transaction_data = TransactionRequestData {
+            deposit_data,
+            transaction_type: TransactionType::AllNeededForDeposit,
+            kickoff_id,
+        };
+        let signed_txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+            Some(
+                payout_tx_blockhash.as_byte_array()[12..] // TODO: Make a helper function for this
+                    .try_into()
+                    .expect("length statically known"),
+            ),
+        )
+        .await?;
+
+        let tx_data_for_logging = Some(TxDataForLogging {
+            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
+            operator_idx: Some(self.idx as u32),
+            verifier_idx: None,
+            round_idx: Some(round_idx),
+            kickoff_idx: Some(kickoff_idx),
+            deposit_outpoint: Some(deposit_outpoint),
+        });
+        // try to send them
+        for (tx_type, signed_tx) in &signed_txs {
+            match *tx_type {
+                TransactionType::Kickoff
+                | TransactionType::OperatorChallengeAck(_)
+                | TransactionType::WatchtowerChallengeTimeout(_)
+                | TransactionType::ChallengeTimeout
+                | TransactionType::DisproveTimeout
+                | TransactionType::Reimburse => {
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            dbtx,
+                            *tx_type,
+                            signed_tx,
+                            &signed_txs,
+                            tx_data_for_logging,
+                            &self.config,
+                        )
+                        .await?;
+                }
+                _ => {}
+            }
+        }
+
+        let kickoff_txid = signed_txs
+            .iter()
+            .find_map(|(tx_type, tx)| {
+                if let TransactionType::Kickoff = tx_type {
+                    Some(tx.compute_txid())
+                } else {
+                    None
+                }
+            })
+            .ok_or(BridgeError::Error(
+                "Couldn't find kickoff tx in signed_txs".to_string(),
+            ))?;
+
+        // mark the kickoff connector as used
+        self.db
+            .set_kickoff_connector_as_used(Some(dbtx), round_idx, kickoff_idx, Some(kickoff_txid))
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn end_round<'a>(
+        &'a self,
+        dbtx: DatabaseTransaction<'a, '_>,
+    ) -> Result<(), BridgeError> {
+        // get current round index
+        let current_round_index = self.db.get_current_round_index(Some(dbtx)).await?;
+        let current_round_index = current_round_index.unwrap_or(0);
+
+        let mut activation_prerequisites = Vec::new();
+
+        let operator_winternitz_public_keys = self
+            .db
+            .get_operator_kickoff_winternitz_public_keys(None, self.idx as u32)
+            .await?;
+        let kickoff_wpks = KickoffWinternitzKeys::new(
+            operator_winternitz_public_keys,
+            self.config.protocol_paramset().num_kickoffs_per_round,
+        );
+        let (current_round_txhandler, mut ready_to_reimburse_txhandler) =
+            create_round_nth_txhandler(
+                self.signer.xonly_public_key,
+                self.collateral_funding_outpoint,
+                Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
+                current_round_index as usize,
+                &kickoff_wpks,
+                self.config.protocol_paramset(),
+            )?;
+
+        let (mut next_round_txhandler, _) = create_round_nth_txhandler(
+            self.signer.xonly_public_key,
+            self.collateral_funding_outpoint,
+            Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
+            current_round_index as usize + 1,
+            &kickoff_wpks,
+            self.config.protocol_paramset(),
+        )?;
+
+        // sign ready to reimburse tx
+        self.signer
+            .tx_sign_and_fill_sigs(&mut ready_to_reimburse_txhandler, &[])?;
+
+        // sign next round tx
+        self.signer
+            .tx_sign_and_fill_sigs(&mut next_round_txhandler, &[])?;
+
+        let current_round_txid = current_round_txhandler.get_cached_tx().compute_txid();
+        let ready_to_reimburse_tx = ready_to_reimburse_txhandler.get_cached_tx();
+        let next_round_tx = next_round_txhandler.get_cached_tx();
+
+        let ready_to_reimburse_txid = ready_to_reimburse_tx.compute_txid();
+
+        let mut unspent_kickoff_connector_indices = Vec::new();
+
+        // get kickoff txid for used kickoff connector
+        for kickoff_connector_idx in
+            0..self.config.protocol_paramset().num_kickoffs_per_round as u32
+        {
+            let kickoff_txid = self
+                .db
+                .get_kickoff_txid_for_used_kickoff_connector(
+                    Some(dbtx),
+                    current_round_index,
+                    kickoff_connector_idx,
+                )
+                .await?;
+            match kickoff_txid {
+                Some(kickoff_txid) => {
+                    activation_prerequisites.push(ActivatedWithOutpoint {
+                        outpoint: OutPoint {
+                            txid: kickoff_txid,
+                            vout: 1, // Kickoff finalizer output index
+                        },
+                        relative_block_height: self.config.confirmation_threshold,
+                    });
+                }
+                None => {
+                    let unspent_kickoff_connector = OutPoint {
+                        txid: current_round_txid,
+                        vout: kickoff_connector_idx + 1, // add 1 since the first output is collateral
+                    };
+                    unspent_kickoff_connector_indices.push(kickoff_connector_idx as usize);
+                    self.db
+                        .set_kickoff_connector_as_used(
+                            Some(dbtx),
+                            current_round_index,
+                            kickoff_connector_idx,
+                            None,
+                        )
+                        .await?;
+                    activation_prerequisites.push(ActivatedWithOutpoint {
+                        outpoint: unspent_kickoff_connector,
+                        relative_block_height: self.config.confirmation_threshold,
+                    });
+                }
+            }
+        }
+
+        // Burn unused kickoff connectors
+        let mut burn_unspent_kickoff_connectors_tx =
+            create_burn_unused_kickoff_connectors_txhandler(
+                &current_round_txhandler,
+                &unspent_kickoff_connector_indices,
+                &self.signer.address,
+            )?;
+
+        // sign burn unused kickoff connectors tx
+        self.signer
+            .tx_sign_and_fill_sigs(&mut burn_unspent_kickoff_connectors_tx, &[])?;
+
+        self.tx_sender
+            .try_to_send(
+                dbtx,
+                Some(TxDataForLogging {
+                    tx_type: TransactionType::BurnUnusedKickoffConnectors,
+                    operator_idx: Some(self.idx as u32),
+                    verifier_idx: None,
+                    round_idx: Some(current_round_index),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                burn_unspent_kickoff_connectors_tx.get_cached_tx(),
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+
+        // send ready to reimburse tx
+        self.tx_sender
+            .try_to_send(
+                dbtx,
+                Some(TxDataForLogging {
+                    tx_type: TransactionType::ReadyToReimburse,
+                    operator_idx: Some(self.idx as u32),
+                    verifier_idx: None,
+                    round_idx: Some(current_round_index),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                ready_to_reimburse_tx,
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &activation_prerequisites,
+            )
+            .await?;
+
+        // send next round tx
+        self.tx_sender
+            .try_to_send(
+                dbtx,
+                Some(TxDataForLogging {
+                    tx_type: TransactionType::Round,
+                    operator_idx: Some(self.idx as u32),
+                    verifier_idx: None,
+                    round_idx: Some(current_round_index + 1),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                next_round_tx,
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[ActivatedWithTxid {
+                    txid: ready_to_reimburse_txid,
+                    relative_block_height: self
+                        .config
+                        .protocol_paramset()
+                        .operator_reimburse_timelock
+                        as u32,
+                }],
+                &[],
+            )
+            .await?;
+
+        // update current round index
+        self.db
+            .update_current_round_index(Some(dbtx), current_round_index + 1)
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -872,7 +942,6 @@ mod tests {
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::Txid;
-
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name(None).await;
@@ -916,7 +985,7 @@ mod tests {
     //     )
     //     .await;
 
-    //     config.bridge_amount_sats = Amount::from_sat(0x45);
+    //     config.protocol_paramset().bridge_amount = Amount::from_sat(0x45);
     //     config.operator_withdrawal_fee_sats = Some(Amount::from_sat(0x1F));
 
     //     let operator = Operator::new(config.clone(), rpc).await.unwrap();
@@ -927,12 +996,12 @@ mod tests {
     //     operator.is_profitable(Amount::from_sat(6), Amount::from_sat(9));
 
     //     // False because difference between input and withdrawal amount is
-    //     // bigger than `config.bridge_amount_sats`.
+    //     // bigger than `config.protocol_paramset().bridge_amount`.
     //     assert!(!operator.is_profitable(Amount::from_sat(6), Amount::from_sat(90)));
 
     //     // False because net profit is smaller than
     //     // `config.operator_withdrawal_fee_sats`.
-    //     assert!(!operator.is_profitable(Amount::from_sat(0), config.bridge_amount_sats));
+    //     assert!(!operator.is_profitable(Amount::from_sat(0), config.protocol_paramset().bridge_amount));
 
     //     // True because net profit is bigger than
     //     // `config.operator_withdrawal_fee_sats`.
@@ -946,44 +1015,42 @@ mod tests {
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name(None).await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc();
+        let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
+        let operator = Operator::new(config.clone()).await.unwrap();
 
         let winternitz_public_key = operator
             .generate_assert_winternitz_pubkeys(Txid::all_zeros())
             .unwrap();
         assert_eq!(
             winternitz_public_key.len(),
-            config.num_round_txs * config.num_kickoffs_per_round
+            config.protocol_paramset().num_round_txs
+                * config.protocol_paramset().num_kickoffs_per_round
         );
     }
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
         let mut config = create_test_config_with_thread_name(None).await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc();
+        let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
+        let operator = Operator::new(config.clone()).await.unwrap();
 
         let preimages = operator
             .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
             .unwrap();
-        assert_eq!(preimages.len(), config.num_watchtowers);
+        assert_eq!(preimages.len(), config.protocol_paramset().num_watchtowers);
     }
 
     #[tokio::test]
     async fn operator_get_params() {
         let mut config = create_test_config_with_thread_name(None).await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc();
+        let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config.clone(), rpc.clone()).await.unwrap();
+        let operator = Operator::new(config.clone()).await.unwrap();
         let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
 
-        let mut wpk_rx = operator.get_params().await.unwrap();
+        let (mut wpk_rx, _) = operator.get_params().await.unwrap();
         let mut idx = 0;
         while let Some(wpk) = wpk_rx.recv().await {
             assert_eq!(actual_wpks[idx], wpk);

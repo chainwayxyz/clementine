@@ -1,14 +1,12 @@
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
-    builder::address::derive_challenge_address_from_xonlypk_and_wpk,
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
-use bitcoin::{ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoin::{Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]
@@ -36,7 +34,7 @@ impl Watchtower {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
-            config.network,
+            config.protocol_paramset().network,
         );
 
         Ok(Self {
@@ -62,38 +60,15 @@ impl Watchtower {
         let mut winternitz_pubkeys = Vec::new();
 
         for operator in 0..self.config.num_operators as u32 {
-            let path = WinternitzDerivationPath::WatchtowerChallenge(operator, deposit_txid);
+            let path = WinternitzDerivationPath::WatchtowerChallenge(
+                operator,
+                deposit_txid,
+                self.config.protocol_paramset(),
+            );
             winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
         }
 
         Ok(winternitz_pubkeys)
-    }
-
-    pub async fn get_watchtower_challenge_addresses(
-        &self,
-        deposit_txid: Txid,
-    ) -> Result<Vec<ScriptBuf>, BridgeError> {
-        let mut challenge_addresses = Vec::new();
-
-        let winternitz_pubkeys = self.get_watchtower_winternitz_public_keys(deposit_txid)?;
-        tracing::info!(
-            "get_watchtower_challenge_addresses watchtower xonly public key: {:?}",
-            self.signer.xonly_public_key
-        );
-        tracing::info!(
-            "get_watchtower_challenge_addresses watchtower taproot public key: {:?}",
-            self.signer.address.script_pubkey()
-        );
-        for winternitz_pubkey in winternitz_pubkeys {
-            let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
-                &self.signer.xonly_public_key,
-                vec![(winternitz_pubkey, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH)],
-                self.config.network,
-            );
-            challenge_addresses.push(challenge_address.script_pubkey());
-        }
-
-        Ok(challenge_addresses)
     }
 
     /// Returns id, winteritz public keys and x-only public key of a watchtower.

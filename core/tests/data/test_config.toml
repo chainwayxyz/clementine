@@ -1,8 +1,9 @@
 # Host, port and index of the current actor (operator, verifier, or watchtower)
+protocol_paramset = "regtest"
+
 host = "127.0.0.1"
 port = 17000
 index = 0
-
 collateral_funding_amount = 200000000
 timeout_block_count = 6
 max_withdrawal_time_block_count = 4032
@@ -24,7 +25,6 @@ verifiers_public_keys = [
 
 # All of the operators x-only public keys.
 num_operators = 3
-num_watchtowers = 4
 num_round_txs = 2
 num_kickoffs_per_round = 2
 operators_xonly_pks = [
@@ -62,7 +62,6 @@ db_user = "clementine"
 db_password = "clementine"
 db_name = "clementine"
 
-bridge_amount_sats = 1000000000
 
 confirmation_threshold = 1
 

@@ -1,11 +1,10 @@
-use crate::rpc::clementine::Outpoint;
 use crate::{
     fetch_next_message_from_stream,
     operator::Operator,
     rpc::{
         clementine::{
-            self, operator_params, DepositParams, DepositSignSession, NewWithdrawalSigParams,
-            OperatorParams,
+            operator_params, DepositParams, DepositSignSession, OperatorConfig, OperatorParams,
+            Outpoint, SchnorrSig, WithdrawParams,
         },
         error::{self, expected_msg_got_none},
     },
@@ -20,7 +19,7 @@ use tonic::Status;
 
 impl From<Operator> for OperatorParams {
     fn from(operator: Operator) -> Self {
-        let operator_config = clementine::OperatorConfig {
+        let operator_config = OperatorConfig {
             operator_idx: operator.idx as u32,
             collateral_funding_outpoint: Some(Outpoint {
                 txid: operator
@@ -46,6 +45,16 @@ impl From<winternitz::PublicKey> for OperatorParams {
             response: Some(operator_params::Response::WinternitzPubkeys(
                 winternitz_pubkey.into(),
             )),
+        }
+    }
+}
+
+impl From<Signature> for OperatorParams {
+    fn from(sig: Signature) -> Self {
+        OperatorParams {
+            response: Some(operator_params::Response::UnspentKickoffSig(SchnorrSig {
+                schnorr_sig: sig.serialize().to_vec(),
+            })),
         }
     }
 }
@@ -119,24 +128,36 @@ pub async fn parse_winternitz_public_keys(
     }
 }
 
+pub async fn parse_schnorr_sig(
+    stream: &mut tonic::Streaming<OperatorParams>,
+) -> Result<Signature, Status> {
+    let operator_param = fetch_next_message_from_stream!(stream, response)?;
+
+    if let operator_params::Response::UnspentKickoffSig(wpk) = operator_param {
+        Ok(wpk.try_into()?)
+    } else {
+        Err(expected_msg_got_none("WinternitzPubkeys")())
+    }
+}
+
 pub async fn parse_withdrawal_sig_params(
-    params: NewWithdrawalSigParams,
+    params: WithdrawParams,
 ) -> Result<(u32, Signature, OutPoint, ScriptBuf, Amount), Status> {
-    let user_sig = Signature::from_slice(&params.user_sig)
+    let input_signature = Signature::from_slice(&params.input_signature)
         .map_err(|e| error::invalid_argument("user_sig", "Can't convert input to Signature")(e))?;
 
-    let users_intent_outpoint: OutPoint = params
-        .users_intent_outpoint
+    let input_outpoint: OutPoint = params
+        .input_outpoint
         .ok_or_else(error::input_ended_prematurely)?
         .try_into()?;
 
-    let users_intent_script_pubkey = ScriptBuf::from_bytes(params.users_intent_script_pubkey);
+    let users_intent_script_pubkey = ScriptBuf::from_bytes(params.output_script_pubkey);
 
     Ok((
         params.withdrawal_id,
-        user_sig,
-        users_intent_outpoint,
+        input_signature,
+        input_outpoint,
         users_intent_script_pubkey,
-        Amount::from_sat(params.users_intent_amount),
+        Amount::from_sat(params.output_amount),
     ))
 }

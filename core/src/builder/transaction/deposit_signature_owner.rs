@@ -8,6 +8,7 @@ pub enum EntityType {
     OperatorDeposit,
     Watchtower,
     VerifierDeposit,
+    OperatorSetup,
 }
 
 /// Entity whose signature is needed to unlock the input utxo
@@ -17,10 +18,24 @@ pub enum DepositSigKeyOwner {
     /// this type is for operator's signatures that need to be saved during deposit
     OperatorSharedDeposit(TapSighashType),
     NofnSharedDeposit(TapSighashType),
-    /// this type is for signatures that is needed for Operator themselves to spend the utxo
+    /// this type is for signatures that is needed for the entity themselves to spend the utxo
     /// So verifiers do not need this signature info, thus it is not saved to DB.
     /// Added to help define different sighash types for operator's own signatures.
-    Operator(TapSighashType),
+    Own(TapSighashType),
+    /// For operator signatures that are needed to be saved during aggregator setups
+    OperatorSharedSetup(TapSighashType),
+}
+
+impl DepositSigKeyOwner {
+    pub fn sighash_type(&self) -> Option<TapSighashType> {
+        match self {
+            DepositSigKeyOwner::NotOwned => None,
+            DepositSigKeyOwner::Own(t)
+            | DepositSigKeyOwner::NofnSharedDeposit(t)
+            | DepositSigKeyOwner::OperatorSharedDeposit(t)
+            | DepositSigKeyOwner::OperatorSharedSetup(t) => Some(*t),
+        }
+    }
 }
 
 impl SignatureId {
@@ -40,9 +55,8 @@ impl SignatureId {
                     })?;
                 use NormalSignatureKind::*;
                 match normal_sig_type {
-                    OperatorSighashDefault => Ok(Operator(SighashDefault)),
+                    OperatorSighashDefault => Ok(Own(SighashDefault)),
                     NormalSignatureUnknown => Ok(NotOwned),
-                    WatchtowerChallengeKickoff => Ok(NofnSharedDeposit(SighashDefault)),
                     Challenge => Ok(NofnSharedDeposit(SinglePlusAnyoneCanPay)),
                     DisproveTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                     Disprove2 => Ok(OperatorSharedDeposit(SighashNone)),
@@ -52,8 +66,9 @@ impl SignatureId {
                     Reimburse2 => Ok(NofnSharedDeposit(SighashDefault)),
                     NoSignature => Ok(NotOwned),
                     ChallengeTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
-                    MiniAssert1 => Ok(Operator(SinglePlusAnyoneCanPay)),
-                    OperatorChallengeAck1 => Ok(Operator(SinglePlusAnyoneCanPay)),
+                    MiniAssert1 => Ok(Own(SighashDefault)),
+                    OperatorChallengeAck1 => Ok(Own(SighashDefault)),
+                    WatchtowerChallenge1 => Ok(Own(SighashDefault)),
                     NotStored => Ok(NotOwned),
                 }
             }
@@ -70,13 +85,15 @@ impl SignatureId {
                     OperatorChallengeNack1 => Ok(NofnSharedDeposit(SighashDefault)),
                     OperatorChallengeNack2 => Ok(NofnSharedDeposit(SighashDefault)),
                     NumberedSignatureUnknown => Ok(NotOwned),
-                    NumberedNotStored => Ok(Operator(SighashDefault)),
+                    NumberedNotStored => Ok(Own(SighashDefault)),
                     OperatorChallengeNack3 => Ok(OperatorSharedDeposit(SighashDefault)),
                     AssertTimeout1 => Ok(NofnSharedDeposit(SighashDefault)),
                     AssertTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                     AssertTimeout3 => Ok(OperatorSharedDeposit(SighashDefault)),
-                    UnspentKickoff1 => Ok(OperatorSharedDeposit(SighashDefault)),
-                    UnspentKickoff2 => Ok(OperatorSharedDeposit(SighashDefault)),
+                    UnspentKickoff1 => Ok(OperatorSharedSetup(SighashDefault)),
+                    UnspentKickoff2 => Ok(OperatorSharedSetup(SighashDefault)),
+                    WatchtowerChallengeTimeout1 => Ok(NofnSharedDeposit(SighashDefault)),
+                    WatchtowerChallengeTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                 }
             }
         }

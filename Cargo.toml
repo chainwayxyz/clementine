@@ -5,6 +5,7 @@ members = [
   "circuits-lib",
   "risc0-circuits/bridge-circuit",
   "risc0-circuits/work-only",
+  "bridge-circuit-host"
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]
@@ -22,18 +23,7 @@ toml = "0.8.19"
 sqlx = { version = "0.7.4", default-features = false }
 serial_test = "3.2.0"
 tempfile = "3.16.0"
-bitvm = { git = "https://github.com/chainwayxyz/BitVM", branch = "algebra-sync-0.4.0" }
-
-#Ark deps
-ark-ff = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
-ark-ec = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
-ark-groth16 = { git = "https://github.com/arkworks-rs/groth16", branch = "releases" }
-ark-bn254 = { git = "https://github.com/arkworks-rs/curves/", branch = "releases" }
-ark-serialize = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
-ark-std = { version = "0.4.0", default-features = false, features = ["print-trace"] }
-ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives", branch = "releases", features = ["snark", "sponge"] }
-ark-relations = "0.4.0"
-ark-poly = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
+eyre = { version = "0.6.12" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde"] }
@@ -55,27 +45,30 @@ futures = "0.3.31"
 async-stream = "0.3.6"
 futures-util = "0.3.31"
 futures-core = "0.3.31"
+http = "^1"
+hyper = "^1"
+tower = "^0.4"
+hyper-util = { version = "0.1" }
 
 # Circuits
 sha2 = { version = "=0.10.8", default-features = false }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.3", default-features = false }
+risc0-build = "1.2"
+risc0-zkvm = { version = "1.2" }
+header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "a233e27" }
+bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "8508328" }
 risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "main" }
-risc0-build = "=1.2.5"
-risc0-zkvm = { version = "=1.2.5" }
+
+ark-groth16 = "0.5.0"
+ark-serialize = "0.5.0"
+ark-bn254 = { version = "0.5.0", features = ["curve", "scalar_field"], default-features = false }
+
 
 [patch.crates-io]
-bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "9f1e8c9" }
+bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "44f9bba" }
 secp256k1 = { git = "https://github.com/jlest01/rust-secp256k1", rev = "1cc7410df436b73d06db3c8ff7cbb29a78916b06" }
-ark-ff = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
-ark-ec = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
-ark-poly = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
-ark-serialize = { git = "https://github.com/chainwayxyz/algebra/", branch = "ozan/sync-0.4.0" }
-ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/" }
-ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/", branch = "releases" }
-ark-relations = { git = "https://github.com/arkworks-rs/snark/" }
-ark-snark = { git = "https://github.com/arkworks-rs/snark/" }
 
 [profile.release]
 lto = true

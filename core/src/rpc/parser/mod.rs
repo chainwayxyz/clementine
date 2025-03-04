@@ -1,10 +1,13 @@
-use super::clementine::{self, AssertRequest, Outpoint, TransactionRequest, WinternitzPubkey};
+use super::clementine::{
+    self, AssertRequest, Outpoint, SchnorrSig, TransactionRequest, WinternitzPubkey,
+};
 use super::error;
 use crate::builder::transaction::sign::{AssertRequestData, TransactionRequestData};
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::errors::BridgeError;
 use crate::EVMAddress;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, Txid};
 use bitvm::signatures::winternitz;
 use std::fmt::{Debug, Display};
@@ -114,6 +117,19 @@ impl TryFrom<WinternitzPubkey> for winternitz::PublicKey {
                 })
             })
             .collect::<Result<Vec<[u8; 20]>, BridgeError>>()
+    }
+}
+
+impl TryFrom<SchnorrSig> for Signature {
+    type Error = BridgeError;
+
+    fn try_from(value: SchnorrSig) -> Result<Self, Self::Error> {
+        Signature::from_slice(&value.schnorr_sig).map_err(|e| {
+            BridgeError::RPCParamMalformed(
+                "schnorr_sig".to_string(),
+                format!("Failed to parse schnorr signature: {}", e),
+            )
+        })
     }
 }
 impl From<winternitz::PublicKey> for WinternitzPubkey {

@@ -2,7 +2,12 @@
 //!
 //! This crate provides testing utilities, which are not possible to be included
 //! in binaries.
+use std::net::TcpListener;
+use std::str::FromStr;
+
+use bitcoin::consensus::serde::With;
 use bitcoin::secp256k1::schnorr;
+use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
 use crate::builder::script::SpendPath;
@@ -13,7 +18,13 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::NormalSignatureKind;
+use crate::rpc::get_clients;
+use crate::servers::{
+    create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
+    create_watchtower_unix_server,
+};
 use crate::utils::initialize_logger;
+use crate::verifier::Verifier;
 use crate::{
     actor::Actor,
     builder,
@@ -29,7 +40,16 @@ use crate::{
 };
 use crate::{EVMAddress, UTXO};
 
-pub struct WithProcessCleanup(pub std::process::Child, ExtendedRpc, std::path::PathBuf);
+pub struct WithProcessCleanup(
+    /// Handle to the bitcoind process
+    pub Option<std::process::Child>,
+    /// RPC client
+    pub ExtendedRpc,
+    /// Path to the bitcoind debug log file
+    pub std::path::PathBuf,
+    /// Whether to wait indefinitely after test finishes before cleanup (for RPC debugging)
+    pub bool,
+);
 impl WithProcessCleanup {
     pub fn rpc(&self) -> &ExtendedRpc {
         &self.1
@@ -42,13 +62,37 @@ impl Drop for WithProcessCleanup {
             "Test bitcoin regtest logs can be found at: {}",
             self.2.display()
         );
-        let _ = self.0.kill();
+
+        if self.3 {
+            tracing::warn!(
+                "Suspending the test to allow inspection of bitcoind. Ctrl-C to exit. {}",
+                self.2.display()
+            );
+            std::thread::sleep(std::time::Duration::from_secs(u64::MAX));
+        }
+        if let Some(ref mut child) = self.0.take() {
+            let _ = child.kill();
+        }
     }
 }
 
-/// Creates a Bitcoin regtest node for testing, waits for it to start and returns an RPC.
-/// **Beware**: **Do not drop** returned value until the end of the test
-/// otherwise ExtendedRpc will fail to connect Bitcoind.
+/// Creates a Bitcoin regtest node for testing, waits for it to start and returns an RPC client.
+///
+/// # Environment Variables
+/// - `BITCOIN_RPC_DEBUG`: If set to a non-empty value, will use port 18443 and connect to an existing
+///   bitcoind instance when available.
+///
+/// # Returns
+/// Returns a `WithProcessCleanup` which contains:
+/// - The bitcoind process handle (if a new instance was started)
+/// - An RPC client connected to the node
+/// - Path to the debug log file
+/// - A flag indicating whether to pause before cleanup
+///
+/// # Important
+/// The returned value MUST NOT be dropped until the test is complete, as dropping it will terminate
+/// the bitcoind process and invalidate the RPC connection. The cleanup is handled automatically when
+/// the returned value is dropped.
 pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup {
     use bitcoincore_rpc::RpcApi;
     use tempfile::TempDir;
@@ -57,13 +101,33 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     let data_dir = TempDir::new()
         .expect("Failed to create temporary directory")
         .into_path();
+    let bitcoin_rpc_debug = std::env::var("BITCOIN_RPC_DEBUG").map(|d| !d.is_empty()) == Ok(true);
 
     // Get available ports for RPC
-    let rpc_port = get_available_port();
+    let rpc_port = if bitcoin_rpc_debug {
+        18443
+    } else {
+        get_available_port()
+    };
+
     config.bitcoin_rpc_url = format!("http://127.0.0.1:{}/wallet/admin", rpc_port);
 
+    if bitcoin_rpc_debug && TcpListener::bind(format!("127.0.0.1:{}", rpc_port)).is_err() {
+        // Bitcoind is already running on port 18443, use existing port.
+        return WithProcessCleanup(
+            None,
+            ExtendedRpc::connect(
+                "http://127.0.0.1:18443".into(),
+                config.bitcoin_rpc_user.clone(),
+                config.bitcoin_rpc_password.clone(),
+            )
+            .await
+            .unwrap(),
+            data_dir.join("debug.log"),
+            false, // no need to wait after test
+        );
+    }
     // Bitcoin node configuration
-
     // Construct args for bitcoind
     let args = vec![
         "-regtest".to_string(),
@@ -92,6 +156,10 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .stderr(std::process::Stdio::null())
         .spawn()
         .expect("Failed to start bitcoind");
+
+    if bitcoin_rpc_debug {
+        tracing::warn!("Bitcoind logs are available at {}", log_file_path);
+    }
 
     // Create RPC client
     let rpc_url = format!("http://127.0.0.1:{}", rpc_port);
@@ -126,7 +194,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .expect("Failed to get network info");
     tracing::info!("Using bitcoind version: {}", network_info.version);
 
-    // Create wallet
+    // // Create wallet
     client
         .client
         .create_wallet("admin", None, None, None, None)
@@ -145,7 +213,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .await
         .expect("Failed to generate blocks");
 
-    WithProcessCleanup(process, client.clone(), log_file)
+    WithProcessCleanup(Some(process), client.clone(), log_file, bitcoin_rpc_debug)
 }
 
 /// Creates a temporary database for testing, using current thread's name as the
@@ -240,14 +308,26 @@ pub async fn initialize_database(config: &BridgeConfig) {
         .expect("Failed to run schema script");
 }
 
+pub struct ActorsCleanup(
+    Vec<oneshot::Sender<()>>,
+    tempfile::TempDir,
+    WithProcessCleanup,
+);
+
+impl ActorsCleanup {
+    pub fn rpc(&self) -> &ExtendedRpc {
+        self.2.rpc()
+    }
+}
+
 /// Starts operators, verifiers, aggregator and watchtower servers.
 ///
-/// Depends on create_regtest_rpc and get_available_port! for dynamic port allocation.
+/// Uses Unix sockets with temporary files for communication between services.
 ///
 /// # Returns
 ///
-/// Returns a tuple of vectors of clients, handles, and addresses for the
-/// verifiers, operators, aggregator and watchtowers.
+/// Returns a tuple of vectors of clients, handles, and socket paths for the
+/// verifiers, operators, aggregator and watchtowers, along with shutdown channels.
 pub async fn create_actors(
     config: &BridgeConfig,
 ) -> (
@@ -255,7 +335,7 @@ pub async fn create_actors(
     Vec<ClementineOperatorClient<Channel>>,
     ClementineAggregatorClient<Channel>,
     Vec<ClementineWatchtowerClient<Channel>>,
-    WithProcessCleanup,
+    ActorsCleanup,
 ) {
     let regtest = create_regtest_rpc(&mut config.clone()).await;
     let rpc = regtest.rpc();
@@ -274,66 +354,89 @@ pub async fn create_actors(
             .unwrap_or_else(|| {
                 panic!("All secret keys of the watchtowers are required for testing");
             });
+
+    // Collect all shutdown channels
+    let mut shutdown_channels = Vec::new();
+
+    // Create temporary directory for Unix sockets
+    let socket_dir = tempfile::tempdir().expect("Failed to create temporary directory for sockets");
+
     let verifier_futures = all_verifiers_secret_keys
         .iter()
         .enumerate()
         .map(|(i, sk)| {
-            let port = get_available_port();
-            // println!("Port: {}", port);
+            let socket_path = socket_dir.path().join(format!("verifier_{}.sock", i));
             let i = i.to_string();
             let mut config_with_new_db = config.clone();
             async move {
                 config_with_new_db.db_name += &i;
                 initialize_database(&config_with_new_db).await;
 
-                let verifier = create_verifier_grpc_server(BridgeConfig {
-                    secret_key: *sk,
-                    port,
-                    ..config_with_new_db.clone()
-                })
+                let (socket_path, shutdown_tx) = create_verifier_unix_server(
+                    BridgeConfig {
+                        secret_key: *sk,
+                        ..config_with_new_db.clone()
+                    },
+                    socket_path,
+                )
                 .await?;
-                Ok::<((std::net::SocketAddr,), BridgeConfig), BridgeError>((
-                    verifier,
+
+                Ok::<((std::path::PathBuf, oneshot::Sender<()>), BridgeConfig), BridgeError>((
+                    (socket_path, shutdown_tx),
                     config_with_new_db,
                 ))
             }
         })
         .collect::<Vec<_>>();
+
     let verifier_results = futures::future::try_join_all(verifier_futures)
         .await
         .expect("Failed to join verifier futures");
-    let verifier_endpoints = verifier_results.iter().map(|(v, _)| *v).collect::<Vec<_>>();
-    let verifier_configs = verifier_results
-        .iter()
-        .map(|(_, c)| c.clone())
-        .collect::<Vec<_>>();
+
+    let (verifier_tmp, verifier_configs) =
+        verifier_results.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+    let (verifier_paths, verifier_shutdown_channels) =
+        verifier_tmp.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+
+    shutdown_channels.extend(verifier_shutdown_channels);
 
     let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the operators are required for testing");
     });
 
-    // Create futures for operator gRPC servers
+    // Create futures for operator Unix socket servers
     let operator_futures = all_operators_secret_keys
         .iter()
         .enumerate()
         .map(|(i, sk)| {
-            let port = get_available_port();
+            let socket_path = socket_dir.path().join(format!("operator_{}.sock", i));
             let verifier_config = verifier_configs[i].clone();
             async move {
-                let socket_addr = create_operator_grpc_server(BridgeConfig {
-                    secret_key: *sk,
-                    port,
-                    ..verifier_config
-                })
+                let (socket_path, shutdown_tx) = create_operator_unix_server(
+                    BridgeConfig {
+                        secret_key: *sk,
+                        ..verifier_config
+                    },
+                    socket_path,
+                )
                 .await?;
-                Ok::<(std::net::SocketAddr,), BridgeError>(socket_addr)
+
+                Ok::<(std::path::PathBuf, oneshot::Sender<()>), BridgeError>((
+                    socket_path,
+                    shutdown_tx,
+                ))
             }
         })
         .collect::<Vec<_>>();
 
-    let operator_endpoints = futures::future::try_join_all(operator_futures)
+    let operator_results = futures::future::try_join_all(operator_futures)
         .await
         .expect("Failed to join operator futures");
+
+    let (operator_paths, operator_shutdown_channels) =
+        operator_results.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+
+    shutdown_channels.extend(operator_shutdown_channels);
 
     let verifier_configs = verifier_configs.clone();
 
@@ -341,75 +444,107 @@ pub async fn create_actors(
         .iter()
         .enumerate()
         .map(|(i, sk)| {
-            let port = get_available_port();
-            println!("Watchtower {i} start port: {port}");
-            create_watchtower_grpc_server(BridgeConfig {
-                index: i as u32,
-                secret_key: *sk,
-                port,
-                ..verifier_configs[i].clone()
-            })
+            let socket_path = socket_dir.path().join(format!("watchtower_{}.sock", i));
+            create_watchtower_unix_server(
+                BridgeConfig {
+                    index: i as u32,
+                    secret_key: *sk,
+                    ..verifier_configs[i].clone()
+                },
+                socket_path,
+            )
         })
         .collect::<Vec<_>>();
 
-    let watchtower_endpoints = futures::future::try_join_all(watchtower_futures)
+    let watchtower_results = futures::future::try_join_all(watchtower_futures)
         .await
         .expect("Failed to join watchtower futures");
 
-    let port = get_available_port();
-    println!("Aggregator port: {}", port);
-    // + all_operators_secret_keys.len() as u16;
-    let aggregator = create_aggregator_grpc_server(BridgeConfig {
-        port,
-        verifier_endpoints: Some(
-            verifier_endpoints
-                .iter()
-                .map(|(socket_addr,)| format!("http://{}", socket_addr))
-                .collect(),
-        ),
-        operator_endpoints: Some(
-            operator_endpoints
-                .iter()
-                .map(|(socket_addr,)| format!("http://{}", socket_addr))
-                .collect(),
-        ),
-        watchtower_endpoints: Some(
-            watchtower_endpoints
-                .iter()
-                .map(|(socket_addr,)| format!("http://{}", socket_addr))
-                .collect(),
-        ),
-        ..verifier_configs[0].clone()
-    })
+    let (watchtower_paths, watchtower_shutdown_channels) = watchtower_results
+        .into_iter()
+        .unzip::<_, _, Vec<_>, Vec<_>>();
+
+    shutdown_channels.extend(watchtower_shutdown_channels);
+
+    let aggregator_socket_path = socket_dir.path().join("aggregator.sock");
+
+    let (aggregator_path, aggregator_shutdown_tx) = create_aggregator_unix_server(
+        BridgeConfig {
+            verifier_endpoints: Some(
+                verifier_paths
+                    .iter()
+                    .map(|path| format!("unix://{}", path.display()))
+                    .collect(),
+            ),
+            operator_endpoints: Some(
+                operator_paths
+                    .iter()
+                    .map(|path| format!("unix://{}", path.display()))
+                    .collect(),
+            ),
+            watchtower_endpoints: Some(
+                watchtower_paths
+                    .iter()
+                    .map(|path| format!("unix://{}", path.display()))
+                    .collect(),
+            ),
+            ..verifier_configs[0].clone()
+        },
+        aggregator_socket_path,
+    )
     .await
     .expect("Failed to create aggregator");
 
-    let verifiers =
-        futures_util::future::join_all(verifier_endpoints.iter().map(|verifier| async move {
-            ClementineVerifierClient::connect(format!("http://{}", verifier.0))
-                .await
-                .expect("Failed to connect to verifier")
-        }))
-        .await;
-    let operators =
-        futures_util::future::join_all(operator_endpoints.iter().map(|operator| async move {
-            ClementineOperatorClient::connect(format!("http://{}", operator.0))
-                .await
-                .expect("Failed to connect to operator")
-        }))
-        .await;
-    let aggregator = ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-        .await
-        .expect("Failed to connect to aggregator");
-    let watchtowers =
-        futures_util::future::join_all(watchtower_endpoints.iter().map(|watchtower| async move {
-            ClementineWatchtowerClient::connect(format!("http://{}", watchtower.0))
-                .await
-                .expect("Failed to connect to watchtower")
-        }))
-        .await;
+    // Add aggregator shutdown channel
+    shutdown_channels.push(aggregator_shutdown_tx);
 
-    (verifiers, operators, aggregator, watchtowers, regtest)
+    // Connect to the Unix socket servers
+    let verifiers = get_clients(
+        verifier_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineVerifierClient::new,
+    )
+    .await
+    .expect("could not connect to verifiers");
+
+    let operators = get_clients(
+        operator_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineOperatorClient::new,
+    )
+    .await
+    .expect("could not connect to operators");
+
+    let aggregator = get_clients(
+        vec![format!("unix://{}", aggregator_path.display())],
+        ClementineAggregatorClient::new,
+    )
+    .await
+    .expect("could not connect to aggregator")
+    .pop()
+    .expect("could not connect to aggregator");
+
+    let watchtowers = get_clients(
+        watchtower_paths
+            .iter()
+            .map(|path| format!("unix://{}", path.display()))
+            .collect::<Vec<_>>(),
+        ClementineWatchtowerClient::new,
+    )
+    .await
+    .expect("could not connect to watchtowers");
+
+    (
+        verifiers,
+        operators,
+        aggregator,
+        watchtowers,
+        ActorsCleanup(shutdown_channels, socket_dir, regtest),
+    )
 }
 
 /// Gets the the deposit address for the user.
@@ -424,7 +559,7 @@ pub fn get_deposit_address(
     let signer = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
-        config.network,
+        config.protocol_paramset().network,
     );
 
     let nofn_xonly_pk =
@@ -435,9 +570,9 @@ pub fn get_deposit_address(
         nofn_xonly_pk,
         signer.address.as_unchecked(),
         evm_address,
-        config.bridge_amount_sats,
-        config.network,
-        config.user_takes_after,
+        config.protocol_paramset().bridge_amount,
+        config.protocol_paramset().network,
+        config.protocol_paramset().user_takes_after,
     )
 }
 
@@ -459,7 +594,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     let signer = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
-        config.network,
+        config.protocol_paramset().network,
     );
 
     const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);

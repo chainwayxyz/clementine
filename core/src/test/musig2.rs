@@ -1,3 +1,4 @@
+use crate::bitvm_client::SECP;
 use crate::builder::script::{CheckSig, OtherSpendable, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
@@ -8,12 +9,11 @@ use crate::musig2::{
 };
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::test::common::*;
-use crate::utils::SECP;
 use crate::{
+    bitvm_client,
     builder::{self},
     config::BridgeConfig,
     musig2::{nonce_pair, partial_sign, MuSigNoncePair},
-    utils,
 };
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
@@ -78,9 +78,12 @@ async fn key_spend() {
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone()).unwrap();
 
     let (to_address, to_address_spend) =
-        builder::address::create_taproot_address(&[], None, config.network);
-    let (from_address, from_address_spend_info) =
-        builder::address::create_taproot_address(&[], Some(untweaked_xonly_pubkey), config.network);
+        builder::address::create_taproot_address(&[], None, config.protocol_paramset().network);
+    let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
+        &[],
+        Some(untweaked_xonly_pubkey),
+        config.protocol_paramset().network,
+    );
 
     let utxo = rpc
         .send_to_address(&from_address, Amount::from_sat(100_000_000))
@@ -176,14 +179,14 @@ async fn key_spend_with_script() {
     let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(OtherSpendable::new(dummy_script))];
 
     let (to_address, _to_address_spend) =
-        builder::address::create_taproot_address(&[], None, config.network);
+        builder::address::create_taproot_address(&[], None, config.protocol_paramset().network);
     let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
         &scripts
             .iter()
             .map(|a| a.to_script_buf())
             .collect::<Vec<_>>(),
         Some(untweaked_xonly_pubkey),
-        config.network,
+        config.protocol_paramset().network,
     );
 
     let utxo = rpc
@@ -284,7 +287,7 @@ async fn script_spend() {
 
     let to_address = bitcoin::Address::p2tr(
         &SECP,
-        *utils::UNSPENDABLE_XONLY_PUBKEY,
+        *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
         None,
         bitcoin::Network::Regtest,
     );
@@ -350,7 +353,7 @@ async fn script_spend() {
     )
     .unwrap();
 
-    utils::SECP
+    bitvm_client::SECP
         .verify_schnorr(&final_signature, &message, &agg_xonly_pubkey)
         .unwrap();
 
@@ -436,7 +439,7 @@ async fn key_and_script_spend() {
     // Doesn't matter
     let to_address = bitcoin::Address::p2pkh(
         PublicKey::from(bitcoin::secp256k1::PublicKey::from_x_only_public_key(
-            *utils::UNSPENDABLE_XONLY_PUBKEY,
+            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
             key::Parity::Even,
         )),
         Regtest,
@@ -557,7 +560,7 @@ async fn key_and_script_spend() {
     // -- Verify Script Spend --
     // Verify signature for script spend
     // The script will verify the aggregate public key with the signature of sighash_1
-    utils::SECP
+    bitvm_client::SECP
         .verify_schnorr(&final_signature_1, &sighash_1, &agg_pk)
         .unwrap();
 
@@ -580,7 +583,7 @@ async fn key_and_script_spend() {
     // Verify signature for key spend
     // The key will verify the aggregate public key with the signature of sighash_2
     // The signature should be valid with the tweaked aggregate public key
-    utils::SECP
+    bitvm_client::SECP
         .verify_schnorr(&final_signature_2, &sighash_2, &agg_pk_tweaked)
         .unwrap();
 

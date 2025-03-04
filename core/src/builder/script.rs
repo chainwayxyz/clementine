@@ -5,18 +5,17 @@
 // Currently generate_witness functions are not yet used.
 #![allow(dead_code)]
 
-use crate::constants::WINTERNITZ_LOG_D;
-use crate::{utils, EVMAddress};
+use crate::EVMAddress;
+use bitcoin::hashes::{hash160, Hash};
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::schnorr;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
     ScriptBuf, XOnlyPublicKey,
 };
-use bitcoin::{Amount, Witness};
-use bitvm::signatures::winternitz::SecretKey;
+use bitcoin::{taproot, Amount, Witness};
+use bitvm::signatures::winternitz::{self, SecretKey};
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
@@ -109,7 +108,7 @@ impl SpendableScript for CheckSig {
 }
 
 impl CheckSig {
-    pub fn generate_script_inputs(&self, signature: &schnorr::Signature) -> Witness {
+    pub fn generate_script_inputs(&self, signature: &taproot::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
 
@@ -122,7 +121,12 @@ impl CheckSig {
 /// Contains the Winternitz PK, CheckSig PK, message length respectively
 /// can contain multiple different Winternitz public keys for different messages
 #[derive(Clone)]
-pub struct WinternitzCommit(Vec<(PublicKey, u32)>, pub(crate) XOnlyPublicKey);
+pub struct WinternitzCommit {
+    commitments: Vec<(PublicKey, u32)>,
+    pub(crate) checksig_pubkey: XOnlyPublicKey,
+    log_d: u32,
+}
+
 impl SpendableScript for WinternitzCommit {
     fn as_any(&self) -> &dyn Any {
         self
@@ -133,10 +137,8 @@ impl SpendableScript for WinternitzCommit {
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
-        let winternitz_pubkey = &self.0;
-        let xonly_pubkey = self.1;
         let mut total_script = ScriptBuf::new();
-        for (index, (pubkey, size)) in winternitz_pubkey.iter().enumerate() {
+        for (index, (pubkey, size)) in self.commitments.iter().enumerate() {
             let params = self.get_params(index);
             let mut a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
                 .checksig_verify(&params, pubkey);
@@ -146,7 +148,7 @@ impl SpendableScript for WinternitzCommit {
             total_script.extend(a.compile().instructions().map(|x| x.expect("just created")));
         }
 
-        total_script.push_slice(xonly_pubkey.serialize());
+        total_script.push_slice(self.checksig_pubkey.serialize());
         total_script.push_opcode(OP_CHECKSIG);
         total_script
     }
@@ -154,16 +156,24 @@ impl SpendableScript for WinternitzCommit {
 
 impl WinternitzCommit {
     pub fn get_params(&self, index: usize) -> Parameters {
-        Parameters::new(self.0[index].1, WINTERNITZ_LOG_D)
+        Parameters::new(self.commitments[index].1, self.log_d)
     }
+
     pub fn generate_script_inputs(
         &self,
         commit_data: &[(Vec<u8>, SecretKey)],
-        signature: &schnorr::Signature,
+        signature: &taproot::Signature,
     ) -> Witness {
         let mut witness = Witness::new();
         witness.push(signature.serialize());
         for (index, (data, secret_key)) in commit_data.iter().enumerate().rev() {
+            #[cfg(debug_assertions)]
+            {
+                let pk = winternitz::generate_public_key(&self.get_params(index), secret_key);
+                if pk != self.commitments[index].0 {
+                    tracing::error!("Winternitz public key mismatch");
+                }
+            }
             bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
                 .sign(&self.get_params(index), secret_key, data)
                 .into_iter()
@@ -172,9 +182,17 @@ impl WinternitzCommit {
         witness
     }
 
-    /// winternitz_params is a Vec winternitz public key and message length tuple
-    pub fn new(winternitz_params: Vec<(PublicKey, u32)>, xonly_pubkey: XOnlyPublicKey) -> Self {
-        Self(winternitz_params, xonly_pubkey)
+    /// commitments is a Vec of winternitz public key and message length tuple
+    pub fn new(
+        commitments: Vec<(PublicKey, u32)>,
+        checksig_pubkey: XOnlyPublicKey,
+        log_d: u32,
+    ) -> Self {
+        Self {
+            commitments,
+            checksig_pubkey,
+            log_d,
+        }
     }
 }
 
@@ -219,7 +237,7 @@ impl SpendableScript for TimelockScript {
 }
 
 impl TimelockScript {
-    pub fn generate_script_inputs(&self, signature: Option<&schnorr::Signature>) -> Witness {
+    pub fn generate_script_inputs(&self, signature: Option<&taproot::Signature>) -> Witness {
         match signature {
             Some(sig) => Witness::from_slice(&[sig.serialize()]),
             None => Witness::default(),
@@ -258,9 +276,16 @@ impl PreimageRevealScript {
     pub fn generate_script_inputs(
         &self,
         preimage: impl AsRef<[u8]>,
-        signature: &schnorr::Signature,
+        signature: &taproot::Signature,
     ) -> Witness {
         let mut witness = Witness::new();
+        #[cfg(debug_assertions)]
+        assert_eq!(
+            hash160::Hash::hash(preimage.as_ref()),
+            hash160::Hash::from_byte_array(self.1),
+            "Preimage does not match"
+        );
+
         witness.push(signature.serialize());
         witness.push(preimage.as_ref());
         witness
@@ -301,7 +326,7 @@ impl SpendableScript for DepositScript {
 }
 
 impl DepositScript {
-    pub fn generate_script_inputs(&self, signature: &schnorr::Signature) -> Witness {
+    pub fn generate_script_inputs(&self, signature: &taproot::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
 
@@ -325,7 +350,7 @@ impl SpendableScript for WithdrawalScript {
     fn to_script_buf(&self) -> ScriptBuf {
         let mut push_bytes = PushBytesBuf::new();
         push_bytes
-            .extend_from_slice(&utils::usize_to_var_len_bytes(self.0))
+            .extend_from_slice(&crate::utils::usize_to_var_len_bytes(self.0))
             .expect("Not possible to panic while adding a 4 to 8 bytes of slice");
 
         Builder::new()
@@ -363,8 +388,9 @@ fn get_script_from_arr<T: SpendableScript>(
 #[cfg(test)]
 mod tests {
     use crate::actor::{Actor, WinternitzDerivationPath};
+    use crate::bitvm_client;
+    use crate::config::protocol::ProtocolParamsetName;
     use crate::extended_rpc::ExtendedRpc;
-    use crate::utils;
     use std::sync::Arc;
 
     use super::*;
@@ -377,7 +403,7 @@ mod tests {
     // Note: These values are not cryptographically secure and are only used for tests.
     fn dummy_xonly() -> XOnlyPublicKey {
         // 32 bytes array filled with 0x03.
-        *utils::UNSPENDABLE_XONLY_PUBKEY
+        *bitvm_client::UNSPENDABLE_XONLY_PUBKEY
     }
 
     fn dummy_scriptbuf() -> ScriptBuf {
@@ -385,7 +411,7 @@ mod tests {
     }
 
     fn dummy_pubkey() -> PublicKey {
-        *utils::UNSPENDABLE_PUBKEY
+        *bitvm_client::UNSPENDABLE_PUBKEY
     }
 
     fn dummy_params() -> Parameters {
@@ -406,6 +432,7 @@ mod tests {
             Box::new(WinternitzCommit::new(
                 vec![(vec![[0u8; 20]; 32], 32)],
                 dummy_xonly(),
+                4,
             )),
             Box::new(TimelockScript::new(Some(dummy_xonly()), 10)),
             Box::new(PreimageRevealScript::new(dummy_xonly(), [0; 20])),
@@ -442,10 +469,10 @@ mod tests {
 
     #[test]
     fn test_dynamic_casting() {
-        use crate::utils;
+        use crate::bitvm_client;
         let scripts: Vec<Box<dyn SpendableScript>> = vec![
             Box::new(OtherSpendable(ScriptBuf::from_hex("51").expect(""))),
-            Box::new(CheckSig(*utils::UNSPENDABLE_XONLY_PUBKEY)),
+            Box::new(CheckSig(*bitvm_client::UNSPENDABLE_XONLY_PUBKEY)),
         ];
 
         let otherspendable = scripts
@@ -469,6 +496,7 @@ mod tests {
                 Arc::new(WinternitzCommit::new(
                     vec![(vec![[0u8; 20]; 32], 32)],
                     dummy_xonly(),
+                    4,
                 )),
             ),
             (
@@ -504,11 +532,11 @@ mod tests {
         }
     }
     // Tests for the spendability of all scripts
+    use crate::bitvm_client::SECP;
     use crate::builder;
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use crate::utils::SECP;
     use bitcoin::{Amount, Sequence, TxOut, Txid};
 
     async fn create_taproot_test_tx(
@@ -620,8 +648,13 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let derivation =
-            WinternitzDerivationPath::BitvmAssert(64, "x".to_string(), Txid::all_zeros());
+        let derivation = WinternitzDerivationPath::BitvmAssert(
+            64,
+            3,
+            0,
+            Txid::all_zeros(),
+            ProtocolParamsetName::Regtest.into(),
+        );
 
         let signer = Actor::new(
             kp.secret_key(),
@@ -637,6 +670,7 @@ mod tests {
                 64,
             )],
             xonly_pk,
+            4,
         ));
 
         let scripts = vec![script];

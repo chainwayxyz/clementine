@@ -61,9 +61,21 @@ impl ClementineVerifier for Verifier {
 
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
-        for _ in 0..self.config.num_kickoffs_per_round * (self.config.num_round_txs + 1) {
+        for _ in 0..self.config.get_num_kickoff_winternitz_pks() {
             operator_kickoff_winternitz_public_keys
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
+        }
+
+        let mut unspent_kickoff_sigs =
+            Vec::with_capacity(self.config.get_num_unspent_kickoff_sigs());
+        for _ in 0..self.config.get_num_unspent_kickoff_sigs() {
+            unspent_kickoff_sigs.push(parser::operator::parse_schnorr_sig(&mut in_stream).await?);
+        }
+
+        if in_stream.message().await?.is_some() {
+            return Err(Status::invalid_argument(
+                "Expected end of stream, got more messages in set_operator",
+            ));
         }
 
         self.set_operator(
@@ -72,6 +84,7 @@ impl ClementineVerifier for Verifier {
             operator_xonly_pk,
             wallet_reimburse_address,
             operator_kickoff_winternitz_public_keys,
+            unspent_kickoff_sigs,
         )
         .await?;
 
@@ -406,7 +419,7 @@ impl ClementineVerifier for Verifier {
                 .into_iter()
                 .map(|(tx_type, signed_tx)| SignedTxWithType {
                     transaction_type: Some(tx_type.into()),
-                    raw_tx: signed_tx.raw_tx,
+                    raw_tx: bitcoin::consensus::serialize(&signed_tx),
                 })
                 .collect(),
         }))

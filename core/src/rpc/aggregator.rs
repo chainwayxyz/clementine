@@ -3,14 +3,16 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::{create_move_to_vault_txhandler, TxHandler};
+use crate::builder::transaction::{
+    create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
+};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::error::output_stream_ended_prematurely;
 use crate::rpc::parser;
-use crate::tx_sender::FeePayingType;
+use crate::tx_sender::{FeePayingType, TxDataForLogging};
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -407,12 +409,12 @@ impl Aggregator {
         Ok(operator_sigs)
     }
 
-    async fn create_movetx_check_sig(
+    async fn send_movetx(
         &self,
         partial_sigs: Vec<Vec<u8>>,
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
-    ) -> Result<TxHandler, Status> {
+    ) -> Result<TxHandler<Signed>, Status> {
         let deposit_data = parser::parse_deposit_params(deposit_params)?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
@@ -422,10 +424,11 @@ impl Aggregator {
             deposit_data.evm_address,
             &deposit_data.recovery_taproot_address,
             self.nofn_xonly_pk,
-            self.config.user_takes_after,
-            self.config.bridge_amount_sats,
-            self.config.network,
+            self.config.protocol_paramset().user_takes_after,
+            self.config.protocol_paramset().bridge_amount,
+            self.config.protocol_paramset().network,
         )?;
+
         let sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
             0,
@@ -449,15 +452,30 @@ impl Aggregator {
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(&mut dbtx, move_tx, FeePayingType::CPFP, &[], &[], &[], &[])
+            .try_to_send(
+                &mut dbtx,
+                Some(TxDataForLogging {
+                    deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    operator_idx: None,
+                    verifier_idx: None,
+                    round_idx: None,
+                    kickoff_idx: None,
+                    tx_type: TransactionType::MoveToVault,
+                }),
+                move_tx,
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
             .await?;
         dbtx.commit()
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
 
-        // everything is fine, return the signed move tx
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
-        Ok(move_txhandler)
+        Ok(move_txhandler.promote()?)
     }
 }
 
@@ -653,9 +671,10 @@ impl ClementineAggregator for Aggregator {
         request: Request<DepositParams>,
     ) -> Result<Response<clementine::Txid>, Status> {
         let deposit_params = request.into_inner();
-
         // Collect and distribute keys needed keys from operators and watchtowers to verifiers
+        let start = std::time::Instant::now();
         self.collect_and_distribute_keys(&deposit_params).await?;
+        tracing::info!("Collected and distributed keys in {:?}", start.elapsed());
 
         // Generate nonce streams for all verifiers.
         let num_required_sigs = self.config.get_num_required_nofn_sigs();
@@ -710,6 +729,8 @@ impl ClementineAggregator for Aggregator {
             },
         ))
         .await?;
+
+        tracing::error!("Sending deposit finalize streams to verifiers");
 
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
@@ -788,10 +809,14 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!(
             "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
         );
+
+        tracing::error!("Waiting for pipeline tasks to complete");
         // Wait for all pipeline tasks to complete
         try_join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle])
             .await
             .map_err(|_| Status::internal("panic when pipelining"))?;
+
+        tracing::error!("Pipeline tasks completed");
 
         // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
         // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
@@ -846,7 +871,7 @@ impl ClementineAggregator for Aggregator {
         // Create the final move transaction and check the signatures
         let movetx_agg_nonce = nonce_agg_handle.await?;
         let signed_movetx_handler = self
-            .create_movetx_check_sig(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
+            .send_movetx(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
             .await?;
         let txid = *signed_movetx_handler.get_txid();
 
@@ -935,7 +960,7 @@ mod tests {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
-            config.network,
+            config.protocol_paramset().network,
         );
 
         let nofn_xonly_pk =
@@ -946,15 +971,15 @@ mod tests {
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.bridge_amount_sats,
-            config.network,
-            config.user_takes_after,
+            config.protocol_paramset().bridge_amount,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
         )
         .unwrap()
         .0;
 
         let deposit_outpoint = rpc
-            .send_to_address(&deposit_address, config.bridge_amount_sats)
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
             .await
             .unwrap();
         rpc.mine_blocks(18).await.unwrap();

@@ -141,7 +141,7 @@ pub struct OperatorConfig {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorParams {
-    #[prost(oneof = "operator_params::Response", tags = "1, 2")]
+    #[prost(oneof = "operator_params::Response", tags = "1, 2, 3")]
     pub response: ::core::option::Option<operator_params::Response>,
 }
 /// Nested message and enum types in `OperatorParams`.
@@ -154,6 +154,9 @@ pub mod operator_params {
         /// Winternitz pubkeys for each kickoff utxo (to commit blockhash).
         #[prost(message, tag = "2")]
         WinternitzPubkeys(super::WinternitzPubkey),
+        /// unspent kickoff signatures
+        #[prost(message, tag = "3")]
+        UnspentKickoffSig(super::SchnorrSig),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -184,31 +187,32 @@ pub struct OperatorKeys {
     pub challenge_ack_digests: ::prost::alloc::vec::Vec<ChallengeAckDigest>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OperatorBurnSig {
+pub struct SchnorrSig {
     #[prost(bytes = "vec", tag = "1")]
     pub schnorr_sig: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NewWithdrawalSigParams {
+pub struct WithdrawParams {
+    /// The ID of the withdrawal in Citrea
     #[prost(uint32, tag = "1")]
     pub withdrawal_id: u32,
     /// User's \[`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`\]
     /// signature
     #[prost(bytes = "vec", tag = "2")]
-    pub user_sig: ::prost::alloc::vec::Vec<u8>,
+    pub input_signature: ::prost::alloc::vec::Vec<u8>,
+    /// User's UTXO to claim the deposit
     #[prost(message, optional, tag = "3")]
-    pub users_intent_outpoint: ::core::option::Option<Outpoint>,
+    pub input_outpoint: ::core::option::Option<Outpoint>,
+    /// The withdrawal output's script_pubkey (user's signature is only valid for this pubkey)
     #[prost(bytes = "vec", tag = "4")]
-    pub users_intent_script_pubkey: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "5")]
-    pub users_intent_amount: u64,
-    #[prost(bytes = "vec", tag = "6")]
     pub output_script_pubkey: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint64, tag = "7")]
+    /// The withdrawal output's amount (user's signature is only valid for this amount)
+    #[prost(uint64, tag = "5")]
     pub output_amount: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NewWithdrawalSigResponse {
+pub struct WithdrawResponse {
+    /// The withdrawal transaction's txid
     #[prost(bytes = "vec", tag = "1")]
     pub txid: ::prost::alloc::vec::Vec<u8>,
 }
@@ -216,6 +220,13 @@ pub struct NewWithdrawalSigResponse {
 pub struct WithdrawalFinalizedParams {
     #[prost(uint32, tag = "1")]
     pub withdrawal_id: u32,
+    #[prost(message, optional, tag = "2")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FinalizedPayoutParams {
+    #[prost(bytes = "vec", tag = "1")]
+    pub payout_blockhash: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag = "2")]
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
 }
@@ -356,18 +367,18 @@ pub enum NormalSignatureKind {
     /// by the operator on the fly.
     OperatorSighashDefault = 1,
     Challenge = 2,
-    WatchtowerChallengeKickoff = 3,
-    DisproveTimeout2 = 4,
-    Disprove2 = 5,
-    Reimburse1 = 6,
-    KickoffNotFinalized1 = 7,
-    KickoffNotFinalized2 = 8,
-    Reimburse2 = 9,
-    NoSignature = 10,
-    ChallengeTimeout2 = 11,
-    MiniAssert1 = 12,
-    OperatorChallengeAck1 = 13,
-    NotStored = 14,
+    DisproveTimeout2 = 3,
+    Disprove2 = 4,
+    Reimburse1 = 5,
+    KickoffNotFinalized1 = 6,
+    KickoffNotFinalized2 = 7,
+    Reimburse2 = 8,
+    NoSignature = 9,
+    ChallengeTimeout2 = 10,
+    MiniAssert1 = 11,
+    OperatorChallengeAck1 = 12,
+    NotStored = 13,
+    WatchtowerChallenge1 = 14,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -379,7 +390,6 @@ impl NormalSignatureKind {
             Self::NormalSignatureUnknown => "NormalSignatureUnknown",
             Self::OperatorSighashDefault => "OperatorSighashDefault",
             Self::Challenge => "Challenge",
-            Self::WatchtowerChallengeKickoff => "WatchtowerChallengeKickoff",
             Self::DisproveTimeout2 => "DisproveTimeout2",
             Self::Disprove2 => "Disprove2",
             Self::Reimburse1 => "Reimburse1",
@@ -391,6 +401,7 @@ impl NormalSignatureKind {
             Self::MiniAssert1 => "MiniAssert1",
             Self::OperatorChallengeAck1 => "OperatorChallengeAck1",
             Self::NotStored => "NotStored",
+            Self::WatchtowerChallenge1 => "WatchtowerChallenge1",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -399,7 +410,6 @@ impl NormalSignatureKind {
             "NormalSignatureUnknown" => Some(Self::NormalSignatureUnknown),
             "OperatorSighashDefault" => Some(Self::OperatorSighashDefault),
             "Challenge" => Some(Self::Challenge),
-            "WatchtowerChallengeKickoff" => Some(Self::WatchtowerChallengeKickoff),
             "DisproveTimeout2" => Some(Self::DisproveTimeout2),
             "Disprove2" => Some(Self::Disprove2),
             "Reimburse1" => Some(Self::Reimburse1),
@@ -411,6 +421,7 @@ impl NormalSignatureKind {
             "MiniAssert1" => Some(Self::MiniAssert1),
             "OperatorChallengeAck1" => Some(Self::OperatorChallengeAck1),
             "NotStored" => Some(Self::NotStored),
+            "WatchtowerChallenge1" => Some(Self::WatchtowerChallenge1),
             _ => None,
         }
     }
@@ -433,6 +444,8 @@ pub enum NumberedSignatureKind {
     AssertTimeout3 = 7,
     UnspentKickoff1 = 8,
     UnspentKickoff2 = 9,
+    WatchtowerChallengeTimeout1 = 10,
+    WatchtowerChallengeTimeout2 = 11,
 }
 impl NumberedSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -451,6 +464,8 @@ impl NumberedSignatureKind {
             Self::AssertTimeout3 => "AssertTimeout3",
             Self::UnspentKickoff1 => "UnspentKickoff1",
             Self::UnspentKickoff2 => "UnspentKickoff2",
+            Self::WatchtowerChallengeTimeout1 => "WatchtowerChallengeTimeout1",
+            Self::WatchtowerChallengeTimeout2 => "WatchtowerChallengeTimeout2",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -466,6 +481,8 @@ impl NumberedSignatureKind {
             "AssertTimeout3" => Some(Self::AssertTimeout3),
             "UnspentKickoff1" => Some(Self::UnspentKickoff1),
             "UnspentKickoff2" => Some(Self::UnspentKickoff2),
+            "WatchtowerChallengeTimeout1" => Some(Self::WatchtowerChallengeTimeout1),
+            "WatchtowerChallengeTimeout2" => Some(Self::WatchtowerChallengeTimeout2),
             _ => None,
         }
     }
@@ -479,15 +496,15 @@ pub enum NormalTransactionId {
     MoveToVault = 3,
     Payout = 4,
     Challenge = 5,
-    WatchtowerChallengeKickoff = 6,
-    Disprove = 7,
-    DisproveTimeout = 8,
-    Reimburse = 9,
-    AllNeededForDeposit = 10,
-    Dummy = 11,
-    ReadyToReimburse = 12,
-    KickoffNotFinalized = 13,
-    ChallengeTimeout = 14,
+    Disprove = 6,
+    DisproveTimeout = 7,
+    Reimburse = 8,
+    AllNeededForDeposit = 9,
+    Dummy = 10,
+    ReadyToReimburse = 11,
+    KickoffNotFinalized = 12,
+    ChallengeTimeout = 13,
+    BurnUnusedKickoffConnectors = 14,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -502,7 +519,6 @@ impl NormalTransactionId {
             Self::MoveToVault => "MOVE_TO_VAULT",
             Self::Payout => "PAYOUT",
             Self::Challenge => "CHALLENGE",
-            Self::WatchtowerChallengeKickoff => "WATCHTOWER_CHALLENGE_KICKOFF",
             Self::Disprove => "DISPROVE",
             Self::DisproveTimeout => "DISPROVE_TIMEOUT",
             Self::Reimburse => "REIMBURSE",
@@ -511,6 +527,7 @@ impl NormalTransactionId {
             Self::ReadyToReimburse => "READY_TO_REIMBURSE",
             Self::KickoffNotFinalized => "KICKOFF_NOT_FINALIZED",
             Self::ChallengeTimeout => "CHALLENGE_TIMEOUT",
+            Self::BurnUnusedKickoffConnectors => "BURN_UNUSED_KICKOFF_CONNECTORS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -522,7 +539,6 @@ impl NormalTransactionId {
             "MOVE_TO_VAULT" => Some(Self::MoveToVault),
             "PAYOUT" => Some(Self::Payout),
             "CHALLENGE" => Some(Self::Challenge),
-            "WATCHTOWER_CHALLENGE_KICKOFF" => Some(Self::WatchtowerChallengeKickoff),
             "DISPROVE" => Some(Self::Disprove),
             "DISPROVE_TIMEOUT" => Some(Self::DisproveTimeout),
             "REIMBURSE" => Some(Self::Reimburse),
@@ -531,6 +547,7 @@ impl NormalTransactionId {
             "READY_TO_REIMBURSE" => Some(Self::ReadyToReimburse),
             "KICKOFF_NOT_FINALIZED" => Some(Self::KickoffNotFinalized),
             "CHALLENGE_TIMEOUT" => Some(Self::ChallengeTimeout),
+            "BURN_UNUSED_KICKOFF_CONNECTORS" => Some(Self::BurnUnusedKickoffConnectors),
             _ => None,
         }
     }
@@ -545,6 +562,7 @@ pub enum NumberedTransactionType {
     AssertTimeout = 4,
     UnspentKickoff = 5,
     MiniAssert = 6,
+    WatchtowerChallengeTimeout = 7,
 }
 impl NumberedTransactionType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -562,6 +580,7 @@ impl NumberedTransactionType {
             Self::AssertTimeout => "ASSERT_TIMEOUT",
             Self::UnspentKickoff => "UNSPENT_KICKOFF",
             Self::MiniAssert => "MINI_ASSERT",
+            Self::WatchtowerChallengeTimeout => "WATCHTOWER_CHALLENGE_TIMEOUT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -576,6 +595,7 @@ impl NumberedTransactionType {
             "ASSERT_TIMEOUT" => Some(Self::AssertTimeout),
             "UNSPENT_KICKOFF" => Some(Self::UnspentKickoff),
             "MINI_ASSERT" => Some(Self::MiniAssert),
+            "WATCHTOWER_CHALLENGE_TIMEOUT" => Some(Self::WatchtowerChallengeTimeout),
             _ => None,
         }
     }
@@ -820,7 +840,7 @@ pub mod clementine_operator_client {
             &mut self,
             request: impl tonic::IntoRequest<super::DepositSignSession>,
         ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::OperatorBurnSig>>,
+            tonic::Response<tonic::codec::Streaming<super::SchnorrSig>>,
             tonic::Status,
         > {
             self.inner
@@ -840,13 +860,13 @@ pub mod clementine_operator_client {
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "DepositSign"));
             self.inner.server_streaming(req, path, codec).await
         }
-        /// Prepares a withdrawal if it's profitable and previous round_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current round_tx.
-        pub async fn new_withdrawal_sig(
+        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
+        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+        pub async fn withdraw(
             &mut self,
-            request: impl tonic::IntoRequest<super::NewWithdrawalSigParams>,
+            request: impl tonic::IntoRequest<super::WithdrawParams>,
         ) -> std::result::Result<
-            tonic::Response<super::NewWithdrawalSigResponse>,
+            tonic::Response<super::WithdrawResponse>,
             tonic::Status,
         > {
             self.inner
@@ -859,13 +879,11 @@ pub mod clementine_operator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineOperator/NewWithdrawalSig",
+                "/clementine.ClementineOperator/Withdraw",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("clementine.ClementineOperator", "NewWithdrawalSig"),
-                );
+                .insert(GrpcMethod::new("clementine.ClementineOperator", "Withdraw"));
             self.inner.unary(req, path, codec).await
         }
         /// Checks if a withdrawal is finalized.
@@ -903,6 +921,55 @@ pub mod clementine_operator_client {
                         "clementine.ClementineOperator",
                         "WithdrawalFinalized",
                     ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn internal_finalized_payout(
+            &mut self,
+            request: impl tonic::IntoRequest<super::FinalizedPayoutParams>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/InternalFinalizedPayout",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineOperator",
+                        "InternalFinalizedPayout",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn internal_end_round(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/InternalEndRound",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineOperator", "InternalEndRound"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1664,7 +1731,7 @@ pub mod clementine_operator_server {
         ) -> std::result::Result<tonic::Response<Self::GetParamsStream>, tonic::Status>;
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::OperatorBurnSig, tonic::Status>,
+                Item = std::result::Result<super::SchnorrSig, tonic::Status>,
             >
             + std::marker::Send
             + 'static;
@@ -1685,13 +1752,13 @@ pub mod clementine_operator_server {
             tonic::Response<Self::DepositSignStream>,
             tonic::Status,
         >;
-        /// Prepares a withdrawal if it's profitable and previous round_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current round_tx.
-        async fn new_withdrawal_sig(
+        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
+        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
+        async fn withdraw(
             &self,
-            request: tonic::Request<super::NewWithdrawalSigParams>,
+            request: tonic::Request<super::WithdrawParams>,
         ) -> std::result::Result<
-            tonic::Response<super::NewWithdrawalSigResponse>,
+            tonic::Response<super::WithdrawResponse>,
             tonic::Status,
         >;
         /// Checks if a withdrawal is finalized.
@@ -1709,6 +1776,14 @@ pub mod clementine_operator_server {
         async fn withdrawal_finalized(
             &self,
             request: tonic::Request<super::WithdrawalFinalizedParams>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        async fn internal_finalized_payout(
+            &self,
+            request: tonic::Request<super::FinalizedPayoutParams>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        async fn internal_end_round(
+            &self,
+            request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     /// An operator is responsible for paying withdrawals. It has an unique ID and
@@ -1990,7 +2065,7 @@ pub mod clementine_operator_server {
                         T: ClementineOperator,
                     > tonic::server::ServerStreamingService<super::DepositSignSession>
                     for DepositSignSvc<T> {
-                        type Response = super::OperatorBurnSig;
+                        type Response = super::SchnorrSig;
                         type ResponseStream = T::DepositSignStream;
                         type Future = BoxFuture<
                             tonic::Response<Self::ResponseStream>,
@@ -2030,29 +2105,25 @@ pub mod clementine_operator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineOperator/NewWithdrawalSig" => {
+                "/clementine.ClementineOperator/Withdraw" => {
                     #[allow(non_camel_case_types)]
-                    struct NewWithdrawalSigSvc<T: ClementineOperator>(pub Arc<T>);
+                    struct WithdrawSvc<T: ClementineOperator>(pub Arc<T>);
                     impl<
                         T: ClementineOperator,
-                    > tonic::server::UnaryService<super::NewWithdrawalSigParams>
-                    for NewWithdrawalSigSvc<T> {
-                        type Response = super::NewWithdrawalSigResponse;
+                    > tonic::server::UnaryService<super::WithdrawParams>
+                    for WithdrawSvc<T> {
+                        type Response = super::WithdrawResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::NewWithdrawalSigParams>,
+                            request: tonic::Request<super::WithdrawParams>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineOperator>::new_withdrawal_sig(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
+                                <T as ClementineOperator>::withdraw(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -2063,7 +2134,7 @@ pub mod clementine_operator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = NewWithdrawalSigSvc(inner);
+                        let method = WithdrawSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -2113,6 +2184,102 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = WithdrawalFinalizedSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/InternalFinalizedPayout" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalFinalizedPayoutSvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<
+                        T: ClementineOperator,
+                    > tonic::server::UnaryService<super::FinalizedPayoutParams>
+                    for InternalFinalizedPayoutSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::FinalizedPayoutParams>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::internal_finalized_payout(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalFinalizedPayoutSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/InternalEndRound" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalEndRoundSvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty>
+                    for InternalEndRoundSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::internal_end_round(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalEndRoundSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

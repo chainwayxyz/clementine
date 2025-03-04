@@ -5,16 +5,16 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use super::script::SpendPath;
 use super::script::{CheckSig, DepositScript, TimelockScript};
-pub use crate::builder::transaction::challenge::*;
-pub use crate::builder::transaction::creator::{create_txhandlers, ReimburseDbCache};
+use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
-pub use crate::builder::transaction::operator_assert::*;
-pub use crate::builder::transaction::operator_collateral::*;
-pub use crate::builder::transaction::operator_reimburse::*;
+use crate::builder::transaction::operator_assert::*;
+use crate::builder::transaction::operator_collateral::*;
+use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
-pub use crate::builder::transaction::txhandler::*;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::grpc_transaction_id;
@@ -28,6 +28,16 @@ use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
 use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
+
+// Exports to the outside
+pub use crate::builder::transaction::txhandler::*;
+pub use creator::{
+    create_round_txhandlers, create_txhandlers, KickoffWinternitzKeys, ReimburseDbCache,
+};
+pub use operator_collateral::{
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+};
+pub use operator_reimburse::create_payout_txhandler;
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -61,7 +71,7 @@ pub struct OperatorData {
 
 /// Types of all transactions that can be created. Some transactions have an (usize) to as they are created
 /// multiple times per kickoff.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum TransactionType {
     Round,
     Kickoff,
@@ -69,7 +79,7 @@ pub enum TransactionType {
     Payout,
     Challenge,
     UnspentKickoff(usize),
-    WatchtowerChallengeKickoff,
+    WatchtowerChallengeTimeout(usize),
     WatchtowerChallenge(usize),
     OperatorChallengeNack(usize),
     OperatorChallengeAck(usize),
@@ -83,6 +93,7 @@ pub enum TransactionType {
     ReadyToReimburse,
     KickoffNotFinalized,
     ChallengeTimeout,
+    BurnUnusedKickoffConnectors,
 }
 
 // converter from proto type to rust enum
@@ -102,7 +113,6 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::MoveToVault => Ok(Self::MoveToVault),
                     Normal::Payout => Ok(Self::Payout),
                     Normal::Challenge => Ok(Self::Challenge),
-                    Normal::WatchtowerChallengeKickoff => Ok(Self::WatchtowerChallengeKickoff),
                     Normal::Disprove => Ok(Self::Disprove),
                     Normal::DisproveTimeout => Ok(Self::DisproveTimeout),
                     Normal::Reimburse => Ok(Self::Reimburse),
@@ -112,6 +122,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::KickoffNotFinalized => Ok(Self::KickoffNotFinalized),
                     Normal::ChallengeTimeout => Ok(Self::ChallengeTimeout),
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
+                    Normal::BurnUnusedKickoffConnectors => Ok(Self::BurnUnusedKickoffConnectors),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -132,9 +143,10 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Numbered::UnspentKickoff => {
                         Ok(Self::UnspentKickoff(transaction_id.index as usize))
                     }
-                    NumberedTransactionType::MiniAssert => {
-                        Ok(Self::MiniAssert(transaction_id.index as usize))
-                    }
+                    Numbered::MiniAssert => Ok(Self::MiniAssert(transaction_id.index as usize)),
+                    Numbered::WatchtowerChallengeTimeout => Ok(Self::WatchtowerChallengeTimeout(
+                        transaction_id.index as usize,
+                    )),
                     Numbered::UnspecifiedIndexedTransactionType => {
                         Err(::prost::UnknownEnumValue(transaction_id.transaction_type))
                     }
@@ -156,9 +168,6 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::MoveToVault => NormalTransaction(Normal::MoveToVault as i32),
                 TransactionType::Payout => NormalTransaction(Normal::Payout as i32),
                 TransactionType::Challenge => NormalTransaction(Normal::Challenge as i32),
-                TransactionType::WatchtowerChallengeKickoff => {
-                    NormalTransaction(Normal::WatchtowerChallengeKickoff as i32)
-                }
                 TransactionType::Disprove => NormalTransaction(Normal::Disprove as i32),
                 TransactionType::DisproveTimeout => {
                     NormalTransaction(Normal::DisproveTimeout as i32)
@@ -211,6 +220,15 @@ impl From<TransactionType> for GrpcTransactionId {
                     transaction_type: Numbered::MiniAssert as i32,
                     index: index as i32,
                 }),
+                TransactionType::WatchtowerChallengeTimeout(index) => {
+                    NumberedTransaction(NumberedTransactionId {
+                        transaction_type: Numbered::WatchtowerChallengeTimeout as i32,
+                        index: index as i32,
+                    })
+                }
+                TransactionType::BurnUnusedKickoffConnectors => {
+                    NormalTransaction(Normal::BurnUnusedKickoffConnectors as i32)
+                }
             }),
         }
     }

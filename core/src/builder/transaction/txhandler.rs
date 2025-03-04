@@ -41,6 +41,8 @@ pub struct Unsigned;
 // impl State for PartialInputs {}
 impl State for Unsigned {}
 impl State for Signed {}
+pub type SighashCalculator<'a> =
+    Box<dyn FnOnce(TapSighashType) -> Result<TapSighash, BridgeError> + 'a>;
 
 impl<T: State> TxHandler<T> {
     pub fn get_spendable_output(&self, idx: usize) -> Result<SpendableTxIn, BridgeError> {
@@ -55,6 +57,7 @@ impl<T: State> TxHandler<T> {
             txout.spendinfo().clone(),
         )) // TODO: Can we get rid of clones?
     }
+
     pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {
         let txin = self.txins.get(idx).ok_or(BridgeError::TxInputNotFound)?;
         Ok(txin.get_signature_id())
@@ -76,17 +79,13 @@ impl<T: State> TxHandler<T> {
     fn get_sighash_calculator(
         &self,
         idx: usize,
-    ) -> impl FnOnce() -> Result<TapSighash, BridgeError> + '_ {
-        move || -> Result<TapSighash, BridgeError> {
+    ) -> impl FnOnce(TapSighashType) -> Result<TapSighash, BridgeError> + '_ {
+        move |sighash_type: TapSighashType| -> Result<TapSighash, BridgeError> {
             match self.txins[idx].get_spend_path() {
-                SpendPath::KeySpend => {
-                    self.calculate_pubkey_spend_sighash(idx, TapSighashType::Default)
+                SpendPath::KeySpend => self.calculate_pubkey_spend_sighash(idx, sighash_type),
+                SpendPath::ScriptSpend(script_idx) => {
+                    self.calculate_script_spend_sighash_indexed(idx, script_idx, sighash_type)
                 }
-                SpendPath::ScriptSpend(script_idx) => self.calculate_script_spend_sighash_indexed(
-                    idx,
-                    script_idx,
-                    TapSighashType::Default,
-                ),
                 SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
             }
         }
@@ -108,7 +107,7 @@ impl<T: State> TxHandler<T> {
         mut signer: impl for<'a> FnMut(
             usize,
             &'a SpentTxIn,
-            Box<dyn FnOnce() -> Result<TapSighash, BridgeError> + 'a>,
+            SighashCalculator<'a>,
         ) -> Result<Option<Witness>, BridgeError>,
     ) -> Result<(), BridgeError> {
         for idx in 0..self.txins.len() {
@@ -236,6 +235,10 @@ impl<T: State> TxHandler<T> {
                 | (
                     DepositSigKeyOwner::NofnSharedDeposit(sighash_type),
                     EntityType::VerifierDeposit,
+                )
+                | (
+                    DepositSigKeyOwner::OperatorSharedSetup(sighash_type),
+                    EntityType::OperatorSetup,
                 ) => {
                     sighashes.push((
                         self.calculate_sighash_txin(idx, sighash_type)?,
@@ -428,6 +431,23 @@ impl TxHandlerBuilder {
             output: self.txouts.iter().map(|s| s.txout().clone()).collect(), // TODO: Get rid of .clone()
         };
         let txid = tx.compute_txid();
+
+        // #[cfg(debug_assertions)]
+        // {
+        //     // txins >= txouts
+        //     assert!(
+        //         self.txins
+        //             .iter()
+        //             .map(|s| s.get_spendable().get_prevout().value)
+        //             .sum::<bitcoin::Amount>()
+        //             >= self
+        //                 .txouts
+        //                 .iter()
+        //                 .map(|s| s.txout().value)
+        //                 .sum::<bitcoin::Amount>(),
+        //                 "Txins should be bigger than txouts"
+        //     );
+        // }
         TxHandler::<Unsigned> {
             transaction_type: self.transaction_type,
             txins: self.txins,

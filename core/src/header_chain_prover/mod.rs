@@ -66,7 +66,7 @@ impl HeaderChainProver {
         Ok(HeaderChainProver {
             rpc,
             db,
-            network: config.network,
+            network: config.protocol_paramset().network,
         })
     }
 

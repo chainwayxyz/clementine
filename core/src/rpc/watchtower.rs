@@ -2,7 +2,6 @@ use super::clementine::{
     clementine_watchtower_server::ClementineWatchtower, watchtower_params, DepositParams, Empty,
     RawSignedTx, TransactionRequest, WatchtowerKeys, WatchtowerParams,
 };
-use crate::constants::WATCHTOWER_CHALLENGE_MESSAGE_LENGTH;
 use crate::rpc::parser::{parse_deposit_params, parse_transaction_request};
 use crate::watchtower::Watchtower;
 use tokio::sync::mpsc::{self, error::SendError};
@@ -56,7 +55,13 @@ impl ClementineWatchtower for Watchtower {
             .create_and_sign_watchtower_challenge(
                 self.nofn_xonly_pk,
                 transaction_data,
-                &[0u8; WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize / 2], // dummy challenge
+                &vec![
+                    0u8;
+                    self.config
+                        .protocol_paramset()
+                        .watchtower_challenge_message_length
+                        / 2
+                ], // dummy challenge
             )
             .await?;
 

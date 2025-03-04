@@ -7,7 +7,16 @@ use crate::test::common::*;
 #[tokio::test]
 async fn test_deposit() {
     let config = create_test_config_with_thread_name(None).await;
+
+    // Start the timer
+    let start_time = std::time::Instant::now();
+
+    // Run the deposit
     run_single_deposit(config).await.unwrap();
+
+    // Calculate and print the elapsed time
+    let elapsed = start_time.elapsed();
+    println!("run_single_deposit completed in: {:?}", elapsed);
 }
 
 //     #[ignore = "We are switching to gRPC"]

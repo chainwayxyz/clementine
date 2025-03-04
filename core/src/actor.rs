@@ -1,39 +1,36 @@
+use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpentTxIn;
-use crate::builder::transaction::TxHandler;
-use crate::constants::{
-    KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
-};
+use crate::builder::transaction::{SighashCalculator, TxHandler};
+use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
-use crate::errors::BridgeError::NotOwnKeyPath;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
-use crate::utils::{self, SECP};
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::taproot::{LeafVersion, TaprootSpendInfo};
+use bitcoin::taproot::{self, LeafVersion, TaprootSpendInfo};
 use bitcoin::{
     hashes::Hash,
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
     Address, ScriptBuf, TapSighash, TapTweakHash, Txid,
 };
-use bitcoin::{TapNodeHash, Witness};
+use bitcoin::{TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
     /// round_idx, kickoff_idx
     /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
-    Kickoff(u32, u32),
+    Kickoff(u32, u32, &'static ProtocolParamset),
     /// operator_idx, deposit_txid
     /// Message length is fixed WATCHTOWER_CHALLENGE_MESSAGE_LENGTH
-    WatchtowerChallenge(u32, Txid),
-    /// message_length, intermediate_step_name, deposit_txid
-    BitvmAssert(u32, String, Txid),
+    WatchtowerChallenge(u32, Txid, &'static ProtocolParamset),
+    /// message_length, pk_type_idx, pk_idx, deposit_txid
+    BitvmAssert(u32, u32, u32, Txid, &'static ProtocolParamset),
     /// watchtower_idx, deposit_txid
     /// message length is fixed to 1 (because its for one hash)
-    ChallengeAckHash(u32, Txid),
+    ChallengeAckHash(u32, Txid, &'static ProtocolParamset),
 }
 
 impl WinternitzDerivationPath {
@@ -51,24 +48,27 @@ impl WinternitzDerivationPath {
         let mut bytes = vec![type_id];
 
         match self {
-            WinternitzDerivationPath::Kickoff(seq_collat_idx, kickoff_idx) => {
+            WinternitzDerivationPath::Kickoff(seq_collat_idx, kickoff_idx, _) => {
                 bytes.extend_from_slice(&seq_collat_idx.to_be_bytes());
                 bytes.extend_from_slice(&kickoff_idx.to_be_bytes());
             }
-            WinternitzDerivationPath::WatchtowerChallenge(operator_idx, deposit_txid) => {
+            WinternitzDerivationPath::WatchtowerChallenge(operator_idx, deposit_txid, _) => {
                 bytes.extend_from_slice(&operator_idx.to_be_bytes());
                 bytes.extend_from_slice(&deposit_txid.to_byte_array());
             }
             WinternitzDerivationPath::BitvmAssert(
                 message_length,
-                intermediate_step_name,
+                pk_type_idx,
+                pk_idx,
                 deposit_txid,
+                _,
             ) => {
                 bytes.extend_from_slice(&message_length.to_be_bytes());
-                bytes.extend_from_slice(intermediate_step_name.as_bytes());
+                bytes.extend_from_slice(&pk_type_idx.to_be_bytes());
+                bytes.extend_from_slice(&pk_idx.to_be_bytes());
                 bytes.extend_from_slice(&deposit_txid.to_byte_array());
             }
-            WinternitzDerivationPath::ChallengeAckHash(watchtower_idx, deposit_txid) => {
+            WinternitzDerivationPath::ChallengeAckHash(watchtower_idx, deposit_txid, _) => {
                 bytes.extend_from_slice(&watchtower_idx.to_be_bytes());
                 bytes.extend_from_slice(&deposit_txid.to_byte_array());
             }
@@ -80,17 +80,21 @@ impl WinternitzDerivationPath {
     /// Returns the parameters for the Winternitz signature.
     pub fn get_params(&self) -> winternitz::Parameters {
         match self {
-            WinternitzDerivationPath::Kickoff(_, _) => {
-                winternitz::Parameters::new(KICKOFF_BLOCKHASH_COMMIT_LENGTH, WINTERNITZ_LOG_D)
+            WinternitzDerivationPath::Kickoff(_, _, paramset) => winternitz::Parameters::new(
+                paramset.kickoff_blockhash_commit_length,
+                paramset.winternitz_log_d,
+            ),
+            WinternitzDerivationPath::WatchtowerChallenge(_, _, paramset) => {
+                winternitz::Parameters::new(
+                    paramset.watchtower_challenge_message_length as u32,
+                    paramset.winternitz_log_d,
+                )
             }
-            WinternitzDerivationPath::WatchtowerChallenge(_, _) => {
-                winternitz::Parameters::new(WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D)
+            WinternitzDerivationPath::BitvmAssert(message_length, _, _, _, paramset) => {
+                winternitz::Parameters::new(*message_length, paramset.winternitz_log_d)
             }
-            WinternitzDerivationPath::BitvmAssert(message_length, _, _) => {
-                winternitz::Parameters::new(*message_length, WINTERNITZ_LOG_D)
-            }
-            WinternitzDerivationPath::ChallengeAckHash(_, _) => {
-                winternitz::Parameters::new(1, WINTERNITZ_LOG_D)
+            WinternitzDerivationPath::ChallengeAckHash(_, _, paramset) => {
+                winternitz::Parameters::new(1, paramset.winternitz_log_d)
             }
         }
     }
@@ -133,7 +137,7 @@ impl Actor {
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        Ok(utils::SECP.sign_schnorr(
+        Ok(bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair.add_xonly_tweak(
                 &SECP,
@@ -144,7 +148,7 @@ impl Actor {
 
     #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
-        utils::SECP.sign_schnorr(
+        bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair,
         )
@@ -211,6 +215,43 @@ impl Actor {
         Ok(hash.to_byte_array())
     }
 
+    pub fn generate_bitvm_pks_for_deposit(
+        &self,
+        txid: Txid,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<ClementineBitVMPublicKeys, BridgeError> {
+        let mut pks = ClementineBitVMPublicKeys::create_replacable();
+        let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+            20, 0, 0, txid, paramset,
+        ))?;
+        pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+        let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+            20, 1, 0, txid, paramset,
+        ))?;
+        pks.challenge_sending_watchtowers_pk =
+            ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+        for i in 0..pks.bitvm_pks.0.len() {
+            let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+                32, 2, i as u32, txid, paramset,
+            ))?;
+            pks.bitvm_pks.0[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
+        }
+        for i in 0..pks.bitvm_pks.1.len() {
+            let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+                32, 3, i as u32, txid, paramset,
+            ))?;
+            pks.bitvm_pks.1[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
+        }
+        for i in 0..pks.bitvm_pks.2.len() {
+            let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
+                20, 4, i as u32, txid, paramset,
+            ))?;
+            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+        }
+
+        Ok(pks)
+    }
+
     fn get_saved_signature(
         signature_id: SignatureId,
         signatures: &[TaggedSignature],
@@ -246,75 +287,9 @@ impl Actor {
         let mut signed_preimage = false;
 
         let data = data.as_ref();
-        let signer =
-            move |_: usize,
-                  spt: &SpentTxIn,
-                  calc_sighash: Box<dyn FnOnce() -> Result<TapSighash, BridgeError> + '_>|
-                  -> Result<Option<Witness>, BridgeError> {
-                let spendinfo = spt
-                    .get_spendable()
-                    .get_spend_info()
-                    .as_ref()
-                    .ok_or(BridgeError::MissingSpendInfo)?;
-                match spt.get_spend_path() {
-                    SpendPath::ScriptSpend(script_idx) => {
-                        let script = spt
-                            .get_spendable()
-                            .get_scripts()
-                            .get(script_idx)
-                            .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
-
-                        use crate::builder::script::ScriptKind as Kind;
-
-                        let mut witness = match script.kind() {
-                            Kind::PreimageRevealScript(script) => {
-                                if script.0 != self.xonly_public_key {
-                                    return Err(BridgeError::NotOwnedScriptPath);
-                                }
-                                script.generate_script_inputs(data, &self.sign(calc_sighash()?))
-                            }
-                            Kind::WinternitzCommit(_)
-                            | Kind::CheckSig(_)
-                            | Kind::Other(_)
-                            | Kind::DepositScript(_)
-                            | Kind::TimelockScript(_)
-                            | Kind::WithdrawalScript(_) => return Ok(None),
-                        };
-
-                        if signed_preimage {
-                            return Err(BridgeError::MultiplePreimageRevealScripts);
-                        }
-
-                        signed_preimage = true;
-
-                        Self::add_script_path_to_witness(
-                            &mut witness,
-                            &script.to_script_buf(),
-                            spendinfo,
-                        )?;
-
-                        Ok(Some(witness))
-                    }
-                    SpendPath::KeySpend => Ok(None),
-                    SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
-                }
-            };
-
-        txhandler.sign_txins(signer)?;
-        Ok(())
-    }
-    pub fn tx_sign_winternitz(
-        &self,
-        txhandler: &mut TxHandler,
-        data: &[(Vec<u8>, WinternitzDerivationPath)],
-    ) -> Result<(), BridgeError> {
-        let mut signed_winternitz = false;
-
         let signer = move |_: usize,
                            spt: &SpentTxIn,
-                           calc_sighash: Box<
-            dyn FnOnce() -> Result<TapSighash, BridgeError> + '_,
-        >|
+                           calc_sighash: SighashCalculator<'_>|
               -> Result<Option<Witness>, BridgeError> {
             let spendinfo = spt
                 .get_spendable()
@@ -328,20 +303,107 @@ impl Actor {
                         .get_scripts()
                         .get(script_idx)
                         .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
+                    let sighash_type = spt
+                        .get_signature_id()
+                        .get_deposit_sig_owner()
+                        .map(|s| s.sighash_type())?
+                        .unwrap_or(TapSighashType::Default);
+
+                    use crate::builder::script::ScriptKind as Kind;
+
+                    let mut witness = match script.kind() {
+                        Kind::PreimageRevealScript(script) => {
+                            if script.0 != self.xonly_public_key {
+                                return Err(BridgeError::NotOwnedScriptPath);
+                            }
+                            let signature = self.sign(calc_sighash(sighash_type)?);
+                            script.generate_script_inputs(
+                                data,
+                                &taproot::Signature {
+                                    signature,
+                                    sighash_type,
+                                },
+                            )
+                        }
+                        Kind::WinternitzCommit(_)
+                        | Kind::CheckSig(_)
+                        | Kind::Other(_)
+                        | Kind::DepositScript(_)
+                        | Kind::TimelockScript(_)
+                        | Kind::WithdrawalScript(_) => return Ok(None),
+                    };
+
+                    if signed_preimage {
+                        return Err(BridgeError::MultiplePreimageRevealScripts);
+                    }
+
+                    signed_preimage = true;
+
+                    Self::add_script_path_to_witness(
+                        &mut witness,
+                        &script.to_script_buf(),
+                        spendinfo,
+                    )?;
+
+                    Ok(Some(witness))
+                }
+                SpendPath::KeySpend => Ok(None),
+                SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+            }
+        };
+
+        txhandler.sign_txins(signer)?;
+        Ok(())
+    }
+    pub fn tx_sign_winternitz(
+        &self,
+        txhandler: &mut TxHandler,
+        data: &[(Vec<u8>, WinternitzDerivationPath)],
+    ) -> Result<(), BridgeError> {
+        let mut signed_winternitz = false;
+
+        let signer = move |_: usize,
+                           spt: &SpentTxIn,
+                           calc_sighash: SighashCalculator<'_>|
+              -> Result<Option<Witness>, BridgeError> {
+            let spendinfo = spt
+                .get_spendable()
+                .get_spend_info()
+                .as_ref()
+                .ok_or(BridgeError::MissingSpendInfo)?;
+            match spt.get_spend_path() {
+                SpendPath::ScriptSpend(script_idx) => {
+                    let script = spt
+                        .get_spendable()
+                        .get_scripts()
+                        .get(script_idx)
+                        .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
+                    let sighash_type = spt
+                        .get_signature_id()
+                        .get_deposit_sig_owner()
+                        .map(|s| s.sighash_type())?
+                        .unwrap_or(TapSighashType::Default);
 
                     use crate::builder::script::ScriptKind as Kind;
 
                     let mut witness = match script.kind() {
                         Kind::WinternitzCommit(script) => {
-                            if script.1 != self.xonly_public_key {
+                            if script.checksig_pubkey != self.xonly_public_key {
                                 return Err(BridgeError::NotOwnedScriptPath);
                             }
+
                             let mut script_data = Vec::with_capacity(data.len());
                             for (data, path) in data {
                                 let secret_key = self.get_derived_winternitz_sk(path.clone())?;
                                 script_data.push((data.clone(), secret_key));
                             }
-                            script.generate_script_inputs(&script_data, &self.sign(calc_sighash()?))
+                            script.generate_script_inputs(
+                                &script_data,
+                                &taproot::Signature {
+                                    signature: self.sign(calc_sighash(sighash_type)?),
+                                    sighash_type,
+                                },
+                            )
                         }
                         Kind::PreimageRevealScript(_)
                         | Kind::CheckSig(_)
@@ -382,16 +444,18 @@ impl Actor {
         let tx_type = txhandler.get_transaction_type();
         let signer = move |_,
                            spt: &SpentTxIn,
-                           calc_sighash: Box<
-            dyn for<'a> FnOnce() -> Result<TapSighash, BridgeError> + '_,
-        >|
+                           calc_sighash: SighashCalculator<'_>|
               -> Result<Option<Witness>, BridgeError> {
             let spendinfo = spt
                 .get_spendable()
                 .get_spend_info()
                 .as_ref()
                 .ok_or_else(|| BridgeError::MissingSpendInfo)?;
-
+            let sighash_type = spt
+                .get_signature_id()
+                .get_deposit_sig_owner()
+                .map(|s| s.sighash_type())?
+                .unwrap_or(TapSighashType::Default);
             match spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) => {
                     let script = spt
@@ -400,6 +464,12 @@ impl Actor {
                         .get(script_idx)
                         .ok_or_else(|| BridgeError::NoScriptAtIndex(script_idx))?;
                     let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
+
+                    let sig = sig.map(|sig| taproot::Signature {
+                        signature: sig,
+                        sighash_type,
+                    });
+
                     use crate::builder::script::ScriptKind as Kind;
 
                     // Set the script inputs of the witness
@@ -408,7 +478,10 @@ impl Actor {
                             match (sig, script.0 == self.xonly_public_key) {
                                 (Some(sig), _) => script.generate_script_inputs(&sig),
                                 (None, true) => {
-                                    script.generate_script_inputs(&self.sign(calc_sighash()?))
+                                    script.generate_script_inputs(&taproot::Signature {
+                                        signature: self.sign(calc_sighash(sighash_type)?),
+                                        sighash_type,
+                                    })
                                 }
                                 (None, false) => {
                                     return Err(BridgeError::SignatureNotFound(tx_type))
@@ -417,17 +490,21 @@ impl Actor {
                         }
                         Kind::TimelockScript(script) => match (sig, script.0) {
                             (Some(sig), Some(_)) => script.generate_script_inputs(Some(&sig)),
-                            (None, Some(xonly_key)) if xonly_key == self.xonly_public_key => {
-                                script.generate_script_inputs(Some(&self.sign(calc_sighash()?)))
-                            }
+                            (None, Some(xonly_key)) if xonly_key == self.xonly_public_key => script
+                                .generate_script_inputs(Some(&taproot::Signature {
+                                    signature: self.sign(calc_sighash(sighash_type)?),
+                                    sighash_type,
+                                })),
                             (None, Some(_)) => return Err(BridgeError::SignatureNotFound(tx_type)),
                             (_, None) => Witness::new(),
                         },
                         Kind::CheckSig(script) => match (sig, script.0 == self.xonly_public_key) {
                             (Some(sig), _) => script.generate_script_inputs(&sig),
-                            (None, true) => {
-                                script.generate_script_inputs(&self.sign(calc_sighash()?))
-                            }
+
+                            (None, true) => script.generate_script_inputs(&taproot::Signature {
+                                signature: self.sign(calc_sighash(sighash_type)?),
+                                sighash_type,
+                            }),
                             (None, false) => return Err(BridgeError::SignatureNotFound(tx_type)),
                         },
                         Kind::WinternitzCommit(_)
@@ -447,7 +524,7 @@ impl Actor {
                 SpendPath::KeySpend => {
                     let xonly_public_key = spendinfo.internal_key();
 
-                    let sighash = calc_sighash()?;
+                    let sighash = calc_sighash(sighash_type)?;
                     let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
                     let sig = match sig {
                         Some(sig) => sig,
@@ -455,7 +532,7 @@ impl Actor {
                             if xonly_public_key == self.xonly_public_key {
                                 self.sign_with_tweak(sighash, spendinfo.merkle_root())?
                             } else {
-                                return Err(NotOwnKeyPath);
+                                return Err(BridgeError::NotOwnKeyPath);
                             }
                         }
                     };
@@ -474,6 +551,7 @@ impl Actor {
 mod tests {
     use super::Actor;
     use crate::builder::address::create_taproot_address;
+    use crate::config::protocol::ProtocolParamsetName;
 
     use super::*;
     use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
@@ -481,8 +559,8 @@ mod tests {
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandler, TxHandlerBuilder};
 
+    use crate::bitvm_client::SECP;
     use crate::rpc::clementine::NormalSignatureKind;
-    use crate::utils::SECP;
     use crate::{actor::WinternitzDerivationPath, test::common::*};
     use bitcoin::secp256k1::{schnorr, Message, SecretKey};
 
@@ -732,6 +810,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_uniqueness() {
+        let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
         let config = create_test_config_with_thread_name(None).await;
         let actor = Actor::new(
             config.secret_key,
@@ -739,12 +818,12 @@ mod tests {
             Network::Regtest,
         );
 
-        let mut params = WinternitzDerivationPath::Kickoff(0, 0);
+        let mut params = WinternitzDerivationPath::Kickoff(0, 0, paramset);
         let pk0 = actor.derive_winternitz_pk(params.clone()).unwrap();
         let pk1 = actor.derive_winternitz_pk(params).unwrap();
         assert_eq!(pk0, pk1);
 
-        params = WinternitzDerivationPath::Kickoff(0, 1);
+        params = WinternitzDerivationPath::Kickoff(0, 1, paramset);
         let pk2 = actor.derive_winternitz_pk(params).unwrap();
         assert_ne!(pk0, pk2);
     }
@@ -752,6 +831,7 @@ mod tests {
     #[tokio::test]
     async fn derive_winternitz_pk_fixed_pk() {
         let config = create_test_config_with_thread_name(None).await;
+        let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
         let actor = Actor::new(
             config.secret_key,
             Some(
@@ -764,7 +844,7 @@ mod tests {
         );
         // Test so that same path always returns the same public key (to not change it accidentally)
         // check only first digit
-        let params = WinternitzDerivationPath::Kickoff(0, 1);
+        let params = WinternitzDerivationPath::Kickoff(0, 1, paramset);
         let expected_pk = vec![
             173, 204, 163, 206, 248, 61, 42, 248, 42, 163, 51, 172, 127, 111, 1, 82, 142, 151, 78,
             6,
@@ -774,7 +854,7 @@ mod tests {
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::WatchtowerChallenge(1, Txid::all_zeros());
+        let params = WinternitzDerivationPath::WatchtowerChallenge(1, Txid::all_zeros(), paramset);
         let expected_pk = vec![
             237, 68, 125, 7, 202, 239, 182, 192, 94, 207, 47, 40, 57, 188, 195, 82, 231, 236, 105,
             252,
@@ -784,18 +864,17 @@ mod tests {
             expected_pk
         );
 
-        let params =
-            WinternitzDerivationPath::BitvmAssert(3, "step0".to_string(), Txid::all_zeros());
+        let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, Txid::all_zeros(), paramset);
         let expected_pk = vec![
-            19, 106, 233, 190, 243, 102, 53, 65, 74, 188, 254, 213, 228, 200, 160, 166, 111, 183,
-            62, 126,
+            49, 157, 5, 44, 165, 90, 254, 67, 195, 122, 253, 48, 212, 174, 142, 227, 246, 73, 98,
+            146,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::ChallengeAckHash(0, Txid::all_zeros());
+        let params = WinternitzDerivationPath::ChallengeAckHash(0, Txid::all_zeros(), paramset);
         let expected_pk = vec![
             50, 128, 175, 255, 135, 45, 190, 117, 75, 4, 141, 166, 43, 146, 207, 154, 189, 149,
             143, 254,
@@ -822,12 +901,11 @@ mod tests {
 
         let data = "iwantporscheasagiftpls".as_bytes().to_vec();
         let message_len = data.len() as u32 * 2;
-        let path = WinternitzDerivationPath::BitvmAssert(
-            message_len,
-            "step1".to_string(),
-            Txid::all_zeros(),
-        );
-        let params = winternitz::Parameters::new(message_len, WINTERNITZ_LOG_D);
+        let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
+
+        let path =
+            WinternitzDerivationPath::BitvmAssert(message_len, 0, 0, Txid::all_zeros(), paramset);
+        let params = winternitz::Parameters::new(message_len, paramset.winternitz_log_d);
 
         let witness = actor
             .sign_winternitz_signature(path.clone(), data.clone())
