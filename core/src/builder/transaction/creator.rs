@@ -356,7 +356,7 @@ pub async fn create_txhandlers(
     let kickoff_not_finalized_txhandler =
         builder::transaction::create_kickoff_not_finalized_txhandler(
             get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-            get_txhandler(&txhandlers, TransactionType::Round)?,
+            get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?,
         )?;
     txhandlers.insert(
         kickoff_not_finalized_txhandler.get_transaction_type(),
