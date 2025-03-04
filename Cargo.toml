@@ -3,6 +3,9 @@ resolver = "2"
 members = [
   "core",
   "circuits-lib",
+  "risc0-circuits/bridge-circuit",
+  "risc0-circuits/work-only",
+  "bridge-circuit-host"
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]
@@ -57,12 +60,12 @@ k256 = { version = "=0.13.3", default-features = false }
 risc0-build = "1.2"
 risc0-zkvm = { version = "1.2" }
 header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "a233e27" }
-bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "dfef4af" }
+bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "8508328" }
+risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "main" }
 
 ark-groth16 = "0.5.0"
 ark-serialize = "0.5.0"
 ark-bn254 = { version = "0.5.0", features = ["curve", "scalar_field"], default-features = false }
-
 
 
 [patch.crates-io]

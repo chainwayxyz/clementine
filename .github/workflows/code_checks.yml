@@ -15,6 +15,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
     - name: Run Cargo fmt
       run: cargo fmt --check
 
@@ -24,7 +25,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
+    - uses: ./.github/actions/install-risc0
+    
     - name: Run Cargo clippy
       run: cargo clippy --no-deps --all-targets -- -Dwarnings
 
@@ -34,6 +36,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
       - name: Toolchain
         uses: actions-rs/toolchain@v1
         with:
