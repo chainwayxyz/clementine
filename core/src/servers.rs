@@ -15,8 +15,6 @@ use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
 
-pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
-
 #[tracing::instrument(ret(level = tracing::Level::TRACE))]
 fn is_test_env() -> bool {
     // if thread name is not main then it is a test
@@ -207,6 +205,7 @@ pub async fn create_watchtower_grpc_server(
 }
 
 // Functions for creating servers with Unix sockets (useful for tests)
+#[cfg(test)]
 #[cfg(unix)]
 pub async fn create_verifier_unix_server(
     config: BridgeConfig,
@@ -231,6 +230,7 @@ pub async fn create_verifier_unix_server(
     }
 }
 
+#[cfg(test)]
 #[cfg(not(unix))]
 pub async fn create_verifier_unix_server(
     _config: BridgeConfig,
@@ -241,6 +241,7 @@ pub async fn create_verifier_unix_server(
     ))
 }
 
+#[cfg(test)]
 #[cfg(unix)]
 pub async fn create_operator_unix_server(
     config: BridgeConfig,
@@ -265,6 +266,7 @@ pub async fn create_operator_unix_server(
     }
 }
 
+#[cfg(test)]
 #[cfg(not(unix))]
 pub async fn create_operator_unix_server(
     _config: BridgeConfig,
@@ -275,6 +277,7 @@ pub async fn create_operator_unix_server(
     ))
 }
 
+#[cfg(test)]
 #[cfg(unix)]
 pub async fn create_aggregator_unix_server(
     config: BridgeConfig,
@@ -292,6 +295,7 @@ pub async fn create_aggregator_unix_server(
     }
 }
 
+#[cfg(test)]
 #[cfg(not(unix))]
 pub async fn create_aggregator_unix_server(
     _config: BridgeConfig,
@@ -302,6 +306,7 @@ pub async fn create_aggregator_unix_server(
     ))
 }
 
+#[cfg(test)]
 #[cfg(unix)]
 pub async fn create_watchtower_unix_server(
     config: BridgeConfig,
@@ -320,6 +325,7 @@ pub async fn create_watchtower_unix_server(
 }
 
 #[cfg(not(unix))]
+#[cfg(test)]
 pub async fn create_watchtower_unix_server(
     _config: BridgeConfig,
     _socket_path: std::path::PathBuf,
