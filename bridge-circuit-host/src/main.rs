@@ -19,8 +19,6 @@ use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Rece
 use std::convert::TryInto;
 use std::fs;
 use structs::BridgeCircuitHostParams;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt};
 pub mod structs;
 
 const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
@@ -51,11 +49,6 @@ async fn main() {
 }
 
 async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostParams) {
-    tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
     let winternitz_id: [u32; 8] = compute_image_id(BRIDGE_CIRCUIT_ELF).unwrap().into();
     let work_only_id: [u32; 8] = compute_image_id(WORK_ONLY_ELF).unwrap().into();
 
