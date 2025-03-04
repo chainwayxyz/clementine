@@ -31,6 +31,18 @@ pub async fn block_number(client: HttpClient) -> Result<u32, BridgeError> {
     Ok(block_number)
 }
 
+//let lcp = lc_prover.client.http_client().call("lightClientProver_getLightClientProofByL1Height", *[1]).await;
+pub async fn get_light_client_proof(client: HttpClient) -> Result<[u8; 32], BridgeError> {
+    let params = rpc_params![
+        "1"
+    ];
+
+    let response: String = client.request("lightClientProver_getLightClientProofByL1Height", params).await?;
+    println!("response {:?}", response);
+
+    Ok([0; 32])
+}
+
 pub async fn eth_get_balance(
     client: HttpClient,
     evm_address: EVMAddress,

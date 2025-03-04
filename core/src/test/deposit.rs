@@ -11,7 +11,7 @@ use crate::{
 use async_trait::async_trait;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
-    config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig}, framework::TestFramework, test_case::{TestCase, TestCaseRunner}, Result
+    config::{BatchProverConfig, BitcoinConfig, CitreaMode, LightClientProverConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig}, framework::TestFramework, test_case::{TestCase, TestCaseRunner}, Result
 };
 use std::{thread::sleep, time::Duration};
 
@@ -136,10 +136,11 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 
     fn test_config() -> TestCaseConfig {
         TestCaseConfig {
-            with_batch_prover: false,
             with_sequencer: true,
-            with_full_node: true,
+            with_batch_prover: true,
             with_light_client_prover: true,
+            with_full_node: true,
+            mode: CitreaMode::DevAllForks,
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
@@ -150,8 +151,23 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            test_mode: false,
-            bridge_initialize_params: BRIDGE_PARAMS.to_string(),
+            min_soft_confirmations_per_commitment: 5,
+            da_update_interval_ms: 500,
+            ..Default::default()
+        }
+    }
+
+    fn batch_prover_config() -> BatchProverConfig {
+        BatchProverConfig {
+            enable_recovery: false,
+            ..Default::default()
+        }
+    }
+
+    fn light_client_prover_config() -> LightClientProverConfig {
+        LightClientProverConfig {
+            enable_recovery: false,
+            initial_da_height: 171,
             ..Default::default()
         }
     }
@@ -218,7 +234,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             (config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER).into()
         );
 
-        let lcp = lc_prover.client.http_client().get_light_client_proof_by_l1_height(1).await;
+        let lcp = citrea::get_light_client_proof(lc_prover.client.http_client().clone()).await?;
         println!("lcp {:?}", lcp);
 
         Ok(())
