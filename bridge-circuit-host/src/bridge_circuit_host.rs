@@ -54,10 +54,13 @@ mod tests {
     use borsh::BorshDeserialize;
     use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
     use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
+    use circuits_lib::bridge_circuit_core::winternitz::{generate_public_key, sign_digits, Parameters, WinternitzHandler};
     use final_spv::merkle_tree::BitcoinMerkleTree;
     use final_spv::spv::SPV;
     use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use header_chain::mmr_native::MMRNative;
+    use rand::rngs::SmallRng;
+    use rand::{Rng, SeedableRng};
     use risc0_zkvm::Receipt;
     use std::convert::TryInto;
 
