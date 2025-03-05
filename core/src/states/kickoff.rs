@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bitcoin::{OutPoint, Txid, Witness};
 use eyre::Report;
@@ -20,21 +20,31 @@ use super::{
     Owner,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum KickoffEvent {
     Challenged,
     WatchtowerChallengeSent {
-        watchtower_idx: u32,
-        challenge_txid: Txid,
+        watchtower_idx: usize,
+        challenge_outpoint: OutPoint,
     },
     OperatorAssertSent {
-        assert_idx: u32,
-        assert_txid: Txid,
+        assert_idx: usize,
+        assert_outpoint: OutPoint,
+    },
+    WatchtowerChallengeTimeoutSent {
+        watchtower_idx: usize,
+    },
+    OperatorChallengeAckSent {
+        watchtower_idx: usize,
+        challenge_ack_outpoint: OutPoint,
     },
     KickoffFinalizerSpent,
     BurnConnectorSpent,
+    // TODO: add warnings
+    // ChallengeTimeoutNotSent,
     TimeToSendWatchtowerChallenge,
-    TimeToSendOperatorAssert,
     TimeToSendVerifierDisprove,
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
     SavedToDb,
@@ -42,9 +52,10 @@ pub enum KickoffEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 // TODO: add and save operator challenge acks
-// save watchtower challenge utxo's spending (not only challenge, also timeout)
 // all timelocks
-// delete used matchers?
+// delete used matchers
+// apply only first match
+
 pub struct KickoffStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
     pub(crate) dirty: bool,
@@ -52,11 +63,10 @@ pub struct KickoffStateMachine<T: Owner> {
     num_watchtowers: u32,
     deposit_data: DepositData,
     kickoff_height: u32,
-    watchtower_challenges: HashMap<u32, Witness>,
-    operator_asserts: HashMap<u32, Witness>,
-    watchtower_challenge_sent: bool,
-    operator_assert_sent: bool,
-    verifier_disprove_sent: bool,
+    spent_watchtower_utxos: HashSet<usize>,
+    watchtower_challenges: HashMap<usize, Witness>,
+    operator_asserts: HashMap<usize, Witness>,
+    operator_challenge_acks: HashMap<usize, Witness>,
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -67,24 +77,19 @@ impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
         self.matchers
             .iter()
             .filter_map(|(matcher, kickoff_event)| {
-                if matcher.matches(block) {
-                    Some(kickoff_event.clone())
-                } else {
-                    None
-                }
+                matcher.matches(block).map(|ord| (ord, kickoff_event))
             })
+            .min()
+            .map(|(_, kickoff_event)| kickoff_event)
+            .into_iter()
+            .cloned()
             .collect()
     }
 }
 
 impl<T: Owner> KickoffStateMachine<T> {
     // TODO: num_operators and num_watchtowers in deposit_data in the future
-    pub fn new(
-        kickoff_id: KickoffId,
-        kickoff_height: u32,
-        deposit_data: DepositData,
-        num_watchtowers: u32,
-    ) -> Self {
+    pub fn new(kickoff_id: KickoffId, kickoff_height: u32, deposit_data: DepositData) -> Self {
         Self {
             kickoff_id,
             kickoff_height,
@@ -94,10 +99,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             phantom: std::marker::PhantomData,
             watchtower_challenges: HashMap::new(),
             operator_asserts: HashMap::new(),
-            watchtower_challenge_sent: false,
-            operator_assert_sent: false,
-            verifier_disprove_sent: false,
-            num_watchtowers,
+            spent_watchtower_utxos: HashSet::new(),
+            operator_challenge_acks: HashMap::new(),
         }
     }
 }
@@ -131,6 +134,176 @@ impl<T: Owner> KickoffStateMachine<T> {
         } else {
             tracing::debug!(?self.kickoff_id, "Dispatching event {:?}", evt);
             self.dirty = true;
+
+            // Remove the matcher corresponding to the event.
+            if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
+                let matcher = matcher.clone();
+                self.matchers.remove(&matcher);
+            }
+        }
+    }
+
+    async fn check_time_to_send_asserts(&mut self, context: &mut StateContext<T>) {
+        context
+            .capture_error(async |context| {
+                {
+                    context
+                        .owner
+                        .handle_duty(Duty::SendOperatorAsserts {
+                            kickoff_id: self.kickoff_id,
+                            watchtower_challenges: self.watchtower_challenges.clone(),
+                        })
+                        .await?;
+                    Ok(())
+                }
+                .map_err(self.wrap_err("on_check_time_to_send_asserts"))
+            })
+            .await;
+    }
+
+    async fn send_watchtower_challenge(&mut self, context: &mut StateContext<T>) {
+        context
+            .capture_error(async |context| {
+                {
+                    context
+                        .owner
+                        .handle_duty(Duty::WatchtowerChallenge {
+                            kickoff_id: self.kickoff_id,
+                        })
+                        .await?;
+                    Ok(())
+                }
+                .map_err(self.wrap_err("on_check_time_to_send_asserts"))
+            })
+            .await;
+    }
+
+    async fn send_disprove(&mut self, context: &mut StateContext<T>) {
+        context
+            .capture_error(async |context| {
+                {
+                    context
+                        .owner
+                        .handle_duty(Duty::VerifierDisprove {
+                            kickoff_id: self.kickoff_id,
+                            operator_asserts: self.operator_asserts.clone(),
+                            operator_acks: self.operator_challenge_acks.clone(),
+                        })
+                        .await?;
+                    Ok(())
+                }
+                .map_err(self.wrap_err("on_check_time_to_send_asserts"))
+            })
+            .await;
+    }
+
+    async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &KickoffEvent) {
+        context
+            .capture_error(async |_context| {
+                let event_str = format!("{:?}", event);
+                Err(BridgeError::UnhandledEvent(event_str))
+                    .map_err(self.wrap_err("kickoff unhandled event"))
+            })
+            .await;
+    }
+
+    #[action]
+    pub(crate) async fn on_challenged_entry(&mut self, context: &mut StateContext<T>) {
+        context
+            .capture_error(async |context| {
+                {
+                    // create times to send necessary challenge asserts
+                    self.matchers.insert(
+                        Matcher::BlockHeight(
+                            self.kickoff_height
+                                + context.paramset.time_to_send_watchtower_challenge as u32,
+                        ),
+                        KickoffEvent::TimeToSendWatchtowerChallenge,
+                    );
+                    self.matchers.insert(
+                        Matcher::BlockHeight(
+                            self.kickoff_height + context.paramset.time_to_disprove as u32,
+                        ),
+                        KickoffEvent::TimeToSendVerifierDisprove,
+                    );
+                    Ok(())
+                }
+                .map_err(self.wrap_err("on_kickoff_started_entry"))
+            })
+            .await;
+    }
+
+    #[state(entry_action = "on_challenged_entry")]
+    pub(crate) async fn challenged(
+        &mut self,
+        event: &KickoffEvent,
+        context: &mut StateContext<T>,
+    ) -> Response<State> {
+        match event {
+            KickoffEvent::WatchtowerChallengeSent {
+                watchtower_idx,
+                challenge_outpoint,
+            } => {
+                self.spent_watchtower_utxos.insert(*watchtower_idx);
+                let witness = context
+                    .cache
+                    .get_witness_of_utxo(challenge_outpoint)
+                    .expect("Challenge outpoint that got matched should be in block");
+                // save challenge witness
+                self.watchtower_challenges.insert(*watchtower_idx, witness);
+                self.check_time_to_send_asserts(context).await;
+                Handled
+            }
+            KickoffEvent::OperatorAssertSent {
+                assert_idx,
+                assert_outpoint,
+            } => {
+                let witness = context
+                    .cache
+                    .get_witness_of_utxo(assert_outpoint)
+                    .expect("Assert outpoint that got matched should be in block");
+                // save assert witness
+                self.operator_asserts.insert(*assert_idx, witness);
+                Handled
+            }
+            KickoffEvent::OperatorChallengeAckSent {
+                watchtower_idx,
+                challenge_ack_outpoint,
+            } => {
+                let witness = context
+                    .cache
+                    .get_witness_of_utxo(challenge_ack_outpoint)
+                    .expect("Challenge ack outpoint that got matched should be in block");
+                // save challenge ack witness
+                self.operator_challenge_acks
+                    .insert(*watchtower_idx, witness);
+                Handled
+            }
+            KickoffEvent::KickoffFinalizerSpent => Transition(State::closed()),
+            KickoffEvent::BurnConnectorSpent => {
+                tracing::error!(
+                    "Burn connector spent before kickoff was finalized for kickoff {:?}",
+                    self.kickoff_id
+                );
+                Transition(State::closed())
+            }
+            KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
+                self.spent_watchtower_utxos.insert(*watchtower_idx);
+                self.check_time_to_send_asserts(context).await;
+                Handled
+            }
+            KickoffEvent::TimeToSendWatchtowerChallenge => {
+                self.send_watchtower_challenge(context).await;
+                Handled
+            }
+            KickoffEvent::TimeToSendVerifierDisprove => {
+                self.send_disprove(context).await;
+                Handled
+            }
+            _ => {
+                self.unhandled_event(context, event).await;
+                Handled
+            }
         }
     }
 
@@ -141,42 +314,70 @@ impl<T: Owner> KickoffStateMachine<T> {
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
+            KickoffEvent::Challenged => {
+                tracing::warn!("Warning: Operator challenged: {:?}", self.kickoff_id);
+                Transition(State::challenged())
+            }
             KickoffEvent::WatchtowerChallengeSent {
                 watchtower_idx,
-                challenge_txid,
+                challenge_outpoint,
             } => {
-                let tx = context
+                self.spent_watchtower_utxos.insert(*watchtower_idx);
+                let witness = context
                     .cache
-                    .txids
-                    .get(challenge_txid)
-                    .expect("Watchtower txid that got matched should be in cache");
+                    .get_witness_of_utxo(challenge_outpoint)
+                    .expect("Challenge outpoint that got matched should be in block");
                 // save challenge witness
-                self.watchtower_challenges
-                    .insert(*watchtower_idx, tx.input[0].witness.clone());
+                self.watchtower_challenges.insert(*watchtower_idx, witness);
+                self.check_time_to_send_asserts(context).await;
                 Handled
             }
             KickoffEvent::OperatorAssertSent {
                 assert_idx,
-                assert_txid,
+                assert_outpoint,
             } => {
-                let tx = context
+                let witness = context
                     .cache
-                    .txids
-                    .get(assert_txid)
-                    .expect("Assert txid that got matched should be in cache");
+                    .get_witness_of_utxo(assert_outpoint)
+                    .expect("Assert outpoint that got matched should be in block");
                 // save assert witness
-                self.operator_asserts
-                    .insert(*assert_idx, tx.input[0].witness.clone());
+                self.operator_asserts.insert(*assert_idx, witness);
                 Handled
             }
-            KickoffEvent::BurnConnectorSpent | KickoffEvent::KickoffFinalizerSpent => {
+            KickoffEvent::OperatorChallengeAckSent {
+                watchtower_idx,
+                challenge_ack_outpoint,
+            } => {
+                let witness = context
+                    .cache
+                    .get_witness_of_utxo(challenge_ack_outpoint)
+                    .expect("Challenge ack outpoint that got matched should be in block");
+                // save challenge ack witness
+                self.operator_challenge_acks
+                    .insert(*watchtower_idx, witness);
+                Handled
+            }
+            KickoffEvent::KickoffFinalizerSpent => Transition(State::closed()),
+            KickoffEvent::BurnConnectorSpent => {
+                tracing::error!(
+                    "Burn connector spent before kickoff was finalized for kickoff {:?}",
+                    self.kickoff_id
+                );
                 Transition(State::closed())
             }
-            _ => Super,
+            KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
+                self.spent_watchtower_utxos.insert(*watchtower_idx);
+                self.check_time_to_send_asserts(context).await;
+                Handled
+            }
+            _ => {
+                self.unhandled_event(context, event).await;
+                Handled
+            }
         }
     }
 
-    async fn add_default_matchers(
+    async fn add_default_kickoff_matchers(
         &mut self,
         context: &mut StateContext<T>,
     ) -> Result<(), BridgeError> {
@@ -187,7 +388,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         );
         let mut txhandlers = context
             .owner
-            .create_txhandlers(TransactionType::Kickoff, contract_context)
+            .create_txhandlers(TransactionType::AllNeededForDeposit, contract_context)
             .await?;
         let kickoff_txhandler =
             remove_txhandler_from_map(&mut txhandlers, TransactionType::Kickoff)?;
@@ -199,43 +400,85 @@ impl<T: Owner> KickoffStateMachine<T> {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
             let mini_assert_vout = 4 + assert_idx;
-            let operator_assert_txid = *remove_txhandler_from_map(
+            let assert_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
-                TransactionType::MiniAssert(assert_idx),
-            )?
-            .get_txid();
+                TransactionType::AssertTimeout(assert_idx),
+            )?;
+            let assert_timeout_txid = assert_timeout_txhandler.get_txid();
             self.matchers.insert(
-                Matcher::SpentUtxo(OutPoint {
-                    txid: kickoff_txid,
-                    vout: mini_assert_vout as u32,
-                }),
+                Matcher::SpentUtxoButNotTimeout(
+                    OutPoint {
+                        txid: kickoff_txid,
+                        vout: mini_assert_vout as u32,
+                    },
+                    *assert_timeout_txid,
+                ),
                 KickoffEvent::OperatorAssertSent {
-                    assert_txid: operator_assert_txid,
-                    assert_idx: assert_idx as u32,
+                    assert_outpoint: OutPoint {
+                        txid: kickoff_txid,
+                        vout: mini_assert_vout as u32,
+                    },
+                    assert_idx,
                 },
             );
         }
-        // add watchtower challenges
-        for watchtower_idx in 0..self.num_watchtowers {
+        // add watchtower challenges and challenge acks
+        for watchtower_idx in 0..context.paramset.num_watchtowers {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
-            let watchtower_challenge_vout = 4 + num_asserts + watchtower_idx as usize * 2;
-            let watchtower_challenge_txid = *remove_txhandler_from_map(
+            let watchtower_challenge_vout = 4 + num_asserts + watchtower_idx * 2;
+            let watchtower_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
-                TransactionType::WatchtowerChallenge(watchtower_idx as usize),
-            )?
-            .get_txid();
+                TransactionType::WatchtowerChallengeTimeout(watchtower_idx),
+            )?;
+            let watchtower_timeout_txid = watchtower_timeout_txhandler.get_txid();
+            // matcher in case timeout is sent
             self.matchers.insert(
-                Matcher::SpentUtxo(OutPoint {
-                    txid: kickoff_txid,
-                    vout: watchtower_challenge_vout as u32,
-                }),
+                Matcher::SentTx(*watchtower_timeout_txid),
+                KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx },
+            );
+            // martcher in case watchtower challenge is sent
+            self.matchers.insert(
+                Matcher::SpentUtxoButNotTimeout(
+                    OutPoint {
+                        txid: kickoff_txid,
+                        vout: watchtower_challenge_vout as u32,
+                    },
+                    *watchtower_timeout_txid,
+                ),
                 KickoffEvent::WatchtowerChallengeSent {
                     watchtower_idx,
-                    challenge_txid: watchtower_challenge_txid,
+                    challenge_outpoint: OutPoint {
+                        txid: kickoff_txid,
+                        vout: watchtower_challenge_vout as u32,
+                    },
+                },
+            );
+            // add operator challenge ack
+            let operator_challenge_ack_vout = watchtower_challenge_vout + 1;
+            let operator_challenge_nack_txhandler = remove_txhandler_from_map(
+                &mut txhandlers,
+                TransactionType::OperatorChallengeNack(watchtower_idx),
+            )?;
+            let operator_challenge_nack_txid = operator_challenge_nack_txhandler.get_txid();
+            self.matchers.insert(
+                Matcher::SpentUtxoButNotTimeout(
+                    OutPoint {
+                        txid: kickoff_txid,
+                        vout: operator_challenge_ack_vout as u32,
+                    },
+                    *operator_challenge_nack_txid,
+                ),
+                KickoffEvent::OperatorChallengeAckSent {
+                    watchtower_idx,
+                    challenge_ack_outpoint: OutPoint {
+                        txid: kickoff_txid,
+                        vout: operator_challenge_ack_vout as u32,
+                    },
                 },
             );
         }
+
         // add burn connector tx spent matcher
         let round_txhandler = remove_txhandler_from_map(&mut txhandlers, TransactionType::Round)?;
         let round_txid = *round_txhandler.get_txid();
@@ -254,18 +497,31 @@ impl<T: Owner> KickoffStateMachine<T> {
             }),
             KickoffEvent::KickoffFinalizerSpent,
         );
-        // create times to send necessary asserts
+        // add challenge tx
+        let challenge_vout = 0;
+        let challenge_timeout_txhandler =
+            remove_txhandler_from_map(&mut txhandlers, TransactionType::ChallengeTimeout)?;
+        let challenge_timeout_txid = challenge_timeout_txhandler.get_txid();
+        self.matchers.insert(
+            Matcher::SpentUtxoButNotTimeout(
+                OutPoint {
+                    txid: kickoff_txid,
+                    vout: challenge_vout,
+                },
+                *challenge_timeout_txid,
+            ),
+            KickoffEvent::Challenged,
+        );
         Ok(())
     }
 
     #[action]
     pub(crate) async fn on_kickoff_started_entry(&mut self, context: &mut StateContext<T>) {
-        println!("Kickoff Started");
         context
             .capture_error(async |context| {
                 {
                     // Add all watchtower challenges and operator asserts to matchers
-                    self.add_default_matchers(context).await?;
+                    self.add_default_kickoff_matchers(context).await?;
                     Ok(())
                 }
                 .map_err(self.wrap_err("on_kickoff_started_entry"))

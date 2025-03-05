@@ -1,8 +1,11 @@
 use crate::config::protocol::ProtocolParamset;
+use crate::rpc::clementine::KickoffId;
 
+use bitcoin::Witness;
 use statig::awaitable::InitializedStateMachine;
 use tonic::async_trait;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::database::Database;
@@ -32,10 +35,18 @@ pub enum Duty {
         operator_idx: u32,
         used_kickoffs: HashSet<usize>,
     },
-    WatchtowerChallenge,
-    OperatorAssert,
-    VerifierDisprove,
-    CheckIfMalicious,
+    WatchtowerChallenge {
+        kickoff_id: KickoffId,
+    },
+    SendOperatorAsserts {
+        kickoff_id: KickoffId,
+        watchtower_challenges: HashMap<usize, Witness>,
+    },
+    VerifierDisprove {
+        kickoff_id: KickoffId,
+        operator_asserts: HashMap<usize, Witness>,
+        operator_acks: HashMap<usize, Witness>,
+    },
 }
 
 /// Owner trait with async handling and tx handler creation

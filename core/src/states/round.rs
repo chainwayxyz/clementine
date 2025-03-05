@@ -1,6 +1,9 @@
 use eyre::Context;
 use statig::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::DerefMut,
+};
 
 use crate::{
     builder::transaction::{ContractContext, OperatorData, TransactionType},
@@ -14,7 +17,9 @@ use super::{
     Owner,
 };
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum RoundEvent {
     KickoffUtxoUsed {
         kickoff_idx: usize,
@@ -45,12 +50,12 @@ impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
         self.matchers
             .iter()
             .filter_map(|(matcher, round_event)| {
-                if matcher.matches(block) {
-                    Some(round_event.clone())
-                } else {
-                    None
-                }
+                matcher.matches(block).map(|ord| (ord, round_event))
             })
+            .min()
+            .map(|(_, round_event)| round_event)
+            .into_iter()
+            .cloned()
             .collect()
     }
 }
@@ -87,6 +92,16 @@ impl<T: Owner> RoundStateMachine<T> {
         }
     }
 
+    async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &RoundEvent) {
+        context
+            .capture_error(async |_context| {
+                let event_str = format!("{:?}", event);
+                Err(BridgeError::UnhandledEvent(event_str))
+                    .map_err(self.wrap_err("round unhandled event"))
+            })
+            .await;
+    }
+
     #[action]
     pub(crate) fn on_dispatch(
         &mut self,
@@ -98,6 +113,12 @@ impl<T: Owner> RoundStateMachine<T> {
         } else {
             tracing::debug!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
             self.dirty = true;
+
+            // Remove the matcher corresponding to the event.
+            if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
+                let matcher = matcher.clone();
+                self.matchers.remove(&matcher);
+            }
         }
     }
 
@@ -140,7 +161,10 @@ impl<T: Owner> RoundStateMachine<T> {
             RoundEvent::ReadyToReimburseSent { round_idx } => {
                 Transition(State::ready_to_reimburse(*round_idx))
             }
-            _ => Handled,
+            _ => {
+                self.unhandled_event(context, event).await;
+                Handled
+            }
         }
     }
 
@@ -230,7 +254,10 @@ impl<T: Owner> RoundStateMachine<T> {
             RoundEvent::RoundSent { round_idx } => {
                 Transition(State::round_tx(*round_idx, HashSet::new()))
             }
-            _ => Handled,
+            _ => {
+                self.unhandled_event(context, event).await;
+                Handled
+            }
         }
     }
 

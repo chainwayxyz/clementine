@@ -178,6 +178,9 @@ pub enum BridgeError {
     #[error("NoncesNotFound")]
     NoncesNotFound,
 
+    #[error("State machine received event that it doesn't know how to handle: {0}")]
+    UnhandledEvent(String),
+
     #[error("KickoffOutpointsNotFound")]
     KickoffOutpointsNotFound,
     #[error("DepositInfoNotFound")]
