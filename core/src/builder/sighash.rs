@@ -82,6 +82,7 @@ pub struct SignatureInfo {
     pub round_idx: usize,
     pub kickoff_utxo_idx: usize,
     pub signature_id: SignatureId,
+    pub kickoff_txid: Option<bitcoin::Txid>,
 }
 
 impl PartialSignatureInfo {
@@ -102,6 +103,16 @@ impl PartialSignatureInfo {
             round_idx: self.round_idx,
             kickoff_utxo_idx: self.kickoff_utxo_idx,
             signature_id,
+            kickoff_txid: None,
+        }
+    }
+    pub fn complete_with_kickoff_txid(&self, kickoff_txid: bitcoin::Txid) -> SignatureInfo {
+        SignatureInfo {
+            operator_idx: self.operator_idx,
+            round_idx: self.round_idx,
+            kickoff_utxo_idx: self.kickoff_utxo_idx,
+            signature_id: NormalSignatureKind::YieldKickoffTxid.into(),
+            kickoff_txid: Some(kickoff_txid),
         }
     }
 }
@@ -190,7 +201,7 @@ pub fn create_nofn_sighash_stream(
 
                     match (yield_kickoff_txid, kickoff_txid) {
                         (true, Some(kickoff_txid)) => {
-                            yield (TapSighash::from_byte_array(kickoff_txid.to_raw_hash().to_byte_array()), partial.complete(NormalSignatureKind::YieldKickoffTxid.into()));
+                            yield (TapSighash::all_zeros(), partial.complete_with_kickoff_txid(*kickoff_txid));
                         }
                         (true, None) => {
                             Err(BridgeError::Error("Kickoff txid not found".to_string()))?;

@@ -524,11 +524,11 @@ impl Verifier {
                 round_idx,
                 kickoff_utxo_idx,
                 signature_id,
+                kickoff_txid,
             } = &sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx][kickoff_utxo_idx] =
-                    bitcoin::Txid::from_byte_array(sighash.0.to_byte_array());
+                kickoff_txids[operator_idx][round_idx][kickoff_utxo_idx] = kickoff_txid.expect("Kickoff txid must be Some");
                 continue;
             }
 
@@ -621,6 +621,7 @@ impl Verifier {
                     round_idx,
                     kickoff_utxo_idx,
                     signature_id,
+                    kickoff_txid,
                 } = &sighash.1;
                 let tagged_sig = TaggedSignature {
                     signature: operator_sig.serialize().to_vec(),
@@ -893,7 +894,10 @@ impl Verifier {
         Ok(())
     }
 
-    async fn is_kickoff_malicious(&self, _kickoff_txid: bitcoin::Txid) -> Result<bool, BridgeError> {
+    async fn is_kickoff_malicious(
+        &self,
+        _kickoff_txid: bitcoin::Txid,
+    ) -> Result<bool, BridgeError> {
         Ok(true)
     }
 
