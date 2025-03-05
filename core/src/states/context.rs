@@ -1,3 +1,4 @@
+use crate::builder::transaction::DepositData;
 use crate::config::protocol::ProtocolParamset;
 use crate::rpc::clementine::KickoffId;
 
@@ -37,13 +38,16 @@ pub enum Duty {
     },
     WatchtowerChallenge {
         kickoff_id: KickoffId,
+        deposit_data: DepositData,
     },
     SendOperatorAsserts {
         kickoff_id: KickoffId,
+        deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Witness>,
     },
     VerifierDisprove {
         kickoff_id: KickoffId,
+        deposit_data: DepositData,
         operator_asserts: HashMap<usize, Witness>,
         operator_acks: HashMap<usize, Witness>,
     },
@@ -104,20 +108,6 @@ impl<T: Owner> StateContext<T> {
 
     pub async fn dispatch_duty(&self, duty: Duty) -> Result<(), BridgeError> {
         self.owner.handle_duty(duty).await
-    }
-
-    pub fn add_new_round_machine(
-        &mut self,
-        machine: InitializedStateMachine<round::RoundStateMachine<T>>,
-    ) {
-        self.new_round_machines.push(machine);
-    }
-
-    pub fn add_new_kickoff_machine(
-        &mut self,
-        machine: InitializedStateMachine<kickoff::KickoffStateMachine<T>>,
-    ) {
-        self.new_kickoff_machines.push(machine);
     }
 
     /// Run an async closure and capture any errors in execution.

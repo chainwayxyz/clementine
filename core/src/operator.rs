@@ -1,13 +1,19 @@
+use std::collections::BTreeMap;
+
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
+use crate::builder::transaction::{
+    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
+    ReimburseDbCache,
+};
 use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
+use crate::states::{Duty, Owner};
 use crate::tx_sender::TxSender;
 use crate::utils::SECP;
 use crate::{builder, UTXO};
@@ -976,6 +982,60 @@ impl Operator {
         }
 
         Ok(hashes)
+    }
+}
+
+#[tonic::async_trait]
+impl Owner for Operator {
+    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+        match duty {
+            Duty::NewKickoff => {
+                tracing::warn!("called new kickoff");
+            }
+            Duty::NewReadyToReimburse {
+                round_idx,
+                operator_idx,
+                used_kickoffs,
+            } => {
+                tracing::warn!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", round_idx, operator_idx, used_kickoffs);
+            }
+            Duty::WatchtowerChallenge {
+                kickoff_id,
+                deposit_data,
+            } => {
+                tracing::warn!(
+                    "called watchtower challenge with kickoff_id: {:?}",
+                    kickoff_id
+                );
+            }
+            Duty::SendOperatorAsserts {
+                kickoff_id,
+                deposit_data,
+                watchtower_challenges,
+            } => {
+                tracing::warn!("called send operator asserts with kickoff_id: {:?}, watchtower_challenges: {:?}", kickoff_id, watchtower_challenges);
+            }
+            Duty::VerifierDisprove {
+                kickoff_id,
+                deposit_data,
+                operator_asserts,
+                operator_acks,
+            } => {
+                tracing::warn!("called verifier disprove with kickoff_id: {:?}, operator_asserts: {:?}, operator_acks: {:?}", kickoff_id, operator_asserts, operator_acks);
+            }
+        }
+        Ok(())
+    }
+
+    async fn create_txhandlers(
+        &self,
+        tx_type: TransactionType,
+        contract_context: ContractContext,
+    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+        let mut db_cache =
+            ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
+        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        Ok(txhandlers)
     }
 }
 

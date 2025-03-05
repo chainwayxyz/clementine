@@ -142,20 +142,24 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    async fn check_time_to_send_asserts(&mut self, context: &mut StateContext<T>) {
+    async fn check_if_time_to_send_asserts(&mut self, context: &mut StateContext<T>) {
         context
             .capture_error(async |context| {
                 {
-                    context
-                        .owner
-                        .handle_duty(Duty::SendOperatorAsserts {
-                            kickoff_id: self.kickoff_id,
-                            watchtower_challenges: self.watchtower_challenges.clone(),
-                        })
-                        .await?;
+                    // if all watchtower challenge utxos are spent, its safe to send asserts
+                    if self.spent_watchtower_utxos.len() == context.paramset.num_watchtowers {
+                        context
+                            .owner
+                            .handle_duty(Duty::SendOperatorAsserts {
+                                kickoff_id: self.kickoff_id,
+                                deposit_data: self.deposit_data.clone(),
+                                watchtower_challenges: self.watchtower_challenges.clone(),
+                            })
+                            .await?;
+                    }
                     Ok(())
                 }
-                .map_err(self.wrap_err("on_check_time_to_send_asserts"))
+                .map_err(self.wrap_err("on send_asserts"))
             })
             .await;
     }
@@ -168,11 +172,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                         .owner
                         .handle_duty(Duty::WatchtowerChallenge {
                             kickoff_id: self.kickoff_id,
+                            deposit_data: self.deposit_data.clone(),
                         })
                         .await?;
                     Ok(())
                 }
-                .map_err(self.wrap_err("on_check_time_to_send_asserts"))
+                .map_err(self.wrap_err("on send_watchtower_challenge"))
             })
             .await;
     }
@@ -185,6 +190,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         .owner
                         .handle_duty(Duty::VerifierDisprove {
                             kickoff_id: self.kickoff_id,
+                            deposit_data: self.deposit_data.clone(),
                             operator_asserts: self.operator_asserts.clone(),
                             operator_acks: self.operator_challenge_acks.clone(),
                         })
@@ -239,58 +245,12 @@ impl<T: Owner> KickoffStateMachine<T> {
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
-            KickoffEvent::WatchtowerChallengeSent {
-                watchtower_idx,
-                challenge_outpoint,
-            } => {
-                self.spent_watchtower_utxos.insert(*watchtower_idx);
-                let witness = context
-                    .cache
-                    .get_witness_of_utxo(challenge_outpoint)
-                    .expect("Challenge outpoint that got matched should be in block");
-                // save challenge witness
-                self.watchtower_challenges.insert(*watchtower_idx, witness);
-                self.check_time_to_send_asserts(context).await;
-                Handled
-            }
-            KickoffEvent::OperatorAssertSent {
-                assert_idx,
-                assert_outpoint,
-            } => {
-                let witness = context
-                    .cache
-                    .get_witness_of_utxo(assert_outpoint)
-                    .expect("Assert outpoint that got matched should be in block");
-                // save assert witness
-                self.operator_asserts.insert(*assert_idx, witness);
-                Handled
-            }
-            KickoffEvent::OperatorChallengeAckSent {
-                watchtower_idx,
-                challenge_ack_outpoint,
-            } => {
-                let witness = context
-                    .cache
-                    .get_witness_of_utxo(challenge_ack_outpoint)
-                    .expect("Challenge ack outpoint that got matched should be in block");
-                // save challenge ack witness
-                self.operator_challenge_acks
-                    .insert(*watchtower_idx, witness);
-                Handled
-            }
-            KickoffEvent::KickoffFinalizerSpent => Transition(State::closed()),
-            KickoffEvent::BurnConnectorSpent => {
-                tracing::error!(
-                    "Burn connector spent before kickoff was finalized for kickoff {:?}",
-                    self.kickoff_id
-                );
-                Transition(State::closed())
-            }
-            KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
-                self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.check_time_to_send_asserts(context).await;
-                Handled
-            }
+            KickoffEvent::WatchtowerChallengeSent { .. }
+            | KickoffEvent::OperatorAssertSent { .. }
+            | KickoffEvent::OperatorChallengeAckSent { .. }
+            | KickoffEvent::KickoffFinalizerSpent
+            | KickoffEvent::BurnConnectorSpent
+            | KickoffEvent::WatchtowerChallengeTimeoutSent { .. } => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;
                 Handled
@@ -306,17 +266,13 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    #[state(entry_action = "on_kickoff_started_entry")]
-    pub(crate) async fn kickoff_started(
+    #[superstate]
+    async fn kickoff(
         &mut self,
         event: &KickoffEvent,
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
-            KickoffEvent::Challenged => {
-                tracing::warn!("Warning: Operator challenged: {:?}", self.kickoff_id);
-                Transition(State::challenged())
-            }
             KickoffEvent::WatchtowerChallengeSent {
                 watchtower_idx,
                 challenge_outpoint,
@@ -328,7 +284,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Challenge outpoint that got matched should be in block");
                 // save challenge witness
                 self.watchtower_challenges.insert(*watchtower_idx, witness);
-                self.check_time_to_send_asserts(context).await;
+                self.check_if_time_to_send_asserts(context).await;
                 Handled
             }
             KickoffEvent::OperatorAssertSent {
@@ -366,9 +322,33 @@ impl<T: Owner> KickoffStateMachine<T> {
             }
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.check_time_to_send_asserts(context).await;
+                self.check_if_time_to_send_asserts(context).await;
                 Handled
             }
+            _ => {
+                self.unhandled_event(context, event).await;
+                Handled
+            }
+        }
+    }
+
+    #[state(superstate = "kickoff", entry_action = "on_kickoff_started_entry")]
+    pub(crate) async fn kickoff_started(
+        &mut self,
+        event: &KickoffEvent,
+        context: &mut StateContext<T>,
+    ) -> Response<State> {
+        match event {
+            KickoffEvent::Challenged => {
+                tracing::warn!("Warning: Operator challenged: {:?}", self.kickoff_id);
+                Transition(State::challenged())
+            }
+            KickoffEvent::WatchtowerChallengeSent { .. }
+            | KickoffEvent::OperatorAssertSent { .. }
+            | KickoffEvent::OperatorChallengeAckSent { .. }
+            | KickoffEvent::KickoffFinalizerSpent
+            | KickoffEvent::BurnConnectorSpent
+            | KickoffEvent::WatchtowerChallengeTimeoutSent { .. } => Super,
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled

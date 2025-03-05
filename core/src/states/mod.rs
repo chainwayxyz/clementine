@@ -12,14 +12,21 @@ use matcher::BlockMatcher;
 use round::RoundEvent;
 use statig::awaitable::{InitializedStateMachine, UninitializedStateMachine};
 use statig::prelude::*;
+use std::alloc::System;
+use std::cmp::max;
 use std::future::Future;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 mod block_cache;
 pub mod context;
 pub mod kickoff;
 mod matcher;
 pub mod round;
+pub mod syncer;
+
+pub use context::Duty;
+pub use context::Owner;
 
 pub(crate) enum ContextProcessResult<
     T: Owner,
@@ -77,6 +84,17 @@ where
     }
 }
 
+pub enum SystemEvent {
+    NewBlock {
+        block: bitcoin::Block,
+        height: u32,
+    },
+    NewOperator {
+        operator_data: OperatorData,
+        operator_idx: u32,
+    },
+}
+
 // New state manager to hold and coordinate state machines
 #[derive(Debug)]
 pub struct StateManager<T: Owner> {
@@ -86,10 +104,19 @@ pub struct StateManager<T: Owner> {
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     context: context::StateContext<T>,
     paramset: &'static ProtocolParamset,
+    consumer_handle: String,
+    last_processed_block_height: u32,
+    start_block_height: u32,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
-    pub fn new(db: Database, handler: T, paramset: &'static ProtocolParamset) -> Self {
+    pub fn new(
+        db: Database,
+        handler: T,
+        paramset: &'static ProtocolParamset,
+        consumer_handle: String,
+        start_block_height: u32,
+    ) -> Self {
         Self {
             context: context::StateContext::new(
                 db.clone(),
@@ -102,6 +129,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             paramset,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
+            consumer_handle,
+            last_processed_block_height: start_block_height,
+            start_block_height,
         }
     }
 
@@ -223,8 +253,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         );
 
         tx.commit().await?;
+
         Ok(())
     }
+
+    pub fn handle_event(event: SystemEvent) {}
 
     #[cfg(test)]
     #[doc(hidden)]
@@ -397,6 +430,38 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         (new_machines, processing_futures)
     }
 
+    pub async fn process_states_from_height(
+        &mut self,
+        new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
+        new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
+        start_height: u32,
+    ) -> Result<(), BridgeError> {
+        // save old round machines, only process new ones and then append old machines back
+        let saved_round_machines = std::mem::take(&mut self.round_machines);
+        let saved_kickoff_machines = std::mem::take(&mut self.kickoff_machines);
+
+        self.round_machines = new_round_machines;
+        self.kickoff_machines = new_kickoff_machines;
+
+        for block_height in start_height..self.last_processed_block_height + 1 {
+            let block = self.db.get_full_block(None, block_height).await?;
+            if let Some(block) = block {
+                self.process_block_parallel(&block, block_height).await?;
+            } else {
+                return Err(BridgeError::Error(format!(
+                    "Block at height {} not found",
+                    block_height
+                )));
+            }
+        }
+
+        // append saved states
+        self.round_machines.extend(saved_round_machines);
+        self.kickoff_machines.extend(saved_kickoff_machines);
+
+        Ok(())
+    }
+
     /// Processes the block and moves all state machines forward in parallel.
     /// The state machines are updated until all of them stabilize in their state (ie.
     /// the block does not generate any new events)
@@ -410,16 +475,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     ) -> Result<(), eyre::Report> {
         let mut cache: block_cache::BlockCache = Default::default();
         cache.update_with_block(block, block_height);
-
-        let base_context =
-            Self::create_context(self.owner.clone(), self.db.clone(), cache, self.paramset);
+        self.context.cache = Arc::new(cache);
 
         // Process all machines, for those unaffected collect them them, otherwise return
         // a future that processes the new events.
         let (mut final_kickoff_machines, mut kickoff_futures) =
-            Self::update_machines(&mut self.kickoff_machines, &base_context);
+            Self::update_machines(&mut self.kickoff_machines, &self.context);
         let (mut final_round_machines, mut round_futures) =
-            Self::update_machines(&mut self.round_machines, &base_context);
+            Self::update_machines(&mut self.round_machines, &self.context);
 
         let mut iterations = 0;
 
@@ -474,9 +537,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 changed_kickoff_machines.extend(std::mem::take(&mut ctx.new_kickoff_machines));
             }
 
-            if iterations > 50 {
-                return Err(eyre!(format!(
-                    r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 50 iterations, debug repr of changed machines:
+            if iterations > 500 {
+                return Err(BridgeError::Error(format!(
+                    r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 500 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----
                         {:?}
                         ---- Round machines ----
@@ -500,9 +563,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             // Reprocess changed machines and commit these futures to be handled
             // in the next round If they're empty, we'll exit the loop.
             let (finalized_kickoff_machines, new_kickoff_futures) =
-                Self::update_machines(&mut changed_kickoff_machines, &base_context);
+                Self::update_machines(&mut changed_kickoff_machines, &self.context);
             let (finalized_round_machines, new_round_futures) =
-                Self::update_machines(&mut changed_round_machines, &base_context);
+                Self::update_machines(&mut changed_round_machines, &self.context);
             final_kickoff_machines.extend(finalized_kickoff_machines);
             final_round_machines.extend(finalized_round_machines);
 
@@ -515,6 +578,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Set back the original machines
         self.round_machines = final_round_machines;
         self.kickoff_machines = final_kickoff_machines;
+        self.last_processed_block_height = max(block_height, self.last_processed_block_height);
 
         // Save the state machines to the database with the current block height
         self.save_state_to_db(block_height).await?;

@@ -6,7 +6,8 @@ use crate::builder::sighash::{
 };
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
-    create_move_to_vault_txhandler, DepositData, OperatorData, TransactionType, TxHandler, Unsigned,
+    create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, OperatorData,
+    ReimburseDbCache, TransactionType, TxHandler, Unsigned,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::builder::{self};
@@ -17,6 +18,9 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
+use crate::states;
+use crate::states::StateManager;
+use crate::states::{Duty, Owner};
 use crate::tx_sender::TxSender;
 use crate::utils::{self, SECP};
 use crate::{bitcoin_syncer, EVMAddress, UTXO};
@@ -28,11 +32,11 @@ use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt;
 
 #[derive(Debug)]
@@ -85,6 +89,7 @@ pub struct Verifier {
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
     pub tx_sender: TxSender,
+    pub state_manager: Option<Arc<Mutex<StateManager<Verifier>>>>,
 }
 
 impl Verifier {
@@ -147,19 +152,31 @@ impl Verifier {
         let _handle =
             bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
                 .await?;
-
-        Ok(Verifier {
+        let mut verifier = Verifier {
             _rpc: rpc,
             signer,
-            db,
-            config,
+            db: db.clone(),
+            config: config.clone(),
             nofn_xonly_pk,
             nofn: Arc::new(tokio::sync::RwLock::new(nofn)),
             _operator_xonly_pks: operator_xonly_pks,
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
             tx_sender,
-        })
+            state_manager: None,
+        };
+        let state_manager = Arc::new(Mutex::new(StateManager::new(
+            db.clone(),
+            verifier.clone(),
+            config.protocol_paramset(),
+            format!("Verifier{}_states", idx).to_string(),
+            config.protocol_paramset().start_height,
+        )));
+        verifier.state_manager = Some(state_manager.clone());
+        let _state_manager_handle =
+            states::syncer::run(state_manager.clone(), db.clone(), Duration::from_secs(1)).await?;
+
+        Ok(verifier)
     }
 
     pub async fn set_verifiers(
@@ -275,10 +292,11 @@ impl Verifier {
         )?;
 
         let operator_winternitz_public_keys = kickoff_wpks.keys;
+        let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
             .set_operator(
-                None,
+                Some(&mut dbtx),
                 operator_index as i32,
                 operator_xonly_pk,
                 wallet_reimburse_address.to_string(),
@@ -288,7 +306,7 @@ impl Verifier {
 
         self.db
             .set_operator_kickoff_winternitz_public_keys(
-                None,
+                Some(&mut dbtx),
                 operator_index,
                 operator_winternitz_public_keys,
             )
@@ -303,9 +321,27 @@ impl Verifier {
 
         for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
             self.db
-                .set_unspent_kickoff_sigs(None, operator_index as usize, round_idx, sigs)
+                .set_unspent_kickoff_sigs(Some(&mut dbtx), operator_index as usize, round_idx, sigs)
                 .await?;
         }
+
+        let operator_data = OperatorData {
+            xonly_pk: operator_xonly_pk,
+            collateral_funding_outpoint,
+            reimburse_addr: wallet_reimburse_address,
+        };
+
+        if let Some(ref state_machine) = self.state_manager {
+            states::syncer::add_new_round_machine(
+                state_machine.clone(),
+                operator_data,
+                operator_index,
+            )
+            .await?;
+        } else {
+            return Err(BridgeError::StateMachineNotInitialized);
+        }
+        dbtx.commit().await?;
 
         Ok(())
     }
@@ -1111,552 +1147,58 @@ impl Verifier {
 
         Ok(())
     }
-
-    // / verify burn txs are signed by verifiers
-    // / sign operator_takes_txs
-    // / TODO: Change the name of this function.
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // pub async fn burn_txs_signed(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    //     _burn_sigs: Vec<schnorr::Signature>,
-    //     slash_or_take_sigs: Vec<schnorr::Signature>,
-    // ) -> Result<Vec<MusigPartialSignature>, BridgeError> {
-    //     // TODO: Verify burn txs are signed by verifiers
-    //     let (kickoff_utxos, _, bridge_fund_outpoint) =
-    //         self.create_deposit_details(deposit_outpoint).await?;
-
-    //     let operator_takes_sighashes = kickoff_utxos
-    //         .iter()
-    //         .enumerate()
-    //         .map(|(index, kickoff_utxo)| {
-    //             let mut slash_or_take_tx_handler = builder::transaction::create_slash_or_take_tx(
-    //                 deposit_outpoint,
-    //                 kickoff_utxo.clone(),
-    //                 self.operator_xonly_pks[index],
-    //                 index,
-    //                 self.nofn_xonly_pk,
-    //                 self.config.protocol_paramset().network,
-    //                 self.config.protocol_paramset().user_takes_after,
-    //                 self.config.operator_takes_after,
-    //                 self.config.protocol_paramset().bridge_amount,
-    //             );
-    //             let slash_or_take_sighash =
-    //                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
-    //                     .unwrap();
-
-    //             utils::SECP
-    //                 .verify_schnorr(
-    //                     &slash_or_take_sigs[index],
-    //                     &bitcoin::secp256k1:: Message::from_digest(slash_or_take_sighash.to_byte_array()),
-    //                     &self.nofn_xonly_pk,
-    //                 )
-    //                 .unwrap();
-
-    //             let slash_or_take_utxo = UTXO {
-    //                 outpoint: OutPoint {
-    //                     txid: slash_or_take_tx_handler.tx.compute_txid(),
-    //                     vout: 0,
-    //                 },
-    //                 txout: slash_or_take_tx_handler.tx.output[0].clone(),
-    //             };
-
-    //             let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
-    //                 bridge_fund_outpoint,
-    //                 slash_or_take_utxo,
-    //                 self.operator_xonly_pks[index],
-    //                 self.nofn_xonly_pk,
-    //                 self.config.protocol_paramset().network,
-    //                 self.config.operator_takes_after,
-    //                 self.config.protocol_paramset().bridge_amount,
-    //                 self.config.operator_wallet_addresses[index].clone(),
-    //             );
-    //             Message::from_digest(
-    //                 Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
-    //                     .unwrap()
-    //                     .to_byte_array(),
-    //             )
-    //         })
-    //         .collect::<Vec<_>>();
-
-    //     self.db
-    //         .save_slash_or_take_sigs(deposit_outpoint, slash_or_take_sigs)
-    //         .await?;
-
-    //     // println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
-    //     let nonces = self
-    //         .db
-    //         .save_sighashes_and_get_nonces(None, deposit_outpoint, 1, &operator_takes_sighashes)
-    //         .await?
-    //         .ok_or(BridgeError::NoncesNotFound)?;
-    //     // println!("Nonces: {:?}", nonces);
-    //     // now iterate over nonces and sighashes and sign the operator_takes_txs
-    //     let operator_takes_partial_sigs = operator_takes_sighashes
-    //         .iter()
-    //         .zip(nonces.iter())
-    //         .map(|(sighash, (sec_nonce, agg_nonce))| {
-    //             musig2::partial_sign(
-    //                 self.config.verifiers_public_keys.clone(),
-    //                 None,
-    //                 true,
-    //                 *sec_nonce,
-    //                 *agg_nonce,
-    //                 &self.signer.keypair,
-    //                 *sighash,
-    //             )
-    //         })
-    //         .collect::<Vec<_>>();
-
-    //     Ok(operator_takes_partial_sigs)
-    // }
-
-    // / verify the operator_take_sigs
-    // / sign move_tx
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // pub async fn operator_take_txs_signed(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    //     operator_take_sigs: Vec<schnorr::Signature>,
-    // ) -> Result<MusigPartialSignature, BridgeError> {
-    //     // println!("Operator take signed: {:?}", operator_take_sigs);
-    //     let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
-    //         self.create_deposit_details(deposit_outpoint).await?;
-    //     let nofn_taproot_xonly_pk = bitcoin::secp256k1:: XOnlyPublicKey::from_slice(
-    //         &Address::p2tr(&utils::SECP, self.nofn_xonly_pk, None, self.config.protocol_paramset().network)
-    //             .script_pubkey()
-    //             .as_bytes()[2..34],
-    //     )?;
-    //     kickoff_utxos
-    //         .iter()
-    //         .enumerate()
-    //         .for_each(|(index, kickoff_utxo)| {
-    //             let slash_or_take_tx = builder::transaction::create_slash_or_take_tx(
-    //                 deposit_outpoint,
-    //                 kickoff_utxo.clone(),
-    //                 self.operator_xonly_pks[index],
-    //                 index,
-    //                 self.nofn_xonly_pk,
-    //                 self.config.protocol_paramset().network,
-    //                 self.config.protocol_paramset().user_takes_after,
-    //                 self.config.operator_takes_after,
-    //                 self.config.protocol_paramset().bridge_amount,
-    //             );
-    //             let slash_or_take_utxo = UTXO {
-    //                 outpoint: OutPoint {
-    //                     txid: slash_or_take_tx.tx.compute_txid(),
-    //                     vout: 0,
-    //                 },
-    //                 txout: slash_or_take_tx.tx.output[0].clone(),
-    //             };
-    //             let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
-    //                 bridge_fund_outpoint,
-    //                 slash_or_take_utxo,
-    //                 self.operator_xonly_pks[index],
-    //                 self.nofn_xonly_pk,
-    //                 self.config.protocol_paramset().network,
-    //                 self.config.operator_takes_after,
-    //                 self.config.protocol_paramset().bridge_amount,
-    //                 self.config.operator_wallet_addresses[index].clone(),
-    //             );
-    //             tracing::debug!(
-    //                 "INDEXXX: {:?} Operator takes tx hex: {:?}",
-    //                 index,
-    //                 operator_takes_tx.tx.raw_hex()
-    //             );
-
-    //             let sig_hash =
-    //                 Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
-
-    //             // verify the operator_take_sigs
-    //             utils::SECP
-    //                 .verify_schnorr(
-    //                     &operator_take_sigs[index],
-    //                     &bitcoin::secp256k1:: Message::from_digest(sig_hash.to_byte_array()),
-    //                     &nofn_taproot_xonly_pk,
-    //                 )
-    //                 .unwrap();
-    //         });
-
-    //     let kickoff_utxos = kickoff_utxos
-    //         .into_iter()
-    //         .enumerate()
-    //         .map(|(index, utxo)| (utxo, operator_take_sigs[index]));
-
-    //     self.db
-    //         .save_operator_take_sigs(deposit_outpoint, kickoff_utxos)
-    //         .await?;
-
-    //     // println!("MOVE_TX: {:?}", move_tx_handler);
-    //     // println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
-    //     let move_tx_sighash =
-    //         Actor::convert_tx_to_sighash_script_spend(&mut move_tx_handler, 0, 0)?; // TODO: This should be musig
-
-    //     // let move_reveal_sighash =
-    //     //     Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig
-
-    //     let nonces = self
-    //         .db
-    //         .save_sighashes_and_get_nonces(
-    //             None,
-    //             deposit_outpoint,
-    //             0,
-    //             &[ByteArray32(move_tx_sighash.to_byte_array())],
-    //         )
-    //         .await?
-    //         .ok_or(BridgeError::NoncesNotFound)?;
-
-    //     let move_tx_sig = musig2::partial_sign(
-    //         self.config.verifiers_public_keys.clone(),
-    //         None,
-    //         false,
-    //         nonces[0].0,
-    //         nonces[0].1,
-    //         &self.signer.keypair,
-    //         ByteArray32(move_tx_sighash.to_byte_array()),
-    //     );
-
-    //     // let move_reveal_sig = musig2::partial_sign(
-    //     //     self.config.verifiers_public_keys.clone(),
-    //     //     None,
-    //     //     nonces[1].0,
-    //     //     nonces[2].1.clone(),
-    //     //     &self.signer.keypair,
-    //     //     move_reveal_sighash.to_byte_array(),
-    //     // );
-
-    //     Ok(
-    //         move_tx_sig as MusigPartialSignature, // move_reveal_sig as MuSigPartialSignature,
-    //     )
-    // }
-
-    // / verify burn txs are signed by verifiers
-    // / sign operator_takes_txs
-    // / TODO: Change the name of this function.
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // pub async fn burn_txs_signed(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    //     _burn_sigs: Vec<schnorr::Signature>,
-    //     slash_or_take_sigs: Vec<schnorr::Signature>,
-    // ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
-    //     // TODO: Verify burn txs are signed by verifiers
-    //     let (kickoff_utxos, _, bridge_fund_outpoint) =
-    //         self.create_deposit_details(deposit_outpoint).await?;
-
-    //     let operator_takes_sighashes: Vec<MuSigSigHash> = kickoff_utxos
-    //         .iter()
-    //         .enumerate()
-    //         .map(|(index, kickoff_utxo)| {
-    //             let mut slash_or_take_tx_handler = builder::transaction::create_slash_or_take_tx(
-    //                 deposit_outpoint,
-    //                 kickoff_utxo.clone(),
-    //                 self.operator_xonly_pks[index],
-    //                 index,
-    //                 self.nofn_xonly_pk,
-    //                 self.config.protocol_paramset().network,
-    //                 self.config.protocol_paramset().user_takes_after,
-    //                 self.config.operator_takes_after,
-    //                 self.config.protocol_paramset().bridge_amount,
-    //             );
-    //             let slash_or_take_sighash =
-    //                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
-    //                     .unwrap();
-
-    //             &SECP
-    //                 .verify_schnorr(
-    //                     &slash_or_take_sigs[index],
-    //                     &bitcoin::secp256k1:: Message::from_digest(slash_or_take_sighash.to_byte_array()),
-    //                     &self.nofn_xonly_pk,
-    //                 )
-    //                 .unwrap();
-
-    //             let slash_or_take_utxo = UTXO {
-    //                 outpoint: OutPoint {
-    //                     txid: slash_or_take_tx_handler.tx.compute_txid(),
-    //                     vout: 0,
-    //                 },
-    //                 txout: slash_or_take_tx_handler.tx.output[0].clone(),
-    //             };
-
-    //             let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
-    //                 bridge_fund_outpoint,
-    //                 slash_or_take_utxo,
-    //                 self.operator_xonly_pks[index],
-    //                 self.nofn_xonly_pk,
-    //                 self.config.protocol_paramset().network,
-    //                 self.config.operator_takes_after,
-    //                 self.config.protocol_paramset().bridge_amount,
-    //                 self.config.operator_wallet_addresses[index].clone(),
-    //             );
-    //             ByteArray32(
-    //                 Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
-    //                     .unwrap()
-    //                     .to_byte_array(),
-    //             )
-    //         })
-    //         .collect::<Vec<_>>();
-
-    //     self.db
-    //         .save_slash_or_take_sigs(deposit_outpoint, slash_or_take_sigs)
-    //         .await?;
-
-    //     // println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
-    //     let nonces = self
-    //         .db
-    //         .save_sighashes_and_get_nonces(None, deposit_outpoint, 1, &operator_takes_sighashes)
-    //         .await?
-    //         .ok_or(BridgeError::NoncesNotFound)?;
-    //     // println!("Nonces: {:?}", nonces);
-    //     // now iterate over nonces and sighashes and sign the operator_takes_txs
-    //     let operator_takes_partial_sigs = operator_takes_sighashes
-    //         .iter()
-    //         .zip(nonces.iter())
-    //         .map(|(sighash, (sec_nonce, agg_nonce))| {
-    //             musig2::partial_sign(
-    //                 self.config.verifiers_public_keys.clone(),
-    //                 None,
-    //                 true,
-    //                 *sec_nonce,
-    //                 *agg_nonce,
-    //                 &self.signer.keypair,
-    //                 *sighash,
-    //             )
-    //         })
-    //         .collect::<Vec<_>>();
-
-    //     Ok(operator_takes_partial_sigs)
-    // }
-
-    // /// verify the operator_take_sigs
-    // /// sign move_tx
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // pub async fn operator_take_txs_signed(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    //     operator_take_sigs: Vec<schnorr::Signature>,
-    // ) -> Result<MuSigPartialSignature, BridgeError> {
-    //     // println!("Operator take signed: {:?}", operator_take_sigs);
-    //     let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
-    //         self.create_deposit_details(deposit_outpoint).await?;
-    //     let nofn_taproot_xonly_pk = bitcoin::secp256k1:: XOnlyPublicKey::from_slice(
-    //         &Address::p2tr(&SECP, self.nofn_xonly_pk, None, self.config.protocol_paramset().network)
-    //             .script_pubkey()
-    //             .as_bytes()[2..34],
-    //     )?;
-    //     kickoff_utxos
-    //         .iter()
-    //         .enumerate()
-    //         .for_each(|(index, kickoff_utxo)| {
-    //             let slash_or_take_tx = builder::transaction::create_slash_or_take_tx(
-    //                 deposit_outpoint,
-    //                 kickoff_utxo.clone(),
-    //                 self.operator_xonly_pks[index],
-    //                 index,
-    //                 self.nofn_xonly_pk,
-    //                 self.config.protocol_paramset().network,
-    //                 self.config.protocol_paramset().user_takes_after,
-    //                 self.config.operator_takes_after,
-    //                 self.config.protocol_paramset().bridge_amount,
-    //             );
-    //             let slash_or_take_utxo = UTXO {
-    //                 outpoint: OutPoint {
-    //                     txid: slash_or_take_tx.tx.compute_txid(),
-    //                     vout: 0,
-    //                 },
-    //                 txout: slash_or_take_tx.tx.output[0].clone(),
-    //             };
-    //             let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
-    //                 bridge_fund_outpoint,
-    //                 slash_or_take_utxo,
-    //                 self.operator_xonly_pks[index],
-    //                 self.nofn_xonly_pk,
-    //                 self.config.protocol_paramset().network,
-    //                 self.config.operator_takes_after,
-    //                 self.config.protocol_paramset().bridge_amount,
-    //                 self.config.operator_wallet_addresses[index].clone(),
-    //             );
-    //             tracing::debug!(
-    //                 "INDEXXX: {:?} Operator takes tx hex: {:?}",
-    //                 index,
-    //                 operator_takes_tx.tx.raw_hex()
-    //             );
-
-    //             let sig_hash =
-    //                 Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
-
-    //             // verify the operator_take_sigs
-    //             &SECP
-    //                 .verify_schnorr(
-    //                     &operator_take_sigs[index],
-    //                     &bitcoin::secp256k1:: Message::from_digest(sig_hash.to_byte_array()),
-    //                     &nofn_taproot_xonly_pk,
-    //                 )
-    //                 .unwrap();
-    //         });
-
-    //     let kickoff_utxos = kickoff_utxos
-    //         .into_iter()
-    //         .enumerate()
-    //         .map(|(index, utxo)| (utxo, operator_take_sigs[index]));
-
-    //     self.db
-    //         .save_operator_take_sigs(deposit_outpoint, kickoff_utxos)
-    //         .await?;
-
-    //     // println!("MOVE_TX: {:?}", move_tx_handler);
-    //     // println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
-    //     let move_tx_sighash =
-    //         Actor::convert_tx_to_sighash_script_spend(&mut move_tx_handler, 0, 0)?; // TODO: This should be musig
-
-    //     // let move_reveal_sighash =
-    //     //     Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig
-
-    //     let nonces = self
-    //         .db
-    //         .save_sighashes_and_get_nonces(
-    //             None,
-    //             deposit_outpoint,
-    //             0,
-    //             &[ByteArray32(move_tx_sighash.to_byte_array())],
-    //         )
-    //         .await?
-    //         .ok_or(BridgeError::NoncesNotFound)?;
-
-    //     let move_tx_sig = musig2::partial_sign(
-    //         self.config.verifiers_public_keys.clone(),
-    //         None,
-    //         false,
-    //         nonces[0].0,
-    //         nonces[0].1,
-    //         &self.signer.keypair,
-    //         ByteArray32(move_tx_sighash.to_byte_array()),
-    //     );
-
-    //     // let move_reveal_sig = musig2::partial_sign(
-    //     //     self.config.verifiers_public_keys.clone(),
-    //     //     None,
-    //     //     nonces[1].0,
-    //     //     nonces[2].1.clone(),
-    //     //     &self.signer.keypair,
-    //     //     move_reveal_sighash.to_byte_array(),
-    //     // );
-
-    //     Ok(
-    //         move_tx_sig as MuSigPartialSignature, // move_reveal_sig as MuSigPartialSignature,
-    //     )
-    // }
 }
 
-// #[cfg(test)]
-// mod tests {
-// use crate::errors::BridgeError;
-// use crate::extended_rpc::ExtendedRpc;
-// use crate::musig2::nonce_pair;
-// use crate::user::User;
-// use crate::verifier::Verifier;
-// use crate::EVMAddress;
-// use crate::{actor::Actor, create_test_config_with_thread_name};
-// use crate::{
-//     config::BridgeConfig, database::Database, test::common::*, utils::initialize_logger,
-// };
-// use bitcoin::secp256k1:: rand;
-// use std::{env, thread};
+#[tonic::async_trait]
+impl Owner for Verifier {
+    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+        match duty {
+            Duty::NewKickoff => {
+                tracing::warn!("called new kickoff");
+            }
+            Duty::NewReadyToReimburse {
+                round_idx,
+                operator_idx,
+                used_kickoffs,
+            } => {
+                tracing::warn!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", round_idx, operator_idx, used_kickoffs);
+            }
+            Duty::WatchtowerChallenge {
+                kickoff_id,
+                deposit_data,
+            } => {
+                tracing::warn!(
+                    "called watchtower challenge with kickoff_id: {:?}",
+                    kickoff_id
+                );
+            }
+            Duty::SendOperatorAsserts {
+                kickoff_id,
+                deposit_data,
+                watchtower_challenges,
+            } => {
+                tracing::warn!("called send operator asserts with kickoff_id: {:?}, watchtower_challenges: {:?}", kickoff_id, watchtower_challenges);
+            }
+            Duty::VerifierDisprove {
+                kickoff_id,
+                deposit_data,
+                operator_asserts,
+                operator_acks,
+            } => {
+                tracing::warn!("called verifier disprove with kickoff_id: {:?}, operator_asserts: {:?}, operator_acks: {:?}", kickoff_id, operator_asserts, operator_acks);
+            }
+        }
+        Ok(())
+    }
 
-// #[tokio::test]
-// async fn verifier_new_public_key_check() {
-//     let mut config = create_test_config_with_thread_name(None).await;
-//     let rpc = ExtendedRpc::connect(
-//         config.bitcoin_rpc_url.clone(),
-//         config.bitcoin_rpc_user.clone(),
-//         config.bitcoin_rpc_password.clone(),
-//     )
-//     .await;
-
-//     // Test config file has correct keys.
-//     Verifier::new(rpc.clone_inner().await.unwrap(), config.clone()).await.unwrap();
-
-//     // Clearing them should result in error.
-//     config.verifiers_public_keys.clear();
-//     assert!(Verifier::new(rpc, config).await.is_err());
-// }
-
-// #[tokio::test]
-//
-// async fn new_deposit_nonce_checks() {
-//     let mut config = create_test_config_with_thread_name(None).await;
-//     let rpc = ExtendedRpc::connect(
-//         config.bitcoin_rpc_url.clone(),
-//         config.bitcoin_rpc_user.clone(),
-//         config.bitcoin_rpc_password.clone(),
-//     )
-//     .await;
-//     let verifier = Verifier::new(rpc.clone_inner().await.unwrap(), config.clone()).await.unwrap();
-
-//     let evm_address = EVMAddress([1u8; 20]);
-//     let deposit_address = get_deposit_address(config, evm_address).unwrap(); This line needs to be converted into get_deposit_address
-
-//     let signer_address = Actor::new(
-//         config.secret_key,
-//         config.winternitz_secret_key,
-//         config.protocol_paramset().network,
-//     )
-//     .address
-//     .as_unchecked()
-//     .clone();
-
-//     let required_nonce_count = 2 * config.operators_xonly_pks.len() + 1;
-
-//     // Not enough nonces.
-//     let deposit_outpoint = rpc
-//         .send_to_address(&deposit_address.clone(), config.protocol_paramset().bridge_amount)
-//         .await
-//         .unwrap();
-//     rpc.mine_blocks((config.confirmation_threshold + 2).into())
-//         .await
-//         .unwrap();
-
-//     let nonces = (0..required_nonce_count / 2)
-//         .map(|_| nonce_pair(&verifier.signer.keypair, &mut rand::rngs::OsRng))
-//         .collect::<Vec<_>>();
-//     verifier
-//         .db
-//         .save_nonces(None, deposit_outpoint, &nonces)
-//         .await
-//         .unwrap();
-
-//     assert!(verifier
-//         .new_deposit(deposit_outpoint, signer_address.clone(), evm_address)
-//         .await
-//         .is_err_and(|e| {
-//             if let BridgeError::NoncesNotFound = e {
-//                 true
-//             } else {
-//                 println!("Error was {e}");
-//                 false
-//             }
-//         }));
-
-//     // Enough nonces.
-//     let deposit_outpoint = rpc
-//         .send_to_address(&deposit_address.clone(), config.protocol_paramset().bridge_amount)
-//         .await
-//         .unwrap();
-//     rpc.mine_blocks((config.confirmation_threshold + 2).into())
-//         .await
-//         .unwrap();
-
-//     let nonces = (0..required_nonce_count)
-//         .map(|_| nonce_pair(&verifier.signer.keypair, &mut rand::rngs::OsRng))
-//         .collect::<Vec<_>>();
-//     verifier
-//         .db
-//         .save_nonces(None, deposit_outpoint, &nonces)
-//         .await
-//         .unwrap();
-
-//     verifier
-//         .new_deposit(deposit_outpoint, signer_address, evm_address)
-//         .await
-//         .unwrap();
-// }
-// }
+    async fn create_txhandlers(
+        &self,
+        tx_type: TransactionType,
+        contract_context: ContractContext,
+    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+        let mut db_cache =
+            ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
+        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        Ok(txhandlers)
+    }
+}

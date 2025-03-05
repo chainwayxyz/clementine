@@ -96,6 +96,9 @@ impl TxSender {
 
                     let is_block_update = async {
                         let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
+                        if event.is_some() {
+                            tracing::debug!("TXSENDER: Event: {:?}", event);
+                        }
                         Ok::<bool, BridgeError>(match event {
                             Some(event) => match event {
                                 BitcoinSyncerEvent::NewBlock(block_id) => {
