@@ -1,4 +1,5 @@
 use super::input::{SpendableTxIn, SpentTxIn};
+use super::op_return_txout;
 use super::output::UnspentTxOut;
 use crate::builder::script::SpendPath;
 use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
@@ -419,6 +420,23 @@ impl TxHandlerBuilder {
         self.txouts.push(output);
 
         self
+    }
+
+    pub fn add_burn_output(self) -> Self {
+        let total_in = self
+            .txins
+            .iter()
+            .map(|s| s.get_spendable().get_prevout().value)
+            .sum::<bitcoin::Amount>();
+        let total_out = self
+            .txouts
+            .iter()
+            .map(|s| s.txout().value)
+            .sum::<bitcoin::Amount>();
+        let mut burntxo = op_return_txout(b"");
+        burntxo.value = total_in - total_out;
+
+        self.add_output(UnspentTxOut::from_partial(burntxo))
     }
 
     /// TODO: output likely fallible

@@ -265,7 +265,8 @@ pub fn create_kickoff_not_finalized_txhandler(
         )
         .add_output(UnspentTxOut::from_partial(
             builder::transaction::anchor_output(),
-        ))
+        )).add_burn_output()
+
         .finalize())
 }
 

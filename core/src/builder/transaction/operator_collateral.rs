@@ -141,9 +141,6 @@ pub fn create_assert_timeout_txhandlers(
 ) -> Result<Vec<TxHandler>, BridgeError> {
     let mut txhandlers = Vec::new();
     for idx in 0..num_asserts {
-        let mut burntxout = op_return_txout(b"");
-        burntxout.value = round_txhandler.get_spendable_output(0)?.get_prevout().value;
-
         txhandlers.push(
             TxHandlerBuilder::new(TransactionType::AssertTimeout(idx))
                 .with_version(Version::non_standard(3))
@@ -168,7 +165,7 @@ pub fn create_assert_timeout_txhandlers(
                 .add_output(UnspentTxOut::from_partial(
                     builder::transaction::anchor_output(),
                 ))
-                .add_output(UnspentTxOut::from_partial(burntxout))
+                .add_burn_output()
                 .finalize(),
         );
     }

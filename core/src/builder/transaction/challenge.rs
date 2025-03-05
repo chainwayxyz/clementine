@@ -105,8 +105,6 @@ pub fn create_operator_challenge_nack_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
-    let mut burntxout = op_return_txout(b"");
-    burntxout.value = round_txhandler.get_spendable_output(0)?.get_prevout().value;
 
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
@@ -141,7 +139,7 @@ pub fn create_operator_challenge_nack_txhandler(
             .add_output(UnspentTxOut::from_partial(
                 builder::transaction::anchor_output(),
             ))
-            .add_output(UnspentTxOut::from_partial(burntxout))
+            .add_burn_output()
             .finalize(),
     )
 }
@@ -169,7 +167,7 @@ pub fn create_operator_challenge_ack_txhandler(
                 builder::transaction::anchor_output(),
             ))
             .add_output(UnspentTxOut::from_partial(op_return_txout(
-                b"THIS IS SOME PADDING DSAFDDSAFSADFSAFDSAFDKSFAOFKDSOAKFDSAOFDOSAKFOPSKFOSKF",
+                b"PADDING",
             )))
             .finalize(),
     )
