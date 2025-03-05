@@ -217,7 +217,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             .get_raw_transaction_info(&move_txid, None)
             .await?;
         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
-        let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height;
+        let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
         while citrea::block_number(sequencer.client.http_client().clone()).await?
             <= block_height.try_into().unwrap()
@@ -245,7 +245,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             (config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER).into()
         );
 
-        let lcp = citrea_client.get_light_client_proof().await?;
+        let lcp = citrea_client.get_light_client_proof(block_height).await?;
         println!("lcp {:?}", lcp);
 
         Ok(())

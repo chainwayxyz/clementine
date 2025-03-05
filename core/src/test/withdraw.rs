@@ -142,6 +142,8 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 
         assert_eq!(citrea_withdrawal_utxo, withdrawal_utxo);
 
+        citrea_contract_client.collect_events().await.unwrap();
+
         Ok(())
     }
 }

@@ -21,6 +21,7 @@ use jsonrpsee::{
     http_client::{HttpClient, HttpClientBuilder},
     rpc_params,
 };
+use serde_json::json;
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
@@ -106,11 +107,10 @@ impl CitreaClient {
         })
     }
 
-    /// Fetches an UTXO from Citrea for the given withdrawal with the index.
+    /// Fetches an UTXO from Citrea for the given withdrawal index.
     ///
     /// # Parameters
     ///
-    /// - `provider`: Provider to interact with the Ethereum network.
     /// - `withdrawal_index`: Index of the withdrawal.
     ///
     /// # Returns
@@ -133,16 +133,34 @@ impl CitreaClient {
     }
 
     /// Returns light client proof for the given L1 height.
-    pub async fn get_light_client_proof(&self) -> Result<([u8; 32], u64), BridgeError> {
-        let params = rpc_params!["1"];
-
+    pub async fn get_light_client_proof(
+        &self,
+        height: u64,
+    ) -> Result<(u64, [u8; 32]), BridgeError> {
         let response: String = self
             .client
-            .request("lightClientProver_getLightClientProofByL1Height", params)
+            .request(
+                "lightClientProver_getLightClientProofByL1Height",
+                rpc_params![height],
+            )
             .await?;
-        println!("response {:?}", response);
+        println!("responsee {:?}", response);
 
         // Dummy values for now.
-        Ok(([0; 32], 0))
+        Ok((0, [0; 32]))
+    }
+
+    pub async fn collect_events(&self) -> Result<(), BridgeError> {
+        let params = rpc_params![json!({
+            "fromBlock": "earliest",
+            "toBlock": "latest",
+            "address": BRIDGE_CONTRACT_ADDRESS[2..],
+        })];
+
+        let response: String = self.client.request("eth_getLogs", params).await?;
+
+        tracing::info!("responsee: {:?}", response);
+
+        Ok(())
     }
 }
