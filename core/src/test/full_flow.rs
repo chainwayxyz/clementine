@@ -9,7 +9,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::FinalizedPayoutParams;
 use crate::rpc::clementine::{AssertRequest, DepositParams, Empty, KickoffId, TransactionRequest};
 use crate::test::common::*;
-use crate::tx_sender::{FeePayingType, TxSender};
+use crate::tx_sender::{FeePayingType, TxDataForLogging, TxSender};
 use crate::EVMAddress;
 use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;
@@ -230,9 +230,15 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         .iter()
         .find(|tx| tx.transaction_type == Some(TransactionType::Round.into()))
         .unwrap();
-    send_tx(&tx_sender, &tx_sender_db, &rpc, round_tx.raw_tx.as_slice())
-        .await
-        .context("failed to send round transaction")?;
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        round_tx.raw_tx.as_slice(),
+        TransactionType::Round,
+    )
+    .await
+    .context("failed to send round transaction")?;
 
     tracing::info!("Sending kickoff transaction");
     let kickoff_tx = all_txs
@@ -245,6 +251,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         kickoff_tx.raw_tx.as_slice(),
+        TransactionType::Kickoff,
     )
     .await
     .context("failed to send kickoff transaction")?;
@@ -263,6 +270,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         challenge_timeout_tx.raw_tx.as_slice(),
+        TransactionType::ChallengeTimeout,
     )
     .await
     .context("failed to send challenge timeout transaction")?;
@@ -279,6 +287,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         ready_to_reimburse.raw_tx.as_slice(),
+        TransactionType::ReadyToReimburse,
     )
     .await
     .context("failed to send ready to reimburse transaction")?;
@@ -305,9 +314,15 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         .iter()
         .find(|tx| tx.transaction_type == Some(TransactionType::Round.into()))
         .unwrap();
-    send_tx(&tx_sender, &tx_sender_db, &rpc, round_2.raw_tx.as_slice())
-        .await
-        .context("failed to send round 2 transaction")?;
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        round_2.raw_tx.as_slice(),
+        TransactionType::Round,
+    )
+    .await
+    .context("failed to send round 2 transaction")?;
 
     // 8. Send Happy Reimburse Transaction
     tracing::info!("Sending happy reimburse transaction");
@@ -321,6 +336,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         reimburse_tx.raw_tx.as_slice(),
+        TransactionType::Reimburse,
     )
     .await
     .context("failed to send reimburse transaction")?;
@@ -336,6 +352,7 @@ pub async fn send_tx(
     db: &Database,
     rpc: &ExtendedRpc,
     raw_tx: &[u8],
+    tx_type: TransactionType,
 ) -> Result<()> {
     let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
     let mut dbtx = db.begin_transaction().await?;
@@ -344,7 +361,14 @@ pub async fn send_tx(
     let send_result = tx_sender
         .try_to_send(
             &mut dbtx,
-            None,
+            Some(TxDataForLogging {
+                tx_type,
+                deposit_outpoint: None,
+                kickoff_idx: None,
+                operator_idx: None,
+                round_idx: None,
+                verifier_idx: None,
+            }),
             &tx,
             FeePayingType::CPFP,
             &[],
@@ -510,9 +534,15 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         .iter()
         .find(|tx| tx.transaction_type == Some(TransactionType::Round.into()))
         .unwrap();
-    send_tx(&tx_sender, &tx_sender_db, &rpc, round_tx.raw_tx.as_slice())
-        .await
-        .context("failed to send round transaction")?;
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        round_tx.raw_tx.as_slice(),
+        TransactionType::Round,
+    )
+    .await
+    .context("failed to send round transaction")?;
 
     // 6. Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
@@ -526,6 +556,7 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         kickoff_tx.raw_tx.as_slice(),
+        TransactionType::Kickoff,
     )
     .await
     .context("failed to send kickoff transaction")?;
@@ -566,6 +597,7 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
             &tx_sender_db,
             &rpc,
             watchtower_challenge_tx.raw_tx.as_slice(),
+            TransactionType::WatchtowerChallenge(watchtower_idx),
         )
         .await
         .context(format!(
@@ -602,6 +634,7 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
             &tx_sender_db,
             &rpc,
             operator_challenge_ack_tx.raw_tx.as_slice(),
+            TransactionType::OperatorChallengeAck(watchtower_idx),
         )
         .await
         .context(format!(
@@ -646,6 +679,7 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         disprove_timeout_tx.raw_tx.as_slice(),
+        TransactionType::DisproveTimeout,
     )
     .await
     .context("failed to send disprove timeout transaction")?;
@@ -662,6 +696,7 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         ready_to_reimburse.raw_tx.as_slice(),
+        TransactionType::ReadyToReimburse,
     )
     .await
     .context("failed to send ready to reimburse transaction")?;
@@ -688,9 +723,15 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         .iter()
         .find(|tx| tx.transaction_type == Some(TransactionType::Round.into()))
         .unwrap();
-    send_tx(&tx_sender, &tx_sender_db, &rpc, round_2.raw_tx.as_slice())
-        .await
-        .context("failed to send round 2 transaction")?;
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        round_2.raw_tx.as_slice(),
+        TransactionType::Round,
+    )
+    .await
+    .context("failed to send round 2 transaction")?;
 
     // 12. Send Reimburse Transaction
     tracing::info!("Sending reimburse transaction");
@@ -704,6 +745,7 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         reimburse_tx.raw_tx.as_slice(),
+        TransactionType::Reimburse,
     )
     .await
     .context("failed to send reimburse transaction")?;
@@ -836,9 +878,15 @@ pub async fn run_bad_path_1(config: BridgeConfig) -> Result<()> {
         .iter()
         .find(|tx| tx.transaction_type == Some(TransactionType::Round.into()))
         .unwrap();
-    send_tx(&tx_sender, &tx_sender_db, &rpc, round_tx.raw_tx.as_slice())
-        .await
-        .context("failed to send round transaction")?;
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        round_tx.raw_tx.as_slice(),
+        TransactionType::Round,
+    )
+    .await
+    .context("failed to send round transaction")?;
 
     // 6. Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
@@ -852,6 +900,7 @@ pub async fn run_bad_path_1(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         kickoff_tx.raw_tx.as_slice(),
+        TransactionType::Kickoff,
     )
     .await
     .context("failed to send kickoff transaction")?;
@@ -896,6 +945,7 @@ pub async fn run_bad_path_1(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         watchtower_challenge_tx.raw_tx.as_slice(),
+        TransactionType::WatchtowerChallenge(watchtower_idx),
     )
     .await
     .context(format!(
@@ -923,6 +973,7 @@ pub async fn run_bad_path_1(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         operator_challenge_nack_tx.raw_tx.as_slice(),
+        TransactionType::OperatorChallengeNack(watchtower_idx),
     )
     .await
     .context(format!(
@@ -1041,9 +1092,15 @@ pub async fn run_bad_path_2(config: BridgeConfig) -> Result<()> {
         .iter()
         .find(|tx| tx.transaction_type == Some(TransactionType::Round.into()))
         .unwrap();
-    send_tx(&tx_sender, &tx_sender_db, &rpc, round_tx.raw_tx.as_slice())
-        .await
-        .context("failed to send round transaction")?;
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        round_tx.raw_tx.as_slice(),
+        TransactionType::Round,
+    )
+    .await
+    .context("failed to send round transaction")?;
 
     // 6. Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
@@ -1057,6 +1114,7 @@ pub async fn run_bad_path_2(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         kickoff_tx.raw_tx.as_slice(),
+        TransactionType::Kickoff,
     )
     .await
     .context("failed to send kickoff transaction")?;
@@ -1089,6 +1147,7 @@ pub async fn run_bad_path_2(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         ready_to_reimburse_tx.raw_tx.as_slice(),
+        TransactionType::ReadyToReimburse,
     )
     .await
     .context("failed to send ready to reimburse transaction")?;
@@ -1105,6 +1164,7 @@ pub async fn run_bad_path_2(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         kickoff_not_finalized_tx.raw_tx.as_slice(),
+        TransactionType::KickoffNotFinalized,
     )
     .await
     .context("failed to send kickoff not finalized transaction")?;
@@ -1221,9 +1281,15 @@ pub async fn run_bad_path_3(config: BridgeConfig) -> Result<()> {
         .iter()
         .find(|tx| tx.transaction_type == Some(TransactionType::Round.into()))
         .unwrap();
-    send_tx(&tx_sender, &tx_sender_db, &rpc, round_tx.raw_tx.as_slice())
-        .await
-        .context("failed to send round transaction")?;
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        round_tx.raw_tx.as_slice(),
+        TransactionType::Round,
+    )
+    .await
+    .context("failed to send round transaction")?;
 
     // 6. Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
@@ -1237,6 +1303,7 @@ pub async fn run_bad_path_3(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         kickoff_tx.raw_tx.as_slice(),
+        TransactionType::Kickoff,
     )
     .await
     .context("failed to send kickoff transaction")?;
@@ -1276,6 +1343,7 @@ pub async fn run_bad_path_3(config: BridgeConfig) -> Result<()> {
             &tx_sender_db,
             &rpc,
             watchtower_challenge_tx.raw_tx.as_slice(),
+            TransactionType::WatchtowerChallenge(watchtower_idx),
         )
         .await
         .context(format!(
@@ -1303,6 +1371,7 @@ pub async fn run_bad_path_3(config: BridgeConfig) -> Result<()> {
             &tx_sender_db,
             &rpc,
             operator_challenge_ack_tx.raw_tx.as_slice(),
+            TransactionType::OperatorChallengeAck(watchtower_idx),
         )
         .await
         .context(format!(
@@ -1325,6 +1394,7 @@ pub async fn run_bad_path_3(config: BridgeConfig) -> Result<()> {
             &tx_sender_db,
             &rpc,
             mini_assert_tx.raw_tx.as_slice(),
+            TransactionType::MiniAssert(assert_idx),
         )
         .await
         .context(format!(
@@ -1345,6 +1415,7 @@ pub async fn run_bad_path_3(config: BridgeConfig) -> Result<()> {
         &tx_sender_db,
         &rpc,
         disprove_tx.raw_tx.as_slice(),
+        TransactionType::Disprove,
     )
     .await
     .context("failed to send disprove transaction")?;
