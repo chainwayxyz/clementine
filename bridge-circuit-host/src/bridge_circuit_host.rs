@@ -1,6 +1,4 @@
 use crate::structs::BridgeCircuitHostParams;
-use crate::{fetch_light_client_proof, fetch_storage_proof};
-use alloy_rpc_client::RpcClient;
 use borsh;
 use circuits_lib::bridge_circuit_core::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 
@@ -10,32 +8,19 @@ const BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
 
-pub async fn prove_bridge_circuit(
-    bridge_circuit_host_params: BridgeCircuitHostParams,
-    light_client_rpc_client: RpcClient,
-    citrea_rpc_client: RpcClient,
-) -> Receipt {
-    let (light_client_proof, _lcp_receipt) =
-        fetch_light_client_proof(72471, light_client_rpc_client)
-            .await
-            .unwrap();
-
-    // Check if L2 height is correct ??
-    let storage_proof = fetch_storage_proof(&light_client_proof.l2_height, citrea_rpc_client).await;
-
+pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostParams) -> Receipt {
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         winternitz_details: bridge_circuit_host_params.winternitz_details,
         hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
         payout_spv: bridge_circuit_host_params.spv,
-        lcp: light_client_proof,
-        operator_id: 1,
-        sp: storage_proof,
+        lcp: bridge_circuit_host_params.light_client_proof,
+        sp: bridge_circuit_host_params.storage_proof,
         num_watchtowers: 1,
     };
 
     let mut binding = ExecutorEnv::builder();
     let env = binding.write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap());
-    // let env = env.add_assumption(lcp_receipt).build().unwrap();
+    // let env = env.add_assumption(bridge_circuit_host_params.lcp_receipt).add_assumption(bridge_circuit_host_params.headerchain_receipt).build().unwrap();
     let env = env.build().unwrap();
     let prover = default_prover();
 
@@ -61,6 +46,7 @@ pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receip
 #[cfg(test)]
 mod tests {
     use crate::config::PARAMETERS;
+    use crate::{fetch_light_client_proof, fetch_storage_proof};
     use alloy_rpc_client::ClientBuilder;
     use bitcoin::consensus::Decodable;
     use bitcoin::hashes::Hash;
@@ -154,11 +140,13 @@ mod tests {
         let citrea_rpc_client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
         let light_client_rpc_client =
             ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
-        let headerchain_proof: Receipt = Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
+        let headerchain_receipt: Receipt =
+            Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
         let spv = create_spv().await;
 
         let block_header_circuit_output: BlockHeaderCircuitOutput =
-            borsh::BorshDeserialize::try_from_slice(&headerchain_proof.journal.bytes[..]).unwrap();
+            borsh::BorshDeserialize::try_from_slice(&headerchain_receipt.journal.bytes[..])
+                .unwrap();
 
         let work_only_circuit_input: WorkOnlyCircuitInput = WorkOnlyCircuitInput {
             header_chain_circuit_output: block_header_circuit_output.clone(),
@@ -166,7 +154,7 @@ mod tests {
 
         println!("PROVING WORK ONLY CIRCUIT");
         let work_only_groth16_proof_receipt: Receipt =
-            prove_work_only(headerchain_proof, &work_only_circuit_input);
+            prove_work_only(headerchain_receipt.clone(), &work_only_circuit_input);
 
         let g16_proof_receipt: &risc0_zkvm::Groth16Receipt<risc0_zkvm::ReceiptClaim> =
             work_only_groth16_proof_receipt.inner.groth16().unwrap();
@@ -185,17 +173,27 @@ mod tests {
 
         let winternitz_details = generate_winternitz(&compressed_proof, &commited_total_work);
 
+        let (light_client_proof, lcp_receipt) =
+            fetch_light_client_proof(72471, light_client_rpc_client)
+                .await
+                .unwrap();
+
+        let storage_proof =
+            fetch_storage_proof(&light_client_proof.l2_height, citrea_rpc_client).await;
+
+        let num_of_watchtowers: u32 = 1;
+
         let bridge_circuit_host_params = BridgeCircuitHostParams {
             winternitz_details: vec![winternitz_details],
+            light_client_proof,
+            storage_proof,
+            headerchain_receipt,
             spv,
+            lcp_receipt,
             block_header_circuit_output,
+            num_of_watchtowers,
         };
         println!("PROVING BRIDGE CIRCUIT");
-        prove_bridge_circuit(
-            bridge_circuit_host_params,
-            light_client_rpc_client,
-            citrea_rpc_client,
-        )
-        .await;
+        prove_bridge_circuit(bridge_circuit_host_params).await;
     }
 }
