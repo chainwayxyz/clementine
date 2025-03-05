@@ -6,7 +6,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::FinalizedPayoutParams;
-use crate::rpc::clementine::{ DepositParams, Empty, KickoffId, TransactionRequest};
+use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest};
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxDataForLogging, TxSender};
 use crate::EVMAddress;
