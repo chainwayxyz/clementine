@@ -65,8 +65,10 @@ pub async fn start_citrea(
     let min_soft_confirmations_per_commitment =
         sequencer_config.min_soft_confirmations_per_commitment;
 
-    for _ in 0..min_soft_confirmations_per_commitment {
-        sequencer.client.send_publish_batch_request().await?;
+    if sequencer_config.test_mode == true {
+        for _ in 0..min_soft_confirmations_per_commitment {
+            sequencer.client.send_publish_batch_request().await?;
+        }
     }
     // Wait for blob inscribe tx to be in mempool
     da.wait_mempool_len(2, None).await?;
