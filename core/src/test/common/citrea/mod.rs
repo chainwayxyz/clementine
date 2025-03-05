@@ -51,7 +51,12 @@ pub const EVM_ADDRESSES: [&str; 10] = [
 pub async fn start_citrea(
     sequencer_config: SequencerConfig,
     f: &mut TestFramework,
-) -> citrea_e2e::Result<(&Node<SequencerConfig>, &mut Node<EmptyConfig>, Option<&Node<LightClientProverConfig>>, &BitcoinNode)> {
+) -> citrea_e2e::Result<(
+    &Node<SequencerConfig>,
+    &mut Node<EmptyConfig>,
+    Option<&Node<LightClientProverConfig>>,
+    &BitcoinNode,
+)> {
     let sequencer = f.sequencer.as_ref().expect("Sequencer is present");
     let full_node = f.full_node.as_mut().expect("Full node is present");
     let light_client_prover = f.light_client_prover.as_ref();

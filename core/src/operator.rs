@@ -8,7 +8,7 @@ use crate::builder::transaction::{
     create_round_txhandlers, DepositData, KickoffWinternitzKeys, OperatorData, TransactionType,
     TxHandler,
 };
-use crate::citrea::CitreaContractClient;
+use crate::citrea::CitreaClient;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
@@ -31,7 +31,6 @@ use bitcoin::{
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -51,8 +50,7 @@ pub struct Operator {
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSender,
-    pub citrea_client: Option<jsonrpsee::http_client::HttpClient>,
-    pub citrea_contract_client: Option<CitreaContractClient>,
+    pub citrea_client: Option<CitreaClient>,
 }
 
 impl Operator {
@@ -123,17 +121,12 @@ impl Operator {
         dbtx.commit().await?;
 
         let citrea_contract_client = if !config.citrea_rpc_url.is_empty() {
-            Some(CitreaContractClient::new(
+            Some(CitreaClient::new(
                 Url::parse(&config.citrea_rpc_url).map_err(|e| {
                     BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
                 })?,
                 None,
             )?)
-        } else {
-            None
-        };
-        let citrea_client = if !config.citrea_rpc_url.is_empty() {
-            Some(HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?)
         } else {
             None
         };
@@ -153,8 +146,7 @@ impl Operator {
             idx,
             collateral_funding_outpoint,
             tx_sender,
-            citrea_client,
-            citrea_contract_client,
+            citrea_client: citrea_contract_client,
             reimburse_addr,
         })
     }
@@ -342,7 +334,7 @@ impl Operator {
         };
 
         // Check Citrea for the withdrawal state.
-        if let Some(citrea_contract_client) = &self.citrea_contract_client {
+        if let Some(citrea_contract_client) = &self.citrea_client {
             let txid = citrea_contract_client
                 .withdrawal_utxos(withdrawal_index.into())
                 .await?
@@ -441,7 +433,7 @@ impl Operator {
     ) -> Result<(), BridgeError> {
         // Don't check anything if Citrea client is not specified.
         let citrea_client = match &self.citrea_client {
-            Some(c) => c,
+            Some(c) => c.client.clone(),
             None => return Ok(()),
         };
 

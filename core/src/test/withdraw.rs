@@ -1,6 +1,6 @@
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::bitvm_client::SECP;
-use crate::citrea::{CitreaContractClient, SATS_TO_WEI_MULTIPLIER};
+use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{
@@ -92,7 +92,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         .outpoint;
         println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
-        let citrea_contract_client = CitreaContractClient::new(
+        let citrea_contract_client = CitreaClient::new(
             Url::parse(&config.citrea_rpc_url).unwrap(),
             Some(SECRET_KEYS[0].to_string()),
         )

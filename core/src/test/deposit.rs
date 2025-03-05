@@ -2,16 +2,19 @@ use super::common::citrea::BRIDGE_PARAMS;
 use crate::{
     citrea::SATS_TO_WEI_MULTIPLIER,
     extended_rpc::ExtendedRpc,
-    test::common::{
-        citrea,
-        create_test_config_with_thread_name, run_single_deposit,
-    },
+    test::common::{citrea, create_test_config_with_thread_name, run_single_deposit},
     EVMAddress,
 };
 use async_trait::async_trait;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
-    config::{BatchProverConfig, BitcoinConfig, CitreaMode, LightClientProverConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig}, framework::TestFramework, test_case::{TestCase, TestCaseRunner}, Result
+    config::{
+        BatchProverConfig, BitcoinConfig, CitreaMode, LightClientProverConfig, SequencerConfig,
+        TestCaseConfig, TestCaseDockerConfig,
+    },
+    framework::TestFramework,
+    test_case::{TestCase, TestCaseRunner},
+    Result,
 };
 use std::{thread::sleep, time::Duration};
 
@@ -173,9 +176,10 @@ impl TestCase for CitreaFetchLCPAndDeposit {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, lc_prover, da) = citrea::start_citrea(Self::sequencer_config(), f)
-            .await
-            .unwrap();
+        let (sequencer, _full_node, lc_prover, da) =
+            citrea::start_citrea(Self::sequencer_config(), f)
+                .await
+                .unwrap();
         let lc_prover = lc_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name(None).await;
@@ -242,6 +246,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 }
 
 #[tokio::test]
+#[ignore = "Citrea-e2e update in progress"]
 async fn citrea_fetch_lcp_and_deposit() -> Result<()> {
     TestCaseRunner::new(CitreaFetchLCPAndDeposit).run().await
 }

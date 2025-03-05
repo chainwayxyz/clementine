@@ -16,6 +16,7 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid};
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
@@ -55,16 +56,17 @@ type Provider = FillProvider<
     RootProvider,
 >;
 
-/// Citrea contract client is responsible for creating contracts and interacting
-/// with the EVM.
+/// Citrea client is responsible for creating contracts, interacting with the
+/// EVM and Citrea RPC.
 #[derive(Clone, Debug)]
-pub struct CitreaContractClient {
+pub struct CitreaClient {
+    pub client: HttpClient,
     pub wallet_address: alloy::primitives::Address,
     pub provider: Provider,
     pub contract: Contract,
 }
 
-impl CitreaContractClient {
+impl CitreaClient {
     /// # Parameters
     ///
     /// - `citrea_rpc_url`: URL of the Citrea RPC.
@@ -81,7 +83,7 @@ impl CitreaContractClient {
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(key))
-            .on_http(citrea_rpc_url);
+            .on_http(citrea_rpc_url.clone());
 
         let contract = BRIDGE_CONTRACT::new(
             BRIDGE_CONTRACT_ADDRESS.parse().map_err(|e| {
@@ -90,7 +92,10 @@ impl CitreaContractClient {
             provider.clone(),
         );
 
-        Ok(CitreaContractClient {
+        let client = HttpClientBuilder::default().build(citrea_rpc_url)?;
+
+        Ok(CitreaClient {
+            client,
             wallet_address,
             provider,
             contract,
