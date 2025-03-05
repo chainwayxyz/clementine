@@ -494,20 +494,32 @@ impl Verifier {
         ];
 
         let mut kickoff_txids =
-            vec![
-                vec![vec![bitcoin::Txid::all_zeros(); num_kickoffs_per_round]; num_round_txs];
-                num_operators
-            ];
+            vec![vec![vec![None; num_kickoffs_per_round]; num_round_txs]; num_operators];
 
         // ------ N-of-N SIGNATURES VERIFICATION ------
 
         let mut nonce_idx: usize = 0;
 
-        while let Some(sig) = sig_receiver.recv().await {
-            let sighash = sighash_stream
-                .next()
+        while let Some(sighash) = sighash_stream.next().await {
+            let sighash = sighash.map_err(|_| BridgeError::SighashStreamEndedPrematurely)?;
+
+            let &SignatureInfo {
+                operator_idx,
+                round_idx,
+                kickoff_utxo_idx,
+                signature_id,
+                kickoff_txid,
+            } = &sighash.1;
+
+            if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
+                kickoff_txids[operator_idx][round_idx][kickoff_utxo_idx] = kickoff_txid;
+                continue;
+            }
+
+            let sig = sig_receiver
+                .recv()
                 .await
-                .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
+                .ok_or(BridgeError::Error("No signature received".to_string()))?;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
             bitvm_client::SECP
@@ -519,19 +531,6 @@ impl Verifier {
                         x
                     ))
                 })?;
-            let &SignatureInfo {
-                operator_idx,
-                round_idx,
-                kickoff_utxo_idx,
-                signature_id,
-                kickoff_txid,
-            } = &sighash.1;
-
-            if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx][kickoff_utxo_idx] =
-                    kickoff_txid.expect("Kickoff txid must be Some");
-                continue;
-            }
 
             let tagged_sig = TaggedSignature {
                 signature: sig.serialize().to_vec(),
@@ -541,9 +540,6 @@ impl Verifier {
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
-            if nonce_idx == num_required_nofn_sigs {
-                break;
-            }
         }
 
         if nonce_idx != num_required_nofn_sigs {
@@ -622,7 +618,7 @@ impl Verifier {
                     round_idx,
                     kickoff_utxo_idx,
                     signature_id,
-                    kickoff_txid,
+                    kickoff_txid: _,
                 } = &sighash.1;
                 let tagged_sig = TaggedSignature {
                     signature: operator_sig.serialize().to_vec(),
@@ -715,8 +711,11 @@ impl Verifier {
             for (seq_idx, op_sequential_sigs) in operator_sigs.into_iter().enumerate() {
                 for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
                     let kickoff_txid = kickoff_txids[operator_idx][seq_idx][kickoff_idx];
-                    if kickoff_txid == bitcoin::Txid::all_zeros() {
-                        return Err(BridgeError::Error("Kickoff txid not found".to_string()));
+                    if kickoff_txid.is_none() {
+                        return Err(BridgeError::Error(format!(
+                            "Kickoff txid not found for {}, {}, {}",
+                            operator_idx, seq_idx, kickoff_idx
+                        )));
                     }
                     self.db
                         .set_deposit_signatures(
@@ -725,7 +724,7 @@ impl Verifier {
                             operator_idx,
                             seq_idx,
                             kickoff_idx,
-                            kickoff_txid,
+                            kickoff_txid.expect("Kickoff txid must be Some"),
                             kickoff_sigs,
                         )
                         .await?;

@@ -204,7 +204,7 @@ pub fn create_nofn_sighash_stream(
                             yield (TapSighash::all_zeros(), partial.complete_with_kickoff_txid(*kickoff_txid));
                         }
                         (true, None) => {
-                            Err(BridgeError::Error("Kickoff txid not found".to_string()))?;
+                            Err(BridgeError::Error("Kickoff txid not found in sighash stream".to_string()))?;
                         }
                         _ => {}
                     }
