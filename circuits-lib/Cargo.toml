@@ -23,7 +23,7 @@ ark-std = { workspace = true }
 ark-crypto-primitives = { workspace = true }
 ark-serialize = { workspace = true }
 ark-relations = { workspace = true }
-ark-groth16 = { version = "0.5.0", default-features = false }
+ark-groth16 = { workspace = true, default-features = false }
 
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
@@ -37,11 +37,11 @@ serde_json = { workspace = true }
 bincode = { workspace = true }
 alloy-rpc-types-eth = { workspace = true, features = ["serde"] }
 derive_more = { workspace = true, features = ["display"]} 
-crypto-bigint = { git = "https://github.com/risc0/RustCrypto-crypto-bigint", tag = "v0.5.5-risczero.0" }
+crypto-bigint = { workspace = true }
 blake3 = { workspace = true }
 itertools = { workspace = true }
 
-risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "main" } # Remove later
+risc0-to-bitvm2-core = { workspace = true } # Remove later
 
 [features]
 not_patched = []

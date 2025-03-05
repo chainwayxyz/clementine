@@ -2180,7 +2180,6 @@ dependencies = [
  "borsh",
  "citrea-e2e",
  "clap",
- "crypto-bigint 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "eyre",
  "futures",
  "futures-core",

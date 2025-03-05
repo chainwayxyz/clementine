@@ -42,7 +42,7 @@ thiserror = { workspace = true }
 
 circuits-lib = { path = "../circuits-lib", features = ["not_patched"] }
 
-risc0-to-bitvm2-core = { git="https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "main" } # remove later
+risc0-to-bitvm2-core = { workspace = true } # remove later
 
 
 

@@ -54,7 +54,7 @@ hyper-util = { version = "0.1" }
 
 # Circuits
 sha2 = { version = "=0.10.8", default-features = false }
-crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
+crypto-bigint = { git = "https://github.com/risc0/RustCrypto-crypto-bigint", tag = "v0.5.5-risczero.0" }
 borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.3", default-features = false }
 risc0-build = "1.2"
@@ -69,7 +69,7 @@ header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "
 bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "8508328" }
 risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "main" }
 
-ark-groth16 = "0.5.0"
+ark-groth16 = { version = "0.5.0", default-features = false }
 ark-serialize = "0.5.0"
 ark-bn254 = { version = "0.5.0", features = ["curve", "scalar_field"], default-features = false }
 
