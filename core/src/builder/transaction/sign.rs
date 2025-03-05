@@ -8,7 +8,6 @@ use crate::operator::Operator;
 use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
 use crate::watchtower::Watchtower;
 use crate::{builder, utils};
-use bitcoin::XOnlyPublicKey;
 
 use super::ContractContext;
 
@@ -30,7 +29,6 @@ pub async fn create_and_sign_txs(
     db: Database,
     signer: &Actor,
     config: BridgeConfig,
-    nofn_xonly_pk: XOnlyPublicKey,
     transaction_data: TransactionRequestData,
     block_hash: Option<[u8; 20]>, //to sign kickoff
 ) -> Result<Vec<(TransactionType, RawSignedTx)>, BridgeError> {
@@ -44,7 +42,7 @@ pub async fn create_and_sign_txs(
         transaction_data.transaction_type,
         context,
         None,
-        &mut &mut ReimburseDbCache::new_for_deposit(
+        &mut ReimburseDbCache::new_for_deposit(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
             transaction_data.deposit_data.clone(),
@@ -127,7 +125,6 @@ impl Watchtower {
     /// Creates and signs the watchtower challenge
     pub async fn create_and_sign_watchtower_challenge(
         &self,
-        nofn_xonly_pk: XOnlyPublicKey,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
     ) -> Result<RawSignedTx, BridgeError> {
@@ -152,7 +149,7 @@ impl Watchtower {
             TransactionType::WatchtowerChallenge(self.config.index as usize),
             context,
             None,
-            &mut &mut ReimburseDbCache::new_for_deposit(
+            &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
                 transaction_data.deposit_data.clone(),
@@ -184,7 +181,6 @@ impl Watchtower {
 impl Operator {
     pub async fn create_assert_commitment_txs(
         &self,
-        nofn_xonly_pk: XOnlyPublicKey,
         assert_data: AssertRequestData,
     ) -> Result<RawSignedTxs, BridgeError> {
         let context = ContractContext::new_context_for_asserts(

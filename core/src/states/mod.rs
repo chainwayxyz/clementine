@@ -1,3 +1,4 @@
+use crate::builder::transaction::OperatorData;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::BridgeError;
@@ -15,10 +16,10 @@ use std::future::Future;
 use std::sync::Arc;
 
 mod block_cache;
-mod context;
-mod kickoff;
+pub mod context;
+pub mod kickoff;
 mod matcher;
-mod round;
+pub mod round;
 
 pub(crate) enum ContextProcessResult<
     T: Owner,
@@ -223,6 +224,28 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         tx.commit().await?;
         Ok(())
+    }
+
+    #[cfg(test)]
+    #[doc(hidden)]
+    pub fn round_machines(&self) -> Vec<InitializedStateMachine<round::RoundStateMachine<T>>> {
+        self.round_machines.clone()
+    }
+
+    #[cfg(test)]
+    #[doc(hidden)]
+    pub fn kickoff_machines(
+        &self,
+    ) -> Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>> {
+        self.kickoff_machines.clone()
+    }
+
+    pub async fn track_operator(&mut self, operator_data: OperatorData, operator_idx: u32) {
+        let machine = round::RoundStateMachine::new(operator_data, operator_idx)
+            .uninitialized_state_machine()
+            .init_with_context(&mut self.context)
+            .await;
+        self.round_machines.push(machine);
     }
 
     /// Saves the state machines to the database. Resets the dirty flag for all machines after successful save.
@@ -497,5 +520,19 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.save_state_to_db(block_height).await?;
 
         Ok(())
+    }
+
+    pub fn add_new_round_machine(
+        &mut self,
+        machine: InitializedStateMachine<round::RoundStateMachine<T>>,
+    ) {
+        self.round_machines.push(machine);
+    }
+
+    pub fn add_new_kickoff_machine(
+        &mut self,
+        machine: InitializedStateMachine<kickoff::KickoffStateMachine<T>>,
+    ) {
+        self.kickoff_machines.push(machine);
     }
 }

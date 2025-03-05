@@ -30,7 +30,7 @@ pub enum RoundEvent {
     SavedToDb,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RoundStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<matcher::Matcher, RoundEvent>,
     operator_data: OperatorData,
@@ -72,7 +72,7 @@ use eyre::Report;
 #[state_machine(
     initial = "State::initial_collateral()",
     on_dispatch = "Self::on_dispatch",
-    state(derive(Debug, Clone, serde::Serialize, serde::Deserialize))
+    state(derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize))
 )]
 // TODO: Add exit conditions too (ex: burn connector spent on smth else)
 impl<T: Owner> RoundStateMachine<T> {

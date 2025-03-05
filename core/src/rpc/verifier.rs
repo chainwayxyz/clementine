@@ -408,7 +408,6 @@ impl ClementineVerifier for Verifier {
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            self.nofn_xonly_pk,
             transaction_data,
             None, // empty blockhash, will not sign this
         )

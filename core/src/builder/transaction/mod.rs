@@ -60,7 +60,7 @@ pub struct DepositData {
     pub nofn_xonly_pk: XOnlyPublicKey,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct OperatorData {
     pub xonly_pk: XOnlyPublicKey,
     pub reimburse_addr: Address,

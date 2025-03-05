@@ -107,7 +107,7 @@ impl<T: Owner> KickoffStateMachine<T> {
 #[state_machine(
     initial = "State::kickoff_started()",
     on_dispatch = "Self::on_dispatch",
-    state(derive(Debug, Clone, serde::Serialize, serde::Deserialize))
+    state(derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize))
 )]
 impl<T: Owner> KickoffStateMachine<T> {
     pub fn wrap_err(
