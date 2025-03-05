@@ -5,13 +5,14 @@ use crate::builder::script::SpendPath;
 use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
 use crate::builder::transaction::TransactionType;
+use crate::constants::BURN_SCRIPT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
-use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
+use bitcoin::{absolute, Address, OutPoint, Script, ScriptBuf, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use std::marker::PhantomData;
 
@@ -433,8 +434,11 @@ impl TxHandlerBuilder {
             .iter()
             .map(|s| s.txout().value)
             .sum::<bitcoin::Amount>();
-        let mut burntxo = op_return_txout(b"");
-        burntxo.value = total_in - total_out;
+
+        let burntxo = TxOut {
+            script_pubkey: BURN_SCRIPT.clone(),
+            value: total_in - total_out,
+        };
 
         self.add_output(UnspentTxOut::from_partial(burntxo))
     }

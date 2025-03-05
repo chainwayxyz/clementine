@@ -768,18 +768,7 @@ impl TxSender {
         let submit_package_result: PackageSubmissionResult = self
             .rpc
             .client
-            .call(
-                // TODO: implement a maxburnamount arg in upstream
-                "submitpackage",
-                &[
-                    package_refs
-                        .into_iter()
-                        .map(|r| -> serde_json::Value { r.raw_hex().into() })
-                        .collect(),
-                    "0.1".into(),   // maxfeerate = default
-                    "100.0".into(), // maxburnamount = 100 BTC
-                ],
-            )
+            .submit_package(&package_refs)
             .await
             .inspect_err(|e| {
                 tracing::warn!(
