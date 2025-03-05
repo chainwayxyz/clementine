@@ -528,7 +528,8 @@ impl Verifier {
             } = &sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx][kickoff_utxo_idx] = kickoff_txid.expect("Kickoff txid must be Some");
+                kickoff_txids[operator_idx][round_idx][kickoff_utxo_idx] =
+                    kickoff_txid.expect("Kickoff txid must be Some");
                 continue;
             }
 
