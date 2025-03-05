@@ -438,6 +438,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         );
                     }
                 }
+                #[cfg(debug_assertions)]
                 for machine in &ctx.new_kickoff_machines {
                     if !machine.dirty {
                         panic!(
