@@ -16,7 +16,11 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid};
-use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::{
+    http_client::{HttpClient, HttpClientBuilder},
+    rpc_params,
+};
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
@@ -126,5 +130,19 @@ impl CitreaClient {
         let vout = u32::from_be_bytes(vout);
 
         Ok(OutPoint { txid, vout })
+    }
+
+    /// Returns light client proof for the given L1 height.
+    pub async fn get_light_client_proof(&self) -> Result<([u8; 32], u64), BridgeError> {
+        let params = rpc_params!["1"];
+
+        let response: String = self
+            .client
+            .request("lightClientProver_getLightClientProofByL1Height", params)
+            .await?;
+        println!("response {:?}", response);
+
+        // Dummy values for now.
+        Ok(([0; 32], 0))
     }
 }

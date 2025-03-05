@@ -1,10 +1,14 @@
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::{
-    citrea::SATS_TO_WEI_MULTIPLIER,
+    citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER},
     extended_rpc::ExtendedRpc,
-    test::common::{citrea, create_test_config_with_thread_name, run_single_deposit},
+    test::common::{
+        citrea::{self},
+        create_test_config_with_thread_name, run_single_deposit,
+    },
     EVMAddress,
 };
+use alloy::transports::http::reqwest::Url;
 use async_trait::async_trait;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
@@ -180,7 +184,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
-        let lc_prover = lc_prover.unwrap();
+        let _lc_prover = lc_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name(None).await;
         citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
@@ -191,6 +195,9 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
+
+        let citrea_client =
+            CitreaClient::new(Url::parse(&config.citrea_rpc_url).unwrap(), None).unwrap();
 
         let (
             _verifiers,
@@ -238,7 +245,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             (config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER).into()
         );
 
-        let lcp = citrea::get_light_client_proof(lc_prover.client.http_client().clone()).await?;
+        let lcp = citrea_client.get_light_client_proof().await?;
         println!("lcp {:?}", lcp);
 
         Ok(())
