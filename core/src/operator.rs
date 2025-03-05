@@ -658,7 +658,7 @@ impl Operator {
         dbtx: DatabaseTransaction<'a, '_>,
         deposit_outpoint: OutPoint,
         payout_tx_blockhash: BlockHash,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<bitcoin::Txid, BridgeError> {
         let (deposit_id, deposit_data) = self
             .db
             .get_deposit_data(Some(dbtx), deposit_outpoint)
@@ -748,7 +748,7 @@ impl Operator {
             .set_kickoff_connector_as_used(Some(dbtx), round_idx, kickoff_idx, Some(kickoff_txid))
             .await?;
 
-        Ok(())
+        Ok(kickoff_txid)
     }
 
     pub async fn end_round<'a>(

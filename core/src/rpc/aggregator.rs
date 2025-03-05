@@ -757,6 +757,7 @@ impl ClementineAggregator for Aggregator {
             self.config.clone(),
             deposit_data,
             self.nofn_xonly_pk,
+            false
         ));
 
         // Create channels for pipeline communication

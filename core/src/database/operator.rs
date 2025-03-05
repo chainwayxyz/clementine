@@ -423,6 +423,7 @@ impl Database {
         operator_idx: usize,
         round_idx: usize,
         kickoff_idx: usize,
+        kickoff_txid: Txid,
         signatures: Vec<TaggedSignature>,
     ) -> Result<(), BridgeError> {
         let deposit_id = self
@@ -431,13 +432,14 @@ impl Database {
 
         let query = sqlx::query(
             "
-            INSERT INTO deposit_signatures (deposit_id, operator_idx, round_idx, kickoff_idx, signatures)
-            VALUES ($1, $2, $3, $4, $5);"
+            INSERT INTO deposit_signatures (deposit_id, operator_idx, round_idx, kickoff_idx, kickoff_txid, signatures)
+            VALUES ($1, $2, $3, $4, $5, $6);"
         )
         .bind(i32::try_from(deposit_id)?)
         .bind(operator_idx as i32)
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32)
+        .bind(TxidDB(kickoff_txid))
         .bind(SignaturesDB(DepositSignatures{signatures}));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -1019,6 +1021,7 @@ mod tests {
                 operator_idx,
                 round_idx,
                 kickoff_idx,
+                Txid::all_zeros(),
                 signatures.signatures.clone(),
             )
             .await

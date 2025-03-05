@@ -74,6 +74,7 @@ create table if not exists deposit_signatures (
     operator_idx int not null,
     round_idx int not null,
     kickoff_idx int not null,
+    kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
     signatures bytea not null,
     primary key (deposit_id, operator_idx, round_idx, kickoff_idx)
 );

@@ -277,6 +277,7 @@ impl TxSender {
             }
             TransactionType::AllNeededForDeposit => unreachable!(),
             TransactionType::ReadyToReimburse => unimplemented!(),
+            TransactionType::YieldKickoffTxid => unreachable!(),
         }
     }
 
@@ -730,7 +731,7 @@ impl TxSender {
                 );
             })?;
 
-        tracing::error!(
+        tracing::info!(
             self.consumer_handle,
             ?tx_data_for_logging,
             "Submit package result: {submit_package_result:?}"
@@ -854,7 +855,7 @@ impl TxSender {
             .await?;
 
         if !txs.is_empty() {
-            tracing::error!(
+            tracing::info!(
                 self.consumer_handle,
                 "Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}, txs: {txs:?}"
             );
