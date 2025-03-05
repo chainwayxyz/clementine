@@ -39,7 +39,7 @@ pub async fn prove_bridge_circuit(
     let env = env.build().unwrap();
     let prover = default_prover();
 
-    println!("PROVING Bridge CIRCUIT");
+    tracing::info!("PROVING Bridge CIRCUIT");
     prover
         .prove_with_opts(env, BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
         .unwrap()
