@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use risc0_to_bitvm2_core::header_chain::BlockHeaderCircuitOutput;
-use risc0_to_bitvm2_core::spv::SPV;
+use final_spv::spv::SPV;
+use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
 use super::winternitz::WinternitzHandler;

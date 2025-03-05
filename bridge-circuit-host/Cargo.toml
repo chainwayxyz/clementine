@@ -32,6 +32,8 @@ num-bigint = { workspace = true }
 num-traits = { workspace = true }
 anyhow = { workspace = true }
 bitcoin = { workspace = true, features = ["serde"] }
+final-spv = { workspace = true }
+header-chain = { workspace = true }
 
 tokio = { workspace = true, features = ["rt-multi-thread"]}
 bincode = { workspace = true }
@@ -42,7 +44,7 @@ thiserror = { workspace = true }
 
 circuits-lib = { path = "../circuits-lib", features = ["not_patched"] }
 
-risc0-to-bitvm2-core = { workspace = true } # remove later
+
 
 
 
