@@ -2079,7 +2079,7 @@ dependencies = [
  "bitcoin",
  "blake3",
  "borsh",
- "crypto-bigint 0.5.5 (git+https://github.com/risc0/RustCrypto-crypto-bigint?tag=v0.5.5-risczero.0)",
+ "crypto-bigint",
  "derive_more 1.0.0",
  "hex",
  "hex-literal",
@@ -2461,16 +2461,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crypto-bigint"
-version = "0.5.5"
-source = "git+https://github.com/risc0/RustCrypto-crypto-bigint?tag=v0.5.5-risczero.0#3ab63a6f1048833f7047d5a50532e4a4cc789384"
-dependencies = [
- "getrandom 0.2.15",
- "rand_core 0.6.4",
- "subtle",
-]
-
-[[package]]
 name = "crypto-common"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2759,7 +2749,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5e6043086bf7973472e0c7dff2142ea0b680d30e18d9cc40f267efbf222bd47"
 dependencies = [
  "base16ct",
- "crypto-bigint 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crypto-bigint",
  "digest 0.10.7",
  "ff",
  "generic-array",
@@ -5394,7 +5384,7 @@ dependencies = [
  "byteorder",
  "cfg-if",
  "crossbeam",
- "crypto-bigint 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crypto-bigint",
  "derive_more 1.0.0",
  "enum-map",
  "lazy-regex",
@@ -5481,7 +5471,7 @@ source = "git+https://github.com/chainwayxyz/risc0-to-bitvm2.git?branch=main#932
 dependencies = [
  "bitcoin",
  "borsh",
- "crypto-bigint 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crypto-bigint",
  "risc0-zkvm",
  "serde",
  "sha2",
