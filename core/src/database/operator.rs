@@ -9,7 +9,10 @@ use super::{
     },
     Database, DatabaseTransaction,
 };
-use crate::builder::transaction::{DepositData, OperatorData};
+use crate::{
+    builder::transaction::{DepositData, OperatorData},
+    rpc::clementine::KickoffId,
+};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -495,6 +498,47 @@ impl Database {
             Ok((SignaturesDB(signatures),)) => Ok(Some(signatures.signatures)),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
+    pub async fn get_deposit_signatures_with_kickoff_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        kickoff_txid: Txid,
+    ) -> Result<Option<(DepositData, KickoffId, Vec<TaggedSignature>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (OutPointDB, AddressDB, EVMAddressDB, i32, i32, i32, SignaturesDB)>(
+            "SELECT d.deposit_outpoint, d.recovery_taproot_address, d.evm_address, ds.operator_idx, ds.round_idx, ds.kickoff_idx, ds.signatures
+             FROM deposit_signatures ds
+             INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
+             WHERE ds.kickoff_txid = $1;"
+        )
+        .bind(TxidDB(kickoff_txid));
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((
+                deposit_outpoint,
+                recovery_taproot_address,
+                evm_address,
+                operator_idx,
+                round_idx,
+                kickoff_idx,
+                signatures,
+            )) => Ok(Some((
+                DepositData {
+                    deposit_outpoint: deposit_outpoint.0,
+                    recovery_taproot_address: recovery_taproot_address.0,
+                    evm_address: evm_address.0,
+                },
+                KickoffId {
+                    operator_idx: u32::try_from(operator_idx)?,
+                    round_idx: u32::try_from(round_idx)?,
+                    kickoff_idx: u32::try_from(kickoff_idx)?,
+                },
+                signatures.0.signatures,
+            ))),
+            None => Ok(None),
         }
     }
 

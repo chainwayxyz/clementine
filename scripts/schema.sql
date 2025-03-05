@@ -172,6 +172,7 @@ create table if not exists tx_sender_try_to_send_txs (
 );
 
 create table if not exists tx_sender_rbf_txids (
+    insertion_order serial not null,
     id int not null references tx_sender_try_to_send_txs(id),
     txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now(),

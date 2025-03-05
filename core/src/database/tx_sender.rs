@@ -323,6 +323,19 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_last_rbf_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        id: u32,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>("SELECT txid FROM tx_sender_rbf_txids WHERE id = $1 ORDER BY insertion_order DESC LIMIT 1")
+            .bind(i32::try_from(id)?);
+
+        let result: Option<(TxidDB,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        Ok(result.map(|(txid,)| txid.0))
+    }
+
     pub async fn save_cancelled_outpoint(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
