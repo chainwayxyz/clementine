@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, env, time::Duration};
 use bitcoin::{
     transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
 };
+use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
-use bitcoincore_rpc::{PackageSubmissionResult, RawTx};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
