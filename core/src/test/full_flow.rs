@@ -2,18 +2,16 @@ use super::common::{create_actors, create_test_config_with_thread_name};
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::TransactionType;
-use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::FinalizedPayoutParams;
-use crate::rpc::clementine::{AssertRequest, DepositParams, Empty, KickoffId, TransactionRequest};
+use crate::rpc::clementine::{ DepositParams, Empty, KickoffId, TransactionRequest};
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxDataForLogging, TxSender};
 use crate::EVMAddress;
 use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;
-use bitcoin::FeeRate;
 use bitcoin::Transaction;
 use bitcoincore_rpc::RpcApi;
 use eyre::{bail, Context, Result};
@@ -579,8 +577,8 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
     // .context("failed to send challenge transaction")?;
 
     // 8. Send Watchtower Challenge Transactions
-    for watchtower_idx in 0..config.protocol_paramset().num_watchtowers {
-        let watchtower_challenge_tx = watchtowers[watchtower_idx]
+    for (watchtower_idx, watchtower) in watchtowers.iter_mut().enumerate() {
+        let watchtower_challenge_tx = watchtower
             .internal_create_watchtower_challenge(TransactionRequest {
                 transaction_type: Some(TransactionType::WatchtowerChallenge(watchtower_idx).into()),
                 ..base_tx_req.clone()

@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::{collections::BTreeMap, env, time::Duration};
 
 use bitcoin::{
@@ -6,7 +5,6 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
 use bitcoincore_rpc::{PackageSubmissionResult, RawTx};
-use eyre::Context;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -15,7 +13,6 @@ use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
     builder::{
         self,
-        address::{self, create_taproot_address},
         script::SpendPath,
         transaction::{
             input::{get_watchtower_challenge_utxo_vout, SpendableTxIn},
@@ -811,8 +808,7 @@ impl TxSender {
             }
         }
         if early_exit {
-            #[cfg(test)]
-            {
+            if cfg!(test) {
                 tracing::error!("Error submitting package, panicking for early exit in tests");
                 panic!("Error submitting package, panicking for early exit in tests");
             }
