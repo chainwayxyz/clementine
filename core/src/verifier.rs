@@ -912,7 +912,7 @@ impl Verifier {
             return Ok(());
         }
 
-        let (deposit_data, kickoff_id, signatures) = self
+        let (deposit_data, kickoff_id, _) = self
             .db
             .get_deposit_signatures_with_kickoff_txid(None, kickoff_txid)
             .await?
