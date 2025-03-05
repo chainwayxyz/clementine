@@ -31,6 +31,8 @@ use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use eyre::Context;
+use futures::TryFutureExt;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap};
 use std::pin::pin;
@@ -38,6 +40,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt;
+use tonic::async_trait;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -173,8 +176,11 @@ impl Verifier {
             config.protocol_paramset().start_height,
         )));
         verifier.state_manager = Some(state_manager.clone());
-        let _state_manager_handle =
-            states::syncer::run(state_manager.clone(), db.clone(), Duration::from_secs(1)).await?;
+
+        states::syncer::run(state_manager.clone(), db.clone(), Duration::from_secs(1))
+            .await
+            .await
+            .context("failed to join syncer")??;
 
         Ok(verifier)
     }
@@ -1149,8 +1155,10 @@ impl Verifier {
     }
 }
 
-#[tonic::async_trait]
+#[async_trait]
 impl Owner for Verifier {
+    const OWNER_TYPE: &'static str = "verifier";
+
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
         match duty {
             Duty::NewKickoff => {

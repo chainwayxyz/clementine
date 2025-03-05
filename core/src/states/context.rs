@@ -55,7 +55,7 @@ pub enum Duty {
 
 /// Owner trait with async handling and tx handler creation
 #[async_trait]
-pub trait Owner: Send + Sync + Clone + Default {
+pub trait Owner: Send + Sync + Clone {
     /// A string identifier for this owner type used to distinguish between
     /// state machines with different owners in the database.
     ///

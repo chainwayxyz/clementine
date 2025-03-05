@@ -347,6 +347,9 @@ pub enum BridgeError {
     /// 0: Data name, 1: Error message
     #[error("Error while sending {0} data: {1}")]
     SendError(&'static str, String),
+
+    #[error("Eyre error: {0}")]
+    Eyre(#[from] eyre::Report),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

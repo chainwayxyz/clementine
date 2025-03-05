@@ -3,8 +3,6 @@ use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use bitcoin::Block;
-use context::Owner;
-use eyre::eyre;
 use eyre::Context;
 use futures::future::{join, join_all};
 use kickoff::KickoffEvent;
@@ -12,11 +10,9 @@ use matcher::BlockMatcher;
 use round::RoundEvent;
 use statig::awaitable::{InitializedStateMachine, UninitializedStateMachine};
 use statig::prelude::*;
-use std::alloc::System;
 use std::cmp::max;
 use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 mod block_cache;
 pub mod context;
@@ -25,8 +21,7 @@ mod matcher;
 pub mod round;
 pub mod syncer;
 
-pub use context::Duty;
-pub use context::Owner;
+pub use context::{Duty, Owner};
 
 pub(crate) enum ContextProcessResult<
     T: Owner,
@@ -435,7 +430,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         new_round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
         new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
         start_height: u32,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<(), eyre::Report> {
         // save old round machines, only process new ones and then append old machines back
         let saved_round_machines = std::mem::take(&mut self.round_machines);
         let saved_kickoff_machines = std::mem::take(&mut self.kickoff_machines);
@@ -448,10 +443,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             if let Some(block) = block {
                 self.process_block_parallel(&block, block_height).await?;
             } else {
-                return Err(BridgeError::Error(format!(
-                    "Block at height {} not found",
-                    block_height
-                )));
+                return Err(eyre::eyre!("Block at height {} not found", block_height));
             }
         }
 
@@ -538,7 +530,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
 
             if iterations > 500 {
-                return Err(BridgeError::Error(format!(
+                return Err(eyre::eyre!(
                     r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 500 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----
                         {:?}
@@ -557,7 +549,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         .iter()
                         .map(|m| m.state())
                         .collect::<Vec<_>>(),
-                )));
+                ));
             }
 
             // Reprocess changed machines and commit these futures to be handled
@@ -574,6 +566,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             round_futures = new_round_futures;
             iterations += 1;
         }
+
+        drop(kickoff_futures);
+        drop(round_futures);
 
         // Set back the original machines
         self.round_machines = final_round_machines;

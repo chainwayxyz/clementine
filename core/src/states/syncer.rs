@@ -1,22 +1,21 @@
-use statig::awaitable::{InitializedStateMachine, IntoStateMachineExt};
+use statig::awaitable::IntoStateMachineExt;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent, builder::transaction::OperatorData, database::Database,
-    errors::BridgeError,
 };
 
-use super::{context::Owner, round::RoundStateMachine, StateManager};
+use super::{context::Owner, StateManager};
 
 pub async fn run<T>(
     state_manager: Arc<Mutex<StateManager<T>>>,
     db: Database,
     poll_delay: Duration,
-) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError>
+) -> JoinHandle<Result<(), eyre::Report>>
 where
-    T: Owner + 'static,
+    T: Owner + std::fmt::Debug + 'static,
 {
     let handle = tokio::spawn(async move {
         let consumer_handle = {
@@ -28,18 +27,18 @@ where
             consumer_handle
         );
         loop {
-            let result: Result<bool, BridgeError> = async {
+            let result: Result<bool, eyre::Report> = async {
                 let mut dbtx = db.begin_transaction().await?;
-                let is_chain_tip_update = async {
+                let has_updated_states = async {
                     let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
-                    Ok::<bool, BridgeError>(match event {
+                    Ok::<bool, eyre::Report>(match event {
                         Some(event) => match event {
                             BitcoinSyncerEvent::NewBlock(block_id) => {
                                 let mut states = state_manager.lock().await;
                                 let current_tip_height = db
                                     .get_block_info_from_id(Some(&mut dbtx), block_id)
                                     .await?
-                                    .ok_or(BridgeError::Error("Block not found".to_string()))?
+                                    .ok_or(eyre::eyre!("Block not found"))?
                                     .1;
                                 let mut new_tip = false;
                                 // update states to catch up to finalized chain
@@ -53,7 +52,7 @@ where
                                         new_tip = true;
                                         states.process_block_parallel(&block, next_height).await?;
                                     } else {
-                                        return Err(BridgeError::Error(format!(
+                                        return Err(eyre::eyre!(format!(
                                             "Block at height {} not found",
                                             states.last_processed_block_height + 1
                                         )));
@@ -68,7 +67,7 @@ where
                 }
                 .await?;
                 dbtx.commit().await?;
-                if is_chain_tip_update {
+                if has_updated_states {
                     // Don't wait in new events
                     return Ok(true);
                 }
@@ -90,16 +89,16 @@ where
         }
     });
 
-    Ok(handle)
+    handle
 }
 
 pub async fn add_new_round_machine<T>(
     state_manager: Arc<Mutex<StateManager<T>>>,
     operator_data: OperatorData,
     operator_idx: u32,
-) -> Result<(), BridgeError>
+) -> Result<(), eyre::Report>
 where
-    T: Owner + 'static,
+    T: Owner + std::fmt::Debug + 'static,
 {
     let mut state_manager = state_manager.lock().await;
     let round_state_machine = super::round::RoundStateMachine::new(operator_data, operator_idx)
