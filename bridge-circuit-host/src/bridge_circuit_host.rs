@@ -1,5 +1,6 @@
-use borsh;
+use crate::structs::BridgeCircuitHostParams;
 use crate::{fetch_light_client_proof, fetch_storage_proof};
+use borsh;
 use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit_core::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit_core::winternitz::{
@@ -9,12 +10,10 @@ use rand::{rngs::SmallRng, Rng, SeedableRng};
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt};
 use std::convert::TryInto;
 use std::fs;
-use crate::structs::BridgeCircuitHostParams;
 
 const BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
-
 
 pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
     let mut binding = ExecutorEnv::builder();
@@ -29,9 +28,12 @@ pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receip
 }
 
 pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostParams) {
-
     let g16_proof_receipt: &risc0_zkvm::Groth16Receipt<risc0_zkvm::ReceiptClaim> =
-        bridge_circuit_host_params.work_only_groth16_proof_receipt.inner.groth16().unwrap();
+        bridge_circuit_host_params
+            .work_only_groth16_proof_receipt
+            .inner
+            .groth16()
+            .unwrap();
     println!("G16 PROOF RECEIPT: {:?}", g16_proof_receipt);
 
     let seal =
@@ -39,7 +41,8 @@ pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostP
 
     let compressed_proof = seal.to_compressed().unwrap();
 
-    let commited_total_work: [u8; 16] = bridge_circuit_host_params.work_only_groth16_proof_receipt
+    let commited_total_work: [u8; 16] = bridge_circuit_host_params
+        .work_only_groth16_proof_receipt
         .journal
         .bytes
         .try_into()
@@ -103,22 +106,21 @@ pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostP
     fs::write("proof.bin", &receipt_bytes).expect("Failed to write receipt to output file");
 }
 
-
 #[cfg(test)]
-mod tests{
-    use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
-    use risc0_to_bitvm2_core::header_chain::BlockHeaderCircuitOutput;
+mod tests {
+    use crate::config::PARAMETERS;
     use alloy_rpc_client::ClientBuilder;
     use bitcoin::consensus::Decodable;
     use bitcoin::hashes::Hash;
     use bitcoin::Transaction;
     use borsh::BorshDeserialize;
+    use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
+    use risc0_to_bitvm2_core::header_chain::BlockHeaderCircuitOutput;
     use risc0_to_bitvm2_core::header_chain::CircuitBlockHeader;
     use risc0_to_bitvm2_core::merkle_tree::BitcoinMerkleTree;
     use risc0_to_bitvm2_core::mmr_native::MMRNative;
     use risc0_to_bitvm2_core::spv::SPV;
     use risc0_zkvm::Receipt;
-    use crate::config::PARAMETERS;
 
     use super::*;
 
@@ -141,8 +143,9 @@ mod tests{
             mmr_native.append(headers[i as usize].compute_block_hash());
         }
         let block_vec = TESTNET_BLOCK_72041.to_vec();
-        let block_72041 = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
-    
+        let block_72041 =
+            bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
+
         let block_72041_txids: Vec<[u8; 32]> = block_72041
             .txdata
             .iter()
@@ -151,7 +154,7 @@ mod tests{
         let mmr_inclusion_proof = mmr_native.generate_proof(PARAMETERS.payment_block_height);
         let block_72041_mt = BitcoinMerkleTree::new(block_72041_txids);
         let payout_tx_proof = block_72041_mt.generate_proof(PARAMETERS.payout_tx_index);
-    
+
         SPV {
             transaction: payout_tx.into(),
             block_inclusion_proof: payout_tx_proof,
@@ -163,7 +166,6 @@ mod tests{
     #[tokio::test]
     #[ignore = "This test will take an eternity. Only for debugging purposes."]
     async fn bridge_circuit_test() {
-
         let citrea_rpc_client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
         let light_client_rpc_client =
             ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
@@ -171,19 +173,14 @@ mod tests{
         let spv = create_spv().await;
 
         let block_header_circuit_output: BlockHeaderCircuitOutput =
-        borsh::BorshDeserialize::try_from_slice(
-            &headerchain_proof.journal.bytes[..],
-        )
-        .unwrap();
+            borsh::BorshDeserialize::try_from_slice(&headerchain_proof.journal.bytes[..]).unwrap();
 
         let work_only_circuit_input: WorkOnlyCircuitInput = WorkOnlyCircuitInput {
             header_chain_circuit_output: block_header_circuit_output.clone(),
         };
         println!("PROVING WORK ONLY CIRCUIT");
-        let work_only_groth16_proof_receipt: Receipt = prove_work_only(
-            headerchain_proof,
-            &work_only_circuit_input,
-        );
+        let work_only_groth16_proof_receipt: Receipt =
+            prove_work_only(headerchain_proof, &work_only_circuit_input);
 
         let bridge_circuit_host_params = BridgeCircuitHostParams {
             light_client_rpc_client,

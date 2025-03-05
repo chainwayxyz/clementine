@@ -9,9 +9,9 @@ use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;
 
+pub mod bridge_circuit_host;
 pub mod config;
 pub mod structs;
-pub mod bridge_circuit_host;
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000026");

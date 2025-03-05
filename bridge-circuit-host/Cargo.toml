@@ -38,7 +38,6 @@ bincode = { workspace = true }
 hex = { workspace = true }
 hex-literal = { workspace = true }
 tracing = { workspace = true, default-features = false }
-tracing-subscriber = { workspace = true, features = ["json", "std", "env-filter"] }
 thiserror = { workspace = true }
 
 circuits-lib = { path = "../circuits-lib", features = ["not_patched"] }
