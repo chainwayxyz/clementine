@@ -12,7 +12,7 @@ use crate::tx_sender::{FeePayingType, TxDataForLogging, TxSender};
 use crate::EVMAddress;
 use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;
-use bitcoin::Transaction;
+use bitcoin::{Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
 use eyre::{bail, Context, Result};
 use secp256k1::rand::rngs::ThreadRng;
@@ -126,7 +126,7 @@ pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
     Ok(())
 }
 
-pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
+pub async fn run_happy_path_1(config: BridgeConfig) -> Result<()> {
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, _watchtowers, regtest) =
@@ -389,12 +389,16 @@ pub async fn send_tx(
     // Mine blocks to confirm the transaction
     rpc.mine_blocks(3).await?;
 
-    // Increase timeout counter to give more time for transaction confirmation
-    let mut timeout_counter = 40;
+    ensure_tx_onchain(rpc, tx.compute_txid()).await?;
 
+    Ok(())
+}
+
+async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
+    let mut timeout_counter = 40;
     while rpc
         .client
-        .get_raw_transaction_info(&tx.compute_txid(), None)
+        .get_raw_transaction_info(&tx, None)
         .await
         .ok()
         .and_then(|s| s.blockhash)
@@ -406,13 +410,9 @@ pub async fn send_tx(
         timeout_counter -= 1;
 
         if timeout_counter == 0 {
-            bail!(
-                "timeout while trying to send tx with txid {:?}",
-                tx.compute_txid()
-            );
+            bail!("timeout while trying to send tx with txid {:?}", tx);
         }
     }
-
     Ok(())
 }
 
@@ -507,6 +507,11 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
         .await?
         .into_inner();
 
+    ensure_tx_onchain(
+        &rpc,
+        Txid::from_byte_array(move_tx_response.txid.clone().try_into().unwrap()),
+    )
+    .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
     // 4. Create and send all transactions for the flow
@@ -850,7 +855,11 @@ pub async fn run_bad_path_1(config: BridgeConfig) -> Result<()> {
         .new_deposit(dep_params.clone())
         .await?
         .into_inner();
-
+    ensure_tx_onchain(
+        &rpc,
+        Txid::from_byte_array(move_tx_response.txid.clone().try_into().unwrap()),
+    )
+    .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
     // 4. Create and send all transactions for the flow
@@ -1064,7 +1073,11 @@ pub async fn run_bad_path_2(config: BridgeConfig) -> Result<()> {
         .new_deposit(dep_params.clone())
         .await?
         .into_inner();
-
+    ensure_tx_onchain(
+        &rpc,
+        Txid::from_byte_array(move_tx_response.txid.clone().try_into().unwrap()),
+    )
+    .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
     // 4. Create and send all transactions for the flow
@@ -1253,7 +1266,11 @@ pub async fn run_bad_path_3(config: BridgeConfig) -> Result<()> {
         .new_deposit(dep_params.clone())
         .await?
         .into_inner();
-
+    ensure_tx_onchain(
+        &rpc,
+        Txid::from_byte_array(move_tx_response.txid.clone().try_into().unwrap()),
+    )
+    .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
     // 4. Create and send all transactions for the flow
@@ -1455,7 +1472,7 @@ mod tests {
     // #[ignore = "Design changes in progress"]
     async fn test_happy_path_1() {
         let config = create_test_config_with_thread_name(None).await;
-        run_happy_path(config).await.unwrap();
+        run_happy_path_1(config).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
