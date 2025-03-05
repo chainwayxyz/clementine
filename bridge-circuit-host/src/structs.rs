@@ -2,7 +2,8 @@ use circuits_lib::bridge_circuit_core::{
     structs::{LightClientProof, StorageProof},
     winternitz::WinternitzHandler,
 };
-use risc0_to_bitvm2_core::{header_chain::BlockHeaderCircuitOutput, spv::SPV};
+use final_spv::spv::SPV;
+use header_chain::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
 
 pub struct BridgeCircuitHostParams {

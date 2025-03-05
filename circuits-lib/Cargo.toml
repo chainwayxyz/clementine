@@ -40,8 +40,8 @@ derive_more = { workspace = true, features = ["display"]}
 crypto-bigint = { workspace = true }
 blake3 = { workspace = true }
 itertools = { workspace = true }
-
-risc0-to-bitvm2-core = { workspace = true } # Remove later
+final-spv = { workspace = true }
+header-chain = { workspace = true }
 
 [features]
 not_patched = []
