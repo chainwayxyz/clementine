@@ -65,7 +65,7 @@ pub async fn start_citrea(
     let min_soft_confirmations_per_commitment =
         sequencer_config.min_soft_confirmations_per_commitment;
 
-    if sequencer_config.test_mode == true {
+    if sequencer_config.test_mode {
         for _ in 0..min_soft_confirmations_per_commitment {
             sequencer.client.send_publish_batch_request().await?;
         }

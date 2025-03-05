@@ -9,10 +9,12 @@ use alloy::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
             WalletFiller,
         },
-        ProviderBuilder, RootProvider,
+        Provider, ProviderBuilder, RootProvider,
     },
+    rpc::types::Filter,
     signers::{local::PrivateKeySigner, Signer},
     sol,
+    sol_types::SolEvent,
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid};
@@ -21,7 +23,7 @@ use jsonrpsee::{
     http_client::{HttpClient, HttpClientBuilder},
     rpc_params,
 };
-use serde_json::json;
+use BRIDGE_CONTRACT::Deposit;
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
@@ -37,7 +39,7 @@ sol!(
 );
 
 // Ugly typedefs.
-type Contract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
+type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
     (),
     FillProvider<
         JoinFill<
@@ -50,7 +52,7 @@ type Contract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
         RootProvider,
     >,
 >;
-type Provider = FillProvider<
+type CitreaProvider = FillProvider<
     JoinFill<
         JoinFill<
             alloy::providers::Identity,
@@ -67,8 +69,8 @@ type Provider = FillProvider<
 pub struct CitreaClient {
     pub client: HttpClient,
     pub wallet_address: alloy::primitives::Address,
-    pub provider: Provider,
-    pub contract: Contract,
+    pub provider: CitreaProvider,
+    pub contract: CitreaContract,
 }
 
 impl CitreaClient {
@@ -150,16 +152,17 @@ impl CitreaClient {
         Ok((0, [0; 32]))
     }
 
+    async fn get_event_filter<E: SolEvent>(&self) -> Filter {
+        let deposit_event = self.contract.event_filter::<E>();
+
+        deposit_event.filter
+    }
+
     pub async fn collect_events(&self) -> Result<(), BridgeError> {
-        let params = rpc_params![json!({
-            "fromBlock": "earliest",
-            "toBlock": "latest",
-            "address": BRIDGE_CONTRACT_ADDRESS[2..],
-        })];
+        let deposit_filter = self.get_event_filter::<Deposit>().await;
 
-        let response: String = self.client.request("eth_getLogs", params).await?;
-
-        tracing::info!("responsee: {:?}", response);
+        let logs = self.provider.get_logs(&deposit_filter).await?;
+        println!("logss: {:?}", logs);
 
         Ok(())
     }

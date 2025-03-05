@@ -343,8 +343,10 @@ pub enum BridgeError {
     #[error("Error while sending {0} data: {1}")]
     SendError(&'static str, String),
 
-    #[error("Error while creating contract: {0}")]
+    #[error("Error while calling EVM contract: {0}")]
     AlloyContract(#[from] alloy::contract::Error),
+    #[error("Error while calling EVM RPC function: {0}")]
+    AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
