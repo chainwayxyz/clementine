@@ -177,10 +177,14 @@ impl Verifier {
         )));
         verifier.state_manager = Some(state_manager.clone());
 
-        states::syncer::run(state_manager.clone(), db.clone(), Duration::from_secs(1))
-            .await
-            .await
-            .context("failed to join syncer")??;
+        let state_manager_handle =
+            states::syncer::run(state_manager.clone(), db.clone(), Duration::from_secs(1)).await;
+
+        tokio::spawn(async move {
+            if let Err(e) = state_manager_handle.await {
+                tracing::error!("State manager syncer error: {:?}", e);
+            }
+        });
 
         Ok(verifier)
     }
