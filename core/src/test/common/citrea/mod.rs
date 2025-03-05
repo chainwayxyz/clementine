@@ -65,8 +65,11 @@ pub async fn start_citrea(
     let min_soft_confirmations_per_commitment =
         sequencer_config.min_soft_confirmations_per_commitment;
 
+    for _ in 0..min_soft_confirmations_per_commitment {
+        sequencer.client.send_publish_batch_request().await?;
+    }
     // Wait for blob inscribe tx to be in mempool
-    da.wait_mempool_len(1, None).await?;
+    da.wait_mempool_len(2, None).await?;
 
     da.generate(citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH)
         .await?;
@@ -74,12 +77,6 @@ pub async fn start_citrea(
     full_node
         .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
         .await?;
-
-    if let Some(light_client_prover) = light_client_prover {
-        light_client_prover
-            .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
-            .await?;
-    }
 
     Ok((sequencer, full_node, light_client_prover, da))
 }
