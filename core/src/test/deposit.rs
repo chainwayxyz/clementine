@@ -13,8 +13,8 @@ use async_trait::async_trait;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
     config::{
-        BatchProverConfig, BitcoinConfig, CitreaMode, LightClientProverConfig, SequencerConfig,
-        TestCaseConfig, TestCaseDockerConfig,
+        BatchProverConfig, BitcoinConfig, LightClientProverConfig, SequencerConfig, TestCaseConfig,
+        TestCaseDockerConfig,
     },
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
@@ -147,7 +147,6 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             with_batch_prover: true,
             with_light_client_prover: true,
             with_full_node: true,
-            mode: CitreaMode::DevAllForks,
             docker: TestCaseDockerConfig {
                 bitcoin: true,
                 citrea: true,
@@ -158,8 +157,8 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            min_soft_confirmations_per_commitment: 5,
-            da_update_interval_ms: 500,
+            test_mode: false,
+            bridge_initialize_params: BRIDGE_PARAMS.to_string(),
             ..Default::default()
         }
     }
@@ -253,7 +252,6 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 }
 
 #[tokio::test]
-#[ignore = "Citrea-e2e update in progress"]
 async fn citrea_fetch_lcp_and_deposit() -> Result<()> {
     TestCaseRunner::new(CitreaFetchLCPAndDeposit).run().await
 }
