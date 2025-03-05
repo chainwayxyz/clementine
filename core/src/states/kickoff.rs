@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::{OutPoint, Txid, Witness};
+use bitcoin::{OutPoint, Witness};
 use eyre::Report;
 use statig::prelude::*;
 
@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     block_cache::BlockCache,
-    context::StateContext,
+    context::{Duty, StateContext},
     matcher::{BlockMatcher, Matcher},
     Owner,
 };
@@ -60,7 +60,6 @@ pub struct KickoffStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
     pub(crate) dirty: bool,
     pub(crate) kickoff_id: KickoffId,
-    num_watchtowers: u32,
     deposit_data: DepositData,
     kickoff_height: u32,
     spent_watchtower_utxos: HashSet<usize>,

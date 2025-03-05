@@ -1,9 +1,5 @@
-use eyre::Context;
 use statig::prelude::*;
-use std::{
-    collections::{HashMap, HashSet},
-    ops::DerefMut,
-};
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     builder::transaction::{ContractContext, OperatorData, TransactionType},

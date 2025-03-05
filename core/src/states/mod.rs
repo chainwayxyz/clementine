@@ -1,5 +1,4 @@
 use crate::config::protocol::ProtocolParamset;
-use crate::config::protocol::ProtocolParamsetName;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use bitcoin::Block;
@@ -10,7 +9,6 @@ use futures::future::{join, join_all};
 use kickoff::KickoffEvent;
 use matcher::BlockMatcher;
 use round::RoundEvent;
-use serde::{Deserialize, Serialize};
 use statig::awaitable::{InitializedStateMachine, UninitializedStateMachine};
 use statig::prelude::*;
 use std::future::Future;

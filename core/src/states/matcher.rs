@@ -2,7 +2,6 @@ use bitcoin::{OutPoint, Txid};
 use std::cmp::Ordering;
 
 use super::block_cache::BlockCache;
-use bitcoin::{OutPoint, Txid};
 
 pub(crate) trait BlockMatcher {
     type StateEvent;
