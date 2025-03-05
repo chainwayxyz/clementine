@@ -1,4 +1,4 @@
-use bitcoin::Amount;
+use bitcoin::{Address, Amount, ScriptBuf};
 
 /// The amount of the P2A anchor output.
 pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(240); // TODO: This will change to 0 in the future after Bitcoin v0.29.0
