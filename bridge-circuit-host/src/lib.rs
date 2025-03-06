@@ -14,8 +14,8 @@ use utils::{get_ark_verifying_key, reverse_bits_and_copy};
 
 pub mod bridge_circuit_host;
 pub mod config;
-pub mod structs;
 pub mod docker;
+pub mod structs;
 pub mod utils;
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
@@ -72,7 +72,7 @@ pub async fn fetch_storage_proof(l2_height: &String, client: RpcClient) -> Stora
     println!("Storage key: {:?}", &storage_key_hex);
     let storage_key_hex = format!("0x{}", storage_key_hex);
 
-    let concantenated = [PARAMETERS.move_tx_id, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
+    let concantenated = [PARAMETERS.move_to_vault_txid, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
 
     let storage_address_deposit = keccak256(concantenated);
     let storage_address_deposit_hex = hex::encode(storage_address_deposit);
@@ -103,7 +103,7 @@ pub async fn fetch_storage_proof(l2_height: &String, client: RpcClient) -> Stora
         storage_proof_utxo: serialized_utxo,
         storage_proof_deposit_idx: serialized_deposit,
         index: ind,
-        txid_hex: PARAMETERS.move_tx_id,
+        txid_hex: PARAMETERS.move_to_vault_txid,
     }
 }
 

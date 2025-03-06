@@ -1,14 +1,22 @@
-use crate::structs::BridgeCircuitHostParams;
+use crate::docker::stark_to_snark;
+use crate::structs::{
+    BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
+};
+use crate::utils::calculate_succinct_output_prefix;
 use borsh;
 use circuits_lib::bridge_circuit_core::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
-
-use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt};
+use circuits_lib::bridge_circuit_core::winternitz::verify_winternitz_signature;
+use risc0_groth16::Seal;
+use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
+use sha2::{Digest, Sha256};
 
 const BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
 
-pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostParams) -> Receipt {
+pub async fn prove_bridge_circuit(
+    bridge_circuit_host_params: BridgeCircuitHostParams,
+) -> (Seal, [u8; 31], BridgeCircuitBitvmInputs) {
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         winternitz_details: bridge_circuit_host_params.winternitz_details,
         hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
@@ -18,6 +26,10 @@ pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostP
         num_watchtowers: bridge_circuit_host_params.num_of_watchtowers,
     };
 
+    let public_inputs: SuccinctBridgeCircuitPublicInputs =
+        public_inputs(bridge_circuit_input.clone());
+    let journal_hash = public_inputs.journal_hash();
+
     let mut binding = ExecutorEnv::builder();
     let env = binding.write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap());
     // let env = env.add_assumption(bridge_circuit_host_params.lcp_receipt).add_assumption(bridge_circuit_host_params.headerchain_receipt).build().unwrap();
@@ -25,10 +37,36 @@ pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostP
     let prover = default_prover();
 
     tracing::info!("PROVING Bridge CIRCUIT");
-    prover
+    let succinct_receipt = prover
         .prove_with_opts(env, BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
         .unwrap()
-        .receipt
+        .receipt;
+
+    let succinct_receipt_journal: [u8; 32] = succinct_receipt.journal.bytes.try_into().unwrap();
+
+    if *journal_hash.as_bytes() != succinct_receipt_journal {
+        panic!("Journal hash mismatch");
+    }
+
+    let bridge_circuit_method_id = compute_image_id(BRIDGE_CIRCUIT_ELF).unwrap();
+    let combined_method_id_constant =
+        calculate_succinct_output_prefix(&bridge_circuit_method_id.as_bytes());
+    let (g16_proof, g16_output) = stark_to_snark(
+        succinct_receipt.inner.succinct().unwrap().clone(),
+        &succinct_receipt_journal,
+    );
+
+    (
+        g16_proof,
+        g16_output,
+        BridgeCircuitBitvmInputs {
+            payout_tx_block_hash: public_inputs.payout_tx_block_hash,
+            latest_block_hash: public_inputs.latest_block_hash,
+            challenge_sending_watchtowers: public_inputs.challenge_sending_watchtowers,
+            deposit_constant: public_inputs.deposit_constant(),
+            combined_method_id: combined_method_id_constant,
+        },
+    )
 }
 
 pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
@@ -41,6 +79,71 @@ pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receip
         .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
         .unwrap()
         .receipt
+}
+
+fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs {
+    // OPTIMIZATION IS POSSIBLE HERE
+    // challenge_sending_watchtowers
+    let mut watchtower_flags: Vec<bool> = vec![];
+    for (_, winternitz_handler) in input.winternitz_details.iter().enumerate() {
+        if winternitz_handler.signature.is_none() || winternitz_handler.message.is_none() {
+            watchtower_flags.push(false);
+            continue;
+        }
+        let flag = verify_winternitz_signature(winternitz_handler);
+        watchtower_flags.push(flag);
+    }
+    let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
+    for (i, &flag) in watchtower_flags.iter().enumerate() {
+        if flag {
+            challenge_sending_watchtowers[i / 8] |= 1 << (i % 8);
+        }
+    }
+
+    // payout tx block hash
+    let payout_tx_block_hash: [u8; 20] = input.payout_spv.block_header.compute_block_hash()[12..32]
+        .try_into()
+        .unwrap();
+
+    // latest block hash
+    let latest_block_hash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32]
+        .try_into()
+        .unwrap();
+
+    // watcthower_challenge_wpks_hash
+    let num_wts = input.winternitz_details.len();
+    let pk_size = input.winternitz_details[0].pub_key.len();
+
+    let mut pub_key_concat: Vec<u8> = vec![0; num_wts * pk_size * 20];
+    for (i, wots_handler) in input.winternitz_details.iter().enumerate() {
+        for (j, pubkey) in wots_handler.pub_key.iter().enumerate() {
+            pub_key_concat[(pk_size * i * 20 + j * 20)..(pk_size * i * 20 + (j + 1) * 20)]
+                .copy_from_slice(pubkey);
+        }
+    }
+
+    let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).into();
+
+    // operator_id
+    let last_output = input.payout_spv.transaction.output.last().unwrap();
+    let last_output_script = last_output.script_pubkey.to_bytes();
+
+    let len: u8 = last_output_script[1];
+    let mut operator_id: [u8; 32] = [0u8; 32];
+    if len > 32 {
+        panic!("Invalid operator id length");
+    } else {
+        operator_id[..len as usize].copy_from_slice(&last_output_script[2..(2 + len) as usize]);
+    }
+
+    SuccinctBridgeCircuitPublicInputs {
+        challenge_sending_watchtowers,
+        payout_tx_block_hash,
+        latest_block_hash,
+        move_to_vault_txid: input.sp.txid_hex,
+        watcthower_challenge_wpks_hash: wintertniz_pubkeys_digest,
+        operator_id: operator_id,
+    }
 }
 
 #[cfg(test)]
