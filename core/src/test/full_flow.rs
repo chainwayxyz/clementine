@@ -20,13 +20,11 @@ use tonic::Request;
 
 const BLOCKS_PER_DAY: u64 = 144;
 
-pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
+pub async fn run_operator_end_round(config: BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, _watchtowers, regtest) =
+    let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
         create_actors(&config).await;
-
-    let rpc: ExtendedRpc = regtest.rpc().clone();
 
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
@@ -126,13 +124,14 @@ pub async fn run_operator_end_round(config: BridgeConfig) -> Result<()> {
     Ok(())
 }
 
-pub async fn run_happy_path_1(config: BridgeConfig) -> Result<()> {
+pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
+    tracing::info!("Starting happy path test");
+
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, _watchtowers, regtest) =
-        create_actors(&config).await;
+    let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
+        create_actors(config).await;
 
-    let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
     let verifier_0_config = {
@@ -164,7 +163,7 @@ pub async fn run_happy_path_1(config: BridgeConfig) -> Result<()> {
     };
 
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
     let recovery_taproot_address = Actor::new(
@@ -1471,13 +1470,18 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     // #[ignore = "Design changes in progress"]
     async fn test_happy_path_1() {
-        let config = create_test_config_with_thread_name(None).await;
-        run_happy_path_1(config).await.unwrap();
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        run_happy_path_1(&mut config, rpc).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_operator_end_round() {
-        let config = create_test_config_with_thread_name(None).await;
-        run_operator_end_round(config).await.unwrap();
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        run_operator_end_round(config, rpc).await.unwrap();
     }
 }

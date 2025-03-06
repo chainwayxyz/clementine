@@ -1,14 +1,4 @@
 //! # Testing Utilities
-//!
-//! This crate provides testing utilities, which are not possible to be included
-//! in binaries.
-use std::net::TcpListener;
-use std::str::FromStr;
-
-use bitcoin::consensus::serde::With;
-use bitcoin::secp256k1::schnorr;
-use tokio::sync::oneshot;
-use tonic::transport::Channel;
 
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
@@ -24,21 +14,19 @@ use crate::servers::{
     create_watchtower_unix_server,
 };
 use crate::utils::initialize_logger;
-use crate::verifier::Verifier;
 use crate::{
-    actor::Actor,
-    builder,
-    config::BridgeConfig,
-    database::Database,
-    errors::BridgeError,
-    extended_rpc::ExtendedRpc,
-    musig2::AggregateFromPublicKeys,
-    servers::{
-        create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
-        create_watchtower_grpc_server,
-    },
+    actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
+    extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
 };
 use crate::{EVMAddress, UTXO};
+use bitcoin::secp256k1::schnorr;
+use std::net::TcpListener;
+use tokio::sync::oneshot;
+use tonic::transport::Channel;
+
+/// TODO: This won't block `let _ =`.
+#[must_use = "Servers will die if not used"]
+pub struct ActorsCleanup(pub (Vec<oneshot::Sender<()>>, tempfile::TempDir));
 
 pub struct WithProcessCleanup(
     /// Handle to the bitcoind process
@@ -110,7 +98,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         get_available_port()
     };
 
-    config.bitcoin_rpc_url = format!("http://127.0.0.1:{}/wallet/admin", rpc_port);
+    config.bitcoin_rpc_url = format!("http://127.0.0.1:{}", rpc_port);
 
     if bitcoin_rpc_debug && TcpListener::bind(format!("127.0.0.1:{}", rpc_port)).is_err() {
         // Bitcoind is already running on port 18443, use existing port.
@@ -308,18 +296,6 @@ pub async fn initialize_database(config: &BridgeConfig) {
         .expect("Failed to run schema script");
 }
 
-pub struct ActorsCleanup(
-    Vec<oneshot::Sender<()>>,
-    tempfile::TempDir,
-    WithProcessCleanup,
-);
-
-impl ActorsCleanup {
-    pub fn rpc(&self) -> &ExtendedRpc {
-        self.2.rpc()
-    }
-}
-
 /// Starts operators, verifiers, aggregator and watchtower servers.
 ///
 /// Uses Unix sockets with temporary files for communication between services.
@@ -337,13 +313,6 @@ pub async fn create_actors(
     Vec<ClementineWatchtowerClient<Channel>>,
     ActorsCleanup,
 ) {
-    let regtest = create_regtest_rpc(&mut config.clone()).await;
-    let rpc = regtest.rpc();
-
-    // replace config with new rpc
-    let mut config = config.clone();
-    config.bitcoin_rpc_url = rpc.url.clone();
-
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
     });
@@ -543,7 +512,7 @@ pub async fn create_actors(
         operators,
         aggregator,
         watchtowers,
-        ActorsCleanup(shutdown_channels, socket_dir, regtest),
+        ActorsCleanup((shutdown_channels, socket_dir)),
     )
 }
 

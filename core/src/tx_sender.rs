@@ -97,7 +97,7 @@ impl TxSender {
         let consumer_handle = self.consumer_handle.clone();
         let this = self.clone();
 
-        tracing::info!(
+        tracing::trace!(
             "TXSENDER: Starting tx sender with handle {}",
             consumer_handle
         );
@@ -120,7 +120,7 @@ impl TxSender {
                                         .ok_or(BridgeError::Error("Block not found".to_string()))?
                                         .1;
 
-                                    tracing::info!(
+                                    tracing::trace!(
                                         "TXSENDER: Confirmed transactions for block {}",
                                         block_id
                                     );
@@ -128,7 +128,7 @@ impl TxSender {
                                     true
                                 }
                                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                                    tracing::info!(
+                                    tracing::trace!(
                                         "TXSENDER: Unconfirming transactions for block {}",
                                         block_id
                                     );
@@ -147,9 +147,9 @@ impl TxSender {
                         return Ok(true);
                     }
 
-                    tracing::info!("TXSENDER: Getting fee rate");
+                    tracing::trace!("TXSENDER: Getting fee rate");
                     let fee_rate = this.get_fee_rate().await?;
-                    tracing::info!("TXSENDER: Trying to send unconfirmed txs");
+                    tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
                     this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height)
                         .await?;
 
@@ -429,8 +429,6 @@ impl TxSender {
                 + required_fee
                 + MIN_TAPROOT_AMOUNT
         };
-
-        // let required_amount = Amount::from_sat(5000);
 
         tracing::info!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
