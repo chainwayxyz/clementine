@@ -24,6 +24,16 @@ pub fn verify_winternitz_and_groth16(input: &WinternitzHandler) -> bool {
     res
 }
 
+/// TODO: Change this to a feature in the future
+pub const IS_TEST: bool = {
+    match option_env!("BRIDGE_CIRCUIT_MODE") {
+        Some(mode) if matches!(mode.as_bytes(), b"test") => true,
+        Some(mode) if matches!(mode.as_bytes(), b"prod") => false,
+        None => false,
+        _ => panic!("Invalid bridge circuit mode"),
+    }
+};
+
 pub fn convert_to_groth16_and_verify(message: &[u8], pre_state: &[u8; 32]) -> bool {
     let compressed_seal: [u8; 128] = match message[0..128].try_into() {
         Ok(compressed_seal) => compressed_seal,
@@ -68,7 +78,11 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
             continue;
         }
 
-        let flag = verify_winternitz_signature(winternitz_handler);
+        let flag = if !IS_TEST {
+            verify_winternitz_signature(winternitz_handler)
+        } else {
+            true
+        };
         watchtower_flags.push(flag);
 
         if flag {
@@ -81,7 +95,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let mut total_work = [0u8; 32];
     for pair in wt_messages_with_idxs.iter() {
         // Grooth16 verification of work only circuit
-        if convert_to_groth16_and_verify(&pair.1, &work_only_image_id) {
+        if IS_TEST || convert_to_groth16_and_verify(&pair.1, &work_only_image_id) {
             total_work[16..32].copy_from_slice(
                 &pair.1[128..144]
                     .chunks_exact(4)

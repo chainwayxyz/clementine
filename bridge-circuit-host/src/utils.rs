@@ -12,6 +12,7 @@ pub fn reverse_bits_and_copy(input: &[u8], output: &mut [u8]) {
     }
 }
 
+/// This is the test Verifying Key of the STARK-to-BitVM2 Groth16 proof Circom circuit.
 pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
     // Alpha in G1
     let alpha_g1_x = Fq::from_str(

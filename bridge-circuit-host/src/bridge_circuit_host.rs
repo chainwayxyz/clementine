@@ -11,11 +11,12 @@ use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Rece
 use sha2::{Digest, Sha256};
 
 const BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest");
+    include_bytes!("../../risc0-circuits/elfs/prod-testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
 
-pub async fn prove_bridge_circuit(
+pub fn prove_bridge_circuit(
     bridge_circuit_host_params: BridgeCircuitHostParams,
+    bridge_circuit_elf: &[u8],
 ) -> (Seal, [u8; 31], BridgeCircuitBitvmInputs) {
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         winternitz_details: bridge_circuit_host_params.winternitz_details,
@@ -38,7 +39,7 @@ pub async fn prove_bridge_circuit(
 
     tracing::info!("PROVING Bridge CIRCUIT");
     let succinct_receipt = prover
-        .prove_with_opts(env, BRIDGE_CIRCUIT_ELF, &ProverOpts::succinct())
+        .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
         .unwrap()
         .receipt;
 
@@ -55,7 +56,6 @@ pub async fn prove_bridge_circuit(
         succinct_receipt.inner.succinct().unwrap().clone(),
         &succinct_receipt_journal,
     );
-
     (
         g16_proof,
         g16_output,
@@ -170,7 +170,8 @@ mod tests {
     use std::convert::TryInto;
 
     use super::*;
-
+    const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
+        include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest");
     const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
     const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
 
@@ -179,7 +180,7 @@ mod tests {
     const PAYOUT_TX: &[u8; 303] = include_bytes!("bin-files/payout_tx.bin");
     const TESTNET_BLOCK_72041: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
 
-    async fn create_spv() -> SPV {
+    fn create_spv() -> SPV {
         let payout_tx = Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
         let headers = HEADERS
             .chunks(80)
@@ -245,7 +246,7 @@ mod tests {
             ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
         let headerchain_receipt: Receipt =
             Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
-        let spv = create_spv().await;
+        let spv = create_spv();
 
         let block_header_circuit_output: BlockHeaderCircuitOutput =
             borsh::BorshDeserialize::try_from_slice(&headerchain_receipt.journal.bytes[..])
@@ -297,6 +298,14 @@ mod tests {
             num_of_watchtowers,
         };
         println!("PROVING BRIDGE CIRCUIT");
-        prove_bridge_circuit(bridge_circuit_host_params).await;
+        let (risc0_g16_seal, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) = prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
+        let risc0_g16_seal_vec = risc0_g16_seal.to_vec();
+        let risc0_g16_256 = risc0_g16_seal_vec[0..256].try_into().unwrap();
+        let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
+        let blake3_digest = bridge_circuit_bitvm_inputs.calculate_groth16_public_input();
+        let g16_pi_calculated_outside = blake3_digest.as_bytes();
+        assert_eq!(output_scalar_bytes_trimmed, g16_pi_calculated_outside[0..31]);
+        let ark_groth16_proof = circuit_g16_proof.into();
+        assert!(bridge_circuit_bitvm_inputs.verify_bridge_circuit(ark_groth16_proof));
     }
 }

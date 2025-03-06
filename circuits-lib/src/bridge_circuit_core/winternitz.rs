@@ -234,43 +234,43 @@ mod tests {
         assert_eq!(public_key.len(), ps.n as usize);
     }
 
-    // #[test]
-    // fn test_sign_and_verify() {
-    //     let ps = Parameters::new(4, 4);
-    //     let secret_key = vec![1, 2, 3, 4];
-    //     let message = vec![1, 2, 3, 4];
+    #[test]
+    fn test_sign_and_verify() {
+        let ps = Parameters::new(4, 4);
+        let secret_key = vec![1, 2, 3, 4];
+        let message = vec![1, 2, 3, 4];
 
-    //     let public_key = generate_public_key(&ps, &secret_key);
-    //     let signature = sign_digits(&ps, &secret_key, &message);
+        let public_key = generate_public_key(&ps, &secret_key);
+        let signature = sign_digits(&ps, &secret_key, &message);
 
-    //     let input = WinternitzCircuitInput {
-    //         pub_key: public_key,
-    //         params: ps,
-    //         signature: signature.clone(),
-    //         message: message.clone(),
-    //     };
+        let input = WinternitzHandler {
+            pub_key: public_key,
+            params: ps,
+            signature: Some(signature),
+            message: Some(message),
+        };
 
-    //     assert!(verify_signature(&input));
-    // }
+        assert!(verify_winternitz_signature(&input));
+    }
 
-    // #[test]
-    // fn test_invalid_signature() {
-    //     let ps = Parameters::new(4, 4);
-    //     let secret_key = vec![1, 2, 3, 4];
-    //     let message = vec![1, 2, 3, 4];
+    #[test]
+    fn test_invalid_signature() {
+        let ps = Parameters::new(4, 4);
+        let secret_key = vec![1, 2, 3, 4];
+        let message = vec![1, 2, 3, 4];
 
-    //     let public_key = generate_public_key(&ps, &secret_key);
-    //     let mut signature = sign_digits(&ps, &secret_key, &message);
+        let public_key = generate_public_key(&ps, &secret_key);
+        let mut signature = sign_digits(&ps, &secret_key, &message);
 
-    //     signature[0][0] ^= 0xFF;
+        signature[0][0] ^= 0xFF;
 
-    //     let input = WinternitzCircuitInput {
-    //         pub_key: public_key,
-    //         params: ps,
-    //         signature,
-    //         message,
-    //     };
+        let input = WinternitzHandler {
+            pub_key: public_key,
+            params: ps,
+            signature: Some(signature),
+            message: Some(message),
+        };
 
-    //     assert!(!verify_signature(&input));
-    // }
+        assert!(!verify_winternitz_signature(&input));
+    }
 }

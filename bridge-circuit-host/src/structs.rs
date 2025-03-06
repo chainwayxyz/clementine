@@ -1,3 +1,5 @@
+use ark_bn254::Bn254;
+use ark_ff::PrimeField;
 use circuits_lib::bridge_circuit_core::{
     structs::{LightClientProof, StorageProof},
     winternitz::WinternitzHandler,
@@ -6,6 +8,8 @@ use final_spv::spv::SPV;
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
 use sha2::{Digest, Sha256};
+
+use crate::utils::{get_ark_verifying_key, reverse_bits_and_copy};
 
 #[derive(Debug, Clone)]
 pub struct BridgeCircuitHostParams {
@@ -88,5 +92,70 @@ impl BridgeCircuitBitvmInputs {
             deposit_constant,
             combined_method_id,
         }
+    }
+
+    pub fn calculate_groth16_public_input(&self) -> blake3::Hash {
+        let concatenated_data = [
+            self.payout_tx_block_hash,
+            self.latest_block_hash,
+            self.challenge_sending_watchtowers,
+        ]
+        .concat();
+        let x = blake3::hash(&concatenated_data);
+        let hash_bytes = x.as_bytes();
+
+        let concat_journal = [self.deposit_constant, *hash_bytes].concat();
+
+        let journal_hash = blake3::hash(&concat_journal);
+
+        let hash_bytes = journal_hash.as_bytes();
+
+        let concat_input = [self.combined_method_id, *hash_bytes].concat();
+
+        blake3::hash(&concat_input)
+    }
+
+    pub fn verify_bridge_circuit(
+        &self,
+        proof: ark_groth16::Proof<Bn254>,
+    ) -> bool {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.payout_tx_block_hash);
+        hasher.update(&self.latest_block_hash);
+        hasher.update(&self.challenge_sending_watchtowers);
+        let x = hasher.finalize();
+        let x_bytes: [u8; 32] = x.try_into().unwrap();
+    
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.deposit_constant);
+        hasher.update(&x_bytes);
+        let y = hasher.finalize();
+        let y_bytes: [u8; 32] = y.try_into().unwrap();
+        println!("Y bytes (Journal): {:#?}", y_bytes);
+    
+        let mut combined_method_id_constant_buf = [0u8; 32];
+        let mut journal_buf = [0u8; 32];
+    
+        reverse_bits_and_copy(
+            &self.combined_method_id,
+            &mut combined_method_id_constant_buf,
+        );
+        reverse_bits_and_copy(&y_bytes, &mut journal_buf);
+    
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&combined_method_id_constant_buf);
+        hasher.update(&journal_buf);
+        let public_output = hasher.finalize();
+    
+        let public_output_bytes: [u8; 32] = public_output.try_into().unwrap();
+        println!("Public output bytes: {:#?}", public_output_bytes);
+        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&public_output_bytes[0..31]);
+        println!("Public input scalar: {:#?}", public_input_scalar);
+    
+        let ark_vk = get_ark_verifying_key();
+        let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
+    
+        ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(&ark_pvk, &proof, &[public_input_scalar])
+            .unwrap()
     }
 }
