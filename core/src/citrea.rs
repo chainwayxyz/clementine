@@ -114,20 +114,40 @@ impl CitreaClient {
         deposit_event.filter
     }
 
-    pub async fn collect_events(&self) -> Result<(), BridgeError> {
+    #[cfg(test)]
+    pub async fn log_all_events(&self) -> Result<(), BridgeError> {
         let filter = self.get_event_filter::<Deposit>().await;
         let filter = filter.from_block(BlockNumberOrTag::Earliest);
         let filter = filter.to_block(BlockNumberOrTag::Latest);
         let logs = self.provider.get_logs(&filter).await?;
-        println!("deposit logs: {:?}", logs);
+        println!("Deposit logs: {:?}", logs);
 
         let filter = self.get_event_filter::<Withdrawal>().await;
         let filter = filter.from_block(BlockNumberOrTag::Earliest);
         let filter = filter.to_block(BlockNumberOrTag::Latest);
         let logs = self.provider.get_logs(&filter).await?;
-        println!("withdrawal logs: {:?}", logs);
+        println!("Withdrawal logs: {:?}", logs);
 
         Ok(())
+    }
+
+    /// Returns depost move txids for a block.
+    pub async fn collect_deposit_move_txids(&self, height: u64) -> Result<Vec<Txid>, BridgeError> {
+        let filter = self.get_event_filter::<Deposit>().await;
+        let filter = filter.from_block(BlockNumberOrTag::Number(height));
+        let filter = filter.to_block(BlockNumberOrTag::Number(height));
+        let logs = self.provider.get_logs(&filter).await?;
+
+        let mut move_txids = vec![];
+        for log in logs {
+            let deposit_raw_data = log.data().clone().data.clone();
+            let move_txid = Deposit::abi_decode_data(deposit_raw_data.as_ref(), false)?.1;
+            let txid = Txid::from_slice(move_txid.as_slice())?;
+
+            move_txids.push(txid);
+        }
+
+        Ok(move_txids)
     }
 
     /// Returns withdrawal utxos for a block.

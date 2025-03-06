@@ -233,6 +233,12 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
 
+        let deposit_tx_block_height = sequencer
+            .client
+            .ledger_get_head_soft_confirmation_height()
+            .await
+            .unwrap()
+            + 1;
         citrea::deposit(
             sequencer.client.http_client().clone(),
             block,
@@ -255,12 +261,15 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             (config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER).into()
         );
 
-        citrea_client.collect_events().await.unwrap();
+        let move_txids = citrea_client
+            .collect_deposit_move_txids(deposit_tx_block_height)
+            .await?;
+        assert_eq!(move_txid, move_txids[0]);
 
         let lcp = lc_prover
             .client
             .http_client()
-            .get_light_client_proof_by_l1_height(block_height)
+            .get_light_client_proof_by_l1_height(deposit_tx_block_height)
             .await
             .unwrap();
         println!("lcp {:?}", lcp);
