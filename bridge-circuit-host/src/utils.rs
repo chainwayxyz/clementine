@@ -147,14 +147,11 @@ pub fn calculate_succinct_output_prefix(method_id: &[u8]) -> [u8; 32] {
     let post_state_bytes: [u8; 32] = post_state.digest().into();
 
     let mut hasher = Sha256::new();
-    hasher.update(&succinct_control_root_bytes);
-    hasher.update(&pre_state_bytes);
-    hasher.update(&post_state_bytes);
-    hasher.update(&control_id_bytes);
-    let result: [u8; 32] = hasher
-        .finalize()
-        .try_into()
-        .expect("SHA256 should produce a 32-byte output");
+    hasher.update(succinct_control_root_bytes);
+    hasher.update(pre_state_bytes);
+    hasher.update(post_state_bytes);
+    hasher.update(control_id_bytes);
+    let result: [u8; 32] = hasher.finalize().into();
 
     result
 }

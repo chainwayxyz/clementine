@@ -49,9 +49,9 @@ pub fn prove_bridge_circuit(
         panic!("Journal hash mismatch");
     }
 
-    let bridge_circuit_method_id = compute_image_id(BRIDGE_CIRCUIT_ELF).unwrap();
+    let bridge_circuit_method_id = compute_image_id(bridge_circuit_elf).unwrap();
     let combined_method_id_constant =
-        calculate_succinct_output_prefix(&bridge_circuit_method_id.as_bytes());
+        calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
     let (g16_proof, g16_output) = stark_to_snark(
         succinct_receipt.inner.succinct().unwrap().clone(),
         &succinct_receipt_journal,
@@ -85,7 +85,7 @@ fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs
     // OPTIMIZATION IS POSSIBLE HERE
     // challenge_sending_watchtowers
     let mut watchtower_flags: Vec<bool> = vec![];
-    for (_, winternitz_handler) in input.winternitz_details.iter().enumerate() {
+    for winternitz_handler in input.winternitz_details.iter() {
         if winternitz_handler.signature.is_none() || winternitz_handler.message.is_none() {
             watchtower_flags.push(false);
             continue;
@@ -142,7 +142,7 @@ fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs
         latest_block_hash,
         move_to_vault_txid: input.sp.txid_hex,
         watcthower_challenge_wpks_hash: wintertniz_pubkeys_digest,
-        operator_id: operator_id,
+        operator_id,
     }
 }
 
@@ -298,13 +298,17 @@ mod tests {
             num_of_watchtowers,
         };
         println!("PROVING BRIDGE CIRCUIT");
-        let (risc0_g16_seal, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) = prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
+        let (risc0_g16_seal, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
         let risc0_g16_seal_vec = risc0_g16_seal.to_vec();
         let risc0_g16_256 = risc0_g16_seal_vec[0..256].try_into().unwrap();
         let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
         let blake3_digest = bridge_circuit_bitvm_inputs.calculate_groth16_public_input();
         let g16_pi_calculated_outside = blake3_digest.as_bytes();
-        assert_eq!(output_scalar_bytes_trimmed, g16_pi_calculated_outside[0..31]);
+        assert_eq!(
+            output_scalar_bytes_trimmed,
+            g16_pi_calculated_outside[0..31]
+        );
         let ark_groth16_proof = circuit_g16_proof.into();
         assert!(bridge_circuit_bitvm_inputs.verify_bridge_circuit(ark_groth16_proof));
     }

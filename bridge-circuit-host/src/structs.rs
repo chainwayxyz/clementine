@@ -110,52 +110,64 @@ impl BridgeCircuitBitvmInputs {
 
         let hash_bytes = journal_hash.as_bytes();
 
-        let concat_input = [self.combined_method_id, *hash_bytes].concat();
+        let mut combined_method_id_constant_buf = [0u8; 32];
+        let mut journal_buf = [0u8; 32];
+
+        reverse_bits_and_copy(
+            &self.combined_method_id,
+            &mut combined_method_id_constant_buf,
+        );
+
+        reverse_bits_and_copy(hash_bytes, &mut journal_buf);
+
+        let concat_input = [combined_method_id_constant_buf, journal_buf].concat();
 
         blake3::hash(&concat_input)
     }
 
-    pub fn verify_bridge_circuit(
-        &self,
-        proof: ark_groth16::Proof<Bn254>,
-    ) -> bool {
+    pub fn verify_bridge_circuit(&self, proof: ark_groth16::Proof<Bn254>) -> bool {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.payout_tx_block_hash);
         hasher.update(&self.latest_block_hash);
         hasher.update(&self.challenge_sending_watchtowers);
         let x = hasher.finalize();
-        let x_bytes: [u8; 32] = x.try_into().unwrap();
-    
+        let x_bytes: [u8; 32] = x.into();
+
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.deposit_constant);
         hasher.update(&x_bytes);
         let y = hasher.finalize();
-        let y_bytes: [u8; 32] = y.try_into().unwrap();
+        let y_bytes: [u8; 32] = y.into();
         println!("Y bytes (Journal): {:#?}", y_bytes);
-    
+
         let mut combined_method_id_constant_buf = [0u8; 32];
         let mut journal_buf = [0u8; 32];
-    
+
         reverse_bits_and_copy(
             &self.combined_method_id,
             &mut combined_method_id_constant_buf,
         );
         reverse_bits_and_copy(&y_bytes, &mut journal_buf);
-    
+
         let mut hasher = blake3::Hasher::new();
         hasher.update(&combined_method_id_constant_buf);
         hasher.update(&journal_buf);
         let public_output = hasher.finalize();
-    
-        let public_output_bytes: [u8; 32] = public_output.try_into().unwrap();
+
+        let public_output_bytes: [u8; 32] = public_output.into();
         println!("Public output bytes: {:#?}", public_output_bytes);
-        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&public_output_bytes[0..31]);
+        let public_input_scalar =
+            ark_bn254::Fr::from_be_bytes_mod_order(&public_output_bytes[0..31]);
         println!("Public input scalar: {:#?}", public_input_scalar);
-    
+
         let ark_vk = get_ark_verifying_key();
         let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
-    
-        ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(&ark_pvk, &proof, &[public_input_scalar])
-            .unwrap()
+
+        ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(
+            &ark_pvk,
+            &proof,
+            &[public_input_scalar],
+        )
+        .unwrap()
     }
 }

@@ -3,14 +3,11 @@ use alloy_primitives::U256;
 use alloy_rpc_client::RpcClient;
 use alloy_rpc_types::EIP1186AccountProofResponse;
 use anyhow::bail;
-use ark_bn254::Bn254;
-use ark_ff::PrimeField;
 use circuits_lib::bridge_circuit_core::structs::{LightClientProof, StorageProof};
 use config::PARAMETERS;
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;
-use utils::{get_ark_verifying_key, reverse_bits_and_copy};
 
 pub mod bridge_circuit_host;
 pub mod config;

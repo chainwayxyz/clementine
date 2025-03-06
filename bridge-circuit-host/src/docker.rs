@@ -302,7 +302,7 @@ pub fn test_stark_to_succinct(
     // let output_byte_vec = hex::decode(output_hex).unwrap();
     let output_bytes: [u8; 31] = output_byte_vec.as_slice().try_into().unwrap();
     println!("output_bytes: {:?}", output_bytes);
-    (proof_json.try_into().unwrap(), pi_json, output_bytes)
+    (proof_json, pi_json, output_bytes)
 }
 
 fn is_docker_installed() -> bool {

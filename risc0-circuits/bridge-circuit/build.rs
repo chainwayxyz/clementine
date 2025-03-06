@@ -33,13 +33,19 @@ fn main() {
                 "type=local,dest=.",
                 ".", // Use current directory as context
                 "--build-arg",
-                &format!("BITCOIN_NETWORK={}", std::env::var("BITCOIN_NETWORK").unwrap().as_str()),
+                &format!(
+                    "BITCOIN_NETWORK={}",
+                    std::env::var("BITCOIN_NETWORK").unwrap().as_str()
+                ),
                 "--build-arg",
-                &format!("BRIDGE_CIRCUIT_MODE={}", std::env::var("BRIDGE_CIRCUIT_MODE").unwrap().as_str()),
+                &format!(
+                    "BRIDGE_CIRCUIT_MODE={}",
+                    std::env::var("BRIDGE_CIRCUIT_MODE").unwrap().as_str()
+                ),
             ])
-        .current_dir(project_root) // Set working directory to project root
-        .output()
-        .expect("Failed to execute Docker command");
+            .current_dir(project_root) // Set working directory to project root
+            .output()
+            .expect("Failed to execute Docker command");
 
         // println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
 
