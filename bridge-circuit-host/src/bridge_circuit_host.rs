@@ -148,7 +148,7 @@ fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs
 
 #[cfg(test)]
 mod tests {
-    use crate::config::PARAMETERS;
+    use crate::config::BCHostParameters;
     use crate::{fetch_light_client_proof, fetch_storage_proof};
     use alloy_rpc_client::ClientBuilder;
     use bitcoin::consensus::Decodable;
@@ -164,6 +164,7 @@ mod tests {
     use final_spv::spv::SPV;
     use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use header_chain::mmr_native::MMRNative;
+    use hex_literal::hex;
     use rand::rngs::SmallRng;
     use rand::{Rng, SeedableRng};
     use risc0_zkvm::Receipt;
@@ -180,6 +181,16 @@ mod tests {
     const PAYOUT_TX: &[u8; 303] = include_bytes!("bin-files/payout_tx.bin");
     const TESTNET_BLOCK_72041: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
 
+    pub const TEST_PARAMETERS: BCHostParameters = BCHostParameters {
+        l1_block_height: 72075,
+        payment_block_height: 72041,
+        move_to_vault_txid: hex!(
+            "BB25103468A467382ED9F585129AD40331B54425155D6F0FAE8C799391EE2E7F"
+        ),
+        payout_tx_index: 51,
+        deposit_index: 37,
+    };
+
     fn create_spv() -> SPV {
         let payout_tx = Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
         let headers = HEADERS
@@ -187,7 +198,7 @@ mod tests {
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
             .collect::<Vec<CircuitBlockHeader>>();
         let mut mmr_native = MMRNative::new();
-        for i in 0..=PARAMETERS.l1_block_height {
+        for i in 0..=TEST_PARAMETERS.l1_block_height {
             mmr_native.append(headers[i as usize].compute_block_hash());
         }
         let block_vec = TESTNET_BLOCK_72041.to_vec();
@@ -199,9 +210,9 @@ mod tests {
             .iter()
             .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
             .collect();
-        let mmr_inclusion_proof = mmr_native.generate_proof(PARAMETERS.payment_block_height);
+        let mmr_inclusion_proof = mmr_native.generate_proof(TEST_PARAMETERS.payment_block_height);
         let block_72041_mt = BitcoinMerkleTree::new(block_72041_txids);
-        let payout_tx_proof = block_72041_mt.generate_proof(PARAMETERS.payout_tx_index);
+        let payout_tx_proof = block_72041_mt.generate_proof(TEST_PARAMETERS.payout_tx_index);
 
         SPV {
             transaction: payout_tx.into(),
@@ -282,8 +293,13 @@ mod tests {
                 .await
                 .unwrap();
 
-        let storage_proof =
-            fetch_storage_proof(&light_client_proof.l2_height, citrea_rpc_client).await;
+        let storage_proof = fetch_storage_proof(
+            &light_client_proof.l2_height,
+            TEST_PARAMETERS.deposit_index,
+            TEST_PARAMETERS.move_to_vault_txid,
+            citrea_rpc_client,
+        )
+        .await;
 
         let num_of_watchtowers: u32 = 1;
 
