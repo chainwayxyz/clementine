@@ -1,6 +1,6 @@
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::{
-    citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER},
+    citrea::{CitreaClient, LightClientProverRpcClient, SATS_TO_WEI_MULTIPLIER},
     extended_rpc::ExtendedRpc,
     test::common::{
         citrea::{self},
@@ -183,7 +183,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
-        let _lc_prover = lc_prover.unwrap();
+        let lc_prover = lc_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name(None).await;
         citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
@@ -195,7 +195,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         )
         .await?;
 
-        let citrea_client =
+        let _citrea_client =
             CitreaClient::new(Url::parse(&config.citrea_rpc_url).unwrap(), None).unwrap();
 
         let (
@@ -244,7 +244,12 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             (config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER).into()
         );
 
-        let lcp = citrea_client.get_light_client_proof(block_height).await?;
+        let lcp = lc_prover
+            .client
+            .http_client()
+            .get_light_client_proof_by_l1_height(block_height)
+            .await
+            .unwrap();
         println!("lcp {:?}", lcp);
 
         Ok(())
