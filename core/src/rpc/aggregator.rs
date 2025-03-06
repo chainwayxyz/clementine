@@ -811,13 +811,13 @@ impl ClementineAggregator for Aggregator {
             "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
         );
 
-        tracing::error!("Waiting for pipeline tasks to complete");
+        tracing::debug!("Waiting for pipeline tasks to complete");
         // Wait for all pipeline tasks to complete
         try_join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle])
             .await
             .map_err(|_| Status::internal("panic when pipelining"))?;
 
-        tracing::error!("Pipeline tasks completed");
+        tracing::debug!("Pipeline tasks completed");
 
         // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
         // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
