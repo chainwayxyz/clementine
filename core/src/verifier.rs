@@ -8,7 +8,7 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, OperatorData,
-    ReimburseDbCache, TransactionType, TxHandler, Unsigned,
+    ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::config::protocol::ProtocolParamset;
@@ -725,6 +725,7 @@ impl Verifier {
                     deposit_outpoint,
                     evm_address,
                     recovery_taproot_address: recovery_taproot_address.clone(),
+                    nofn_xonly_pk: self.nofn_xonly_pk,
                 },
             )
             .await?;

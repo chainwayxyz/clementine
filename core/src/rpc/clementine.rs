@@ -72,8 +72,7 @@ pub struct DepositParams {
     /// User's recovery taproot address.
     #[prost(string, tag = "3")]
     pub recovery_taproot_address: ::prost::alloc::string::String,
-    /// nofn_xonly_pk used for the deposit
-    /// TODO: not send in the future(?), every actor should retrieve nofn key from citrea
+    /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "4")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
 }

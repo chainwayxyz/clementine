@@ -8,14 +8,9 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, DepositData, KickoffWinternitzKeys, OperatorData, TransactionType,
-    TxHandler,
+    create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
+    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
 };
-use crate::builder::transaction::{
-    create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
-    ReimburseDbCache,
-};
-use crate::builder::transaction::{DepositData, OperatorData, TransactionType, TxHandler};
 use crate::citrea::CitreaContractClient;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -28,10 +23,7 @@ use crate::states;
 use crate::states::syncer::run_state_manager;
 use crate::states::{Duty, Owner, StateManager};
 use crate::tx_sender::TxSender;
-use crate::tx_sender::{
-    ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging, TxSender,
-};
-use crate::utils::SECP;
+use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
 use crate::{builder, UTXO};
 use alloy::transports::http::reqwest::Url;
 use bitcoin::consensus::deserialize;
@@ -736,7 +728,6 @@ impl Operator {
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            self.nofn_xonly_pk,
             transaction_data,
             Some(
                 payout_tx_blockhash.as_byte_array()[12..] // TODO: Make a helper function for this

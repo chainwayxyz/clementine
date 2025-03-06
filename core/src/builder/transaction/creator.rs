@@ -13,9 +13,6 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
-use crate::{builder, utils};
-use bitcoin::secp256k1::SecretKey;
-use bitcoin::XOnlyPublicKey;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -711,7 +708,7 @@ mod tests {
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::rpc::clementine::{self};
     use crate::{rpc::clementine::DepositParams, test::common::*, EVMAddress};
-    use bitcoin::Txid;
+    use bitcoin::{Txid, XOnlyPublicKey};
     use futures::future::try_join_all;
 
     use crate::builder::transaction::TransactionType;
@@ -753,11 +750,8 @@ mod tests {
         let recovery_addr_checked = recovery_taproot_address.assume_checked();
         let evm_address = EVMAddress([1u8; 20]);
 
-        let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifiers_public_keys.clone(),
-            None,
-        )
-        .unwrap();
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None).unwrap();
 
         let deposit_params = DepositParams {
             deposit_outpoint: Some(deposit_outpoint.into()),

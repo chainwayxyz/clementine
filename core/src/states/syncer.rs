@@ -46,7 +46,7 @@ pub async fn fetch_new_blocks(
                                 let mut new_tip = false;
                                 // update states to catch up to finalized chain
                                 while last_sent_height
-                                    < current_tip_height - paramset.finalized_depth + 1
+                                    < current_tip_height - paramset.finality_depth + 1
                                 {
                                     let next_height = last_sent_height + 1;
                                     let block =

@@ -368,17 +368,19 @@ impl Database {
         deposit_data: DepositData,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_as(
-            "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address)
-                VALUES ($1, $2, $3)
+            "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk)
+                VALUES ($1, $2, $3, $4)
                 ON CONFLICT (deposit_outpoint) DO UPDATE
                 SET recovery_taproot_address = EXCLUDED.recovery_taproot_address,
-                    evm_address = EXCLUDED.evm_address
+                    evm_address = EXCLUDED.evm_address,
+                    nofn_xonly_pk = EXCLUDED.nofn_xonly_pk
                 RETURNING deposit_id;
             ",
         )
         .bind(OutPointDB(deposit_data.deposit_outpoint))
         .bind(AddressDB(deposit_data.recovery_taproot_address))
-        .bind(EVMAddressDB(deposit_data.evm_address));
+        .bind(EVMAddressDB(deposit_data.evm_address))
+        .bind(deposit_data.nofn_xonly_pk.serialize().to_vec());
 
         let deposit_id: Result<(i32,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
@@ -391,23 +393,29 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<(u32, DepositData)>, BridgeError> {
-        let query = sqlx::query_as("SELECT deposit_id, deposit_outpoint, recovery_taproot_address, evm_address FROM deposits WHERE deposit_outpoint = $1;")
+        let query = sqlx::query_as("SELECT deposit_id, deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk FROM deposits WHERE deposit_outpoint = $1;")
             .bind(OutPointDB(deposit_outpoint));
 
-        let result: Option<(i32, OutPointDB, AddressDB, EVMAddressDB)> =
+        let result: Option<(i32, OutPointDB, AddressDB, EVMAddressDB, Vec<u8>)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((deposit_id, deposit_outpoint, recovery_taproot_address, evm_address)) => {
-                Ok(Some((
-                    u32::try_from(deposit_id)?,
-                    DepositData {
-                        deposit_outpoint: deposit_outpoint.0,
-                        recovery_taproot_address: recovery_taproot_address.0,
-                        evm_address: evm_address.0,
-                    },
-                )))
-            }
+            Some((
+                deposit_id,
+                deposit_outpoint,
+                recovery_taproot_address,
+                evm_address,
+                nofn_bytes,
+            )) => Ok(Some((
+                u32::try_from(deposit_id)?,
+                DepositData {
+                    deposit_outpoint: deposit_outpoint.0,
+                    recovery_taproot_address: recovery_taproot_address.0,
+                    evm_address: evm_address.0,
+                    nofn_xonly_pk: XOnlyPublicKey::from_slice(&nofn_bytes)
+                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                },
+            ))),
             None => Ok(None),
         }
     }

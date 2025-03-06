@@ -11,7 +11,6 @@ use crate::{
     },
     errors::BridgeError,
     rpc::clementine::KickoffId,
-    utils,
 };
 
 use super::{
@@ -386,7 +385,7 @@ impl<T: Owner> KickoffStateMachine<T> {
 
         // add operator asserts
         let kickoff_txid = *kickoff_txhandler.get_txid();
-        let num_asserts = utils::COMBINED_ASSERT_DATA.num_steps.len();
+        let num_asserts = crate::bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs();
         for assert_idx in 0..num_asserts {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData

@@ -1,3 +1,4 @@
+use super::ContractContext;
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -9,9 +10,7 @@ use crate::errors::BridgeError;
 use crate::operator::Operator;
 use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
 use crate::watchtower::Watchtower;
-use crate::{builder, utils};
-use super::ContractContext;
-use bitcoin::{Transaction, XOnlyPublicKey};
+use bitcoin::Transaction;
 
 #[derive(Debug, Clone)]
 pub struct TransactionRequestData {
@@ -35,7 +34,7 @@ pub async fn create_and_sign_txs(
     config: BridgeConfig,
     transaction_data: TransactionRequestData,
     block_hash: Option<[u8; 20]>, //to sign kickoff
-) -> Result<Vec<(TransactionType, RawSignedTx)>, BridgeError> {
+) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
     let context = ContractContext::new_context_for_kickoffs(
         transaction_data.kickoff_id,
         transaction_data.deposit_data.clone(),

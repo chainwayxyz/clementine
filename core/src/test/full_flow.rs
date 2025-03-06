@@ -6,8 +6,9 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::rpc::clementine::FinalizedPayoutParams;
-use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest};
+use crate::rpc::clementine::{
+    DepositParams, Empty, FinalizedPayoutParams, KickoffId, TransactionRequest,
+};
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxDataForLogging, TxSender};
 use crate::EVMAddress;
@@ -49,10 +50,14 @@ pub async fn run_operator_end_round(config: BridgeConfig, rpc: ExtendedRpc) -> R
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");
@@ -135,9 +140,6 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
-    let nofn_xonly_pk =
-        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
-
     let verifier_0_config = {
         let mut config = config.clone();
         config.db_name += "0";
@@ -195,6 +197,9 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         .await?;
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
+
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
@@ -498,10 +503,14 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");
@@ -846,10 +855,14 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");
@@ -1063,10 +1076,14 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");
@@ -1255,12 +1272,15 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
-
     tracing::info!("Creating move transaction");
     let move_tx_response = aggregator
         .new_deposit(dep_params.clone())
