@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use risc0_to_bitvm2_core::header_chain::BlockHeaderCircuitOutput;
-use risc0_to_bitvm2_core::spv::SPV;
+use final_spv::spv::SPV;
+use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
 use super::winternitz::WinternitzHandler;
@@ -35,7 +35,6 @@ pub struct BridgeCircuitInput {
     pub hcp: BlockHeaderCircuitOutput, // This will be removed once the LightClientProof includes the MMRGuest of the Bitcoin blockhashes
     pub payout_spv: SPV,
     pub lcp: LightClientProof,
-    pub operator_id: u32,
     pub sp: StorageProof,
     pub num_watchtowers: u32,
 }
@@ -46,7 +45,6 @@ impl BridgeCircuitInput {
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
         lcp: LightClientProof,
-        operator_id: u32,
         sp: StorageProof,
         num_watchtowers: u32,
     ) -> Result<Self, &'static str> {
@@ -58,7 +56,6 @@ impl BridgeCircuitInput {
             hcp,
             payout_spv,
             lcp,
-            operator_id,
             sp,
             num_watchtowers,
         })

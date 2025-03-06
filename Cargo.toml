@@ -59,14 +59,43 @@ borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.3", default-features = false }
 risc0-build = "1.2"
 risc0-zkvm = { version = "1.2" }
-header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "a233e27" }
+ripemd = "0.1.3"
+once_cell = "1.10.0"
+jmt = "0.11.0"
+derive_more = "1.0.0"
+blake3 = "1.5.1"
+itertools = "0.14.0"
+header-chain = { git = "https://github.com/chainwayxyz/BitVM", rev = "8508328" }
 bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "8508328" }
+final-spv = { git = "https://github.com/chainwayxyz/BitVM", rev = "8508328" }
 risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "main" }
 
-ark-groth16 = "0.5.0"
+ark-groth16 = { version = "0.5.0", default-features = false }
 ark-serialize = "0.5.0"
 ark-bn254 = { version = "0.5.0", features = ["curve", "scalar_field"], default-features = false }
 
+# Bridge Circuit Host
+risc0-circuit-recursion = "1.2.5"
+risc0-zkp = "1.2.5"
+risc0-groth16 = "1.2.5"
+
+ark-ff = "0.5.0"
+ark-ec = "0.5.0"
+ark-std = "0.5.0"
+ark-crypto-primitives = "0.5.0"
+ark-relations = "0.5.0"
+
+alloy-rpc-types = "0.11.1"
+alloy-primitives = "0.8.7"
+alloy-rpc-types-eth = "0.11.1"
+alloy-rpc-client = "0.11.1"
+
+anyhow = "1.0"
+rand = "0.8"
+num-bigint = "0.4.6"
+num-traits = "0.2.19"
+bincode = "1.3.3"
+hex-literal = "0.4.1"
 
 [patch.crates-io]
 bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "44f9bba" }

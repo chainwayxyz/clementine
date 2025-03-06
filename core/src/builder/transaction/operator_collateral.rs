@@ -165,6 +165,7 @@ pub fn create_assert_timeout_txhandlers(
                 .add_output(UnspentTxOut::from_partial(
                     builder::transaction::anchor_output(),
                 ))
+                .add_burn_output()
                 .finalize(),
         );
     }
