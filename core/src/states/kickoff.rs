@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bitcoin::{OutPoint, Witness};
 use eyre::Report;
+use serde_with::serde_as;
 use statig::prelude::*;
 
 use crate::{
@@ -50,6 +51,7 @@ pub enum KickoffEvent {
     SavedToDb,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 // TODO: add and save operator challenge acks
 // all timelocks
@@ -57,6 +59,7 @@ pub enum KickoffEvent {
 // apply only first match
 
 pub struct KickoffStateMachine<T: Owner> {
+    #[serde_as(as = "Vec<(_, _)>")]
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
     pub(crate) dirty: bool,
     pub(crate) kickoff_id: KickoffId,
@@ -107,9 +110,15 @@ impl<T: Owner> KickoffStateMachine<T> {
 #[state_machine(
     initial = "State::kickoff_started()",
     on_dispatch = "Self::on_dispatch",
+    on_transition = "Self::on_transition",
     state(derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize))
 )]
 impl<T: Owner> KickoffStateMachine<T> {
+    #[action]
+    pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
+        tracing::trace!(?self.kickoff_id, ?self.deposit_data, "Transitioning from {:?} to {:?}", state_a, state_b);
+        self.dirty = true;
+    }
     pub fn wrap_err(
         &'_ self,
         method: &'static str,
@@ -250,7 +259,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::OperatorChallengeAckSent { .. }
             | KickoffEvent::KickoffFinalizerSpent
             | KickoffEvent::BurnConnectorSpent
-            | KickoffEvent::WatchtowerChallengeTimeoutSent { .. } => Super,
+            | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
+            | KickoffEvent::SavedToDb => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;
                 Handled
@@ -325,6 +335,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 self.check_if_time_to_send_asserts(context).await;
                 Handled
             }
+            KickoffEvent::SavedToDb => Handled,
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled
@@ -348,7 +359,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::OperatorChallengeAckSent { .. }
             | KickoffEvent::KickoffFinalizerSpent
             | KickoffEvent::BurnConnectorSpent
-            | KickoffEvent::WatchtowerChallengeTimeoutSent { .. } => Super,
+            | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
+            | KickoffEvent::SavedToDb => Super,
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled

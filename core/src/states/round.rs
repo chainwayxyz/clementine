@@ -5,6 +5,7 @@ use crate::{
     builder::transaction::{ContractContext, OperatorData, TransactionType},
     errors::BridgeError,
 };
+use serde_with::serde_as;
 
 use super::{
     block_cache::BlockCache,
@@ -30,8 +31,10 @@ pub enum RoundEvent {
     SavedToDb,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RoundStateMachine<T: Owner> {
+    #[serde_as(as = "Vec<(_, _)>")]
     pub(crate) matchers: HashMap<matcher::Matcher, RoundEvent>,
     operator_data: OperatorData,
     pub(crate) operator_idx: u32,
@@ -72,10 +75,16 @@ use eyre::Report;
 #[state_machine(
     initial = "State::initial_collateral()",
     on_dispatch = "Self::on_dispatch",
+    on_transition = "Self::on_transition",
     state(derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize))
 )]
-// TODO: Add exit conditions too (ex: burn connector spent on smth else)
 impl<T: Owner> RoundStateMachine<T> {
+    #[action]
+    pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
+        tracing::trace!(?self.operator_data, ?self.operator_idx, "Transitioning from {:?} to {:?}", state_a, state_b);
+        self.dirty = true;
+    }
+
     pub fn wrap_err(
         &'_ self,
         method: &'static str,
@@ -128,7 +137,11 @@ impl<T: Owner> RoundStateMachine<T> {
             RoundEvent::RoundSent { round_idx } => {
                 Transition(State::round_tx(*round_idx, HashSet::new()))
             }
-            _ => Super,
+            RoundEvent::SavedToDb => Handled,
+            _ => {
+                self.unhandled_event(context, event).await;
+                Handled
+            }
         }
     }
 
@@ -157,6 +170,7 @@ impl<T: Owner> RoundStateMachine<T> {
             RoundEvent::ReadyToReimburseSent { round_idx } => {
                 Transition(State::ready_to_reimburse(*round_idx))
             }
+            RoundEvent::SavedToDb => Handled,
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled
@@ -250,6 +264,7 @@ impl<T: Owner> RoundStateMachine<T> {
             RoundEvent::RoundSent { round_idx } => {
                 Transition(State::round_tx(*round_idx, HashSet::new()))
             }
+            RoundEvent::SavedToDb => Handled,
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled

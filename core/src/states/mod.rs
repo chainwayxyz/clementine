@@ -574,9 +574,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
             if !all_errors.is_empty() {
                 // Return first error or create a combined error
-                return Err(BridgeError::Error(
-                    "Multiple errors occurred during state processing".into(),
-                )
+                return Err(BridgeError::Error(format!(
+                    "Multiple errors occurred during state processing: {:?}",
+                    all_errors
+                ))
                 .into());
             }
 

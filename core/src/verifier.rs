@@ -1183,8 +1183,9 @@ impl Owner for Verifier {
                 deposit_data,
             } => {
                 tracing::warn!(
-                    "called watchtower challenge with kickoff_id: {:?}",
-                    kickoff_id
+                    "called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
+                    kickoff_id,
+                    deposit_data
                 );
             }
             Duty::SendOperatorAsserts {
@@ -1192,7 +1193,7 @@ impl Owner for Verifier {
                 deposit_data,
                 watchtower_challenges,
             } => {
-                tracing::warn!("called send operator asserts with kickoff_id: {:?}, watchtower_challenges: {:?}", kickoff_id, watchtower_challenges);
+                tracing::warn!("called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", kickoff_id, deposit_data, watchtower_challenges);
             }
             Duty::VerifierDisprove {
                 kickoff_id,
@@ -1200,7 +1201,7 @@ impl Owner for Verifier {
                 operator_asserts,
                 operator_acks,
             } => {
-                tracing::warn!("called verifier disprove with kickoff_id: {:?}, operator_asserts: {:?}, operator_acks: {:?}", kickoff_id, operator_asserts, operator_acks);
+                tracing::warn!("called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}", kickoff_id, deposit_data, operator_asserts, operator_acks);
             }
         }
         Ok(())
