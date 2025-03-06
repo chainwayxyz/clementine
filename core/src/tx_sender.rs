@@ -195,7 +195,6 @@ impl TxSender {
             | TransactionType::OperatorChallengeNack(_)
             | TransactionType::WatchtowerChallenge(_)
             | TransactionType::UnspentKickoff(_)
-            | TransactionType::Challenge
             | TransactionType::Payout
             | TransactionType::MoveToVault
             | TransactionType::AssertTimeout(_)
@@ -209,6 +208,19 @@ impl TxSender {
                     tx_data_for_logging,
                     signed_tx,
                     FeePayingType::CPFP,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+            }
+            TransactionType::Challenge => {
+                self.try_to_send(
+                    dbtx,
+                    tx_data_for_logging,
+                    signed_tx,
+                    FeePayingType::RBF,
                     &[],
                     &[],
                     &[],
@@ -305,50 +317,13 @@ impl TxSender {
                 .unwrap_or(TransactionType::Dummy),
             tx_data_for_logging
         );
-        let signed_tx = if fee_paying_type == FeePayingType::RBF {
-            let funded_tx = self
-                .rpc
-                .client
-                .fund_raw_transaction(
-                    signed_tx,
-                    Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
-                        add_inputs: Some(true),
-                        change_address: None,
-                        change_position: Some(1),
-                        change_type: None,
-                        include_watching: None,
-                        lock_unspents: None,
-                        fee_rate: Some(Amount::from_sat(1000)), // We will bump this later
-                        subtract_fee_from_outputs: None,
-                        replaceable: Some(true),
-                        conf_target: None,
-                        estimate_mode: None,
-                    }),
-                    None,
-                )
-                .await?
-                .hex;
-
-            let signed_tx: Transaction = bitcoin::consensus::deserialize(
-                &self
-                    .rpc
-                    .client
-                    .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                    .await?
-                    .hex,
-            )?;
-            signed_tx
-        } else {
-            signed_tx.clone()
-        };
-
         let txid = signed_tx.compute_txid();
         let try_to_send_id = self
             .db
             .save_tx(
                 Some(dbtx),
                 tx_data_for_logging,
-                &signed_tx,
+                signed_tx,
                 fee_paying_type,
                 txid,
             )
@@ -690,9 +665,80 @@ impl TxSender {
         let (tx_data_for_logging, tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
 
         if fee_paying_type == FeePayingType::RBF {
-            let txid = self.rpc.client.send_raw_transaction(&tx).await?;
-            let bumped_txid = self.rpc.bump_fee_with_fee_rate(txid, fee_rate).await?;
-            self.db.save_rbf_txid(None, id, bumped_txid).await?;
+            tracing::info!(
+                "Sending RBF tx for tx_type: {:?}, round_idx: {:?}, kickoff_idx: {:?}, operator_idx: {:?}, verifier_idx: {:?}, deposit_outpoint: {:?}, details: {:?} ",
+                tx_data_for_logging.as_ref().map(|d| d.tx_type),
+                tx_data_for_logging.as_ref().map(|d| d.round_idx),
+                tx_data_for_logging.as_ref().map(|d| d.kickoff_idx),
+                tx_data_for_logging.as_ref().map(|d| d.operator_idx),
+                tx_data_for_logging.as_ref().map(|d| d.verifier_idx),
+                tx_data_for_logging.as_ref().map(|d| d.deposit_outpoint),
+                hex::encode(bitcoin::consensus::serialize(&tx))
+            );
+
+            let mut dbtx = self.db.begin_transaction().await?;
+            let last_rbf_txid = self.db.get_last_rbf_txid(Some(&mut dbtx), id).await?;
+            if last_rbf_txid.is_none() {
+                tracing::info!(
+                    "Funding RBF tx for tx_type: {:?}, round_idx: {:?}, kickoff_idx: {:?}, operator_idx: {:?}, verifier_idx: {:?}, deposit_outpoint: {:?}, details: {:?} ",
+                    tx_data_for_logging.as_ref().map(|d| d.tx_type),
+                    tx_data_for_logging.as_ref().map(|d| d.round_idx),
+                    tx_data_for_logging.as_ref().map(|d| d.kickoff_idx),
+                    tx_data_for_logging.as_ref().map(|d| d.operator_idx),
+                    tx_data_for_logging.as_ref().map(|d| d.verifier_idx),
+                    tx_data_for_logging.as_ref().map(|d| d.deposit_outpoint),
+                    hex::encode(bitcoin::consensus::serialize(&tx))
+                );
+
+                let funded_tx = self
+                    .rpc
+                    .client
+                    .fund_raw_transaction(
+                        &tx,
+                        Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+                            add_inputs: Some(true),
+                            change_address: None,
+                            change_position: Some(1),
+                            change_type: None,
+                            include_watching: None,
+                            lock_unspents: None,
+                            fee_rate: Some(Amount::from_sat(5 * fee_rate.to_sat_per_kwu())),
+                            subtract_fee_from_outputs: None,
+                            replaceable: Some(true),
+                            conf_target: None,
+                            estimate_mode: None,
+                        }),
+                        None,
+                    )
+                    .await?
+                    .hex;
+
+                let signed_tx: Transaction = bitcoin::consensus::deserialize(
+                    &self
+                        .rpc
+                        .client
+                        .sign_raw_transaction_with_wallet(&funded_tx, None, None)
+                        .await?
+                        .hex,
+                )?;
+                let txid = self.rpc.client.send_raw_transaction(&signed_tx).await?;
+                self.db.save_rbf_txid(Some(&mut dbtx), id, txid).await?;
+            } else {
+                let bumped_txid = self
+                    .rpc
+                    .bump_fee_with_fee_rate(
+                        last_rbf_txid.expect("Last RBF txid should be present"),
+                        fee_rate,
+                    )
+                    .await?;
+                if bumped_txid != last_rbf_txid.expect("Last RBF txid should be present") {
+                    self.db
+                        .save_rbf_txid(Some(&mut dbtx), id, bumped_txid)
+                        .await?;
+                }
+            }
+
+            dbtx.commit().await?;
             return Ok(());
         }
 

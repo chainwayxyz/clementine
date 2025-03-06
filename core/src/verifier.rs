@@ -6,6 +6,7 @@ use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
 use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, DepositData, OperatorData, TransactionType, TxHandler,
 };
@@ -17,7 +18,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature, WatchtowerKeys};
-use crate::tx_sender::TxSender;
+use crate::tx_sender::{TxDataForLogging, TxSender};
 use crate::{bitcoin_syncer, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -903,12 +904,66 @@ impl Verifier {
 
     pub async fn handle_kickoff<'a>(
         &'a self,
-        _dbtx: DatabaseTransaction<'a, '_>,
+        dbtx: DatabaseTransaction<'a, '_>,
         kickoff_txid: bitcoin::Txid,
     ) -> Result<(), BridgeError> {
         let is_malicious = self.is_kickoff_malicious(kickoff_txid).await?;
         if !is_malicious {
             return Ok(());
+        }
+
+        let (deposit_data, kickoff_id, _) = self
+            .db
+            .get_deposit_signatures_with_kickoff_txid(None, kickoff_txid)
+            .await?
+            .ok_or(BridgeError::Error("Kickoff txid not found".to_string()))?;
+
+        let transaction_data = TransactionRequestData {
+            deposit_data: deposit_data.clone(),
+            transaction_type: TransactionType::AllNeededForDeposit,
+            kickoff_id,
+        };
+        let signed_txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+            None, // No need
+        )
+        .await?;
+
+        let tx_data_for_logging = Some(TxDataForLogging {
+            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
+            operator_idx: Some(kickoff_id.operator_idx),
+            verifier_idx: Some(self.idx as u32),
+            round_idx: Some(kickoff_id.round_idx),
+            kickoff_idx: Some(kickoff_id.kickoff_idx),
+            deposit_outpoint: Some(deposit_data.deposit_outpoint),
+        });
+
+        // self._rpc.client.import_descriptors(vec!["tr("])
+
+        // try to send them
+        for (tx_type, signed_tx) in &signed_txs {
+            match *tx_type {
+                TransactionType::Challenge
+                | TransactionType::AssertTimeout(_)
+                | TransactionType::KickoffNotFinalized
+                | TransactionType::OperatorChallengeNack(_) => {
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            dbtx,
+                            *tx_type,
+                            signed_tx,
+                            &signed_txs,
+                            tx_data_for_logging,
+                            &self.config,
+                        )
+                        .await?;
+                }
+                _ => {}
+            }
         }
 
         Ok(())
