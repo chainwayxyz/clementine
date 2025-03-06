@@ -178,7 +178,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, lc_prover, da) =
+        let (sequencer, full_node, lc_prover, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
@@ -211,11 +211,8 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
 
         // Mine blocks, so Citrea can fetch the block that contains the transaction.
-        rpc.mine_blocks(101).await.unwrap();
-        let height = rpc.client.get_block_count().await.unwrap() as u64;
-        for _ in 0..height {
-            sequencer.client.send_publish_batch_request().await?;
-        }
+        // rpc.mine_blocks(101).await.unwrap();
+        citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
         let tx_info = rpc
@@ -225,11 +222,12 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
+        // TODO: what have i done
         while citrea::block_number(sequencer.client.http_client().clone()).await?
             <= block_height.try_into().unwrap()
         {
             println!("Waiting for block to be mined");
-            rpc.mine_blocks(1).await.unwrap();
+            citrea::mine_bitcoin_and_citrea_blocks(&rpc, sequencer, 1).await;
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
 
@@ -246,11 +244,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             tx,
         )
         .await?;
-
-        let height = rpc.client.get_block_count().await.unwrap() as u64;
-        for _ in 0..height {
-            sequencer.client.send_publish_batch_request().await?;
-        }
+        citrea::mine_bitcoin_and_citrea_blocks(&rpc, sequencer, 1).await;
 
         let balance =
             citrea::eth_get_balance(sequencer.client.http_client().clone(), EVMAddress([1; 20]))
