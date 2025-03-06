@@ -730,7 +730,7 @@ impl ClementineAggregator for Aggregator {
         ))
         .await?;
 
-        tracing::error!("Sending deposit finalize streams to verifiers");
+        tracing::info!("Sending deposit finalize streams to verifiers");
 
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
@@ -757,6 +757,7 @@ impl ClementineAggregator for Aggregator {
             self.config.clone(),
             deposit_data,
             self.nofn_xonly_pk,
+            false,
         ));
 
         // Create channels for pipeline communication
