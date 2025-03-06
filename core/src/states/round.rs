@@ -146,6 +146,7 @@ impl<T: Owner> RoundStateMachine<T> {
     }
 
     #[action]
+    #[allow(unused_variables)]
     pub(crate) async fn on_initial_collateral_entry(&mut self, context: &mut StateContext<T>) {
         self.matchers = HashMap::new();
         self.matchers.insert(
@@ -155,6 +156,7 @@ impl<T: Owner> RoundStateMachine<T> {
     }
 
     #[state(entry_action = "on_round_tx_entry", exit_action = "on_round_tx_exit")]
+    #[allow(unused_variables)]
     pub(crate) async fn round_tx(
         &mut self,
         event: &RoundEvent,
@@ -254,6 +256,7 @@ impl<T: Owner> RoundStateMachine<T> {
     }
 
     #[state(entry_action = "on_ready_to_reimburse_entry")]
+    #[allow(unused_variables)]
     pub(crate) async fn ready_to_reimburse(
         &mut self,
         event: &RoundEvent,

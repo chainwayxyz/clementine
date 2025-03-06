@@ -520,18 +520,20 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
+    #[action]
+    #[allow(unused_variables)]
+    pub(crate) async fn on_closed_entry(&mut self, context: &mut StateContext<T>) {
+        self.matchers.clear();
+    }
+
     #[state(entry_action = "on_closed_entry")]
     // Terminal state
+    #[allow(unused_variables)]
     pub(crate) async fn closed(
         &mut self,
         event: &KickoffEvent,
         context: &mut StateContext<T>,
     ) -> Response<State> {
         Handled
-    }
-
-    #[action]
-    pub(crate) async fn on_closed_entry(&mut self, context: &mut StateContext<T>) {
-        self.matchers.clear();
     }
 }
