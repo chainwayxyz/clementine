@@ -3,15 +3,20 @@ use alloy_primitives::U256;
 use alloy_rpc_client::RpcClient;
 use alloy_rpc_types::EIP1186AccountProofResponse;
 use anyhow::bail;
+use ark_bn254::Bn254;
+use ark_ff::PrimeField;
 use circuits_lib::bridge_circuit_core::structs::{LightClientProof, StorageProof};
 use config::PARAMETERS;
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;
+use utils::{get_ark_verifying_key, reverse_bits_and_copy};
 
 pub mod bridge_circuit_host;
 pub mod config;
 pub mod structs;
+pub mod docker;
+pub mod utils;
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000026");
@@ -119,4 +124,52 @@ fn receipt_from_inner(inner: InnerReceipt) -> anyhow::Result<Receipt> {
         .value()
         .or_else(|_| bail!("Journal content is empty"))?;
     Ok(Receipt::new(inner, journal))
+}
+
+fn verify_bridge_circuit(
+    deposit_constant: [u8; 32],
+    combined_method_id_constant: [u8; 32],
+    payout_tx_blockhash: [u8; 20],
+    latest_blockhash: [u8; 20],
+    challenge_sending_watchtowers: [u8; 20],
+    proof: ark_groth16::Proof<Bn254>,
+) -> bool {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&payout_tx_blockhash);
+    hasher.update(&latest_blockhash);
+    hasher.update(&challenge_sending_watchtowers);
+    let x = hasher.finalize();
+    let x_bytes: [u8; 32] = x.try_into().unwrap();
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&deposit_constant);
+    hasher.update(&x_bytes);
+    let y = hasher.finalize();
+    let y_bytes: [u8; 32] = y.try_into().unwrap();
+    println!("Y bytes (Journal): {:#?}", y_bytes);
+
+    let mut combined_method_id_constant_buf = [0u8; 32];
+    let mut journal_buf = [0u8; 32];
+
+    reverse_bits_and_copy(
+        &combined_method_id_constant,
+        &mut combined_method_id_constant_buf,
+    );
+    reverse_bits_and_copy(&y_bytes, &mut journal_buf);
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&combined_method_id_constant_buf);
+    hasher.update(&journal_buf);
+    let public_output = hasher.finalize();
+
+    let public_output_bytes: [u8; 32] = public_output.try_into().unwrap();
+    println!("Public output bytes: {:#?}", public_output_bytes);
+    let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&public_output_bytes[0..31]);
+    println!("Public input scalar: {:#?}", public_input_scalar);
+
+    let ark_vk = get_ark_verifying_key();
+    let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);
+
+    ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(&ark_pvk, &proof, &[public_input_scalar])
+        .unwrap()
 }
