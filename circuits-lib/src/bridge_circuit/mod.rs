@@ -50,7 +50,7 @@ pub fn convert_to_groth16_and_verify(message: &[u8], pre_state: &[u8; 32]) -> bo
     res
 }
 
-pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
+pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let start = env::cycle_count();
     let input: BridgeCircuitInput = guest.read_from_host();
 
@@ -81,7 +81,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, pre_state: [u8; 32]) {
     let mut total_work = [0u8; 32];
     for pair in wt_messages_with_idxs.iter() {
         // Grooth16 verification of work only circuit
-        if convert_to_groth16_and_verify(&pair.1, &pre_state) {
+        if convert_to_groth16_and_verify(&pair.1, &work_only_image_id) {
             total_work[16..32].copy_from_slice(
                 &pair.1[128..144]
                     .chunks_exact(4)
