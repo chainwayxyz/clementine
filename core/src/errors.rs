@@ -347,6 +347,8 @@ pub enum BridgeError {
     AlloyContract(#[from] alloy::contract::Error),
     #[error("Error while calling EVM RPC function: {0}")]
     AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
+    #[error("Error while encoding/decoding EVM type: {0}")]
+    AlloySolTypes(#[from] alloy::sol_types::Error),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

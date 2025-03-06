@@ -53,14 +53,13 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            test_mode: false,
             bridge_initialize_params: BRIDGE_PARAMS.to_string(),
             ..Default::default()
         }
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
+        let (sequencer, full_node, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
             .await
             .unwrap();
 
@@ -73,6 +72,8 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
+
+        citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
 
         let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
         let withdrawal_address = Address::p2tr(
@@ -113,6 +114,12 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .unwrap();
         assert_eq!(withdrawal_count._0, U256::from(0));
 
+        let withdrawal_tx_height_block_height = sequencer
+            .client
+            .ledger_get_head_soft_confirmation_height()
+            .await
+            .unwrap()
+            + 1;
         let citrea_withdrawal_tx = citrea_contract_client
             .contract
             .withdraw(
@@ -125,6 +132,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .send()
             .await
             .unwrap();
+        sequencer.client.send_publish_batch_request().await.unwrap();
 
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
@@ -137,12 +145,11 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .unwrap();
         assert_eq!(withdrawal_count._0, U256::from(1));
 
-        let citrea_withdrawal_utxo = citrea_contract_client.withdrawal_utxos(0).await.unwrap();
-        println!("Citrea withdrawal UTXO: {:?}", citrea_withdrawal_utxo);
-
-        assert_eq!(citrea_withdrawal_utxo, withdrawal_utxo);
-
-        citrea_contract_client.collect_events().await.unwrap();
+        let utxos = citrea_contract_client
+            .collect_withdrawal_utxos(withdrawal_tx_height_block_height)
+            .await
+            .unwrap();
+        assert_eq!(withdrawal_utxo, utxos[0]);
 
         Ok(())
     }
