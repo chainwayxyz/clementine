@@ -34,6 +34,8 @@ pub use creator::{
     ReimburseDbCache,
 };
 pub use operator_reimburse::create_payout_txhandler;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -48,7 +50,7 @@ pub mod sign;
 mod txhandler;
 
 /// Type to uniquely identify a deposit.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct DepositData {
     /// User's deposit UTXO.
     pub deposit_outpoint: bitcoin::OutPoint,
@@ -60,7 +62,7 @@ pub struct DepositData {
     pub nofn_xonly_pk: XOnlyPublicKey,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
 pub struct OperatorData {
     pub xonly_pk: XOnlyPublicKey,
     pub reimburse_addr: Address,

@@ -56,7 +56,9 @@ async fn create_test_state_manager(
     let owner = Default::default();
 
     let state_manager =
-        StateManager::new(db, owner, config.protocol_paramset(), "test".to_string(), 0);
+        StateManager::new(db, owner, config.protocol_paramset(), "test".to_string(), 0)
+            .await
+            .unwrap();
 
     (state_manager, config.clone())
 }
@@ -124,7 +126,7 @@ async fn test_save_and_load_state() {
     assert!(result.is_ok(), "Failed to process block: {:?}", result);
 
     // Save state to DB
-    let result = state_manager.save_state_to_db(1).await;
+    let result = state_manager.save_state_to_db(1, None).await;
     assert!(result.is_ok(), "Failed to save state to DB: {:?}", result);
 
     // Create a new state manager to load from DB

@@ -17,7 +17,7 @@ jsonrpsee = { version = "0.22.5", default-features = false }
 async-trait = "0.1.83"
 clap = "4.5.20"
 toml = "0.8.19"
-sqlx = { version = "0.7.4", default-features = false }
+sqlx = { version = "0.8.3", default-features = false }
 serial_test = "3.2.0"
 tempfile = "3.16.0"
 

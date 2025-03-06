@@ -19,6 +19,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
 use crate::states;
+use crate::states::syncer::run_state_manager;
 use crate::states::StateManager;
 use crate::states::{Duty, Owner};
 use crate::tx_sender::TxSender;
@@ -92,7 +93,7 @@ pub struct Verifier {
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
     pub tx_sender: TxSender,
-    pub state_manager: Option<Arc<Mutex<StateManager<Verifier>>>>,
+    pub state_manager_handle: String,
 }
 
 impl Verifier {
@@ -155,7 +156,8 @@ impl Verifier {
         let _handle =
             bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
                 .await?;
-        let mut verifier = Verifier {
+        let state_manager_consumer_handle = format!("verifier{}_states", idx).to_string();
+        let verifier = Verifier {
             _rpc: rpc,
             signer,
             db: db.clone(),
@@ -166,26 +168,28 @@ impl Verifier {
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
             tx_sender,
-            state_manager: None,
+            state_manager_handle: state_manager_consumer_handle.clone(),
         };
-        let state_manager = Arc::new(Mutex::new(StateManager::new(
+        // initialize and run state manager
+        let mut state_manager = StateManager::new(
             db.clone(),
             verifier.clone(),
             config.protocol_paramset(),
-            format!("Verifier{}_states", idx).to_string(),
+            state_manager_consumer_handle,
             config.protocol_paramset().start_height,
-        )));
-        verifier.state_manager = Some(state_manager.clone());
-
-        let state_manager_handle =
-            states::syncer::run(state_manager.clone(), db.clone(), Duration::from_secs(1)).await;
-
-        tokio::spawn(async move {
-            if let Err(e) = state_manager_handle.await {
-                tracing::error!("State manager syncer error: {:?}", e);
-            }
-        });
-
+        )
+        .await?;
+        state_manager.load_from_db().await?;
+        let _state_manager_block_syncer = states::syncer::fetch_new_blocks(
+            state_manager.get_last_processed_block_height(),
+            state_manager.get_consumer_handle(),
+            db.clone(),
+            Duration::from_secs(1),
+            config.protocol_paramset(),
+        )
+        .await;
+        let _state_manager_run_loop =
+            run_state_manager(state_manager, Duration::from_secs(1)).await;
         Ok(verifier)
     }
 
@@ -341,16 +345,15 @@ impl Verifier {
             reimburse_addr: wallet_reimburse_address,
         };
 
-        if let Some(ref state_machine) = self.state_manager {
-            states::syncer::add_new_round_machine(
-                state_machine.clone(),
-                operator_data,
-                operator_index,
-            )
-            .await?;
-        } else {
-            return Err(BridgeError::StateMachineNotInitialized);
-        }
+        states::syncer::add_new_round_machine(
+            self.db.clone(),
+            self.state_manager_handle.clone(),
+            &mut dbtx,
+            operator_data,
+            operator_index,
+        )
+        .await?;
+
         dbtx.commit().await?;
 
         Ok(())

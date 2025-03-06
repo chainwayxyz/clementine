@@ -174,8 +174,6 @@ pub enum BridgeError {
 
     #[error("Insufficient Context data for the requested TxHandler")]
     InsufficientContext,
-    #[error("StateMachineNotInitialized")]
-    StateMachineNotInitialized,
 
     #[error("NoncesNotFound")]
     NoncesNotFound,

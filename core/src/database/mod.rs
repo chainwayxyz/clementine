@@ -66,6 +66,10 @@ impl Database {
         self.connection.close().await;
     }
 
+    pub fn get_pool(&self) -> Pool<Postgres> {
+        self.connection.clone()
+    }
+
     /// Runs the schema script on a database for the given configuration.
     ///
     /// # Errors

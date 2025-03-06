@@ -222,11 +222,11 @@ impl<T: Owner> RoundStateMachine<T> {
                             round_idx: *round_idx,
                         },
                     );
-                    for idx in 1..context.paramset.num_kickoffs_per_round + 1 {
+                    for idx in 0..context.paramset.num_kickoffs_per_round {
                         self.matchers.insert(
                             matcher::Matcher::SpentUtxo(
                                 *round_txhandler
-                                    .get_spendable_output(idx)?
+                                    .get_spendable_output(idx + 1)?
                                     .get_prev_outpoint(),
                             ),
                             RoundEvent::KickoffUtxoUsed { kickoff_idx: idx },

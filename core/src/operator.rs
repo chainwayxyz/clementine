@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
@@ -13,7 +14,9 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::states::{Duty, Owner};
+use crate::states;
+use crate::states::syncer::run_state_manager;
+use crate::states::{Duty, Owner, StateManager};
 use crate::tx_sender::TxSender;
 use crate::utils::SECP;
 use crate::{builder, UTXO};
@@ -46,6 +49,7 @@ pub struct Operator {
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSender,
     pub citrea_client: Option<jsonrpsee::http_client::HttpClient>,
+    pub state_manager_handle: String,
 }
 
 impl Operator {
@@ -124,19 +128,57 @@ impl Operator {
             idx,
             config.db_name
         );
-
-        Ok(Self {
+        let state_manager_consumer_handle = format!("operator{}_states", idx).to_string();
+        let operator_data = OperatorData {
+            xonly_pk: signer.xonly_public_key,
+            collateral_funding_outpoint,
+            reimburse_addr: reimburse_addr.clone(),
+        };
+        let operator = Operator {
             rpc,
-            db,
+            db: db.clone(),
             signer,
-            config,
+            config: config.clone(),
             nofn_xonly_pk,
             idx,
             collateral_funding_outpoint,
             tx_sender,
             citrea_client,
             reimburse_addr,
-        })
+            state_manager_handle: state_manager_consumer_handle.clone(),
+        };
+        // initialize and run state manager
+        let mut state_manager = StateManager::new(
+            db.clone(),
+            operator.clone(),
+            config.protocol_paramset(),
+            state_manager_consumer_handle.clone(),
+            config.protocol_paramset().start_height,
+        )
+        .await?;
+        state_manager.load_from_db().await?;
+        let _state_manager_block_syncer = states::syncer::fetch_new_blocks(
+            state_manager.get_last_processed_block_height(),
+            state_manager.get_consumer_handle(),
+            db.clone(),
+            Duration::from_secs(1),
+            config.protocol_paramset(),
+        )
+        .await;
+        let _state_manager_run_loop =
+            run_state_manager(state_manager, Duration::from_secs(1)).await;
+        // add own operator state to state manager
+        let mut dbtx = db.begin_transaction().await?;
+        states::syncer::add_new_round_machine(
+            db.clone(),
+            state_manager_consumer_handle,
+            &mut dbtx,
+            operator_data,
+            idx as u32,
+        )
+        .await?;
+        dbtx.commit().await?;
+        Ok(operator)
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
