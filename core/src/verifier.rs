@@ -32,14 +32,12 @@ use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
-use eyre::Context;
-use futures::TryFutureExt;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tonic::async_trait;
 
@@ -630,9 +628,7 @@ impl Verifier {
             self.db.get_operators(None).await?;
 
         // get signatures of operators and verify them
-        for (operator_idx, (op_xonly_pk, reimburse_addr, collateral_outpoint)) in
-            operators_data.iter().enumerate()
-        {
+        for (operator_idx, (op_xonly_pk, _, _)) in operators_data.iter().enumerate() {
             let mut op_sig_count = 0;
             // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
             let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();

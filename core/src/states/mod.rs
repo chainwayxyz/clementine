@@ -437,27 +437,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.consumer_handle.clone()
     }
 
-    fn create_context(
-        handler: T,
-        db: Database,
-        cache: block_cache::BlockCache,
-        paramset: &'static ProtocolParamset,
-    ) -> context::StateContext<T> {
-        let owner = Arc::new(handler);
-        let owner_type = T::OWNER_TYPE.to_string();
-
-        context::StateContext {
-            db: db.clone(),
-            owner,
-            cache: Arc::new(cache),
-            new_kickoff_machines: Vec::new(),
-            new_round_machines: Vec::new(),
-            errors: Vec::new(),
-            paramset,
-            owner_type,
-        }
-    }
-
     /// Updates the machines using the context and returns machines without
     /// events and futures that process new events for machines that changed.
     /// Empties the `machines` vector.

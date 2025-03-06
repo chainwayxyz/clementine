@@ -39,7 +39,7 @@ macro_rules! impl_text_wrapper_base {
                 buf: &mut PgArgumentBuffer,
             ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
                 let s = $encode(&self.0);
-                Ok(<&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)?)
+                <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
             }
         }
 
@@ -116,7 +116,7 @@ macro_rules! impl_bytea_wrapper_custom {
                 buf: &mut PgArgumentBuffer,
             ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
                 let bytes = $encode(&self.0);
-                Ok(<&[u8] as Encode<Postgres>>::encode(bytes.as_ref(), buf)?)
+                <&[u8] as Encode<Postgres>>::encode(bytes.as_ref(), buf)
             }
         }
 

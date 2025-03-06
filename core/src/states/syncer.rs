@@ -21,7 +21,7 @@ pub async fn fetch_new_blocks(
     poll_delay: Duration,
     paramset: &'static ProtocolParamset,
 ) -> JoinHandle<Result<(), eyre::Report>> {
-    let handle = tokio::spawn(async move {
+    tokio::spawn(async move {
         tracing::info!(
             "Starting state manager block syncing with consumer handle {} starting from height {}",
             consumer_handle,
@@ -103,9 +103,7 @@ pub async fn fetch_new_blocks(
                 }
             }
         }
-    });
-
-    handle
+    })
 }
 
 pub async fn add_new_round_machine(
@@ -155,7 +153,7 @@ pub async fn run_state_manager<T>(
 where
     T: Owner + std::fmt::Debug + 'static,
 {
-    let handle = tokio::spawn(async move {
+    tokio::spawn(async move {
         tracing::info!(
             "Starting state manager main run thread with consumer handle {}",
             state_manager.consumer_handle
@@ -215,7 +213,5 @@ where
                 }
             }
         }
-    });
-
-    handle
+    })
 }
