@@ -19,7 +19,10 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
+
+#[cfg(test)]
 use jsonrpsee::proc_macros::rpc;
+
 use BRIDGE_CONTRACT::Deposit;
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
@@ -147,6 +150,7 @@ impl CitreaClient {
     }
 }
 
+#[cfg(test)]
 #[rpc(client, namespace = "lightClientProver")]
 pub trait LightClientProverRpc {
     /// Generate state transition data for the given L1 block height, and return the data as a borsh serialized hex string.
@@ -154,5 +158,5 @@ pub trait LightClientProverRpc {
     async fn get_light_client_proof_by_l1_height(
         &self,
         l1_height: u64,
-    ) -> RpcResult<Option<String>>;
+    ) -> RpcResult<Option<sov_rollup_interface::rpc::LightClientProofResponse>>;
 }

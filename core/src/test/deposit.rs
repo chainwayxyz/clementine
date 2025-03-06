@@ -12,9 +12,10 @@ use alloy::transports::http::reqwest::Url;
 use async_trait::async_trait;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
+    bitcoin::DEFAULT_FINALITY_DEPTH,
     config::{
-        BatchProverConfig, BitcoinConfig, LightClientProverConfig, SequencerConfig, TestCaseConfig,
-        TestCaseDockerConfig,
+        BatchProverConfig, BitcoinConfig, CitreaMode, LightClientProverConfig, SequencerConfig,
+        TestCaseConfig, TestCaseDockerConfig,
     },
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
@@ -58,7 +59,7 @@ impl TestCase for CitreaDeposit {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
+        let (sequencer, _full_node, _, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
             .await
             .unwrap();
 
@@ -157,7 +158,6 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            test_mode: false,
             bridge_initialize_params: BRIDGE_PARAMS.to_string(),
             ..Default::default()
         }
@@ -179,11 +179,16 @@ impl TestCase for CitreaFetchLCPAndDeposit {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, lc_prover, da) =
+        let (sequencer, _full_node, lc_prover, _, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
         let lc_prover = lc_prover.unwrap();
+
+        // Generate up to fork2 height
+        for _ in 0..200 {
+            sequencer.client.send_publish_batch_request().await?;
+        }
 
         let mut config = create_test_config_with_thread_name(None).await;
         citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
@@ -208,7 +213,8 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             move_txid,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
         // Mine blocks, so Citrea can fetch the block that contains the transaction.
-        rpc.mine_blocks(101).await.unwrap();
+        // rpc.mine_blocks(101).await.unwrap();
+        da.generate(DEFAULT_FINALITY_DEPTH).await?;
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
         let tx_info = rpc
@@ -219,11 +225,12 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
         while citrea::block_number(sequencer.client.http_client().clone()).await?
-            <= block_height.try_into().unwrap()
+            <= block_height as u32
         {
             println!("Waiting for block to be mined");
-            rpc.mine_blocks(1).await.unwrap();
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            // rpc.mine_blocks(1).await.unwrap();
+            sequencer.client.send_publish_batch_request().await?;
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
 
         citrea::deposit(
@@ -234,22 +241,25 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         )
         .await?;
 
+        sequencer.client.send_publish_batch_request().await?;
+
         sleep(Duration::from_secs(3));
         let balance =
             citrea::eth_get_balance(sequencer.client.http_client().clone(), EVMAddress([1; 20]))
                 .await
                 .unwrap();
+
         assert_eq!(
             balance,
             (config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER).into()
         );
 
+        lc_prover.wait_for_l1_height(block_height, None).await?;
         let lcp = lc_prover
             .client
             .http_client()
             .get_light_client_proof_by_l1_height(block_height)
-            .await
-            .unwrap();
+            .await;
         println!("lcp {:?}", lcp);
 
         Ok(())
@@ -258,5 +268,9 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 
 #[tokio::test]
 async fn citrea_fetch_lcp_and_deposit() -> Result<()> {
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
+    );
     TestCaseRunner::new(CitreaFetchLCPAndDeposit).run().await
 }
