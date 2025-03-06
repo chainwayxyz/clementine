@@ -452,6 +452,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// # Type Parameters
     /// * `M`: The type of the state machine.
     /// * `a`: The lifetime of the state context reference (the future captures the context by reference).
+    #[allow(clippy::type_complexity)]
     fn update_machines<'a, M>(
         machines: &mut Vec<InitializedStateMachine<M>>,
         base_context: &'a context::StateContext<T>,
