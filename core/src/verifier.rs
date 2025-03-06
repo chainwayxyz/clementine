@@ -895,6 +895,7 @@ impl Verifier {
         Ok(())
     }
 
+    // TODO: #402
     async fn is_kickoff_malicious(
         &self,
         _kickoff_txid: bitcoin::Txid,

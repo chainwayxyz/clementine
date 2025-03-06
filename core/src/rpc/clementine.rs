@@ -1335,6 +1335,7 @@ pub mod clementine_verifier_client {
                 );
             self.inner.client_streaming(req, path, codec).await
         }
+        /// Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
         pub async fn internal_handle_kickoff(
             &mut self,
             request: impl tonic::IntoRequest<super::Txid>,
@@ -2463,6 +2464,7 @@ pub mod clementine_verifier_server {
                 tonic::Streaming<super::VerifierDepositFinalizeParams>,
             >,
         ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status>;
+        /// Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
         async fn internal_handle_kickoff(
             &self,
             request: tonic::Request<super::Txid>,
