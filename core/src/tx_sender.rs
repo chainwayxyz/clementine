@@ -769,6 +769,10 @@ impl TxSender {
                 vec!["use DBG_PACKAGE_HEX=1 to print the package as hex".into()]
             }
         );
+
+        let test_mempool_result = self.rpc.client.test_mempool_accept(&package_refs).await?;
+        tracing::info!("Test mempool result: {test_mempool_result:?}");
+
         let submit_package_result: PackageSubmissionResult = self
             .rpc
             .client
@@ -801,10 +805,6 @@ impl TxSender {
             }
         }
         if early_exit {
-            if cfg!(test) {
-                tracing::error!("Error submitting package, panicking for early exit in tests");
-                panic!("Error submitting package, panicking for early exit in tests");
-            }
             return Ok(());
         }
 

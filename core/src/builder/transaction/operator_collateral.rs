@@ -152,7 +152,7 @@ pub fn create_assert_timeout_txhandlers(
                 )
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout2, idx as i32),
-                    kickoff_txhandler.get_spendable_output(2)?,
+                    kickoff_txhandler.get_spendable_output(1)?,
                     SpendPath::ScriptSpend(0),
                     DEFAULT_SEQUENCE,
                 )
