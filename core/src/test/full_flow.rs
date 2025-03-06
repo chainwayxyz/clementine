@@ -122,6 +122,119 @@ pub async fn run_operator_end_round(config: BridgeConfig, rpc: ExtendedRpc) -> R
     Ok(())
 }
 
+pub async fn run_operator_end_round_with_challenge(
+    config: BridgeConfig,
+    rpc: ExtendedRpc,
+) -> Result<()> {
+    // 1. Setup environment and actors
+    tracing::info!("Setting up environment and actors");
+    let (mut verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
+        create_actors(&config).await;
+
+    let evm_address = EVMAddress([1u8; 20]);
+    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    tracing::info!("Generated deposit address: {}", deposit_address);
+
+    let recovery_taproot_address = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .address;
+    // 2. Setup Aggregator
+    tracing::info!("Setting up aggregator");
+    aggregator.setup(Request::new(Empty {})).await?;
+
+    // 3. Make Deposit
+    tracing::info!("Making deposit transaction");
+    let deposit_outpoint = rpc
+        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+        .await?;
+    rpc.mine_blocks(18).await?;
+    tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
+
+    let dep_params = DepositParams {
+        deposit_outpoint: Some(deposit_outpoint.into()),
+        evm_address: evm_address.0.to_vec(),
+        recovery_taproot_address: recovery_taproot_address.to_string(),
+    };
+
+    tracing::info!("Creating move transaction");
+    let move_tx_response = aggregator
+        .new_deposit(dep_params.clone())
+        .await?
+        .into_inner();
+
+    let move_txid: bitcoin::Txid =
+        bitcoin::Txid::from_byte_array(move_tx_response.txid.try_into().unwrap());
+
+    tracing::info!(
+        "Move transaction sent, waiting for on-chain confirmation: {:x?}",
+        move_txid
+    );
+
+    // Try for 60 iterations (approximately 6 seconds plus mining time)
+    for attempt in 0..60 {
+        tracing::info!(
+            "Checking if move tx is confirmed (attempt {}/60)",
+            attempt + 1
+        );
+        let spent = rpc.client.get_raw_transaction_info(&move_txid, None).await;
+
+        if spent.is_err() {
+            tracing::error!("Move tx not found");
+        } else if spent.unwrap().blockhash.is_some() {
+            break;
+        }
+
+        // If this is the last attempt and we haven't broken out of the loop yet
+        if attempt == 59 {
+            return Err(eyre::eyre!("Timeout waiting for move tx confirmation"));
+        }
+
+        rpc.mine_blocks(1).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    let kickoff_txid = operators[0]
+        .internal_finalized_payout(FinalizedPayoutParams {
+            payout_blockhash: [1u8; 32].to_vec(),
+            deposit_outpoint: Some(deposit_outpoint.into()),
+        })
+        .await?;
+
+    rpc.mine_blocks(1).await?;
+
+    verifiers[0]
+        .internal_handle_kickoff(Request::new(kickoff_txid.into_inner()))
+        .await?;
+
+    rpc.mine_blocks(1).await?;
+
+    operators[0]
+        .internal_end_round(Request::new(Empty {}))
+        .await?;
+
+    // Try for 60 iterations (approximately 6 seconds plus mining time)
+    for attempt in 0..2000 {
+        tracing::info!("Checking if move tx is spent (attempt {}/60)", attempt + 1);
+        // check if the move_tx is spent
+        let spent = rpc.client.get_tx_out(&move_txid, 0, Some(true)).await?;
+        if spent.is_none() {
+            break;
+        }
+
+        // If this is the last attempt and we haven't broken out of the loop yet
+        if attempt == 2000 - 1 {
+            return Err(eyre::eyre!("Timeout waiting for move tx to be spent"));
+        }
+
+        rpc.mine_blocks(1).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Ok(())
+}
+
 pub async fn run_happy_path(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     // use std::time::Duration;
 
@@ -557,5 +670,16 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         run_operator_end_round(config, rpc).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_operator_end_round_with_challenge() {
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        run_operator_end_round_with_challenge(config, rpc)
+            .await
+            .unwrap();
     }
 }
