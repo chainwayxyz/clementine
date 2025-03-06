@@ -250,7 +250,7 @@ impl ClementineVerifier for Verifier {
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
         let mut in_stream = req.into_inner();
-        tracing::debug!("In verifier {} deposit_finalize()", self.idx);
+        tracing::trace!("In verifier {} deposit_finalize()", self.idx);
 
         let (sig_tx, sig_rx) = mpsc::channel(1280);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
@@ -263,7 +263,7 @@ impl ClementineVerifier for Verifier {
             }
             _ => Err(Status::internal("Expected DepositOutpoint"))?,
         };
-        tracing::debug!(
+        tracing::trace!(
             "verifier {} got DepositSignFirstParam in deposit_finalize()",
             self.idx
         );
@@ -418,7 +418,7 @@ impl ClementineVerifier for Verifier {
                 .into_iter()
                 .map(|(tx_type, signed_tx)| SignedTxWithType {
                     transaction_type: Some(tx_type.into()),
-                    raw_tx: signed_tx.raw_tx,
+                    raw_tx: bitcoin::consensus::serialize(&signed_tx),
                 })
                 .collect(),
         }))

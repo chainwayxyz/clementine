@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
@@ -10,7 +11,6 @@ use crate::builder::transaction::{
     ReimburseDbCache, TransactionType, TxHandler, Unsigned,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
-use crate::builder::{self};
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -23,8 +23,7 @@ use crate::states::syncer::run_state_manager;
 use crate::states::StateManager;
 use crate::states::{Duty, Owner};
 use crate::tx_sender::TxSender;
-use crate::utils::{self, SECP};
-use crate::{bitcoin_syncer, EVMAddress, UTXO};
+use crate::{bitcoin_syncer, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -126,7 +125,10 @@ impl Verifier {
             &format!("verifier_{}", idx).to_string(),
             config.protocol_paramset().network,
         );
-        let _tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
+        let tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
+
+        // Monitor the tx_sender_handle and abort if it dies unexpectedly
+        crate::utils::monitor_task_with_abort(tx_sender_handle, "tx_sender for verifier");
 
         let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
@@ -252,7 +254,7 @@ impl Verifier {
                         .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
                     for sighash in sighashes {
                         let message = Message::from_digest(sighash.0.to_byte_array());
-                        utils::SECP
+                        bitvm_client::SECP
                             .verify_schnorr(
                                 &unspent_kickoff_sigs[cur_sig_index],
                                 &message,
@@ -545,7 +547,7 @@ impl Verifier {
                 .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
-            utils::SECP
+            bitvm_client::SECP
                 .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
                 .map_err(|x| {
                     BridgeError::Error(format!(
@@ -662,7 +664,7 @@ impl Verifier {
                     operator_idx
                 );
 
-                utils::SECP
+                bitvm_client::SECP
                     .verify_schnorr(
                         &operator_sig,
                         &Message::from(sighash.0),
@@ -714,6 +716,18 @@ impl Verifier {
             Message::from_digest(move_tx_sighash.to_byte_array()),
         )?;
 
+        // Save signatures to db
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.db
+            .set_deposit_data(
+                Some(&mut dbtx),
+                DepositData {
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address: recovery_taproot_address.clone(),
+                },
+            )
+            .await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (operator_idx, operator_sigs) in verified_sigs.into_iter().enumerate() {
@@ -721,7 +735,7 @@ impl Verifier {
                 for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
                     self.db
                         .set_deposit_signatures(
-                            None,
+                            Some(&mut dbtx),
                             deposit_outpoint,
                             operator_idx,
                             seq_idx,
@@ -732,252 +746,9 @@ impl Verifier {
                 }
             }
         }
+        dbtx.commit().await?;
 
         Ok(partial_sig)
-    }
-
-    // / Inform verifiers about the new deposit request
-    // /
-    // / 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
-    // / 2. Generate random pubNonces, secNonces
-    // / 3. Save pubNonces and secNonces to a db
-    // / 4. Return pubNonces
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // pub async fn new_deposit(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    // ) -> Result<Vec<MusigPubNonce>, BridgeError> {
-    //     self.rpc
-    //         .check_deposit_utxo(
-    //             self.nofn_xonly_pk,
-    //             &deposit_outpoint,
-    //             &recovery_taproot_address,
-    //             evm_address,
-    //             self.config.protocol_paramset().bridge_amount,
-    //             self.config.confirmation_threshold,
-    //             self.config.protocol_paramset().network,
-    //             self.config.protocol_paramset().user_takes_after,
-    //         )
-    //         .await?;
-
-    //     // For now we multiply by 2 since we do not give signatures for burn_txs. // TODO: Change this in future.
-    //     let num_required_nonces = 2 * self.operator_xonly_pks.len() + 1;
-
-    //     let mut dbtx = self.db.begin_transaction().await?;
-    //     // Check if we already have pub_nonces for this deposit_outpoint.
-    //     let pub_nonces_from_db = self
-    //         .db
-    //         .get_pub_nonces(Some(&mut dbtx), deposit_outpoint)
-    //         .await?;
-    //     if let Some(pub_nonces) = pub_nonces_from_db {
-    //         if !pub_nonces.is_empty() {
-    //             if pub_nonces.len() != num_required_nonces {
-    //                 return Err(BridgeError::NoncesNotFound);
-    //             }
-    //             dbtx.commit().await?;
-    //             return Ok(pub_nonces);
-    //         }
-    //     }
-
-    //     let nonces = (0..num_required_nonces)
-    //         .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng).1)
-    //         .collect::<Vec<_>>();
-
-    //     self.db
-    //         .save_deposit_info(
-    //             Some(&mut dbtx),
-    //             deposit_outpoint,
-    //             recovery_taproot_address,
-    //             evm_address,
-    //         )
-    //         .await?;
-    //     self.db
-    //         .save_nonces(Some(&mut dbtx), deposit_outpoint, &nonces)
-    //         .await?;
-    //     dbtx.commit().await?;
-
-    //     let pub_nonces = nonces.iter().map(|pub_nonce| *pub_nonce).collect();
-
-    //     Ok(pub_nonces)
-    // }
-
-    /// - Verify operators signatures about kickoffs
-    /// - Check the kickoff_utxos
-    /// - Save agg_nonces to a db for future use
-    /// - for every kickoff_utxo, calculate slash_or_take_tx
-    /// - for every slash_or_take_tx, partial sign slash_or_take_tx
-    /// - for every slash_or_take_tx, partial sign burn_tx (omitted for now)
-    /// - return burn_txs partial signatures (omitted for now) TODO: For this bit,
-    ///
-    /// do not forget to add tweak when signing since this address has n_of_n as internal_key
-    /// and operator_timelock as script.
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // pub async fn operator_kickoffs_generated(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    //     kickoff_utxos: Vec<UTXO>,
-    //     operators_kickoff_sigs: Vec<bitcoin::secp256k1:: schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
-    //     agg_nonces: Vec<MusigAggNonce>, // This includes all the agg_nonces for the bridge operations.
-    // ) -> Result<(Vec<MusigPartialSignature>, Vec<MusigPartialSignature>), BridgeError> {
-    //     tracing::debug!(
-    //         "Operatos kickoffs generated is called with data: {:?}, {:?}, {:?}, {:?}",
-    //         deposit_outpoint,
-    //         kickoff_utxos,
-    //         operators_kickoff_sigs,
-    //         agg_nonces
-    //     );
-
-    //     if operators_kickoff_sigs.len() != kickoff_utxos.len() {
-    //         return Err(BridgeError::InvalidKickoffUtxo); // TODO: Better error
-    //     }
-
-    //     let mut slash_or_take_sighashes = Vec::new();
-
-    //     for (i, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
-    //         let value = kickoff_utxo.txout.value;
-    //         if value < KICKOFF_UTXO_AMOUNT_SATS {
-    //             return Err(BridgeError::InvalidKickoffUtxo);
-    //         }
-
-    //         let kickoff_sig_hash = crate::sha256_hash!(
-    //             deposit_outpoint.txid,
-    //             deposit_outpoint.vout.to_be_bytes(),
-    //             kickoff_utxo.outpoint.txid,
-    //             kickoff_utxo.outpoint.vout.to_be_bytes()
-    //         );
-
-    //         // Check if they are really the operators that sent these kickoff_utxos
-    //         utils::SECP.verify_schnorr(
-    //             &operators_kickoff_sigs[i],
-    //             &bitcoin::secp256k1:: Message::from_digest(kickoff_sig_hash),
-    //             &self.config.operators_xonly_pks[i],
-    //         )?;
-
-    //         // Check if for each operator the address of the kickoff_utxo is correct TODO: Maybe handle the possible errors better
-    //         let (musig2_and_operator_address, spend_info) =
-    //             builder::address::create_kickoff_address(
-    //                 self.nofn_xonly_pk,
-    //                 self.operator_xonly_pks[i],
-    //                 self.config.protocol_paramset().network,
-    //             );
-    //         tracing::debug!(
-    //             "musig2_and_operator_address.script_pubkey: {:?}",
-    //             musig2_and_operator_address.script_pubkey()
-    //         );
-    //         tracing::debug!("Kickoff UTXO: {:?}", kickoff_utxo.txout.script_pubkey);
-    //         tracing::debug!("Spend Info: {:?}", spend_info);
-    //         assert!(
-    //             kickoff_utxo.txout.script_pubkey == musig2_and_operator_address.script_pubkey()
-    //         );
-
-    //         let mut slash_or_take_tx_handler = builder::transaction::create_slash_or_take_tx(
-    //             deposit_outpoint,
-    //             kickoff_utxo.clone(),
-    //             self.config.operators_xonly_pks[i],
-    //             i,
-    //             self.nofn_xonly_pk,
-    //             self.config.protocol_paramset().network,
-    //             self.config.protocol_paramset().user_takes_after,
-    //             self.config.operator_takes_after,
-    //             self.config.protocol_paramset().bridge_amount,
-    //         );
-    //         let slash_or_take_tx_sighash =
-    //             Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
-    //         slash_or_take_sighashes.push(Message::from_digest(slash_or_take_tx_sighash.to_byte_array())?);
-    //         // let spend_kickoff_utxo_tx_handler = builder::transaction::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
-    //     }
-    //     tracing::debug!(
-    //         "Slash or take sighashes for verifier: {:?}: {:?}",
-    //         self.signer.xonly_public_key.to_string(),
-    //         slash_or_take_sighashes
-    //     );
-
-    //     let mut dbtx = self.db.begin_transaction().await?;
-
-    //     self.db
-    //         .save_agg_nonces(Some(&mut dbtx), deposit_outpoint, &agg_nonces)
-    //         .await?;
-
-    //     self.db
-    //         .save_kickoff_utxos(Some(&mut dbtx), deposit_outpoint, &kickoff_utxos)
-    //         .await?;
-
-    //     let nonces = self
-    //         .db
-    //         .save_sighashes_and_get_nonces(
-    //             Some(&mut dbtx),
-    //             deposit_outpoint,
-    //             self.config.num_operators + 1,
-    //             &slash_or_take_sighashes,
-    //         )
-    //         .await?
-    //         .ok_or(BridgeError::NoncesNotFound)?;
-    //     tracing::debug!(
-    //         "SIGNING slash or take for outpoint: {:?} with nonces {:?}",
-    //         deposit_outpoint,
-    //         nonces
-    //     );
-    //     let slash_or_take_partial_sigs = slash_or_take_sighashes
-    //         .iter()
-    //         .zip(nonces.into_iter())
-    //         .map(|(sighash, (sec_nonce, agg_nonce))| {
-    //             musig2::partial_sign(
-    //                 self.config.verifiers_public_keys.clone(),
-    //                 None,
-    //                 false,
-    //                 *sec_nonce,
-    //                 *agg_nonce,
-    //                 &self.signer.keypair,
-    //                 *sighash,
-    //             )
-    //         })
-    //         .collect::<Vec<_>>();
-
-    //     dbtx.commit().await?;
-
-    //     // TODO: Sign burn txs
-    //     Ok((slash_or_take_partial_sigs, vec![]))
-    // }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn create_deposit_details(
-        &self,
-        deposit_outpoint: OutPoint,
-    ) -> Result<(Vec<UTXO>, TxHandler<Unsigned>, OutPoint), BridgeError> {
-        let kickoff_utxos = self
-            .db
-            .get_kickoff_utxos(deposit_outpoint)
-            .await?
-            .ok_or(BridgeError::KickoffOutpointsNotFound)?;
-
-        // let kickoff_outpoints = kickoff_utxos
-        //     .iter()
-        //     .map(|utxo| utxo.outpoint)
-        //     .collect::<Vec<_>>();
-
-        let (recovery_taproot_address, evm_address) = self
-            .db
-            .get_deposit_info(deposit_outpoint)
-            .await?
-            .ok_or(BridgeError::DepositInfoNotFound)?;
-
-        let move_tx_handler = builder::transaction::create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            self.nofn_xonly_pk,
-            self.config.protocol_paramset().user_takes_after,
-            self.config.protocol_paramset().bridge_amount,
-            self.config.protocol_paramset().network,
-        )?;
-
-        let bridge_fund_outpoint = OutPoint {
-            txid: *move_tx_handler.get_txid(),
-            vout: 0,
-        };
-        Ok((kickoff_utxos, move_tx_handler, bridge_fund_outpoint))
     }
 
     pub async fn set_operator_keys(
@@ -1028,52 +799,31 @@ impl Verifier {
             .map(|x| x.try_into())
             .collect::<Result<_, BridgeError>>()?;
 
-        if winternitz_keys.len() != self.config.get_num_assert_winternitz_pks() {
+        if winternitz_keys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
+            tracing::error!(
+                "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
+                operator_idx,
+                winternitz_keys.len(),
+                ClementineBitVMPublicKeys::number_of_flattened_wpks()
+            );
             return Err(BridgeError::Error(format!(
                 "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
                 operator_idx,
                 winternitz_keys.len(),
-                self.config.get_num_assert_winternitz_pks()
+                ClementineBitVMPublicKeys::number_of_flattened_wpks()
             )));
         }
 
-        let mut steps_iter = utils::BITVM_CACHE.intermediate_variables.iter();
-
-        let assert_tx_addrs: Vec<[u8; 32]> = utils::COMBINED_ASSERT_DATA
-            .num_steps
+        let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
+        let assert_tx_addrs = bitvm_pks
+            .get_assert_taproot_leaf_hashes(operator_data.xonly_pk)
             .iter()
-            .map(|steps| {
-                let len = steps.1 - steps.0;
-                let intermediate_steps = Vec::from_iter(steps_iter.by_ref().take(len));
-                let sizes: Vec<u32> = intermediate_steps
-                    .iter()
-                    .map(|(_, intermediate_step_size)| **intermediate_step_size as u32 * 2)
-                    .collect();
-
-                let script = WinternitzCommit::new(
-                    winternitz_keys[steps.0..steps.1]
-                        .iter()
-                        .zip(sizes.iter())
-                        .map(|(k, s)| (k.clone(), *s))
-                        .collect::<Vec<_>>(),
-                    operator_data.xonly_pk,
-                    self.config.protocol_paramset().winternitz_log_d,
-                );
-                let taproot_builder = taproot_builder_with_scripts(&[script.to_script_buf()]);
-                taproot_builder
-                    .try_into_taptree()
-                    .expect("taproot builder always builds a full taptree")
-                    .root_hash()
-                    .to_raw_hash()
-                    .to_byte_array()
-            })
+            .map(|x| x.to_byte_array())
             .collect::<Vec<_>>();
 
         // TODO: Use correct verification key and along with a dummy proof.
-        let scripts: Vec<ScriptBuf> = {
-            tracing::info!("Replacing disprove scripts");
-            utils::replace_disprove_scripts(&winternitz_keys)
-        };
+        let start = std::time::Instant::now();
+        let scripts: Vec<ScriptBuf> = bitvm_pks.get_g16_verifier_disprove_scripts();
 
         let taproot_builder = taproot_builder_with_scripts(&scripts);
         let root_hash = taproot_builder
@@ -1081,6 +831,8 @@ impl Verifier {
             .expect("taproot builder always builds a full taptree")
             .root_hash();
         let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+        tracing::debug!("Built taproot tree in {:?}", start.elapsed());
+        // let root_hash_bytes = [0u8; 32];
 
         // Save the public input wots to db along with the root hash
         self.db

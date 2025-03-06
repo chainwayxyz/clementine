@@ -4,9 +4,44 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sha2 = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-lazy_static = { workspace = true, features = ["spin_no_std"] }
+sha2 = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false, features = ["derive"] }
 tracing = { workspace = true, default-features = false }
-risc0-zkvm = {version = "1.2.0", default-features = false, features = ["std"]}
-borsh = {version = "1.5.3", features = ["derive"] }
+
+risc0-zkvm = { workspace = true, features = ["std"] }
+risc0-groth16 = { workspace = true }
+
+borsh = { workspace = true, features = ["derive"] }
+bitcoin = { workspace = true, features = ["rand-std", "serde"] }
+rand = { workspace = true, features = ["small_rng"] }
+ripemd = { workspace = true }
+
+ark-bn254 = { workspace = true }
+ark-ff = { workspace = true }
+ark-ec = { workspace = true }
+ark-std = { workspace = true }
+ark-crypto-primitives = { workspace = true }
+ark-serialize = { workspace = true }
+ark-relations = { workspace = true }
+ark-groth16 = { workspace = true, default-features = false }
+
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+hex = { workspace = true }
+once_cell = { workspace = true }
+hex-literal = { workspace = true }
+jmt = { workspace = true }
+alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-rpc-types = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+alloy-rpc-types-eth = { workspace = true, features = ["serde"] }
+derive_more = { workspace = true, features = ["display"]} 
+crypto-bigint = { workspace = true }
+blake3 = { workspace = true }
+itertools = { workspace = true }
+final-spv = { workspace = true }
+header-chain = { workspace = true }
+
+[features]
+not_patched = []

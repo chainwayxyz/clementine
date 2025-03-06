@@ -12,90 +12,6 @@ create table if not exists operators (
         collateral_funding_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     )
 );
--- Verifier table for deposit details
-/* This table holds the information related to a deposit. */
-create table if not exists deposit_infos (
-    deposit_outpoint text primary key not null check (
-        deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
-    ),
-    recovery_taproot_address text not null,
-    evm_address text not null check (evm_address ~ '^[a-fA-F0-9]{40}'),
-    created_at timestamp not null default now()
-);
--- Verifier table for nonces related to deposits
-/* This table holds the public, secret, and aggregated nonces related to a deposit.
- For each deposit, we have (2 + num_operators) nonce triples. The first triple is for
- move_commit_tx, the second triple is for move_reveal_tx, and the rest is for operator_takes_tx
- for each operator. Also for each triple, we hold the sig_hash to be signed to prevent reuse
- of the nonces. */
-create table if not exists nonces (
-    deposit_outpoint text not null check (
-        deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
-    ),
-    internal_idx int not null,
-    pub_nonce bytea not null check (length(pub_nonce) = 66),
-    agg_nonce bytea check (length(agg_nonce) = 66),
-    sighash bytea check (length(sighash) = 32),
-    partial_sig bytea check (length(partial_sig) = 32),
-    created_at timestamp not null default now(),
-    primary key (deposit_outpoint, internal_idx)
-);
-CREATE OR REPLACE FUNCTION prevent_sighash_update() RETURNS TRIGGER AS $$ BEGIN -- If the old value of sig_hash is not NULL and the new value is different, raise an exception
-    IF OLD.sighash IS NOT NULL
-    AND NEW.sighash IS DISTINCT
-FROM OLD.sighash THEN RAISE EXCEPTION 'sighash cannot be updated once it has a value';
-END IF;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
--- Create the trigger if not exists
-DO $$ BEGIN IF NOT EXISTS (
-    SELECT 1
-    FROM pg_trigger
-    WHERE tgname = 'prevent_sighash_update_trigger'
-) THEN CREATE TRIGGER prevent_sighash_update_trigger BEFORE
-UPDATE ON nonces FOR EACH ROW EXECUTE FUNCTION prevent_sighash_update();
-END IF;
-END $$;
--- Verifier table for kickoff for deposits
-/* This table holds the kickoff utxos sent by the operators for each deposit. */
-create table if not exists deposit_kickoff_utxos (
-    deposit_outpoint text not null check (
-        deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
-    ),
-    operator_idx int not null,
-    kickoff_utxo jsonb not null,
-    slash_or_take_sig text,
-    operator_take_sig bytea,
-    burn_sig text,
-    created_at timestamp not null default now(),
-    primary key (deposit_outpoint, operator_idx)
-);
--- Operator table for kickoff utxo and funding utxo for deposits
-/* This table holds the funding utxos sent by the operators for each deposit. */
-create table if not exists deposit_kickoff_generator_txs (
-    id serial primary key,
-    txid text unique not null check (txid ~ '^[a-fA-F0-9]{64}'),
-    raw_signed_tx text not null,
-    num_kickoffs int not null,
-    cur_unused_kickoff_index int not null check (cur_unused_kickoff_index <= num_kickoffs),
-    funding_txid text not null check (funding_txid ~ '^[a-fA-F0-9]{64}'),
-    created_at timestamp not null default now()
-);
-create table if not exists bitcoin_blocks (
-    height int primary key not null,
-    block_data bytea not null,
-    created_at timestamp not null default now()
-);
--- Operator table for kickoff utxo related to deposits
-/* This table holds the kickoff utxos sent by the operators for each deposit. */
-create table if not exists operators_kickoff_utxo (
-    deposit_outpoint text primary key not null check (
-        deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
-    ),
-    kickoff_utxo jsonb not null,
-    created_at timestamp not null default now()
-);
 -- Operator table for funding utxo used for deposits
 create table if not exists funding_utxos (
     id serial primary key,
@@ -139,13 +55,13 @@ create table if not exists operator_winternitz_public_keys (
 );
 create table if not exists deposits (
     deposit_id serial primary key,
-    deposit_outpoint text unique not null check (
-        deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
-    )
+    deposit_outpoint text unique not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
+    recovery_taproot_address text,
+    evm_address text check (evm_address ~ '^[a-fA-F0-9]{40}')
 );
 -- Deposit signatures
 create table if not exists deposit_signatures (
-    deposit_id int not null,
+    deposit_id int not null references deposits (deposit_id),
     operator_idx int not null,
     round_idx int not null,
     kickoff_idx int not null,
@@ -221,6 +137,7 @@ create type fee_paying_type as enum ('cpfp', 'rbf');
 create table if not exists tx_sender_try_to_send_txs (
     id serial primary key,
     raw_tx bytea not null,
+    tx_data_for_logging text,
     fee_paying_type fee_paying_type not null,
     effective_fee_rate bigint,
     txid text check (txid ~ '^[a-fA-F0-9]{64}'),
@@ -315,5 +232,145 @@ CREATE INDEX IF NOT EXISTS state_machines_machine_type_idx ON state_machines(mac
 CREATE INDEX IF NOT EXISTS state_machines_kickoff_id_idx ON state_machines(kickoff_id) WHERE kickoff_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS state_machines_operator_idx_idx ON state_machines(operator_idx) WHERE operator_idx IS NOT NULL;
 CREATE INDEX IF NOT EXISTS state_machines_owner_type_idx ON state_machines(owner_type);
+
+COMMIT;
+-------- TX SENDER TRIGGERS --------
+
+-- Trigger function for tx_sender_cancel_try_to_send_txids
+CREATE OR REPLACE FUNCTION update_cancel_txids_seen_block_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Find if this txid exists in a canonical block
+    UPDATE tx_sender_cancel_try_to_send_txids
+    SET seen_block_id = bs.id
+    FROM bitcoin_syncer_txs bst
+    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+    WHERE tx_sender_cancel_try_to_send_txids.cancelled_id = NEW.cancelled_id
+      AND tx_sender_cancel_try_to_send_txids.txid = NEW.txid
+      AND tx_sender_cancel_try_to_send_txids.seen_block_id IS NULL
+      AND bst.txid = NEW.txid
+      AND bs.is_canonical = TRUE;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop the trigger if it exists
+DROP TRIGGER IF EXISTS trigger_update_cancel_txids_seen_block_id ON tx_sender_cancel_try_to_send_txids;
+
+-- Create the trigger
+CREATE TRIGGER trigger_update_cancel_txids_seen_block_id
+AFTER INSERT ON tx_sender_cancel_try_to_send_txids
+FOR EACH ROW
+EXECUTE FUNCTION update_cancel_txids_seen_block_id();
+
+-- Trigger function for tx_sender_cancel_try_to_send_outpoints
+CREATE OR REPLACE FUNCTION update_cancel_outpoints_seen_block_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Find if this outpoint is spent in a canonical block
+    UPDATE tx_sender_cancel_try_to_send_outpoints
+    SET seen_block_id = bs.id
+    FROM bitcoin_syncer_spent_utxos bsu
+    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+    WHERE tx_sender_cancel_try_to_send_outpoints.cancelled_id = NEW.cancelled_id
+      AND tx_sender_cancel_try_to_send_outpoints.txid = NEW.txid
+      AND tx_sender_cancel_try_to_send_outpoints.vout = NEW.vout
+      AND tx_sender_cancel_try_to_send_outpoints.seen_block_id IS NULL
+      AND bsu.txid = NEW.txid
+      AND bsu.vout = NEW.vout
+      AND bs.is_canonical = TRUE;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop the trigger if it exists
+DROP TRIGGER IF EXISTS trigger_update_cancel_outpoints_seen_block_id ON tx_sender_cancel_try_to_send_outpoints;
+
+-- Create the trigger
+CREATE TRIGGER trigger_update_cancel_outpoints_seen_block_id
+AFTER INSERT ON tx_sender_cancel_try_to_send_outpoints
+FOR EACH ROW
+EXECUTE FUNCTION update_cancel_outpoints_seen_block_id();
+
+-- Trigger function for tx_sender_activate_try_to_send_txids
+CREATE OR REPLACE FUNCTION update_activate_txids_seen_block_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Find if this txid exists in a canonical block
+    UPDATE tx_sender_activate_try_to_send_txids
+    SET seen_block_id = bs.id
+    FROM bitcoin_syncer_txs bst
+    JOIN bitcoin_syncer bs ON bst.block_id = bs.id
+    WHERE tx_sender_activate_try_to_send_txids.activated_id = NEW.activated_id
+      AND tx_sender_activate_try_to_send_txids.txid = NEW.txid
+      AND tx_sender_activate_try_to_send_txids.seen_block_id IS NULL
+      AND bst.txid = NEW.txid
+      AND bs.is_canonical = TRUE;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop the trigger if it exists
+DROP TRIGGER IF EXISTS trigger_update_activate_txids_seen_block_id ON tx_sender_activate_try_to_send_txids;
+
+-- Create the trigger
+CREATE TRIGGER trigger_update_activate_txids_seen_block_id
+AFTER INSERT ON tx_sender_activate_try_to_send_txids
+FOR EACH ROW
+EXECUTE FUNCTION update_activate_txids_seen_block_id();
+
+-- Trigger function for tx_sender_activate_try_to_send_outpoints
+CREATE OR REPLACE FUNCTION update_activate_outpoints_seen_block_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Find if this outpoint is spent in a canonical block
+    UPDATE tx_sender_activate_try_to_send_outpoints
+    SET seen_block_id = bs.id
+    FROM bitcoin_syncer_spent_utxos bsu
+    JOIN bitcoin_syncer bs ON bsu.block_id = bs.id
+    WHERE tx_sender_activate_try_to_send_outpoints.activated_id = NEW.activated_id
+      AND tx_sender_activate_try_to_send_outpoints.txid = NEW.txid
+      AND tx_sender_activate_try_to_send_outpoints.vout = NEW.vout
+      AND tx_sender_activate_try_to_send_outpoints.seen_block_id IS NULL
+      AND bsu.txid = NEW.txid
+      AND bsu.vout = NEW.vout
+      AND bs.is_canonical = TRUE;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop the trigger if it exists
+DROP TRIGGER IF EXISTS trigger_update_activate_outpoints_seen_block_id ON tx_sender_activate_try_to_send_outpoints;
+
+-- Create the trigger
+CREATE TRIGGER trigger_update_activate_outpoints_seen_block_id
+AFTER INSERT ON tx_sender_activate_try_to_send_outpoints
+FOR EACH ROW
+EXECUTE FUNCTION update_activate_outpoints_seen_block_id();
+
+
+-------- ROUND MANAGMENT FOR OPERATOR --------
+
+create table if not exists used_kickoff_connectors (
+    round_idx int not null,
+    kickoff_connector_idx int not null,
+    kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
+    created_at timestamp not null default now(),
+    primary key (round_idx, kickoff_connector_idx)
+);
+
+create table if not exists current_round_index (
+    id int primary key,
+    round_idx int not null
+);
+
+INSERT INTO current_round_index (id, round_idx)
+VALUES (1, 0)
+ON CONFLICT DO NOTHING;
+
 
 COMMIT;

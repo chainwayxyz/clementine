@@ -3,14 +3,16 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::{create_move_to_vault_txhandler, Signed, TxHandler};
+use crate::builder::transaction::{
+    create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
+};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::error::output_stream_ended_prematurely;
 use crate::rpc::parser;
-use crate::tx_sender::FeePayingType;
+use crate::tx_sender::{FeePayingType, TxDataForLogging};
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -450,7 +452,23 @@ impl Aggregator {
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(&mut dbtx, move_tx, FeePayingType::CPFP, &[], &[], &[], &[])
+            .try_to_send(
+                &mut dbtx,
+                Some(TxDataForLogging {
+                    deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    operator_idx: None,
+                    verifier_idx: None,
+                    round_idx: None,
+                    kickoff_idx: None,
+                    tx_type: TransactionType::MoveToVault,
+                }),
+                move_tx,
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
             .await?;
         dbtx.commit()
             .await
@@ -653,9 +671,10 @@ impl ClementineAggregator for Aggregator {
         request: Request<DepositParams>,
     ) -> Result<Response<clementine::Txid>, Status> {
         let deposit_params = request.into_inner();
-
         // Collect and distribute keys needed keys from operators and watchtowers to verifiers
+        let start = std::time::Instant::now();
         self.collect_and_distribute_keys(&deposit_params).await?;
+        tracing::info!("Collected and distributed keys in {:?}", start.elapsed());
 
         // Generate nonce streams for all verifiers.
         let num_required_sigs = self.config.get_num_required_nofn_sigs();
@@ -710,6 +729,8 @@ impl ClementineAggregator for Aggregator {
             },
         ))
         .await?;
+
+        tracing::error!("Sending deposit finalize streams to verifiers");
 
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
@@ -787,10 +808,14 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!(
             "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
         );
+
+        tracing::debug!("Waiting for pipeline tasks to complete");
         // Wait for all pipeline tasks to complete
         try_join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle])
             .await
             .map_err(|_| Status::internal("panic when pipelining"))?;
+
+        tracing::debug!("Pipeline tasks completed");
 
         // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
         // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify
@@ -857,7 +882,6 @@ impl ClementineAggregator for Aggregator {
 mod tests {
     use crate::actor::Actor;
     use crate::musig2::AggregateFromPublicKeys;
-
     use crate::rpc::clementine::{self};
     use crate::{builder, EVMAddress};
     use crate::{rpc::clementine::DepositParams, test::common::*};
@@ -869,9 +893,10 @@ mod tests {
 
     #[tokio::test]
     async fn aggregator_double_setup_fail() {
-        let config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name(None).await;
+        let _regtest = create_regtest_rpc(&mut config).await;
 
-        let (_, _, mut aggregator, _, _regtest) = create_actors(&config).await;
+        let (_, _, mut aggregator, _, _cleanup) = create_actors(&config).await;
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -889,7 +914,7 @@ mod tests {
     async fn aggregator_setup_and_deposit() {
         let config = create_test_config_with_thread_name(None).await;
 
-        let (_, _, mut aggregator, _, _regtest) = create_actors(&config).await;
+        let (_, _, mut aggregator, _, _cleanup) = create_actors(&config).await;
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();
@@ -930,10 +955,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn aggregator_deposit_movetx_lands_onchain() {
-        let config = create_test_config_with_thread_name(None).await;
-        let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
-            create_actors(&config).await;
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _watchtowers, _cleanup) =
+            create_actors(&config).await;
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(

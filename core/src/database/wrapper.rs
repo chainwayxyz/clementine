@@ -271,10 +271,10 @@ impl_text_wrapper_custom!(
 mod tests {
     use super::*;
     use crate::{
+        bitvm_client::{self, SECP},
         database::Database,
         rpc::clementine::TaggedSignature,
         test::common::*,
-        utils::{self, SECP},
         EVMAddress,
     };
     use bitcoin::{
@@ -383,7 +383,7 @@ mod tests {
 
         let address = bitcoin::Address::p2tr(
             &SECP,
-            *utils::UNSPENDABLE_XONLY_PUBKEY,
+            *bitvm_client::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
         );

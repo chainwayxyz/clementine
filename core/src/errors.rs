@@ -232,6 +232,9 @@ pub enum BridgeError {
     #[error("ConversionError: {0}")]
     ConversionError(String),
 
+    #[error("IntConversionError: {0}")]
+    IntConversionError(#[from] std::num::TryFromIntError),
+
     #[error("ERROR: {0}")]
     Error(String),
 
@@ -348,6 +351,9 @@ pub enum BridgeError {
 
     #[error("Eyre error: {0}")]
     Eyre(#[from] eyre::Report),
+
+    #[error("Error while creating contract: {0}")]
+    AlloyContract(#[from] alloy::contract::Error),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

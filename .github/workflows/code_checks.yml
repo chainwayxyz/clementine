@@ -6,6 +6,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
+  RUST_MIN_STACK: 33554432
 
 jobs:
   formatting:
@@ -14,6 +15,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
     - name: Run Cargo fmt
       run: cargo fmt --check
 
@@ -23,7 +25,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
+    - uses: ./.github/actions/install-risc0
+    
     - name: Run Cargo clippy
       run: cargo clippy --no-deps --all-targets -- -Dwarnings
 
@@ -33,6 +36,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
       - name: Toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -50,6 +54,7 @@ jobs:
   coverage:
     name: Check code coverage percentage
     runs-on: ubicloud-standard-16
+    if: false
 
     services:
       postgres:

@@ -3,6 +3,7 @@ use super::op_return_txout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use super::Signed;
 use super::TransactionType;
+use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
 use crate::builder::script::{CheckSig, SpendableScript, TimelockScript};
 use crate::builder::script::{PreimageRevealScript, SpendPath};
 use crate::builder::transaction::output::UnspentTxOut;
@@ -12,9 +13,7 @@ use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::KickoffId;
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::utils::usize_to_var_len_bytes;
-use crate::utils::{SECP, UNSPENDABLE_XONLY_PUBKEY};
-use crate::{builder, utils, UTXO};
+use crate::{builder, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -231,7 +230,7 @@ pub fn create_kickoff_txhandler(
     }
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
-    op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
+    op_return_script.extend(crate::utils::usize_to_var_len_bytes(operator_idx));
 
     let push_bytes = PushBytesBuf::try_from(op_return_script)
         .expect("Can't fail since the script is shorter than 4294967296 bytes");
@@ -251,9 +250,10 @@ pub fn create_kickoff_not_finalized_txhandler(
     ready_to_reimburse_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::KickoffNotFinalized)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::KickoffNotFinalized1,
-            kickoff_txhandler.get_spendable_output(2)?,
+            kickoff_txhandler.get_spendable_output(1)?,
             builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
@@ -266,6 +266,7 @@ pub fn create_kickoff_not_finalized_txhandler(
         .add_output(UnspentTxOut::from_partial(
             builder::transaction::anchor_output(),
         ))
+        .add_burn_output()
         .finalize())
 }
 
@@ -329,11 +330,12 @@ pub fn create_payout_txhandler(
     let output_txout = UnspentTxOut::from_partial(output_txout.clone());
 
     let op_return_txout = op_return_txout(
-        PushBytesBuf::try_from(usize_to_var_len_bytes(operator_idx))
+        PushBytesBuf::try_from(crate::utils::usize_to_var_len_bytes(operator_idx))
             .expect("operator idx size < 8 bytes"),
     );
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

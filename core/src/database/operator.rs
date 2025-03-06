@@ -3,10 +3,13 @@
 //! This module includes database functions which are mainly used by an operator.
 
 use super::{
-    wrapper::{OutPointDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB},
+    wrapper::{
+        AddressDB, EVMAddressDB, OutPointDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
+        XOnlyPublicKeyDB,
+    },
     Database, DatabaseTransaction,
 };
-use crate::builder::transaction::OperatorData;
+use crate::builder::transaction::{DepositData, OperatorData};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -14,10 +17,9 @@ use crate::{
     rpc::clementine::{DepositSignatures, TaggedSignature},
     UTXO,
 };
-use bitcoin::{secp256k1::schnorr, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
-use sqlx::{Postgres, QueryBuilder};
 use std::str::FromStr;
 
 pub type RootHash = [u8; 32];
@@ -118,61 +120,6 @@ impl Database {
         }
     }
 
-    pub async fn lock_operators_kickoff_utxo_table(
-        &self,
-        tx: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), BridgeError> {
-        sqlx::query("LOCK TABLE operators_kickoff_utxo IN ACCESS EXCLUSIVE MODE;")
-            .execute(&mut **tx)
-            .await?;
-        Ok(())
-    }
-
-    /// Set the kickoff UTXO for this deposit UTXO.
-    pub async fn set_kickoff_utxo(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        deposit_outpoint: OutPoint,
-        kickoff_utxo: UTXO,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UtxoDB {
-            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-            txout_db: TxOutDB(kickoff_utxo.txout),
-        }));
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    /// If operator already created a kickoff UTXO for this deposit UTXO, return it.
-    pub async fn get_kickoff_utxo(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        deposit_outpoint: OutPoint,
-    ) -> Result<Option<UTXO>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT kickoff_utxo FROM operators_kickoff_utxo WHERE deposit_outpoint = $1;",
-        )
-        .bind(OutPointDB(deposit_outpoint));
-
-        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one);
-
-        match result {
-            Ok((utxo_db,)) => Ok(Some(UTXO {
-                outpoint: utxo_db.outpoint_db.0,
-                txout: utxo_db.txout_db.0.clone(),
-            })),
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
-    }
-
     /// Get unused kickoff_utxo at ready if there are any.
     pub async fn get_unused_kickoff_utxo_and_increase_idx(
         &self,
@@ -265,64 +212,6 @@ impl Database {
         }
     }
 
-    pub async fn set_operator_take_sigs(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxos_and_sigs: impl IntoIterator<Item = (UTXO, schnorr::Signature)>,
-    ) -> Result<(), BridgeError> {
-        QueryBuilder::new(
-            "UPDATE deposit_kickoff_utxos
-             SET operator_take_sig = batch.sig
-             FROM (",
-        )
-        .push_values(
-            kickoff_utxos_and_sigs,
-            |mut builder, (kickoff_utxo, operator_take_sig)| {
-                builder
-                    .push_bind(sqlx::types::Json(UtxoDB {
-                        outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-                        txout_db: TxOutDB(kickoff_utxo.txout),
-                    }))
-                    .push_bind(SignatureDB(operator_take_sig));
-            },
-        )
-        .push(
-            ") AS batch (kickoff_utxo, sig)
-             WHERE deposit_kickoff_utxos.deposit_outpoint = ",
-        )
-        .push_bind(OutPointDB(deposit_outpoint))
-        .push(" AND deposit_kickoff_utxos.kickoff_utxo = batch.kickoff_utxo;")
-        .build()
-        .execute(&self.connection)
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn get_operator_take_sig(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxo: UTXO,
-    ) -> Result<Option<schnorr::Signature>, BridgeError> {
-        let qr: Option<(SignatureDB,)> = sqlx::query_as(
-            "SELECT operator_take_sig
-             FROM deposit_kickoff_utxos
-             WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UtxoDB {
-            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-            txout_db: TxOutDB(kickoff_utxo.txout),
-        }))
-        .fetch_optional(&self.connection)
-        .await?;
-
-        match qr {
-            Some(sig) => Ok(Some(sig.0 .0)),
-            None => Ok(None),
-        }
-    }
-
     /// Sets the unspent kickoff sigs received from operators during initial setup.
     /// Sigs of each round are stored together in the same row.
     pub async fn set_unspent_kickoff_sigs(
@@ -408,12 +297,14 @@ impl Database {
     /// will be overwritten by the new hashes.
     pub async fn set_operator_challenge_ack_hashes(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
         public_hashes: &Vec<[u8; 20]>,
     ) -> Result<(), BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query(
             "INSERT INTO operators_challenge_ack_hashes (operator_idx, deposit_id, public_hashes)
              VALUES ($1, $2, $3)
@@ -421,7 +312,7 @@ impl Database {
              SET public_hashes = EXCLUDED.public_hashes;",
         )
         .bind(operator_idx)
-        .bind(deposit_id)
+        .bind(i32::try_from(deposit_id)?)
         .bind(public_hashes);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -433,18 +324,20 @@ impl Database {
     /// tx and kickoff index combination.
     pub async fn get_operators_challenge_ack_hashes(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<PublicHash>>, BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
             "SELECT public_hashes
             FROM operators_challenge_ack_hashes
             WHERE operator_idx = $1 AND deposit_id = $2;",
         )
         .bind(operator_idx)
-        .bind(deposit_id);
+        .bind(i32::try_from(deposit_id)?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -468,103 +361,53 @@ impl Database {
         }
     }
 
-    pub async fn set_slash_or_take_sigs(
-        &self,
-        deposit_outpoint: OutPoint,
-        slash_or_take_sigs: impl IntoIterator<Item = schnorr::Signature>,
-    ) -> Result<(), BridgeError> {
-        QueryBuilder::new(
-            "UPDATE deposit_kickoff_utxos
-             SET slash_or_take_sig = batch.sig
-             FROM (",
-        )
-        .push_values(
-            slash_or_take_sigs.into_iter().enumerate(),
-            |mut builder, (i, slash_or_take_sig)| {
-                builder
-                    .push_bind(i as i32)
-                    .push_bind(SignatureDB(slash_or_take_sig));
-            },
-        )
-        .push(
-            ") AS batch (operator_idx, sig)
-             WHERE deposit_kickoff_utxos.deposit_outpoint = ",
-        )
-        .push_bind(OutPointDB(deposit_outpoint))
-        .push(" AND deposit_kickoff_utxos.operator_idx = batch.operator_idx;")
-        .build()
-        .execute(&self.connection)
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn get_slash_or_take_sig(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxo: UTXO,
-    ) -> Result<Option<schnorr::Signature>, BridgeError> {
-        let qr: Option<(SignatureDB,)> = sqlx::query_as(
-            "SELECT slash_or_take_sig
-             FROM deposit_kickoff_utxos
-             WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UtxoDB {
-            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-            txout_db: TxOutDB(kickoff_utxo.txout),
-        }))
-        .fetch_optional(&self.connection)
-        .await?;
-
-        match qr {
-            Some(sig) => Ok(Some(sig.0 .0)),
-            None => Ok(None),
-        }
-    }
-
-    /// Sets the signed kickoff UTXO generator tx.
-    ///
-    /// # Parameters
-    ///
-    /// - txid: the txid of the signed tx.
-    /// - funding_txid: the txid of the input[0].
-    pub async fn add_deposit_kickoff_generator_tx(
+    /// Saves deposit infos, and returns the deposit_id
+    pub async fn set_deposit_data(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        txid: Txid,
-        raw_hex: String,
-        num_kickoffs: usize,
-        funding_txid: Txid,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid) VALUES ($1, $2, $3, $4, $5);")
-            .bind(TxidDB(txid))
-            .bind(raw_hex)
-            .bind(num_kickoffs as i32)
-            .bind(1)
-            .bind(TxidDB(funding_txid));
+        deposit_data: DepositData,
+    ) -> Result<u32, BridgeError> {
+        let query = sqlx::query_as(
+            "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (deposit_outpoint) DO UPDATE
+                SET recovery_taproot_address = EXCLUDED.recovery_taproot_address,
+                    evm_address = EXCLUDED.evm_address
+                RETURNING deposit_id;
+            ",
+        )
+        .bind(OutPointDB(deposit_data.deposit_outpoint))
+        .bind(AddressDB(deposit_data.recovery_taproot_address))
+        .bind(EVMAddressDB(deposit_data.evm_address));
 
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        let deposit_id: Result<(i32,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
-        Ok(())
+        Ok(u32::try_from(deposit_id?.0)?)
     }
 
-    pub async fn get_deposit_kickoff_generator_tx(
+    pub async fn get_deposit_data(
         &self,
-        txid: Txid,
-    ) -> Result<Option<(String, usize, usize, Txid)>, BridgeError> {
-        let qr: Option<(String, i32, i32, TxidDB)> = sqlx::query_as("SELECT raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid FROM deposit_kickoff_generator_txs WHERE txid = $1;")
-            .bind(TxidDB(txid))
-            .fetch_optional(&self.connection)
-            .await?;
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_outpoint: OutPoint,
+    ) -> Result<Option<(u32, DepositData)>, BridgeError> {
+        let query = sqlx::query_as("SELECT deposit_id, deposit_outpoint, recovery_taproot_address, evm_address FROM deposits WHERE deposit_outpoint = $1;")
+            .bind(OutPointDB(deposit_outpoint));
 
-        match qr {
-            Some((raw_hex, num_kickoffs, cur_unused_kickoff_index, funding_txid)) => Ok(Some((
-                raw_hex,
-                num_kickoffs as usize,
-                cur_unused_kickoff_index as usize,
-                funding_txid.0,
-            ))),
+        let result: Option<(i32, OutPointDB, AddressDB, EVMAddressDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((deposit_id, deposit_outpoint, recovery_taproot_address, evm_address)) => {
+                Ok(Some((
+                    u32::try_from(deposit_id)?,
+                    DepositData {
+                        deposit_outpoint: deposit_outpoint.0,
+                        recovery_taproot_address: recovery_taproot_address.0,
+                        evm_address: evm_address.0,
+                    },
+                )))
+            }
             None => Ok(None),
         }
     }
@@ -575,27 +418,23 @@ impl Database {
     /// which determines the order of the sighashes that are signed.
     pub async fn set_deposit_signatures(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         operator_idx: usize,
         round_idx: usize,
         kickoff_idx: usize,
         signatures: Vec<TaggedSignature>,
     ) -> Result<(), BridgeError> {
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
+
         let query = sqlx::query(
-            "WITH deposit AS (
-            INSERT INTO deposits (deposit_outpoint)
-            VALUES ($1)
-            ON CONFLICT DO NOTHING
-            RETURNING deposit_id
-            )
+            "
             INSERT INTO deposit_signatures (deposit_id, operator_idx, round_idx, kickoff_idx, signatures)
-            VALUES (
-            (SELECT deposit_id FROM deposit UNION SELECT deposit_id FROM deposits WHERE deposit_outpoint = $1),
-            $2, $3, $4, $5
-            );"
+            VALUES ($1, $2, $3, $4, $5);"
         )
-        .bind(OutPointDB(deposit_outpoint))
+        .bind(i32::try_from(deposit_id)?)
         .bind(operator_idx as i32)
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32)
@@ -610,17 +449,16 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
-    ) -> Result<i32, BridgeError> {
-        let query = sqlx::query_as(
-            "INSERT INTO deposits (deposit_outpoint)
+    ) -> Result<u32, BridgeError> {
+        let query = sqlx::query_as("INSERT INTO deposits (deposit_outpoint)
             VALUES ($1)
             ON CONFLICT (deposit_outpoint) DO UPDATE SET deposit_outpoint = deposits.deposit_outpoint
-            RETURNING deposit_id;",
-        )
-        .bind(OutPointDB(deposit_outpoint));
+            RETURNING deposit_id;")
+            .bind(OutPointDB(deposit_outpoint));
+
         let deposit_id: Result<(i32,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
-        Ok(deposit_id?.0)
+        Ok(u32::try_from(deposit_id?.0)?)
     }
 
     /// Retrieves the deposit signatures for a single operator for a single reimburse
@@ -661,13 +499,15 @@ impl Database {
     /// Saves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
     pub async fn set_bitvm_setup(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
         assert_tx_addrs: impl AsRef<[[u8; 32]]>,
         root_hash: &[u8; 32],
     ) -> Result<(), BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query(
             "INSERT INTO bitvm_setups (operator_idx, deposit_id, assert_tx_addrs, root_hash)
              VALUES ($1, $2, $3, $4)
@@ -676,7 +516,7 @@ impl Database {
                  root_hash = EXCLUDED.root_hash;",
         )
         .bind(operator_idx)
-        .bind(deposit_id)
+        .bind(i32::try_from(deposit_id)?)
         .bind(
             assert_tx_addrs
                 .as_ref()
@@ -694,18 +534,20 @@ impl Database {
     /// Retrieves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
     pub async fn get_bitvm_setup(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<BitvmSetup>, BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>)>(
             "SELECT assert_tx_addrs, root_hash
              FROM bitvm_setups
              WHERE operator_idx = $1 AND deposit_id = $2;",
         )
         .bind(operator_idx)
-        .bind(deposit_id);
+        .bind(i32::try_from(deposit_id)?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -733,18 +575,20 @@ impl Database {
     /// Retrieves BitVM disprove scripts root hash data for a specific operator, sequential collateral tx and kickoff index combination
     pub async fn get_bitvm_root_hash(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<RootHash>, BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query_as::<_, (Vec<u8>,)>(
             "SELECT root_hash
              FROM bitvm_setups
              WHERE operator_idx = $1 AND deposit_id = $2;",
         )
         .bind(operator_idx)
-        .bind(deposit_id);
+        .bind(i32::try_from(deposit_id)?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -758,13 +602,130 @@ impl Database {
             None => Ok(None),
         }
     }
+
+    pub async fn set_kickoff_connector_as_used(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: u32,
+        kickoff_connector_idx: u32,
+        kickoff_txid: Option<Txid>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO used_kickoff_connectors (round_idx, kickoff_connector_idx, kickoff_txid)
+             VALUES ($1, $2, $3);",
+        )
+        .bind(i32::try_from(round_idx).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(
+            i32::try_from(kickoff_connector_idx)
+                .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+        )
+        .bind(kickoff_txid.map(TxidDB));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
+    pub async fn get_kickoff_txid_for_used_kickoff_connector(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: u32,
+        kickoff_connector_idx: u32,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>(
+            "SELECT kickoff_txid FROM used_kickoff_connectors WHERE round_idx = $1 AND kickoff_connector_idx = $2;",
+        )
+        .bind(i32::try_from(round_idx).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(kickoff_connector_idx).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((txid,)) => Ok(Some(txid.0)),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_unused_and_signed_kickoff_connector(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        deposit_id: u32,
+    ) -> Result<Option<(u32, u32)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, i32)>(
+            "WITH current_round AS (
+                    SELECT round_idx 
+                    FROM current_round_index 
+                    WHERE id = 1
+                )
+                SELECT 
+                    ds.round_idx as round_idx,
+                    ds.kickoff_idx as kickoff_connector_idx
+                FROM deposit_signatures ds
+                CROSS JOIN current_round cr
+                WHERE ds.deposit_id = $1  -- Parameter for deposit_id
+                    AND ds.round_idx >= cr.round_idx
+                    AND NOT EXISTS (
+                        SELECT 1 
+                        FROM used_kickoff_connectors ukc 
+                        WHERE ukc.round_idx = ds.round_idx 
+                        AND ukc.kickoff_connector_idx = ds.kickoff_idx
+                    )
+                ORDER BY ds.round_idx ASC
+                LIMIT 1;",
+        )
+        .bind(i32::try_from(deposit_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((round_idx, kickoff_connector_idx)) => Ok(Some((
+                u32::try_from(round_idx)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                u32::try_from(kickoff_connector_idx)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+            ))),
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_current_round_index(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query =
+            sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1;");
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        match result {
+            Some((round_idx,)) => {
+                Ok(Some(u32::try_from(round_idx).map_err(|e| {
+                    BridgeError::ConversionError(e.to_string())
+                })?))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn update_current_round_index(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        round_idx: u32,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("UPDATE current_round_index SET round_idx = $1 WHERE id = 1;")
+            .bind(
+                i32::try_from(round_idx)
+                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+            );
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
-    use bitcoin::secp256k1::schnorr;
     use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid};
 
     use crate::operator::Operator;
@@ -914,178 +875,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_database_gets_previously_saved_operator_take_signature() {
-        let config = create_test_config_with_thread_name(None).await;
-        let database = Database::new(&config).await.unwrap();
-
-        let deposit_outpoint = OutPoint::null();
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let kickoff_utxo = UTXO {
-            outpoint,
-            txout: TxOut {
-                value: Amount::from_sat(100),
-                script_pubkey: ScriptBuf::from(vec![1u8]),
-            },
-        };
-        let signature = schnorr::Signature::from_slice(&[0u8; SCHNORR_SIGNATURE_SIZE]).unwrap();
-
-        database
-            .set_kickoff_utxos(None, deposit_outpoint, &[kickoff_utxo.clone()])
-            .await
-            .unwrap();
-
-        database
-            .set_operator_take_sigs(deposit_outpoint, [(kickoff_utxo.clone(), signature)])
-            .await
-            .unwrap();
-
-        let actual_sig = database
-            .get_operator_take_sig(deposit_outpoint, kickoff_utxo)
-            .await
-            .unwrap();
-        let expected_sig = Some(signature);
-
-        assert_eq!(actual_sig, expected_sig);
-    }
-
-    #[tokio::test]
-    async fn test_deposit_kickoff_generator_tx_0() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let raw_hex = "02000000000101eb87b1a80d47b7f5bd5082b77653f5ca37e566951742b80c361875ba0e5c478f0a00000000fdffffff0ca086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca35c081777000000002251202a64b1ee3375f3bb4b367b8cb8384a47f73cf231717f827c6c6fbbf5aecf0c364a010000000000002200204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260014005a41e6f4a4bcfcc5cd3ef602687215f97c18949019a491df56af7413c5dce9292ba3966edc4564a39d9bc0d6c0faae19030f1cedf4d931a6cdc57cc5b83c8ef00000000".to_string();
-        let tx: bitcoin::Transaction =
-            bitcoin::consensus::deserialize(&hex::decode(raw_hex.clone()).unwrap()).unwrap();
-        let txid = tx.compute_txid();
-        let num_kickoffs = tx.output.len() - 2;
-        let funding_txid = tx.input[0].previous_output.txid;
-        db.add_deposit_kickoff_generator_tx(
-            None,
-            txid,
-            raw_hex.clone(),
-            num_kickoffs,
-            funding_txid,
-        )
-        .await
-        .unwrap();
-        for i in 0..num_kickoffs - 1 {
-            let (db_raw_hex, db_num_kickoffs, db_cur_unused_kickoff_index, db_funding_txid) = db
-                .get_deposit_kickoff_generator_tx(txid)
-                .await
-                .unwrap()
-                .unwrap();
-
-            // Sanity check
-            assert_eq!(db_raw_hex, raw_hex);
-            assert_eq!(db_num_kickoffs, num_kickoffs);
-            assert_eq!(db_cur_unused_kickoff_index, i + 1);
-            assert_eq!(db_funding_txid, funding_txid);
-
-            let unused_utxo = db
-                .get_unused_kickoff_utxo_and_increase_idx(None)
-                .await
-                .unwrap()
-                .unwrap();
-            println!("unused_utxo: {:?}", unused_utxo);
-
-            // Sanity check
-            assert_eq!(unused_utxo.outpoint.txid, txid);
-            assert_eq!(unused_utxo.outpoint.vout, i as u32 + 1);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_deposit_kickoff_generator_tx_1() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let raw_hex = "01000000000101308d840c736eefd114a8fad04cb0d8338b4a3034a2b517250e5498701b25eb360100000000fdffffff02401f00000000000022512024985a1ab5724a5164ae5e0026b3e7e22031e83948eedf99d438b866857946b81f7e000000000000225120f7298da2a2be5b6e02a076ff7d35a1fe6b54a2bc7938c1c86bede23cadb7d9650140ad2fdb01ec5e2772f682867c8c6f30697c63f622e338f7390d3abc6c905b9fd7e96496fdc34cb9e872387758a6a334ec1307b3505b73121e0264fe2ba546d78ad11b0d00".to_string();
-        let tx: bitcoin::Transaction =
-            bitcoin::consensus::deserialize(&hex::decode(raw_hex.clone()).unwrap()).unwrap();
-        let txid = tx.compute_txid();
-        let num_kickoffs = tx.output.len();
-        let funding_txid = tx.input[0].previous_output.txid;
-        db.add_deposit_kickoff_generator_tx(
-            None,
-            txid,
-            raw_hex.clone(),
-            num_kickoffs,
-            funding_txid,
-        )
-        .await
-        .unwrap();
-        let (db_raw_hex, db_num_kickoffs, db_cur_unused_kickoff_index, db_funding_txid) = db
-            .get_deposit_kickoff_generator_tx(txid)
-            .await
-            .unwrap()
-            .unwrap();
-
-        // Sanity check
-        assert_eq!(db_raw_hex, raw_hex);
-        assert_eq!(db_num_kickoffs, num_kickoffs);
-        assert_eq!(db_cur_unused_kickoff_index, 1);
-        assert_eq!(db_funding_txid, funding_txid);
-
-        let unused_utxo = db
-            .get_unused_kickoff_utxo_and_increase_idx(None)
-            .await
-            .unwrap()
-            .unwrap();
-        tracing::info!("unused_utxo: {:?}", unused_utxo);
-
-        // Sanity check
-        assert_eq!(unused_utxo.outpoint.txid, txid);
-        assert_eq!(unused_utxo.outpoint.vout, 1);
-
-        let none_utxo = db
-            .get_unused_kickoff_utxo_and_increase_idx(None)
-            .await
-            .unwrap();
-        assert!(none_utxo.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_operators_kickoff_utxo_1() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let kickoff_utxo = UTXO {
-            outpoint,
-            txout: TxOut {
-                value: Amount::from_sat(100),
-                script_pubkey: ScriptBuf::from(vec![1u8]),
-            },
-        };
-        db.set_kickoff_utxo(None, outpoint, kickoff_utxo.clone())
-            .await
-            .unwrap();
-        let db_kickoff_utxo = db.get_kickoff_utxo(None, outpoint).await.unwrap().unwrap();
-
-        // Sanity check
-        assert_eq!(db_kickoff_utxo, kickoff_utxo);
-    }
-
-    #[tokio::test]
-    async fn test_operators_kickoff_utxo_2() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let db_kickoff_utxo = db.get_kickoff_utxo(None, outpoint).await.unwrap();
-        assert!(db_kickoff_utxo.is_none());
-    }
-
-    #[tokio::test]
     async fn test_operators_funding_utxo_1() {
         let config = create_test_config_with_thread_name(None).await;
         let db = Database::new(&config).await.unwrap();
@@ -1115,26 +904,6 @@ mod tests {
         let db_utxo = db.get_funding_utxo(None).await.unwrap();
 
         assert!(db_utxo.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_deposit_kickoff_generator_tx_2() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let txid = Txid::from_byte_array([1u8; 32]);
-        let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
-        assert!(res.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_deposit_kickoff_generator_tx_3() {
-        let config = create_test_config_with_thread_name(None).await;
-        let db = Database::new(&config).await.unwrap();
-
-        let txid = Txid::from_byte_array([1u8; 32]);
-        let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
-        assert!(res.is_none());
     }
 
     #[tokio::test]

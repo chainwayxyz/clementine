@@ -7,6 +7,7 @@ env:
   CARGOFLAGS: --workspace --all-targets --all-features
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
+  RUST_MIN_STACK: 33554432
 
 jobs:
 # Build ------------------------------------------------------------------------
@@ -82,7 +83,7 @@ jobs:
 
   release_build_test:
     name: Test code with release build
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-30
     needs: release_build
 
     services:

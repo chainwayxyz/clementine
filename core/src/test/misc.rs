@@ -6,15 +6,20 @@ use crate::test::common::*;
 
 #[tokio::test]
 async fn test_deposit() {
-    let config = create_test_config_with_thread_name(None).await;
-    run_single_deposit(config).await.unwrap();
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+    let _ = run_single_deposit(&mut config, rpc, None).await.unwrap();
 }
 
-//     #[ignore = "We are switching to gRPC"]
-//     #[tokio::test]
-//     async fn multiple_deposits_for_operator() {
-//         run_multiple_deposits("test_config.toml").await;
-//     }
+#[ignore = "We are switching to gRPC"]
+#[tokio::test]
+async fn multiple_deposits_for_operator() {
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+    let _ = run_multiple_deposits(&mut config, rpc, 2).await.unwrap();
+}
 
 #[tokio::test]
 async fn create_regtest_rpc_macro() {

@@ -14,13 +14,15 @@ impl Database {
     /// Sets winternitz public keys of a watchtower for an operator.
     pub async fn set_watchtower_winternitz_public_keys(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
         deposit_outpoint: bitcoin::OutPoint,
         winternitz_public_key: &WinternitzPublicKey,
     ) -> Result<(), BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let wpk = borsh::to_vec(winternitz_public_key).map_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
@@ -32,7 +34,7 @@ impl Database {
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
-        .bind(deposit_id)
+        .bind(i32::try_from(deposit_id)?)
         .bind(wpk);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -44,19 +46,21 @@ impl Database {
     /// collateral tx and operator combination.
     pub async fn get_watchtower_winternitz_public_keys(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
         deposit_outpoint: bitcoin::OutPoint,
     ) -> Result<winternitz::PublicKey, BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query_as(
             "SELECT winternitz_public_key FROM watchtower_winternitz_public_keys WHERE operator_id = $1 AND watchtower_id = $2
                 AND deposit_id = $3;",
         )
         .bind(operator_id as i64)
         .bind(watchtower_id as i64)
-            .bind(deposit_id);
+        .bind(i32::try_from(deposit_id)?);
 
         let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
@@ -70,13 +74,15 @@ impl Database {
     /// existing entry, it overwrites it with the new addresses.
     pub async fn set_watchtower_challenge_hash(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
         watchtower_challenge_hash: [u8; 32],
         deposit_outpoint: bitcoin::OutPoint,
     ) -> Result<(), BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query(
         "INSERT INTO watchtower_challenge_hashes (watchtower_id, operator_id, deposit_id, challenge_hash)
          VALUES ($1, $2, $3, $4)
@@ -85,7 +91,7 @@ impl Database {
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
-        .bind(deposit_id)
+            .bind(i32::try_from(deposit_id)?)
         .bind(watchtower_challenge_hash);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -96,12 +102,14 @@ impl Database {
     /// Gets the challenge addresses of a watchtower for an operator.
     pub async fn get_watchtower_challenge_hash(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
         deposit_outpoint: bitcoin::OutPoint,
     ) -> Result<[u8; 32], BridgeError> {
-        let deposit_id = self.get_deposit_id(None, deposit_outpoint).await?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
         let query = sqlx::query_as::<_, (Vec<u8>,)>(
             "SELECT challenge_hash
          FROM watchtower_challenge_hashes
@@ -109,7 +117,7 @@ impl Database {
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
-        .bind(deposit_id);
+        .bind(i32::try_from(deposit_id)?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
