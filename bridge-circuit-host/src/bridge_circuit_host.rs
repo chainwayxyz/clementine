@@ -15,7 +15,7 @@ pub async fn prove_bridge_circuit(bridge_circuit_host_params: BridgeCircuitHostP
         payout_spv: bridge_circuit_host_params.spv,
         lcp: bridge_circuit_host_params.light_client_proof,
         sp: bridge_circuit_host_params.storage_proof,
-        num_watchtowers: 1,
+        num_watchtowers: bridge_circuit_host_params.num_of_watchtowers,
     };
 
     let mut binding = ExecutorEnv::builder();
