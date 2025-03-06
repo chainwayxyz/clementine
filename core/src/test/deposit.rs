@@ -185,11 +185,6 @@ impl TestCase for CitreaFetchLCPAndDeposit {
                 .unwrap();
         let lc_prover = lc_prover.unwrap();
 
-        // Generate up to fork2 height
-        for _ in 0..200 {
-            sequencer.client.send_publish_batch_request().await?;
-        }
-
         let mut config = create_test_config_with_thread_name(None).await;
         citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
 
