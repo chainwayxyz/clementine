@@ -119,7 +119,8 @@ impl PartialSignatureInfo {
 
 /// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
 /// These sighashes are needed in order to create the message to be signed later for MuSig2 of NofN.
-/// WIP: Update if the design changes.
+/// yield_kickoff_txid is used to yield the kickoff txid
+/// Kickoff txid yield has an empty sighash and a signature info with the kickoff txid
 /// For a given deposit tx, for each operator and round tx, generates the sighash stream for:
 /// - challenge_tx,
 /// - start_happy_reimburse_tx,
