@@ -2,6 +2,7 @@
 
 use crate::errors::BridgeError;
 use alloy::{
+    eips::BlockNumberOrTag,
     network::EthereumWallet,
     primitives::U256,
     providers::{
@@ -20,7 +21,7 @@ use alloy::{
 use bitcoin::{hashes::Hash, OutPoint, Txid};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
-use BRIDGE_CONTRACT::Deposit;
+use BRIDGE_CONTRACT::{Deposit, Withdrawal};
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
@@ -138,10 +139,17 @@ impl CitreaClient {
     }
 
     pub async fn collect_events(&self) -> Result<(), BridgeError> {
-        let deposit_filter = self.get_event_filter::<Deposit>().await;
+        let filter = self.get_event_filter::<Deposit>().await;
+        let filter = filter.from_block(BlockNumberOrTag::Earliest);
+        let filter = filter.to_block(BlockNumberOrTag::Latest);
+        let logs = self.provider.get_logs(&filter).await?;
+        println!("deposit logs: {:?}", logs);
 
-        let logs = self.provider.get_logs(&deposit_filter).await?;
-        println!("logss: {:?}", logs);
+        let filter = self.get_event_filter::<Withdrawal>().await;
+        let filter = filter.from_block(BlockNumberOrTag::Earliest);
+        let filter = filter.to_block(BlockNumberOrTag::Latest);
+        let logs = self.provider.get_logs(&filter).await?;
+        println!("withdrawal logs: {:?}", logs);
 
         Ok(())
     }
