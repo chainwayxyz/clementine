@@ -426,15 +426,14 @@ async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Erro
 /// 8. Send Assert Transactions
 /// 9. Send Disprove Timeout Transaction
 /// 10. Send Reimburse Transaction
-pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
+pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Happy Path 2 test");
 
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, mut watchtowers, regtest) =
-        create_actors(&config).await;
+    let (_verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
+        create_actors(config).await;
 
-    let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
     // Setup tx_sender for sending transactions
@@ -465,7 +464,7 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
 
     // Generate deposit address
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
     let recovery_taproot_address = Actor::new(
@@ -782,15 +781,14 @@ pub async fn run_happy_path_2(config: BridgeConfig) -> Result<()> {
 /// 5. Send Challenge Transaction
 /// 6. Send Watchtower Challenge Transaction
 /// 7. Send Operator Challenge Negative Acknowledgment Transaction
-pub async fn run_bad_path_1(config: BridgeConfig) -> Result<()> {
+pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 1 test");
 
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, mut watchtowers, regtest) =
-        create_actors(&config).await;
+    let (_verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
+        create_actors(config).await;
 
-    let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
     // Setup tx_sender for sending transactions
@@ -821,7 +819,7 @@ pub async fn run_bad_path_1(config: BridgeConfig) -> Result<()> {
 
     // Generate deposit address
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
     let recovery_taproot_address = Actor::new(
@@ -1000,15 +998,14 @@ pub async fn run_bad_path_1(config: BridgeConfig) -> Result<()> {
 /// 6. Send Watchtower Challenge Transaction
 /// 7. Send Operator Challenge Acknowledgment Transaction
 /// 8. Send Kickoff Timeout Transaction
-pub async fn run_bad_path_2(config: BridgeConfig) -> Result<()> {
+pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 2 test");
 
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, _watchtowers, regtest) =
-        create_actors(&config).await;
+    let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
+        create_actors(config).await;
 
-    let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
     // Setup tx_sender for sending transactions
@@ -1039,7 +1036,7 @@ pub async fn run_bad_path_2(config: BridgeConfig) -> Result<()> {
 
     // Generate deposit address
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
     let recovery_taproot_address = Actor::new(
@@ -1193,15 +1190,14 @@ pub async fn run_bad_path_2(config: BridgeConfig) -> Result<()> {
 /// 7. Send Operator Challenge Acknowledgment Transactions
 /// 8. Send Assert Transactions
 /// 9. Send Disprove Transaction
-pub async fn run_bad_path_3(config: BridgeConfig) -> Result<()> {
+pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Bad Path 3 test");
 
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, _watchtowers, regtest) =
-        create_actors(&config).await;
+    let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
+        create_actors(config).await;
 
-    let rpc: ExtendedRpc = regtest.rpc().clone();
     let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
 
     // Setup tx_sender for sending transactions
@@ -1232,7 +1228,7 @@ pub async fn run_bad_path_3(config: BridgeConfig) -> Result<()> {
 
     // Generate deposit address
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
     let recovery_taproot_address = Actor::new(
@@ -1444,27 +1440,35 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_happy_path_2() {
-        let config = create_test_config_with_thread_name(None).await;
-        run_happy_path_2(config).await.unwrap();
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        run_happy_path_2(&mut config, rpc).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bad_path_1() {
-        let config = create_test_config_with_thread_name(None).await;
-        run_bad_path_1(config).await.unwrap();
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        run_bad_path_1(&mut config, rpc).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bad_path_2() {
-        let config = create_test_config_with_thread_name(None).await;
-        run_bad_path_2(config).await.unwrap();
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        run_bad_path_2(&mut config, rpc).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "Assert is not ready"]
     async fn test_bad_path_3() {
-        let config = create_test_config_with_thread_name(None).await;
-        run_bad_path_3(config).await.unwrap();
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        run_bad_path_3(&mut config, rpc).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
