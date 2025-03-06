@@ -21,6 +21,7 @@ struct MockOwner {
     cached_duties: Arc<Mutex<Vec<Duty>>>,
 }
 
+#[allow(unused_variables)]
 impl PartialEq for MockOwner {
     fn eq(&self, other: &Self) -> bool {
         true // all mock owners are equal

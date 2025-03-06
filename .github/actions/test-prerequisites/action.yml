@@ -1,42 +1,47 @@
 # Start required services for testing Clementine.
 
 name: Clementine Test Services
-description: 'Start services required for testing Clementine'
+description: "Start services required for testing Clementine"
 
 inputs:
   github_token:
-    description: 'GitHub token for authentication'
+    description: "GitHub token for authentication"
     required: true
 
 runs:
   using: "composite"
 
   steps:
-  - name: Download bitvm cache bin
-    shell: bash
-    run: wget https://static.testnet.citrea.xyz/common/bitvm_cache.bin -O core/bitvm_cache.bin
-  - name: Download Bitcoin
-    shell: bash
-    run: wget https://static.testnet.citrea.xyz/common/bitcoin-28.0-x86_64-linux-gnu.tar.gz
-  - name: Unpack Bitcoin
-    shell: bash
-    run: tar -xzvf bitcoin-28.0-x86_64-linux-gnu.tar.gz
+    - name: Download bitvm cache bin
+      shell: bash
+      run: wget https://static.testnet.citrea.xyz/common/bitvm_cache.bin -O core/bitvm_cache.bin
+    - name: Download Bitcoin
+      shell: bash
+      run: wget https://static.testnet.citrea.xyz/common/bitcoin-28.0-x86_64-linux-gnu.tar.gz
+    - name: Unpack Bitcoin
+      shell: bash
+      run: tar -xzvf bitcoin-28.0-x86_64-linux-gnu.tar.gz
 
-  - name: Set executable permissions
-    shell: bash
-    run: chmod +x bitcoin-28.0/bin/*
+    - name: Set executable permissions
+      shell: bash
+      run: chmod +x bitcoin-28.0/bin/*
 
-  - name: Add bitcoin to path
-    shell: bash
-    run: echo "$PWD/bitcoin-28.0/bin" >> $GITHUB_PATH
+    - name: Add bitcoin to path
+      shell: bash
+      run: echo "$PWD/bitcoin-28.0/bin" >> $GITHUB_PATH
 
-  - name: Install cargo-risczero
-    uses: taiki-e/install-action@v2
-    with:
-      tool: cargo-risczero@1.2
+    - name: Install cargo-risczero
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-risczero@1.2
 
-  - name: Install risc0-zkvm toolchain
-    shell: bash
-    env:
-      GITHUB_TOKEN: ${{ inputs.github_token }}
-    run: cargo risczero install --version r0.1.81.0
+    - name: Install risc0-zkvm toolchain
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: cargo risczero install --version r0.1.81.0
+
+    - name: Install pgxn and pgmq in Postgres container
+      shell: bash
+      run: |
+        docker exec -i $(docker ps -q --filter "ancestor=postgres:latest") bash -c "apt update && apt install -y pgxnclient && pgxn install pgmq"
