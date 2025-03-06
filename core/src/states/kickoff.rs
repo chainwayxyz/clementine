@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::{OutPoint, Txid, Witness};
+use bitcoin::{OutPoint, Witness};
 use eyre::Report;
 use statig::prelude::*;
 
@@ -16,11 +16,13 @@ use crate::{
 use super::{
     block_cache::BlockCache,
     context::{Duty, StateContext},
-    matcher::{self, BlockMatcher, Matcher},
+    matcher::{BlockMatcher, Matcher},
     Owner,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum KickoffEvent {
     Challenged,
     WatchtowerChallengeSent {
@@ -44,9 +46,11 @@ pub enum KickoffEvent {
     // ChallengeTimeoutNotSent,
     TimeToSendWatchtowerChallenge,
     TimeToSendVerifierDisprove,
+    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
+    SavedToDb,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 // TODO: add and save operator challenge acks
 // all timelocks
 // delete used matchers
@@ -55,7 +59,7 @@ pub enum KickoffEvent {
 pub struct KickoffStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
     pub(crate) dirty: bool,
-    kickoff_id: KickoffId,
+    pub(crate) kickoff_id: KickoffId,
     deposit_data: DepositData,
     kickoff_height: u32,
     spent_watchtower_utxos: HashSet<usize>,
@@ -103,7 +107,7 @@ impl<T: Owner> KickoffStateMachine<T> {
 #[state_machine(
     initial = "State::kickoff_started()",
     on_dispatch = "Self::on_dispatch",
-    state(derive(Debug, Clone))
+    state(derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize))
 )]
 impl<T: Owner> KickoffStateMachine<T> {
     pub fn wrap_err(
@@ -124,13 +128,17 @@ impl<T: Owner> KickoffStateMachine<T> {
         _state: StateOrSuperstate<'_, '_, Self>,
         evt: &KickoffEvent,
     ) {
-        tracing::debug!(?self.kickoff_id, "Dispatching event {:?}", evt);
-        self.dirty = true;
+        if matches!(evt, KickoffEvent::SavedToDb) {
+            self.dirty = false;
+        } else {
+            tracing::debug!(?self.kickoff_id, "Dispatching event {:?}", evt);
+            self.dirty = true;
 
-        // Remove the matcher corresponding to the event.
-        if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
-            let matcher = matcher.clone();
-            self.matchers.remove(&matcher);
+            // Remove the matcher corresponding to the event.
+            if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
+                let matcher = matcher.clone();
+                self.matchers.remove(&matcher);
+            }
         }
     }
 

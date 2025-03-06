@@ -1,5 +1,5 @@
+use crate::actor::Actor;
 use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
-use crate::actor::{self, Actor};
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
@@ -7,14 +7,11 @@ use crate::builder::transaction::{
     DepositData, OperatorData, TransactionType, TxHandler,
 };
 use crate::config::protocol::ProtocolParamset;
-use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use crate::{builder, utils};
-use bitcoin::secp256k1::SecretKey;
-use bitcoin::XOnlyPublicKey;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

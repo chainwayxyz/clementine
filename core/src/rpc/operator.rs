@@ -133,9 +133,7 @@ impl ClementineOperator for Operator {
         let assert_request = request.into_inner();
         let assert_data = parse_assert_request(assert_request)?;
 
-        let raw_txs = self
-            .create_assert_commitment_txs(self.nofn_xonly_pk, assert_data)
-            .await?;
+        let raw_txs = self.create_assert_commitment_txs(assert_data).await?;
 
         Ok(Response::new(raw_txs))
     }
@@ -175,7 +173,6 @@ impl ClementineOperator for Operator {
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            self.nofn_xonly_pk,
             transaction_data,
             Some([0u8; 20]), // dummy blockhash
         )

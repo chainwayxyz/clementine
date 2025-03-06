@@ -38,7 +38,7 @@ futures-core = { workspace = true }
 bitvm = { workspace = true }
 tempfile = { workspace = true }
 eyre = "0.6.12"
-statig = { version = "0.3.0", features = ["async"] }
+statig = { version = "0.3.0", features = ["async", "serde"] }
 
 [dev-dependencies]
 serial_test = { workspace = true }

@@ -48,7 +48,7 @@ pub mod sign;
 mod txhandler;
 
 /// Type to uniquely identify a deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DepositData {
     /// User's deposit UTXO.
     pub deposit_outpoint: bitcoin::OutPoint,
@@ -60,11 +60,35 @@ pub struct DepositData {
     pub nofn_xonly_pk: XOnlyPublicKey,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct OperatorData {
     pub xonly_pk: XOnlyPublicKey,
     pub reimburse_addr: Address,
     pub collateral_funding_outpoint: OutPoint,
+}
+
+// TODO: remove this impl, this is done to avoid checking the address, instead
+// we should be checking address against a paramset
+impl<'de> serde::Deserialize<'de> for OperatorData {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct OperatorDataHelper {
+            xonly_pk: XOnlyPublicKey,
+            reimburse_addr: Address<NetworkUnchecked>,
+            collateral_funding_outpoint: OutPoint,
+        }
+
+        let helper = OperatorDataHelper::deserialize(deserializer)?;
+
+        Ok(OperatorData {
+            xonly_pk: helper.xonly_pk,
+            reimburse_addr: helper.reimburse_addr.assume_checked(),
+            collateral_funding_outpoint: helper.collateral_funding_outpoint,
+        })
+    }
 }
 
 /// Types of all transactions that can be created. Some transactions have an (usize) to as they are created

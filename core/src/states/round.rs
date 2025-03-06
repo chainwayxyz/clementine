@@ -1,15 +1,8 @@
-use eyre::Context;
 use statig::prelude::*;
-use std::{
-    collections::{HashMap, HashSet},
-    ops::DerefMut,
-};
+use std::collections::{HashMap, HashSet};
 
 use crate::{
-    builder::{
-        address::generate_deposit_address,
-        transaction::{ContractContext, OperatorData, TransactionType},
-    },
+    builder::transaction::{ContractContext, OperatorData, TransactionType},
     errors::BridgeError,
 };
 
@@ -20,18 +13,28 @@ use super::{
     Owner,
 };
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(
+    Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum RoundEvent {
-    KickoffUtxoUsed { kickoff_idx: usize },
-    ReadyToReimburseSent { round_idx: u32 },
-    RoundSent { round_idx: u32 },
+    KickoffUtxoUsed {
+        kickoff_idx: usize,
+    },
+    ReadyToReimburseSent {
+        round_idx: u32,
+    },
+    RoundSent {
+        round_idx: u32,
+    },
+    /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
+    SavedToDb,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RoundStateMachine<T: Owner> {
     pub(crate) matchers: HashMap<matcher::Matcher, RoundEvent>,
     operator_data: OperatorData,
-    operator_idx: u32,
+    pub(crate) operator_idx: u32,
     pub(crate) dirty: bool,
     phantom: std::marker::PhantomData<T>,
 }
@@ -69,7 +72,7 @@ use eyre::Report;
 #[state_machine(
     initial = "State::initial_collateral()",
     on_dispatch = "Self::on_dispatch",
-    state(derive(Debug, Clone))
+    state(derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize))
 )]
 // TODO: Add exit conditions too (ex: burn connector spent on smth else)
 impl<T: Owner> RoundStateMachine<T> {
@@ -101,13 +104,17 @@ impl<T: Owner> RoundStateMachine<T> {
         _state: StateOrSuperstate<'_, '_, Self>,
         evt: &RoundEvent,
     ) {
-        tracing::warn!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
-        self.dirty = true;
+        if matches!(evt, RoundEvent::SavedToDb) {
+            self.dirty = false;
+        } else {
+            tracing::debug!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
+            self.dirty = true;
 
-        // Remove the matcher corresponding to the event.
-        if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
-            let matcher = matcher.clone();
-            self.matchers.remove(&matcher);
+            // Remove the matcher corresponding to the event.
+            if let Some((matcher, _)) = self.matchers.iter().find(|(_, ev)| ev == &evt) {
+                let matcher = matcher.clone();
+                self.matchers.remove(&matcher);
+            }
         }
     }
 

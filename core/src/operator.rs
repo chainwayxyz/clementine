@@ -987,6 +987,7 @@ impl Operator {
 
 #[tonic::async_trait]
 impl Owner for Operator {
+    const OWNER_TYPE: &'static str = "operator";
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
         match duty {
             Duty::NewKickoff => {

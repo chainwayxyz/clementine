@@ -53,7 +53,6 @@ impl ClementineWatchtower for Watchtower {
 
         let raw_tx = self
             .create_and_sign_watchtower_challenge(
-                self.nofn_xonly_pk,
                 transaction_data,
                 &vec![
                     0u8;

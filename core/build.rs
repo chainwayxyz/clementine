@@ -52,7 +52,7 @@ fn compile_protobuf() {
         .build_client(true)
         .type_attribute(
             "clementine.KickoffId",
-            "#[derive(Eq, PartialOrd, Ord, Hash)]",
+            "#[derive(Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]",
         )
         .out_dir("./src/rpc")
         .compile_protos(

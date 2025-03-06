@@ -56,6 +56,13 @@ pub enum Duty {
 /// Owner trait with async handling and tx handler creation
 #[async_trait]
 pub trait Owner: Send + Sync + Clone {
+    /// A string identifier for this owner type used to distinguish between
+    /// state machines with different owners in the database.
+    ///
+    /// ## Example
+    /// "operator", "watchtower", "verifier", "user"
+    const OWNER_TYPE: &'static str;
+
     /// Handle a duty
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError>;
     async fn create_txhandlers(
@@ -74,6 +81,7 @@ pub struct StateContext<T: Owner> {
     pub new_kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     pub errors: Vec<Arc<eyre::Report>>,
     pub paramset: &'static ProtocolParamset,
+    pub owner_type: String,
 }
 
 impl<T: Owner> StateContext<T> {
@@ -83,6 +91,9 @@ impl<T: Owner> StateContext<T> {
         cache: Arc<block_cache::BlockCache>,
         paramset: &'static ProtocolParamset,
     ) -> Self {
+        // Get the owner type string from the owner instance
+        let owner_type = T::OWNER_TYPE.to_string();
+
         Self {
             db,
             owner,
@@ -91,6 +102,7 @@ impl<T: Owner> StateContext<T> {
             new_kickoff_machines: Vec::new(),
             errors: Vec::new(),
             paramset,
+            owner_type,
         }
     }
 
