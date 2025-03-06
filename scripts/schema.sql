@@ -286,7 +286,6 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
 CREATE TABLE IF NOT EXISTS state_machines (
     id SERIAL PRIMARY KEY,
     machine_type VARCHAR(50) NOT NULL, -- 'kickoff' or 'round'
-    machine_idx INT NULL, -- Optional reference for backward compatibility
     state_json TEXT NOT NULL,
     kickoff_id TEXT NULL, -- only for kickoff machines
     operator_idx INT NULL, -- only for round machines
@@ -294,7 +293,8 @@ CREATE TABLE IF NOT EXISTS state_machines (
     block_height INT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(machine_type, kickoff_id, operator_idx, owner_type)
+    UNIQUE(machine_type, kickoff_id, owner_type), -- For kickoff machines
+    UNIQUE(machine_type, operator_idx, owner_type)  -- For round machines
 );
 
 -- Status table to track the last processed block

@@ -43,7 +43,7 @@ impl Database {
                     created_at,
                     updated_at
                 ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                ON CONFLICT (machine_type, kickoff_id, operator_idx, owner_type)
+                ON CONFLICT (machine_type, kickoff_id, owner_type)
                 DO UPDATE SET
                     state_json = EXCLUDED.state_json,
                     block_height = EXCLUDED.block_height,
@@ -75,7 +75,7 @@ impl Database {
                     created_at,
                     updated_at
                 ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                ON CONFLICT (machine_type, kickoff_id, operator_idx, owner_type)
+                ON CONFLICT (machine_type, operator_idx, owner_type)
                 DO UPDATE SET
                     state_json = EXCLUDED.state_json,
                     block_height = EXCLUDED.block_height,
