@@ -3,10 +3,11 @@ use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
 use crate::utils::calculate_succinct_output_prefix;
+use ark_bn254::Bn254;
 use borsh;
+use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit_core::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit_core::winternitz::verify_winternitz_signature;
-use risc0_groth16::Seal;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
 
@@ -17,7 +18,11 @@ const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-
 pub fn prove_bridge_circuit(
     bridge_circuit_host_params: BridgeCircuitHostParams,
     bridge_circuit_elf: &[u8],
-) -> (Seal, [u8; 31], BridgeCircuitBitvmInputs) {
+) -> (
+    ark_groth16::Proof<Bn254>,
+    [u8; 31],
+    BridgeCircuitBitvmInputs,
+) {
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         winternitz_details: bridge_circuit_host_params.winternitz_details,
         hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
@@ -56,8 +61,13 @@ pub fn prove_bridge_circuit(
         succinct_receipt.inner.succinct().unwrap().clone(),
         &succinct_receipt_journal,
     );
+    let risc0_g16_seal_vec = g16_proof.to_vec();
+    let risc0_g16_256 = risc0_g16_seal_vec[0..256].try_into().unwrap();
+    let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
+    let ark_groth16_proof: ark_groth16::Proof<Bn254> = circuit_g16_proof.into();
+
     (
-        g16_proof,
+        ark_groth16_proof,
         g16_output,
         BridgeCircuitBitvmInputs {
             payout_tx_block_hash: public_inputs.payout_tx_block_hash,
@@ -313,19 +323,16 @@ mod tests {
             block_header_circuit_output,
             num_of_watchtowers,
         };
-        println!("PROVING BRIDGE CIRCUIT");
-        let (risc0_g16_seal, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
+        let (ark_groth16_proof, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
-        let risc0_g16_seal_vec = risc0_g16_seal.to_vec();
-        let risc0_g16_256 = risc0_g16_seal_vec[0..256].try_into().unwrap();
-        let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
+
         let blake3_digest = bridge_circuit_bitvm_inputs.calculate_groth16_public_input();
         let g16_pi_calculated_outside = blake3_digest.as_bytes();
         assert_eq!(
             output_scalar_bytes_trimmed,
             g16_pi_calculated_outside[0..31]
         );
-        let ark_groth16_proof = circuit_g16_proof.into();
+        println!("ARK GROTH16 PROOF");
         assert!(bridge_circuit_bitvm_inputs.verify_bridge_circuit(ark_groth16_proof));
     }
 }
