@@ -45,12 +45,12 @@ alloy = { workspace = true }
 ark-groth16 = { workspace = true, features = ["default"]}
 ark-bn254 = { workspace = true }
 ark-serialize = { workspace = true }
+sov-rollup-interface = { workspace = true, features = ["native"] }
 
 [dev-dependencies]
 serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
 citrea-e2e = { workspace = true }
-sov-rollup-interface = { workspace = true, features = ["native"] }
 
 [[bin]]
 name = "server"

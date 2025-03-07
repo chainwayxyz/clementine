@@ -4,7 +4,7 @@ use crate::errors::BridgeError;
 use alloy::{
     eips::BlockNumberOrTag,
     network::EthereumWallet,
-    primitives::U256,
+    primitives::{Uint, U256},
     providers::{
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -19,10 +19,7 @@ use alloy::{
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
-
-#[cfg(test)]
 use jsonrpsee::proc_macros::rpc;
-
 use BRIDGE_CONTRACT::{Deposit, Withdrawal};
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
@@ -114,7 +111,7 @@ impl CitreaClient {
     pub async fn collect_deposit_move_txids(
         &self,
         height: u64,
-    ) -> Result<Vec<(u64, Txid)>, BridgeError> {
+    ) -> Result<Vec<(Uint<256, 4>, Txid)>, BridgeError> {
         let filter = self.contract.event_filter::<Deposit>().filter;
         let filter = filter.from_block(BlockNumberOrTag::Number(height));
         let filter = filter.to_block(BlockNumberOrTag::Number(height));
@@ -125,9 +122,6 @@ impl CitreaClient {
             let deposit_raw_data = log.data().clone().data.clone();
 
             let deposit_index = Withdrawal::abi_decode_data(&deposit_raw_data, false)?.1;
-            let deposit_index: u64 = deposit_index
-                .try_into()
-                .map_err(|e| BridgeError::Error(format!("Can't convert deposit index: {:?}", e)))?;
 
             let move_txid = Deposit::abi_decode_data(deposit_raw_data.as_ref(), false)?.1;
             let move_txid = Txid::from_slice(move_txid.as_slice())?;
@@ -142,7 +136,7 @@ impl CitreaClient {
     pub async fn collect_withdrawal_utxos(
         &self,
         height: u64,
-    ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
+    ) -> Result<Vec<(Uint<256, 4>, OutPoint)>, BridgeError> {
         let filter = self.contract.event_filter::<Withdrawal>().filter;
         let filter = filter.from_block(BlockNumberOrTag::Number(height));
         let filter = filter.to_block(BlockNumberOrTag::Number(height));
@@ -153,9 +147,6 @@ impl CitreaClient {
             let withdrawal_raw_data = log.data().clone().data.clone();
 
             let withdrawal_index = Withdrawal::abi_decode_data(&withdrawal_raw_data, false)?.1;
-            let withdrawal_index: u64 = withdrawal_index.try_into().map_err(|e| {
-                BridgeError::Error(format!("Can't convert withdrawal index: {:?}", e))
-            })?;
 
             let withdrawal_utxo =
                 Withdrawal::abi_decode_data(withdrawal_raw_data.as_ref(), false)?.0;
@@ -173,7 +164,6 @@ impl CitreaClient {
     }
 }
 
-#[cfg(test)]
 #[rpc(client, namespace = "lightClientProver")]
 pub trait LightClientProverRpc {
     /// Generate state transition data for the given L1 block height, and return the data as a borsh serialized hex string.

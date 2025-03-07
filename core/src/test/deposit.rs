@@ -125,6 +125,11 @@ impl TestCase for CitreaDeposit {
 
 #[tokio::test]
 async fn citrea_deposit() -> Result<()> {
+    // TODO: temp hack to use the correct docker image
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
+    );
     TestCaseRunner::new(CitreaDeposit).run().await
 }
 
