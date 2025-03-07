@@ -990,9 +990,6 @@ impl Owner for Operator {
     const OWNER_TYPE: &'static str = "operator";
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
         match duty {
-            Duty::NewKickoff => {
-                tracing::info!("called new kickoff");
-            }
             Duty::NewReadyToReimburse {
                 round_idx,
                 operator_idx,

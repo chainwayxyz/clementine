@@ -31,7 +31,6 @@ use super::round;
 // Duty types that can be dispatched
 #[derive(Debug, Clone)]
 pub enum Duty {
-    NewKickoff,
     NewReadyToReimburse {
         round_idx: u32,
         operator_idx: u32,
