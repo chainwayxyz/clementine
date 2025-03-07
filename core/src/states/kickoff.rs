@@ -281,6 +281,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         event: &KickoffEvent,
         context: &mut StateContext<T>,
     ) -> Response<State> {
+        tracing::trace!("Received event in kickoff superstate: {:?}", event);
         match event {
             KickoffEvent::WatchtowerChallengeSent {
                 watchtower_idx,

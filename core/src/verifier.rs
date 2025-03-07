@@ -20,7 +20,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature, WatchtowerKeys};
 use crate::states;
-use crate::states::syncer::run_state_manager;
+use crate::states::syncer::{add_new_kickoff_machine, run_state_manager};
 use crate::states::StateManager;
 use crate::states::{Duty, Owner};
 use crate::tx_sender::{TxDataForLogging, TxSender};
@@ -157,6 +157,8 @@ impl Verifier {
         let _handle =
             bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
                 .await?;
+
+        // start state manager
         let state_manager_consumer_handle = format!("verifier{}_states", idx).to_string();
         let verifier = Verifier {
             _rpc: rpc,
@@ -1020,20 +1022,20 @@ impl Owner for Verifier {
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
         match duty {
             Duty::NewKickoff => {
-                tracing::warn!("called new kickoff");
+                tracing::info!("called new kickoff");
             }
             Duty::NewReadyToReimburse {
                 round_idx,
                 operator_idx,
                 used_kickoffs,
             } => {
-                tracing::warn!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", round_idx, operator_idx, used_kickoffs);
+                tracing::info!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",round_idx,operator_idx,used_kickoffs);
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
                 deposit_data,
             } => {
-                tracing::warn!(
+                tracing::info!(
                     "called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
                     kickoff_id,
                     deposit_data
@@ -1044,7 +1046,7 @@ impl Owner for Verifier {
                 deposit_data,
                 watchtower_challenges,
             } => {
-                tracing::warn!("called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", kickoff_id, deposit_data, watchtower_challenges);
+                tracing::info!("called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",kickoff_id,deposit_data,watchtower_challenges);
             }
             Duty::VerifierDisprove {
                 kickoff_id,
@@ -1052,7 +1054,33 @@ impl Owner for Verifier {
                 operator_asserts,
                 operator_acks,
             } => {
-                tracing::warn!("called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}", kickoff_id, deposit_data, operator_asserts, operator_acks);
+                tracing::info!("called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}",kickoff_id,deposit_data,operator_asserts,operator_acks);
+            }
+            Duty::CheckIfKickoff { txid, block_height } => {
+                tracing::info!(
+                    "called check if kickoff with txid: {:?}, block_height: {:?}",
+                    txid,
+                    block_height,
+                );
+                let kickoff_data = self
+                    .db
+                    .get_deposit_signatures_with_kickoff_txid(None, txid)
+                    .await?;
+                if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
+                    // add kickoff machine if there is a new kickoff
+                    let mut dbtx = self.db.begin_transaction().await?;
+                    add_new_kickoff_machine(
+                        self.db.clone(),
+                        self.state_manager_handle.clone(),
+                        &mut dbtx,
+                        kickoff_id,
+                        block_height,
+                        deposit_data,
+                    )
+                    .await?;
+                    //self.handle_kickoff(&mut dbtx, txid).await?;
+                    dbtx.commit().await?;
+                }
             }
         }
         Ok(())

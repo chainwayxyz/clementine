@@ -137,8 +137,8 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     assert_timeout_timelock: BLOCKS_PER_DAY * 4,
     operator_reimburse_timelock: BLOCKS_PER_HOUR * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_DAY * 2,
-    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
-    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
+    time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
     finality_depth: 1,
     start_height: 101,
 };

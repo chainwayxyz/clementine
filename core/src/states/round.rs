@@ -5,6 +5,7 @@ use crate::{
     builder::transaction::{ContractContext, OperatorData, TransactionType},
     errors::BridgeError,
 };
+use bitcoin::OutPoint;
 use serde_with::serde_as;
 
 use super::{
@@ -20,6 +21,7 @@ use super::{
 pub enum RoundEvent {
     KickoffUtxoUsed {
         kickoff_idx: usize,
+        kickoff_outpoint: OutPoint,
     },
     ReadyToReimburseSent {
         round_idx: u32,
@@ -165,8 +167,28 @@ impl<T: Owner> RoundStateMachine<T> {
         context: &mut StateContext<T>,
     ) -> Response<State> {
         match event {
-            RoundEvent::KickoffUtxoUsed { kickoff_idx } => {
+            RoundEvent::KickoffUtxoUsed {
+                kickoff_idx,
+                kickoff_outpoint,
+            } => {
                 used_kickoffs.insert(*kickoff_idx);
+                let txid = context
+                    .cache
+                    .get_txid_of_utxo(kickoff_outpoint)
+                    .expect("UTXO should be in block");
+
+                context
+                    .capture_error(async |context| {
+                        context
+                            .owner
+                            .handle_duty(Duty::CheckIfKickoff {
+                                txid,
+                                block_height: context.cache.block_height,
+                            })
+                            .await?;
+                        Ok(())
+                    })
+                    .await;
                 Handled
             }
             RoundEvent::ReadyToReimburseSent { round_idx } => {
@@ -239,13 +261,15 @@ impl<T: Owner> RoundStateMachine<T> {
                         },
                     );
                     for idx in 0..context.paramset.num_kickoffs_per_round {
+                        let outpoint = *round_txhandler
+                            .get_spendable_output(idx + 1)?
+                            .get_prev_outpoint();
                         self.matchers.insert(
-                            matcher::Matcher::SpentUtxo(
-                                *round_txhandler
-                                    .get_spendable_output(idx + 1)?
-                                    .get_prev_outpoint(),
-                            ),
-                            RoundEvent::KickoffUtxoUsed { kickoff_idx: idx },
+                            matcher::Matcher::SpentUtxo(outpoint),
+                            RoundEvent::KickoffUtxoUsed {
+                                kickoff_idx: idx,
+                                kickoff_outpoint: outpoint,
+                            },
                         );
                     }
                     Ok(())

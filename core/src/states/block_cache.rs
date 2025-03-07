@@ -43,6 +43,10 @@ impl BlockCache {
             .and_then(|idx| self.get_tx_with_index(*idx))
     }
 
+    pub fn get_txid_of_utxo(&self, utxo: &OutPoint) -> Option<Txid> {
+        self.get_tx_of_utxo(utxo).map(|tx| tx.compute_txid())
+    }
+
     pub fn get_witness_of_utxo(&self, utxo: &OutPoint) -> Option<Witness> {
         self.get_tx_of_utxo(utxo).and_then(|tx| {
             tx.input

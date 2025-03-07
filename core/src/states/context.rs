@@ -2,6 +2,7 @@ use crate::builder::transaction::DepositData;
 use crate::config::protocol::ProtocolParamset;
 use crate::rpc::clementine::KickoffId;
 
+use bitcoin::Txid;
 use bitcoin::Witness;
 use statig::awaitable::InitializedStateMachine;
 use tonic::async_trait;
@@ -50,6 +51,10 @@ pub enum Duty {
         deposit_data: DepositData,
         operator_asserts: HashMap<usize, Witness>,
         operator_acks: HashMap<usize, Witness>,
+    },
+    CheckIfKickoff {
+        txid: Txid,
+        block_height: u32,
     },
 }
 
