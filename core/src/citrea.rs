@@ -12,7 +12,6 @@ use alloy::{
         },
         Provider, ProviderBuilder, RootProvider,
     },
-    rpc::types::Filter,
     signers::{local::PrivateKeySigner, Signer},
     sol,
     sol_types::SolEvent,
@@ -111,32 +110,9 @@ impl CitreaClient {
         Ok(OutPoint { txid, vout })
     }
 
-    async fn get_event_filter<E: SolEvent>(&self) -> Filter {
-        let deposit_event = self.contract.event_filter::<E>();
-
-        deposit_event.filter
-    }
-
-    #[cfg(test)]
-    pub async fn log_all_events(&self) -> Result<(), BridgeError> {
-        let filter = self.get_event_filter::<Deposit>().await;
-        let filter = filter.from_block(BlockNumberOrTag::Earliest);
-        let filter = filter.to_block(BlockNumberOrTag::Latest);
-        let logs = self.provider.get_logs(&filter).await?;
-        println!("Deposit logs: {:?}", logs);
-
-        let filter = self.get_event_filter::<Withdrawal>().await;
-        let filter = filter.from_block(BlockNumberOrTag::Earliest);
-        let filter = filter.to_block(BlockNumberOrTag::Latest);
-        let logs = self.provider.get_logs(&filter).await?;
-        println!("Withdrawal logs: {:?}", logs);
-
-        Ok(())
-    }
-
-    /// Returns depost move txids for a block.
+    /// Returns deposit move txids for a block.
     pub async fn collect_deposit_move_txids(&self, height: u64) -> Result<Vec<Txid>, BridgeError> {
-        let filter = self.get_event_filter::<Deposit>().await;
+        let filter = self.contract.event_filter::<Deposit>().filter;
         let filter = filter.from_block(BlockNumberOrTag::Number(height));
         let filter = filter.to_block(BlockNumberOrTag::Number(height));
         let logs = self.provider.get_logs(&filter).await?;
@@ -158,7 +134,7 @@ impl CitreaClient {
         &self,
         height: u64,
     ) -> Result<Vec<OutPoint>, BridgeError> {
-        let filter = self.get_event_filter::<Withdrawal>().await;
+        let filter = self.contract.event_filter::<Withdrawal>().filter;
         let filter = filter.from_block(BlockNumberOrTag::Number(height));
         let filter = filter.to_block(BlockNumberOrTag::Number(height));
         let logs = self.provider.get_logs(&filter).await?;

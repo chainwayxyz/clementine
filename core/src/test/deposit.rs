@@ -173,7 +173,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            // initial_da_height: 171,
+            initial_da_height: 200,
             ..Default::default()
         }
     }
@@ -245,14 +245,14 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             .collect_deposit_move_txids(deposit_tx_block_height)
             .await?;
         assert_eq!(move_txid, move_txids[0]);
-        println!("move_txid matches");
 
         lc_prover.wait_for_l1_height(block_height, None).await?;
         let lcp = lc_prover
             .client
             .http_client()
             .get_light_client_proof_by_l1_height(block_height)
-            .await;
+            .await
+            .unwrap();
         println!("lcp {:?}", lcp);
 
         Ok(())
