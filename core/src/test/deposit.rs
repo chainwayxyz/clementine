@@ -193,7 +193,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         let mut config = create_test_config_with_thread_name(None).await;
         citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
         let citrea_client =
-            CitreaClient::new(Url::parse(&config.citrea_sequencer_url).unwrap(), None).unwrap();
+            CitreaClient::new(Url::parse(&config.citrea_rpc_url).unwrap(), None).unwrap();
 
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),

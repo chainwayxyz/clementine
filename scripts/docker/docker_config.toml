@@ -50,7 +50,7 @@ db_name = "clementine"
 
 confirmation_threshold = 1
 
-citrea_sequencer_url = ""
+citrea_rpc_url = ""
 citrea_light_client_prover_url = ""
 bridge_contract_address = "3100000000000000000000000000000000000002"
 
