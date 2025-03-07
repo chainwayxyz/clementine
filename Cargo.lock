@@ -3313,6 +3313,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "heapless"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
+dependencies = [
+ "hash32",
+ "stable_deref_trait",
+]
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6328,7 +6338,7 @@ name = "sov-rollup-interface"
 version = "0.6.0"
 source = "git+https://github.com/chainwayxyz/citrea.git?rev=ccdbd5a96#ccdbd5a96fae46bfe2d5e85262570cc7fc91eaf0"
 dependencies = [
- "alloy-primitives 0.8.22",
+ "alloy-primitives",
  "anyhow",
  "async-trait",
  "borsh",

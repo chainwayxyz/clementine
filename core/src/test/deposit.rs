@@ -14,8 +14,8 @@ use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
     bitcoin::DEFAULT_FINALITY_DEPTH,
     config::{
-        BatchProverConfig, BitcoinConfig, CitreaMode, LightClientProverConfig, SequencerConfig,
-        TestCaseConfig, TestCaseDockerConfig,
+        BatchProverConfig, BitcoinConfig, LightClientProverConfig, SequencerConfig, TestCaseConfig,
+        TestCaseDockerConfig,
     },
     framework::TestFramework,
     test_case::{TestCase, TestCaseRunner},
@@ -179,7 +179,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, lc_prover, _, da) =
+        let (sequencer, full_node, lc_prover, _, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();

@@ -59,7 +59,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, _, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
+        let (sequencer, full_node, _, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
             .await
             .unwrap();
 
