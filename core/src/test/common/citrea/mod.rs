@@ -105,7 +105,7 @@ pub fn update_config_with_citrea_e2e_values(
         "http://{}:{}",
         sequencer.config.rollup.rpc.bind_host, sequencer.config.rollup.rpc.bind_port
     );
-    config.citrea_rpc_url = citrea_url;
+    config.citrea_sequencer_url = citrea_url;
 }
 
 pub async fn mine_bitcoin_and_citrea_blocks(
