@@ -6,7 +6,6 @@ env:
   CARGO_TERM_COLOR: always
   CARGOFLAGS: -p bridge-circuit-host --all-targets --all-features
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
-  RUST_MIN_STACK: 33554432
 
 jobs:
   bridge_circuit_release_build:
@@ -20,7 +19,7 @@ jobs:
     - name: Save build artifacts
       uses: Swatinem/rust-cache@v2
       with:
-        shared-key: "bridge_circuit_release_build"
+        shared-key: "bridge-circuit-release-build"
 
     - name: Compile in release mode
       run: cargo build $CARGOFLAGS --verbose --release 
@@ -37,7 +36,7 @@ jobs:
     - name: Restore cached build artifacts
       uses: Swatinem/rust-cache@v2
       with:
-        shared-key: "release-build"
+        shared-key: "bridge-circuit-release-build"
 
     - name: Run tests
       run: cargo test --release
