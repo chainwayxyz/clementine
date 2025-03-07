@@ -423,4 +423,19 @@ impl ClementineVerifier for Verifier {
                 .collect(),
         }))
     }
+
+    async fn internal_handle_kickoff(
+        &self,
+        request: Request<clementine::Txid>,
+    ) -> Result<Response<Empty>, Status> {
+        let txid = request.into_inner();
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.handle_kickoff(
+            &mut dbtx,
+            bitcoin::Txid::try_from(txid).expect("Should be able to convert"),
+        )
+        .await?;
+        dbtx.commit().await.expect("Failed to commit transaction");
+        Ok(Response::new(Empty {}))
+    }
 }

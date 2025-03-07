@@ -354,6 +354,9 @@ pub enum BridgeError {
 
     #[error("Error while creating contract: {0}")]
     AlloyContract(#[from] alloy::contract::Error),
+
+    #[error("Transaction is already in block: {0}")]
+    TransactionAlreadyInBlock(BlockHash),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
