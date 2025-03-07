@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, WinternitzDerivationPath};
@@ -40,6 +41,7 @@ use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
 
 pub type SecretPreimage = [u8; 20];
@@ -58,6 +60,7 @@ pub struct Operator {
     pub tx_sender: TxSender,
     pub citrea_client: Option<jsonrpsee::http_client::HttpClient>,
     pub state_manager_handle: String,
+    pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
     pub citrea_contract_client: Option<CitreaContractClient>,
 }
 
@@ -149,13 +152,16 @@ impl Operator {
             idx,
             config.db_name
         );
+
         let state_manager_consumer_handle = format!("operator{}_states", idx).to_string();
+
         let operator_data = OperatorData {
             xonly_pk: signer.xonly_public_key,
             collateral_funding_outpoint,
             reimburse_addr: reimburse_addr.clone(),
         };
-        let operator = Operator {
+
+        let mut operator = Operator {
             rpc,
             db: db.clone(),
             signer,
@@ -168,7 +174,10 @@ impl Operator {
             citrea_contract_client,
             reimburse_addr,
             state_manager_handle: state_manager_consumer_handle.clone(),
+            // temporarily set to avoid circular reference
+            state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
         };
+
         // initialize and run state manager
         let mut state_manager = StateManager::new(
             db.clone(),
@@ -178,7 +187,9 @@ impl Operator {
             config.protocol_paramset().start_height,
         )
         .await?;
+
         state_manager.load_from_db().await?;
+
         let state_manager_block_syncer = states::syncer::fetch_new_blocks(
             state_manager.get_last_processed_block_height(),
             state_manager.get_consumer_handle(),
@@ -187,7 +198,11 @@ impl Operator {
             config.protocol_paramset(),
         )
         .await;
-        let state_manager_run_loop = run_state_manager(state_manager, Duration::from_secs(1)).await;
+
+        let (state_manager_run_loop, shutdown_tx) =
+            run_state_manager(state_manager, Duration::from_secs(1)).await;
+        operator.state_manager_shutdown_tx = shutdown_tx.into(); // save the shutdown tx here
+
         // add own operator state to state manager
         let mut dbtx = db.begin_transaction().await?;
         states::syncer::add_new_round_machine(

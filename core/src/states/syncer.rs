@@ -3,7 +3,7 @@ use crate::{
 };
 use pgmq::{Message, PGMQueueExt};
 use std::time::Duration;
-use tokio::task::JoinHandle;
+use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
     builder::transaction::DepositData, config::protocol::ProtocolParamset,
@@ -159,18 +159,27 @@ pub async fn add_new_kickoff_machine(
 pub async fn run_state_manager<T>(
     mut state_manager: StateManager<T>,
     poll_delay: Duration,
-) -> JoinHandle<Result<(), eyre::Report>>
+) -> (JoinHandle<Result<(), eyre::Report>>, oneshot::Sender<()>)
 where
     T: Owner + std::fmt::Debug + 'static,
 {
-    tokio::spawn(async move {
+    let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+
+    let handle = tokio::spawn(async move {
         tracing::info!(
             "Starting state manager main run thread with consumer handle {}",
             state_manager.consumer_handle
         );
         let db = state_manager.db.clone();
         let mut num_consecutive_errors = 0;
+
         loop {
+            // Check if shutdown signal was received or the channel was closed (meaning the operator was dropped)
+            if shutdown_rx.try_recv() != Err(oneshot::error::TryRecvError::Empty) {
+                tracing::info!("Shutdown signal received, stopping state manager");
+                break Ok(());
+            }
+
             let result: Result<bool, BridgeError> = async {
                 let new_event_received = async {
                     let mut dbtx = db.begin_transaction().await?;
@@ -231,5 +240,88 @@ where
                 }
             }
         }
-    })
+    });
+
+    (handle, shutdown_tx)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use tokio::time::timeout;
+    use tonic::async_trait;
+
+    use crate::{
+        builder::transaction::{ContractContext, TransactionType, TxHandler},
+        config::{protocol::ProtocolParamsetName, BridgeConfig},
+        states::Duty,
+        test::common::create_test_config_with_thread_name,
+    };
+
+    use super::*;
+
+    #[derive(Clone, Debug)]
+    struct MockHandler;
+
+    #[async_trait]
+    impl Owner for MockHandler {
+        const OWNER_TYPE: &'static str = "MockHandler";
+
+        async fn handle_duty(&self, _: Duty) -> Result<(), BridgeError> {
+            Ok(())
+        }
+
+        async fn create_txhandlers(
+            &self,
+            _: TransactionType,
+            _: ContractContext,
+        ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+            Ok(BTreeMap::new())
+        }
+    }
+
+    async fn create_state_manager(
+        config: &mut BridgeConfig,
+    ) -> (JoinHandle<Result<(), eyre::Report>>, oneshot::Sender<()>) {
+        let db = Database::new(&config).await.unwrap();
+
+        let state_manager = StateManager::new(
+            db,
+            MockHandler,
+            ProtocolParamsetName::Regtest.into(),
+            "test_consumer_handle".to_string(),
+            config.protocol_paramset().start_height,
+        )
+        .await
+        .unwrap();
+        let (handle, shutdown) = run_state_manager(state_manager, Duration::from_millis(100)).await;
+        (handle, shutdown)
+    }
+
+    #[tokio::test]
+    async fn test_run_state_manager() {
+        let mut config = create_test_config_with_thread_name(None).await;
+        let (handle, shutdown) = create_state_manager(&mut config).await;
+
+        drop(shutdown);
+
+        timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("state manager should exit after shutdown signal (timed out after 1s)")
+            .expect("state manager should shutdown gracefully (thread panic should not happen)")
+            .expect("state manager should shutdown gracefully");
+    }
+
+    #[tokio::test]
+    async fn test_state_mgr_does_not_shutdown() {
+        let mut config = create_test_config_with_thread_name(None).await;
+        let (handle, shutdown) = create_state_manager(&mut config).await;
+
+        timeout(Duration::from_secs(1), handle).await.expect_err(
+            "state manager should not shutdown while shutdown handle is alive (timed out after 1s)",
+        );
+
+        drop(shutdown);
+    }
 }

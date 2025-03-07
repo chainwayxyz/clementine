@@ -37,7 +37,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::StreamExt;
 use tonic::async_trait;
 
@@ -92,6 +92,7 @@ pub struct Verifier {
     pub idx: usize,
     pub tx_sender: TxSender,
     pub state_manager_handle: String,
+    pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
 }
 
 impl Verifier {
@@ -160,7 +161,7 @@ impl Verifier {
 
         // start state manager
         let state_manager_consumer_handle = format!("verifier{}_states", idx).to_string();
-        let verifier = Verifier {
+        let mut verifier = Verifier {
             _rpc: rpc,
             signer,
             db: db.clone(),
@@ -172,6 +173,7 @@ impl Verifier {
             idx,
             tx_sender,
             state_manager_handle: state_manager_consumer_handle.clone(),
+            state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
         };
         // initialize and run state manager
         let mut state_manager = StateManager::new(
@@ -191,7 +193,10 @@ impl Verifier {
             config.protocol_paramset(),
         )
         .await;
-        let state_manager_run_loop = run_state_manager(state_manager, Duration::from_secs(1)).await;
+
+        let (state_manager_run_loop, shutdown_tx) =
+            run_state_manager(state_manager, Duration::from_secs(1)).await;
+        verifier.state_manager_shutdown_tx = shutdown_tx.into();
 
         // Monitor state manager handles
         crate::utils::monitor_task_with_panic(
