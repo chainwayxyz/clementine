@@ -308,11 +308,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         .uninitialized_state_machine()
                         .init_with_context(&mut self.context)
                         .await;
-                // TODO: do not start from beginning, but recent blocks probably
                 self.process_and_add_new_states_from_height(
                     vec![],
                     vec![kickoff_machine],
-                    self.start_block_height,
+                    kickoff_height,
                 )
                 .await?;
             }
