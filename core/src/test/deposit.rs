@@ -59,12 +59,12 @@ impl TestCase for CitreaDeposit {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, _, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
+        let (sequencer, _full_node, lcp, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
             .await
             .unwrap();
 
         let mut config = create_test_config_with_thread_name(None).await;
-        citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
+        citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, lcp);
 
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -191,7 +191,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         let lc_prover = lc_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name(None).await;
-        citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
+        citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, Some(lc_prover));
         let citrea_client = CitreaClient::new(
             Url::parse(&config.citrea_rpc_url).unwrap(),
             Url::parse(&config.citrea_light_client_prover_url).unwrap(),

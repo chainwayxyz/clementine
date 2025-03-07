@@ -91,6 +91,7 @@ pub fn update_config_with_citrea_e2e_values(
     config: &mut BridgeConfig,
     da: &citrea_e2e::bitcoin::BitcoinNode,
     sequencer: &citrea_e2e::node::Node<SequencerConfig>,
+    light_client_prover: Option<&citrea_e2e::node::Node<LightClientProverConfig>>,
 ) {
     config.bitcoin_rpc_password = da.config.rpc_password.clone();
     config.bitcoin_rpc_user = da.config.rpc_user.clone();
@@ -106,6 +107,15 @@ pub fn update_config_with_citrea_e2e_values(
         sequencer.config.rollup.rpc.bind_host, sequencer.config.rollup.rpc.bind_port
     );
     config.citrea_rpc_url = citrea_url;
+
+    if let Some(light_client_prover) = light_client_prover {
+        let citrea_light_client_prover_url = format!(
+            "http://{}:{}",
+            light_client_prover.config.rollup.rpc.bind_host,
+            light_client_prover.config.rollup.rpc.bind_port
+        );
+        config.citrea_light_client_prover_url = citrea_light_client_prover_url;
+    }
 }
 
 pub async fn mine_bitcoin_and_citrea_blocks(

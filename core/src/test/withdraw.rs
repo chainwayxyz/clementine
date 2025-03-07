@@ -59,12 +59,12 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, full_node, _, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
+        let (sequencer, full_node, lcp, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
             .await
             .unwrap();
 
         let mut config = create_test_config_with_thread_name(None).await;
-        citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
+        citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, lcp);
 
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),

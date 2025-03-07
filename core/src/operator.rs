@@ -120,7 +120,9 @@ impl Operator {
         };
         dbtx.commit().await?;
 
-        let citrea_client = if !config.citrea_rpc_url.is_empty() {
+        let citrea_client = if !config.citrea_rpc_url.is_empty()
+            && !config.citrea_light_client_prover_url.is_empty()
+        {
             Some(CitreaClient::new(
                 Url::parse(&config.citrea_rpc_url).map_err(|e| {
                     BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
