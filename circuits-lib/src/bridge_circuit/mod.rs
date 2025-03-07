@@ -56,8 +56,7 @@ pub fn convert_to_groth16_and_verify(message: &[u8], pre_state: &[u8; 32]) -> bo
     };
 
     let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work);
-    let res = groth16_proof.verify(pre_state);
-    res
+    groth16_proof.verify(pre_state)
 }
 
 pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
