@@ -40,7 +40,7 @@ jobs:
       - name: Toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-2025-02-21
+          toolchain: nightly-2024-07-27
           override: true
 
       - name: Run cargo-udeps
