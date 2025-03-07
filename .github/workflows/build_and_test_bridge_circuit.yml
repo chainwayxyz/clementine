@@ -1,0 +1,44 @@
+name: Build And Test
+
+on: [push]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGOFLAGS: -p bridge-circuit-host --all-targets --all-features
+  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
+  RISC0_DEV_MODE: 1
+  RUST_MIN_STACK: 33554432
+
+jobs:
+  bridge_circuit_release_build:
+    name: Compile code with release profile
+    runs-on: ubicloud-standard-16
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
+
+    - name: Save build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: "bridge_circuit_release_build"
+
+    - name: Compile in release mode
+      run: cargo build $CARGOFLAGS --verbose --release 
+
+  bridge_circuit_release_build_test:
+    name: Test code with release build
+    runs-on: ubicloud-standard-16
+    needs: bridge_circuit_release_build
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
+
+    - name: Restore cached build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: "release-build"
+
+    - name: Run tests
+      run: cargo test --release
