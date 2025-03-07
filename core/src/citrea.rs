@@ -110,11 +110,12 @@ impl CitreaClient {
     /// Returns deposit move txids with index for a block.
     pub async fn collect_deposit_move_txids(
         &self,
-        height: u64,
+        from_height: u64,
+        to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
         let filter = self.contract.event_filter::<Deposit>().filter;
-        let filter = filter.from_block(BlockNumberOrTag::Number(height));
-        let filter = filter.to_block(BlockNumberOrTag::Number(height));
+        let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
+        let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
         let logs = self.provider.get_logs(&filter).await?;
 
         let mut move_txids = vec![];
@@ -138,11 +139,12 @@ impl CitreaClient {
     /// Returns withdrawal utxos with index for a block.
     pub async fn collect_withdrawal_utxos(
         &self,
-        height: u64,
+        from_height: u64,
+        to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
         let filter = self.contract.event_filter::<Withdrawal>().filter;
-        let filter = filter.from_block(BlockNumberOrTag::Number(height));
-        let filter = filter.to_block(BlockNumberOrTag::Number(height));
+        let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
+        let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
         let logs = self.provider.get_logs(&filter).await?;
 
         let mut utxos = vec![];

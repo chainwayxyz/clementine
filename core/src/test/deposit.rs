@@ -247,7 +247,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         );
 
         let move_txids = citrea_client
-            .collect_deposit_move_txids(deposit_tx_block_height)
+            .collect_deposit_move_txids(deposit_tx_block_height, deposit_tx_block_height)
             .await?;
         assert_eq!(move_txid, move_txids[0].1);
 
