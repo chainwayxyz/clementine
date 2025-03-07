@@ -37,11 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
-      - name: Toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly-2024-07-27
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
+
 
       - name: Run cargo-udeps
         env:
