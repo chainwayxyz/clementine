@@ -110,8 +110,11 @@ impl CitreaClient {
         Ok(OutPoint { txid, vout })
     }
 
-    /// Returns deposit move txids for a block.
-    pub async fn collect_deposit_move_txids(&self, height: u64) -> Result<Vec<Txid>, BridgeError> {
+    /// Returns deposit move txids with index for a block.
+    pub async fn collect_deposit_move_txids(
+        &self,
+        height: u64,
+    ) -> Result<Vec<(u64, Txid)>, BridgeError> {
         let filter = self.contract.event_filter::<Deposit>().filter;
         let filter = filter.from_block(BlockNumberOrTag::Number(height));
         let filter = filter.to_block(BlockNumberOrTag::Number(height));
@@ -120,20 +123,26 @@ impl CitreaClient {
         let mut move_txids = vec![];
         for log in logs {
             let deposit_raw_data = log.data().clone().data.clone();
-            let move_txid = Deposit::abi_decode_data(deposit_raw_data.as_ref(), false)?.1;
-            let txid = Txid::from_slice(move_txid.as_slice())?;
 
-            move_txids.push(txid);
+            let deposit_index = Withdrawal::abi_decode_data(&deposit_raw_data, false)?.1;
+            let deposit_index: u64 = deposit_index
+                .try_into()
+                .map_err(|e| BridgeError::Error(format!("Can't convert deposit index: {:?}", e)))?;
+
+            let move_txid = Deposit::abi_decode_data(deposit_raw_data.as_ref(), false)?.1;
+            let move_txid = Txid::from_slice(move_txid.as_slice())?;
+
+            move_txids.push((deposit_index, move_txid));
         }
 
         Ok(move_txids)
     }
 
-    /// Returns withdrawal utxos for a block.
+    /// Returns withdrawal utxos with index for a block.
     pub async fn collect_withdrawal_utxos(
         &self,
         height: u64,
-    ) -> Result<Vec<OutPoint>, BridgeError> {
+    ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
         let filter = self.contract.event_filter::<Withdrawal>().filter;
         let filter = filter.from_block(BlockNumberOrTag::Number(height));
         let filter = filter.to_block(BlockNumberOrTag::Number(height));
@@ -142,6 +151,12 @@ impl CitreaClient {
         let mut utxos = vec![];
         for log in logs {
             let withdrawal_raw_data = log.data().clone().data.clone();
+
+            let withdrawal_index = Withdrawal::abi_decode_data(&withdrawal_raw_data, false)?.1;
+            let withdrawal_index: u64 = withdrawal_index.try_into().map_err(|e| {
+                BridgeError::Error(format!("Can't convert withdrawal index: {:?}", e))
+            })?;
+
             let withdrawal_utxo =
                 Withdrawal::abi_decode_data(withdrawal_raw_data.as_ref(), false)?.0;
 
@@ -151,7 +166,7 @@ impl CitreaClient {
             let vout = withdrawal_utxo.outputId.0;
             let vout = u32::from_be_bytes(vout);
 
-            utxos.push(OutPoint { txid, vout });
+            utxos.push((withdrawal_index, OutPoint { txid, vout }));
         }
 
         Ok(utxos)

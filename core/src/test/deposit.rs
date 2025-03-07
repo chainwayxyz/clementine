@@ -244,7 +244,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         let move_txids = citrea_client
             .collect_deposit_move_txids(deposit_tx_block_height)
             .await?;
-        assert_eq!(move_txid, move_txids[0]);
+        assert_eq!(move_txid, move_txids[0].1);
 
         lc_prover.wait_for_l1_height(block_height, None).await?;
         let lcp = lc_prover
@@ -261,6 +261,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 
 #[tokio::test]
 async fn citrea_fetch_lcp_and_deposit() -> Result<()> {
+    // TODO: temp hack to use the correct docker image
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",

@@ -149,7 +149,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .collect_withdrawal_utxos(withdrawal_tx_height_block_height)
             .await
             .unwrap();
-        assert_eq!(withdrawal_utxo, utxos[0]);
+        assert_eq!(withdrawal_utxo, utxos[0].1);
 
         Ok(())
     }
