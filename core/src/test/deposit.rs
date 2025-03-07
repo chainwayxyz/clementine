@@ -3,7 +3,7 @@ use crate::{
     citrea::{CitreaClient, LightClientProverRpcClient, SATS_TO_WEI_MULTIPLIER},
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self},
+        citrea::{self, SECRET_KEYS},
         create_test_config_with_thread_name, run_single_deposit,
     },
     EVMAddress,
@@ -173,7 +173,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            initial_da_height: 171,
+            // initial_da_height: 171,
             ..Default::default()
         }
     }
@@ -195,8 +195,11 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         )
         .await?;
 
-        let _citrea_client =
-            CitreaClient::new(Url::parse(&config.citrea_rpc_url).unwrap(), None).unwrap();
+        let citrea_client = CitreaClient::new(
+            Url::parse(&config.citrea_rpc_url).unwrap(),
+            Some(SECRET_KEYS[0].to_string()),
+        )
+        .unwrap();
 
         let (
             _verifiers,
@@ -207,9 +210,11 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             _deposit_outpoint,
             move_txid,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
+
         // Mine blocks, so Citrea can fetch the block that contains the transaction.
         // rpc.mine_blocks(101).await.unwrap();
         da.generate(DEFAULT_FINALITY_DEPTH).await?;
+        citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
         let tx_info = rpc
@@ -219,6 +224,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
+        // TODO: what have i done
         while citrea::block_number(sequencer.client.http_client().clone()).await?
             <= block_height as u32
         {
@@ -228,6 +234,12 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
 
+        let deposit_tx_block_height = sequencer
+            .client
+            .ledger_get_head_soft_confirmation_height()
+            .await
+            .unwrap()
+            + 1;
         citrea::deposit(
             sequencer.client.http_client().clone(),
             block,
@@ -235,10 +247,8 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             tx,
         )
         .await?;
+        citrea::mine_bitcoin_and_citrea_blocks(&rpc, sequencer, 1).await;
 
-        sequencer.client.send_publish_batch_request().await?;
-
-        sleep(Duration::from_secs(3));
         let balance =
             citrea::eth_get_balance(sequencer.client.http_client().clone(), EVMAddress([1; 20]))
                 .await
@@ -248,6 +258,11 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             balance,
             (config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER).into()
         );
+
+        let move_txids = citrea_client
+            .collect_deposit_move_txids(deposit_tx_block_height)
+            .await?;
+        assert_eq!(move_txid, move_txids[0]);
 
         lc_prover.wait_for_l1_height(block_height, None).await?;
         let lcp = lc_prover

@@ -1,6 +1,7 @@
 //! # Citrea Related Utilities
 
-use crate::config::BridgeConfig;
+use crate::{config::BridgeConfig, extended_rpc::ExtendedRpc};
+use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
@@ -105,4 +106,41 @@ pub fn update_config_with_citrea_e2e_values(
         sequencer.config.rollup.rpc.bind_host, sequencer.config.rollup.rpc.bind_port
     );
     config.citrea_rpc_url = citrea_url;
+}
+
+pub async fn mine_bitcoin_and_citrea_blocks(
+    rpc: &ExtendedRpc,
+    sequencer: &citrea_e2e::node::Node<SequencerConfig>,
+    block_num: u64,
+) {
+    rpc.mine_blocks(block_num).await.unwrap();
+    for _ in 0..block_num {
+        sequencer.client.send_publish_batch_request().await.unwrap();
+    }
+}
+
+pub async fn sync_citrea_l2(
+    rpc: &ExtendedRpc,
+    sequencer: &citrea_e2e::node::Node<SequencerConfig>,
+    full_node: &citrea_e2e::node::Node<EmptyConfig>,
+) {
+    let l1_height = rpc.client.get_block_count().await.unwrap();
+    let l2_height = sequencer
+        .client
+        .ledger_get_head_soft_confirmation_height()
+        .await
+        .unwrap();
+
+    for i in l2_height..l1_height + 1 {
+        println!("Syncing L2 block {}", l2_height + i + 1);
+        sequencer.client.send_publish_batch_request().await.unwrap();
+    }
+
+    println!("Waiting for L2 to sync with L1");
+    full_node
+        .client
+        .wait_for_l2_block(l1_height, None)
+        .await
+        .unwrap();
+    println!("L2 synced with L1");
 }
