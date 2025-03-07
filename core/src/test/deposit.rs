@@ -3,7 +3,7 @@ use crate::{
     citrea::{CitreaClient, LightClientProverRpcClient, SATS_TO_WEI_MULTIPLIER},
     extended_rpc::ExtendedRpc,
     test::common::{
-        citrea::{self, SECRET_KEYS},
+        citrea::{self},
         create_test_config_with_thread_name, run_single_deposit,
     },
     EVMAddress,
@@ -187,6 +187,8 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 
         let mut config = create_test_config_with_thread_name(None).await;
         citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
+        let citrea_client =
+            CitreaClient::new(Url::parse(&config.citrea_rpc_url).unwrap(), None).unwrap();
 
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -194,13 +196,6 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
-
-        let citrea_client = CitreaClient::new(
-            Url::parse(&config.citrea_rpc_url).unwrap(),
-            Some(SECRET_KEYS[0].to_string()),
-        )
-        .unwrap();
-
         let (
             _verifiers,
             _operators,
@@ -210,11 +205,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             _deposit_outpoint,
             move_txid,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
-
-        // Mine blocks, so Citrea can fetch the block that contains the transaction.
-        // rpc.mine_blocks(101).await.unwrap();
-        da.generate(DEFAULT_FINALITY_DEPTH).await?;
-        citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 100).await.unwrap();
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
         let tx_info = rpc
@@ -224,15 +215,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
-        // TODO: what have i done
-        while citrea::block_number(sequencer.client.http_client().clone()).await?
-            <= block_height as u32
-        {
-            println!("Waiting for block to be mined");
-            // rpc.mine_blocks(1).await.unwrap();
-            sequencer.client.send_publish_batch_request().await?;
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        }
+        citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
 
         let deposit_tx_block_height = sequencer
             .client
@@ -247,13 +230,12 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             tx,
         )
         .await?;
-        citrea::mine_bitcoin_and_citrea_blocks(&rpc, sequencer, 1).await;
+        sequencer.client.send_publish_batch_request().await?;
 
         let balance =
             citrea::eth_get_balance(sequencer.client.http_client().clone(), EVMAddress([1; 20]))
                 .await
                 .unwrap();
-
         assert_eq!(
             balance,
             (config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER).into()
@@ -263,6 +245,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             .collect_deposit_move_txids(deposit_tx_block_height)
             .await?;
         assert_eq!(move_txid, move_txids[0]);
+        println!("move_txid matches");
 
         lc_prover.wait_for_l1_height(block_height, None).await?;
         let lcp = lc_prover
