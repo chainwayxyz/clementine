@@ -4,7 +4,6 @@ use ark_bn254::{Bn254, Fr};
 use ark_groth16::PreparedVerifyingKey;
 use ark_groth16::Proof;
 use ark_serialize::CanonicalDeserialize;
-use risc0_zkvm::guest::env;
 
 use super::constants::{
     A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG, POST_STATE,
@@ -82,12 +81,8 @@ impl CircuitGroth16WithTotalWork {
         let hex_pre_state = hex::encode(pre_state);
         println!("Hex pre-state: {}", hex_pre_state);
         let ark_proof: Proof<Bn254> = self.groth16_seal.into();
-        let start = env::cycle_count();
         let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
             CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();
-        let end = env::cycle_count();
-        println!("PVK: {}", end - start);
-        let start = env::cycle_count();
 
         let output_digest = create_output_digest(&self.total_work);
 
@@ -105,8 +100,6 @@ impl CircuitGroth16WithTotalWork {
 
         let public_inputs = vec![A0_ARK, A1_ARK, c0, c1, BN_254_CONTROL_ID_ARK];
 
-        let end = env::cycle_count();
-        println!("PPI: {}", end - start);
         let res =
             ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
                 .unwrap();

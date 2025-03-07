@@ -16,6 +16,10 @@ use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
 
+pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = [
+    2421631365, 3264974484, 821027839, 1335612179, 1295879179, 713845602, 1229060261, 258954137,
+];
+
 pub fn verify_winternitz_and_groth16(input: &WinternitzHandler) -> bool {
     let start = env::cycle_count();
     let res = verify_winternitz_signature(input);
@@ -52,18 +56,16 @@ pub fn convert_to_groth16_and_verify(message: &[u8], pre_state: &[u8; 32]) -> bo
     };
 
     let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work);
-    let start = env::cycle_count();
     let res = groth16_proof.verify(pre_state);
-    let end = env::cycle_count();
-    println!("G16V: {}", end - start);
-    println!("{}", res);
     res
 }
 
 pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let start = env::cycle_count();
     let input: BridgeCircuitInput = guest.read_from_host();
-
+    assert_eq!(HEADER_CHAIN_METHOD_ID, input.hcp.method_id);
+    println!("Header chain proof {:?}", input.hcp);
+    guest.verify(input.hcp.method_id, &input.hcp);
     let mut watchtower_flags: Vec<bool> = vec![];
     let mut wt_messages_with_idxs: Vec<(usize, Vec<u8>)> = vec![];
 

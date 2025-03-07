@@ -4,9 +4,17 @@ use bridge_circuit_core::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use crypto_bigint::{Encoding, U128, U256};
 use risc0_zkvm::guest::env;
 
+pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = [
+    2421631365, 3264974484, 821027839, 1335612179, 1295879179, 713845602, 1229060261, 258954137,
+];
+
 pub fn work_only_circuit(guest: &impl ZkvmGuest) {
     let start = env::cycle_count();
     let input: WorkOnlyCircuitInput = guest.read_from_host();
+    assert_eq!(
+        HEADER_CHAIN_METHOD_ID,
+        input.header_chain_circuit_output.method_id
+    );
     env::verify(
         input.header_chain_circuit_output.method_id,
         &borsh::to_vec(&input.header_chain_circuit_output).unwrap(),

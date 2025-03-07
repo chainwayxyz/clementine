@@ -38,7 +38,8 @@ pub fn prove_bridge_circuit(
 
     let mut binding = ExecutorEnv::builder();
     let env = binding.write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap());
-    // let env = env.add_assumption(bridge_circuit_host_params.lcp_receipt).add_assumption(bridge_circuit_host_params.headerchain_receipt).build().unwrap();
+    // let env = env.add_assumption(bridge_circuit_host_params.lcp_receipt);
+    let env = env.add_assumption(bridge_circuit_host_params.headerchain_receipt);
     let env = env.build().unwrap();
     let prover = default_prover();
 
@@ -165,6 +166,7 @@ mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::Transaction;
     use borsh::BorshDeserialize;
+    use circuits_lib::bridge_circuit::convert_to_groth16_and_verify;
     use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
     use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
     use circuits_lib::bridge_circuit_core::winternitz::{
@@ -183,6 +185,10 @@ mod tests {
     use super::*;
     const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest");
+    const WORK_ONLY_ELF: &[u8] =
+        include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
+    pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
+        hex_literal::hex!("4c46b3de707ca646d1dce3d6f94e10681075e6d20facec182944653c33167253");
     const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
     const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
 
@@ -259,9 +265,15 @@ mod tests {
         }
     }
 
+    #[cfg(target_arch = "x86_64")]
     #[tokio::test]
-    #[ignore = "This test will take an eternity. Only for debugging purposes."]
     async fn bridge_circuit_test() {
+        let work_only_method_id_from_elf = compute_image_id(WORK_ONLY_ELF).unwrap();
+        assert_eq!(
+            work_only_method_id_from_elf.as_bytes(),
+            WORK_ONLY_IMAGE_ID,
+            "Method ID mismatch, make sure to build the guest programs with new hardcoded values."
+        );
         let citrea_rpc_client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
         let light_client_rpc_client =
             ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
@@ -323,6 +335,44 @@ mod tests {
             block_header_circuit_output,
             num_of_watchtowers,
         };
+        // Do what a normal bridge circuit guest is supposed to do
+        let mut wt_messages_with_idxs: Vec<(usize, Vec<u8>)> = vec![];
+        let mut watchtower_flags: Vec<bool> = vec![];
+        for (wt_idx, winternitz_handler) in bridge_circuit_host_params
+            .winternitz_details
+            .iter()
+            .enumerate()
+        {
+            if winternitz_handler.signature.is_none() || winternitz_handler.message.is_none() {
+                watchtower_flags.push(false);
+                continue;
+            }
+
+            let flag = verify_winternitz_signature(winternitz_handler);
+            watchtower_flags.push(flag);
+
+            if flag {
+                wt_messages_with_idxs.push((wt_idx, winternitz_handler.message.clone().unwrap()));
+            }
+        }
+        wt_messages_with_idxs.sort_by(|a, b| b.1.cmp(&a.1));
+        let mut total_work = [0u8; 32];
+        for pair in wt_messages_with_idxs.iter() {
+            // Grooth16 verification of work only circuit
+            if convert_to_groth16_and_verify(&pair.1, &WORK_ONLY_IMAGE_ID) {
+                total_work[16..32].copy_from_slice(
+                    &pair.1[128..144]
+                        .chunks_exact(4)
+                        .flat_map(|c| c.iter().rev())
+                        .copied()
+                        .collect::<Vec<_>>(),
+                );
+                break;
+            }
+        }
+
+        println!("Done with the normal bridge circuit guest stuff");
+
         let (ark_groth16_proof, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
 

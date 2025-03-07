@@ -27,7 +27,7 @@ pub fn stark_to_snark(
 
     // This part is from risc0-groth16
     if !is_x86_architecture() {
-        panic!("stark_to_snark is only supported on x86 architecture.") // TODO: Instead of modifying, skip for non-compatible architectures
+        panic!("stark_to_snark is only supported on x86 architecture.")
     }
     if !is_docker_installed() {
         panic!("Please install docker first.")
