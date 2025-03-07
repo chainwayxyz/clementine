@@ -50,6 +50,7 @@ ark-serialize = { workspace = true }
 serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
 citrea-e2e = { workspace = true }
+sov-rollup-interface = { workspace = true, features = ["native"] }
 
 [[bin]]
 name = "server"

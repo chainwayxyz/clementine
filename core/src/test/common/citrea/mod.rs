@@ -4,7 +4,7 @@ use crate::{config::BridgeConfig, extended_rpc::ExtendedRpc};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
-    config::{EmptyConfig, LightClientProverConfig, SequencerConfig},
+    config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
     framework::TestFramework,
     node::{Node, NodeKind},
 };
@@ -56,10 +56,12 @@ pub async fn start_citrea(
     &Node<SequencerConfig>,
     &mut Node<EmptyConfig>,
     Option<&Node<LightClientProverConfig>>,
+    Option<&Node<BatchProverConfig>>,
     &BitcoinNode,
 )> {
     let sequencer = f.sequencer.as_ref().expect("Sequencer is present");
     let full_node = f.full_node.as_mut().expect("Full node is present");
+    let batch_prover = f.batch_prover.as_ref();
     let light_client_prover = f.light_client_prover.as_ref();
     let da = f.bitcoin_nodes.get(0).expect("There is a bitcoin node");
 
@@ -81,7 +83,7 @@ pub async fn start_citrea(
         .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
         .await?;
 
-    Ok((sequencer, full_node, light_client_prover, da))
+    Ok((sequencer, full_node, light_client_prover, batch_prover, da))
 }
 
 /// Updates given config with the values set by the Citrea e2e.
