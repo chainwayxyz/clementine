@@ -120,17 +120,6 @@ pub fn update_config_with_citrea_e2e_values(
     }
 }
 
-pub async fn mine_bitcoin_and_citrea_blocks(
-    rpc: &ExtendedRpc,
-    sequencer: &citrea_e2e::node::Node<SequencerConfig>,
-    block_num: u64,
-) {
-    rpc.mine_blocks(block_num).await.unwrap();
-    for _ in 0..block_num {
-        sequencer.client.send_publish_batch_request().await.unwrap();
-    }
-}
-
 pub async fn sync_citrea_l2(
     rpc: &ExtendedRpc,
     sequencer: &citrea_e2e::node::Node<SequencerConfig>,
