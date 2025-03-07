@@ -5,6 +5,7 @@ on: [push]
 env:
   CARGO_TERM_COLOR: always
   CARGOFLAGS: -p bridge-circuit-host --all-targets --all-features
+  TESTFLAGS: -p bridge-circuit-host
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
 
 jobs:
@@ -39,4 +40,4 @@ jobs:
         shared-key: "bridge-circuit-release-build"
 
     - name: Run tests
-      run: cargo test --release
+      run: cargo test --release $TESTFLAGS
