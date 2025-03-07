@@ -17,7 +17,7 @@ use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{KickoffId, NormalSignatureKind};
 use async_stream::try_stream;
 use bitcoin::hashes::Hash;
-use bitcoin::{Address, OutPoint, TapSighash, XOnlyPublicKey};
+use bitcoin::{OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
 impl BridgeConfig {

@@ -65,7 +65,7 @@ create table if not exists deposits (
     ),
     recovery_taproot_address text,
     evm_address text check (evm_address ~ '^[a-fA-F0-9]{40}'),
-    nofn_xonly_pk bytea
+    nofn_xonly_pk text
 );
 -- Deposit signatures
 create table if not exists deposit_signatures (
