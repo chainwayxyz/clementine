@@ -1,4 +1,4 @@
-name: Build And Test
+name: Build And Test - Bridge Circuit
 
 on: [push]
 
@@ -11,7 +11,7 @@ env:
 
 jobs:
   bridge_circuit_release_build:
-    name: Compile code with release profile
+    name: Compile bridge-circuit-host crate with release profile
     runs-on: ubicloud-standard-16
 
     steps:
