@@ -349,6 +349,9 @@ pub enum BridgeError {
     AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
     #[error("Error while encoding/decoding EVM type: {0}")]
     AlloySolTypes(#[from] alloy::sol_types::Error),
+
+    #[error("Transaction is already in block: {0}")]
+    TransactionAlreadyInBlock(BlockHash),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

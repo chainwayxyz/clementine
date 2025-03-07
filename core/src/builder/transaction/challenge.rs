@@ -207,7 +207,7 @@ pub fn create_challenge_txhandler(
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::Challenge,
-            kickoff_txhandler.get_spendable_output(1)?,
+            kickoff_txhandler.get_spendable_output(0)?,
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )

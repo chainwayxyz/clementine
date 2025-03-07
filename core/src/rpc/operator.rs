@@ -1,6 +1,6 @@
 use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
-    AssertRequest, ChallengeAckDigest, DepositParams, DepositSignSession, Empty,
+    self, AssertRequest, ChallengeAckDigest, DepositParams, DepositSignSession, Empty,
     FinalizedPayoutParams, OperatorKeys, OperatorParams, RawSignedTxs, SchnorrSig,
     SignedTxWithType, SignedTxsWithType, WithdrawParams, WithdrawResponse,
     WithdrawalFinalizedParams,
@@ -199,7 +199,7 @@ impl ClementineOperator for Operator {
     async fn internal_finalized_payout(
         &self,
         request: Request<FinalizedPayoutParams>,
-    ) -> Result<Response<Empty>, Status> {
+    ) -> Result<Response<clementine::Txid>, Status> {
         let payout_blockhash: [u8; 32] = request
             .get_ref()
             .payout_blockhash
@@ -216,15 +216,16 @@ impl ClementineOperator for Operator {
             .expect("Failed to convert deposit outpoint to OutPoint");
 
         let mut dbtx = self.db.begin_transaction().await?;
-        self.handle_finalized_payout(
-            &mut dbtx,
-            deposit_outpoint,
-            BlockHash::from_byte_array(payout_blockhash),
-        )
-        .await?;
+        let kickoff_txid = self
+            .handle_finalized_payout(
+                &mut dbtx,
+                deposit_outpoint,
+                BlockHash::from_byte_array(payout_blockhash),
+            )
+            .await?;
         dbtx.commit().await.expect("Failed to commit transaction");
 
-        Ok(Response::new(Empty {}))
+        Ok(Response::new(kickoff_txid.into()))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
