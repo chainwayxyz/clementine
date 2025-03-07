@@ -68,7 +68,7 @@ pub fn get_ark_verifying_key() -> ark_groth16::VerifyingKey<Bn254> {
     let gamma_g2_c0 = Fq2::new(gamma_g2_c0_re, gamma_g2_c0_im);
     let gamma_g2_c1 = Fq2::new(gamma_g2_c1_re, gamma_g2_c1_im);
     let gamma_g2 = G2Affine::new(gamma_g2_c0, gamma_g2_c1);
-    
+
     // Delta in G2
     let delta_g2_c0_re = Fq::from_str(
         "10420867877205876893133313745975881455738550632615496913998847450354955270586",

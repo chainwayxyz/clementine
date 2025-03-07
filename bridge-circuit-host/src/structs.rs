@@ -9,7 +9,7 @@ use header_chain::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
 use sha2::{Digest, Sha256};
 
-use crate::utils::{get_ark_verifying_key, reverse_bits_and_copy};
+use crate::utils::get_ark_verifying_key;
 
 #[derive(Debug, Clone)]
 pub struct BridgeCircuitHostParams {
