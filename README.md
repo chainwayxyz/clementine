@@ -60,16 +60,19 @@ More information, use `--help` flag:
 
 1. **PostgreSQL Database**
 
-   Tests require a PostgreSQL database with a max connection limit of at least 200 due to parallelism. You can quickly set one up using Docker:
+   Tests require a PostgreSQL database with a high max connection limit due to parallelism of tests. 
+   It is also required to have pgmq extension installed for PostgreSQL.
+   You can quickly set one up using Docker:
 
    ```bash
    docker run --name clementine-test-db \
-     -e POSTGRES_USER=clementine \
-     -e POSTGRES_PASSWORD=clementine \
-     -e POSTGRES_DB=clementine \
-     -p 5432:5432 \
-     --restart always \
-     -d postgres:15  -c 'max_connections=200'
+   -e POSTGRES_USER=clementine \
+   -e POSTGRES_PASSWORD=clementine \
+   -e POSTGRES_DB=clementine \
+   -p 5432:5432 \
+   --restart always \
+   -d postgres:15 \
+   bash -c "apt-get update && apt-get install -y make pgxnclient && pgxn install pgmq && exec docker-entrypoint.sh postgres -c 'max_connections=1000'"
    ```
 
 2. **RISC Zero Toolchain**

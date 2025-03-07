@@ -179,7 +179,7 @@ impl Operator {
         )
         .await?;
         state_manager.load_from_db().await?;
-        let _state_manager_block_syncer = states::syncer::fetch_new_blocks(
+        let state_manager_block_syncer = states::syncer::fetch_new_blocks(
             state_manager.get_last_processed_block_height(),
             state_manager.get_consumer_handle(),
             db.clone(),
@@ -187,8 +187,7 @@ impl Operator {
             config.protocol_paramset(),
         )
         .await;
-        let _state_manager_run_loop =
-            run_state_manager(state_manager, Duration::from_secs(1)).await;
+        let state_manager_run_loop = run_state_manager(state_manager, Duration::from_secs(1)).await;
         // add own operator state to state manager
         let mut dbtx = db.begin_transaction().await?;
         states::syncer::add_new_round_machine(
@@ -200,6 +199,15 @@ impl Operator {
         )
         .await?;
         dbtx.commit().await?;
+        // Monitor state manager handles
+        crate::utils::monitor_task_with_panic(
+            state_manager_block_syncer,
+            "operator block syncer for state manager",
+        );
+        crate::utils::monitor_task_with_panic(
+            state_manager_run_loop,
+            "operator run loop of state manager",
+        );
         Ok(operator)
     }
 

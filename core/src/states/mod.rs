@@ -336,14 +336,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.kickoff_machines.clone()
     }
 
-    pub async fn track_operator(&mut self, operator_data: OperatorData, operator_idx: u32) {
-        let machine = round::RoundStateMachine::new(operator_data, operator_idx)
-            .uninitialized_state_machine()
-            .init_with_context(&mut self.context)
-            .await;
-        self.round_machines.push(machine);
-    }
-
     /// Saves the state machines to the database. Resets the dirty flag for all machines after successful save.
     ///
     /// # Errors
@@ -631,19 +623,5 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.last_processed_block_height = max(block_height, self.last_processed_block_height);
 
         Ok(())
-    }
-
-    pub fn add_new_round_machine(
-        &mut self,
-        machine: InitializedStateMachine<round::RoundStateMachine<T>>,
-    ) {
-        self.round_machines.push(machine);
-    }
-
-    pub fn add_new_kickoff_machine(
-        &mut self,
-        machine: InitializedStateMachine<kickoff::KickoffStateMachine<T>>,
-    ) {
-        self.kickoff_machines.push(machine);
     }
 }

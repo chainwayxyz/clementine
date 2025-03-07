@@ -29,6 +29,7 @@ pub async fn fetch_new_blocks(
         );
         // variable to store locally last sent height
         let mut last_sent_height = last_processed_block_height;
+        let mut num_consecutive_errors = 0;
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         loop {
             let result: Result<bool, eyre::Report> = async {
@@ -93,12 +94,21 @@ pub async fn fetch_new_blocks(
             .await;
 
             match result {
-                Ok(true) => {}
+                Ok(true) => {
+                    num_consecutive_errors = 0;
+                }
                 Ok(false) => {
+                    num_consecutive_errors = 0;
                     tokio::time::sleep(poll_delay).await;
                 }
                 Err(e) => {
-                    tracing::error!("State manager syncing error: {:?}", e);
+                    tracing::error!("State manager block fetch error: {:?}", e);
+                    num_consecutive_errors += 1;
+                    if num_consecutive_errors > 50 {
+                        return Err(eyre::eyre!(
+                            "Too many consecutive state machine block fetching errors"
+                        ));
+                    }
                     tokio::time::sleep(poll_delay).await;
                 }
             }
@@ -159,6 +169,7 @@ where
             state_manager.consumer_handle
         );
         let db = state_manager.db.clone();
+        let mut num_consecutive_errors = 0;
         loop {
             let result: Result<bool, BridgeError> = async {
                 let new_event_received = async {
@@ -203,12 +214,19 @@ where
             .await;
 
             match result {
-                Ok(true) => {}
+                Ok(true) => {
+                    num_consecutive_errors = 0;
+                }
                 Ok(false) => {
+                    num_consecutive_errors = 0;
                     tokio::time::sleep(poll_delay).await;
                 }
                 Err(e) => {
-                    tracing::error!("State manager syncing error: {:?}", e);
+                    tracing::error!("State manager run loop error: {:?}", e);
+                    num_consecutive_errors += 1;
+                    if num_consecutive_errors > 50 {
+                        return Err(eyre::eyre!("Too many consecutive state machine errors"));
+                    }
                     tokio::time::sleep(poll_delay).await;
                 }
             }

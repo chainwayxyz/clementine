@@ -1,0 +1,195 @@
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test bridge_circuit_host::tests::bridge_circuit_test ... ignored, This test will take an eternity. Only for debugging purposes.
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 11 tests
+test bridge_circuit_core::winternitz::tests::test_checksum ... ok
+test bridge_circuit_core::winternitz::tests::test_digit_signature ... ok
+test bridge_circuit_core::utils::tests::test_hash160 ... ok
+test bridge_circuit_core::winternitz::tests::test_generate_public_key ... ok
+test bridge_circuit_core::winternitz::tests::test_log_base_ceil ... ok
+test bridge_circuit_core::utils::tests::test_to_decimal ... ok
+test bridge_circuit_core::winternitz::tests::test_public_key_for_digit ... ok
+test bridge_circuit_core::winternitz::tests::test_to_digits ... ok
+test bridge_circuit_core::groth16::tests::test_conversion_to_proof_bn254 ... ok
+test bridge_circuit_core::groth16::tests::test_new_and_accessors ... ok
+test bridge_circuit_core::groth16::tests::test_to_compressed_and_from_compressed ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 139 tests
+test actor::tests::actor_new ... ok
+test actor::tests::sign_taproot_pubkey_spend_tx_with_sighash ... ok
+test actor::tests::sign_taproot_pubkey_spend ... ok
+test actor::tests::test_actor_key_spend_verification ... ok
+test actor::tests::test_actor_script_spend_tx_valid ... ok
+test actor::tests::test_actor_script_spend_sig_valid ... ok
+test bitvm_client::tests::test_generate_fresh_data ... ignored, This test is too slow to run on every commit
+test builder::address::tests::generate_deposit_address_musig2_fixed_address ... ignored, TODO: Investigate this
+test builder::script::tests::test_dynamic_casting ... ok
+test builder::script::tests::test_dynamic_casting_extended ... ok
+test builder::script::tests::test_scriptkind_completeness ... ok
+test builder::address::tests::create_taproot_address ... ok
+test bitvm_client::tests::test_to_flattened_vec ... ok
+test cli::tests::help_message ... ok
+test cli::tests::version ... ok
+test builder::address::tests::test_taproot_builder_with_scripts ... ok
+test config::tests::parse_from_file_with_invalid_headers ... ok
+test config::tests::parse_from_file ... ok
+test config::tests::parse_from_string ... ok
+test config::tests::test_docker_config_parseable ... ok
+test config::tests::test_test_config_parseable ... ok
+test actor::tests::sign_winternitz_signature ... ok
+test actor::tests::derive_winternitz_pk_uniqueness ... ok
+test actor::tests::derive_winternitz_pk_fixed_pk ... ok
+test database::bitcoin_syncer::tests::add_and_get_txids_from_block ... ok
+test database::bitcoin_syncer::tests::add_get_block_info ... ok
+test bitvm_client::tests::test_vec_to_array_with_actor_values ... ok
+test builder::script::tests::test_preimage_reveal_script_spendable ... ok
+test builder::script::tests::test_deposit_script_spendable ... ok
+test builder::script::tests::test_winternitz_commit_spendable ... ok
+test builder::script::tests::test_checksig_spendable ... ok
+test builder::script::tests::test_timelock_script_spendable ... ok
+test bitcoin_syncer::tests::fetch_new_blocks_backwards ... ok
+test database::bitcoin_syncer::tests::insert_get_spent_utxos ... ok
+test database::bitcoin_syncer::tests::test_event_handling ... ok
+test database::header_chain_prover::tests::save_get_new_block ... ok
+test database::bitcoin_syncer::tests::test_multiple_event_consumers ... ok
+test database::bitcoin_syncer::tests::test_non_canonical_blocks ... ok
+test database::bitcoin_syncer::tests::test_store_and_get_block ... ok
+test database::header_chain_prover::tests::get_block_header ... ok
+test database::operator::tests::save_get_operators ... ok
+test database::tests::get_postgresql_database_url ... ok
+test database::tests::get_postgresql_url ... ok
+test database::header_chain_prover::tests::get_latest_chain_proof_height ... ok
+test database::operator::tests::set_get_deposit_signatures ... ok
+test database::tests::invalid_database_connection - should panic ... ok
+test database::tx_sender::tests::test_confirm_and_unconfirm_transactions ... ok
+test database::tests::valid_database_connection ... ok
+test database::operator::tests::test_operators_funding_utxo_2 ... ok
+test database::tx_sender::tests::test_cancelled_outpoints_and_txids ... ok
+test database::operator::tests::test_operators_funding_utxo_1 ... ok
+test database::operator::tests::test_save_get_unspent_kickoff_sigs ... ok
+test database::operator::tests::test_save_get_bitvm_setup ... ok
+test database::operator::tests::test_save_get_public_hashes ... ok
+test database::state_machine::tests::test_save_and_load_state_machines ... ok
+test database::operator::tests::set_get_operator_winternitz_public_keys ... ok
+test bitcoin_syncer::tests::fetch_new_blocks_forward ... ok
+test database::tx_sender::tests::test_fee_payer_utxo_operations ... ok
+test database::header_chain_prover::tests::get_non_proven_block ... ok
+test database::tx_sender::tests::test_save_and_get_tx ... ok
+test database::watchtower::tests::set_get_watchtower_challenge_address ... ok
+test database::tx_sender::tests::test_get_sendable_txs ... ok
+test database::watchtower::tests::set_get_winternitz_public_key ... ok
+test database::watchtower::tests::set_get_watchtower_xonly_pk ... ok
+test database::wrapper::tests::evmaddressdb_encode_decode_invariant ... ok
+test database::wrapper::tests::blockhashdb_encode_decode_invariant ... ok
+test database::wrapper::tests::blockheaderdb_encode_decode_invariant ... ok
+test database::wrapper::tests::outpoint_encode_decode_invariant ... ok
+test database::wrapper::tests::addressdb_encode_decode_invariant ... ok
+test builder::transaction::creator::tests::test_deposit_and_sign_txs ... ok
+test database::wrapper::tests::signaturedb_encode_decode_invariant ... ok
+test database::wrapper::tests::txiddb_encode_decode_invariant ... ok
+test database::wrapper::tests::utxodb_json_encode_decode_invariant ... ok
+test database::wrapper::tests::txoutdb_encode_decode_invariant ... ok
+test database::wrapper::tests::signaturesdb_encode_decode_invariant ... ok
+test header_chain_prover::tests::start_header_chain_prover ... ignored, This test is very host dependent and needs a human observer
+test musig2::tests::different_aggregated_keys_for_different_musig2_modes ... ok
+test musig2::tests::musig2_key_spend ... ok
+test musig2::tests::musig2_raw_fail_if_partial_sigs_invalid ... ok
+test musig2::tests::musig2_raw_without_a_tweak ... ok
+test musig2::tests::musig2_script_spend ... ok
+test musig2::tests::musig2_sig_with_tweak ... ok
+test musig2::tests::musig2_tweak_fail ... ok
+test musig2::tests::signing_checks_for_different_musig2_modes ... ok
+test operator::tests::get_winternitz_public_keys ... ignored, Design changes in progress
+test bitcoin_syncer::tests::get_block_info_from_height has been running for over 60 seconds
+test bitcoin_syncer::tests::save_get_block has been running for over 60 seconds
+test bitcoin_syncer::tests::save_get_transaction_spent_utxos has been running for over 60 seconds
+test bitcoin_syncer::tests::set_initial_block_info_if_not_exists has been running for over 60 seconds
+test bitcoin_syncer::tests::set_non_canonical_block_hashes has been running for over 60 seconds
+test bitcoin_syncer::tests::start_bitcoin_syncer_new_block_mined has been running for over 60 seconds
+test bitcoin_syncer::tests::save_get_transaction_spent_utxos ... ok
+test header_chain_prover::blockgazer::tests::check_for_new_blocks_fallen_behind_single ... ok
+test header_chain_prover::blockgazer::tests::sync_blockchain_multiple_blocks ... ok
+test header_chain_prover::blockgazer::tests::sync_blockchain_single_block ... ok
+test rpc::aggregator::tests::aggregator_setup_and_deposit ... ignored, This test is also done during the deposit phase of test_deposit_and_sign_txs test
+test rpc::parser::tests::from_bitcoin_outpoint_to_proto_outpoint ... ok
+test rpc::parser::tests::from_proto_outpoint_to_bitcoin_outpoint ... ok
+test rpc::parser::tests::from_proto_winternitz_public_key_to_bitvm ... ok
+test rpc::parser::tests::from_txid_to_proto_txid ... ok
+test test::common::citrea::bitcoin_merkle::tests::test_merkle_tree ... ok
+test header_chain_prover::blockgazer::tests::check_for_new_blocks_uptodate ... ok
+test header_chain_prover::blockgazer::tests::check_for_new_blocks_fork_and_mine_new ... ok
+test header_chain_prover::blockgazer::tests::sync_blockchain_multiple_blocks_with_fork ... ok
+test test::full_flow::tests::test_bad_path_3 ... ignored, Assert is not ready
+test header_chain_prover::blockgazer::tests::check_for_new_blocks_fallen_behind_multiple ... ok
+test database::header_chain_prover::tests::save_get_block_proof has been running for over 60 seconds
+test header_chain_prover::tests::new ... ok
+test header_chain_prover::tests::new_with_proof_assumption ... ok
+test operator::tests::test_generate_preimages_and_hashes ... ok
+test operator::tests::operator_get_params ... ok
+test test::misc::multiple_deposits_for_operator ... ignored, We are switching to gRPC
+Header chain circuit took 3845 cycles
+test header_chain_prover::prover::tests::prove_block_headers_genesis has been running for over 60 seconds
+test header_chain_prover::prover::tests::prove_block_headers_second has been running for over 60 seconds
+test header_chain_prover::prover::tests::save_and_get_proof has been running for over 60 seconds
+test test::misc::create_regtest_rpc_macro ... ok
+test rpc::aggregator::tests::aggregator_deposit_movetx_lands_onchain has been running for over 60 seconds
+test rpc::aggregator::tests::aggregator_double_setup_fail has been running for over 60 seconds
+test test::deposit::citrea_deposit has been running for over 60 seconds
+test test::full_flow::tests::test_bad_path_1 has been running for over 60 seconds
+test test::full_flow::tests::test_bad_path_2 has been running for over 60 seconds
+test test::full_flow::tests::test_happy_path_1 has been running for over 60 seconds
+test test::full_flow::tests::test_happy_path_2 has been running for over 60 seconds
+test rpc::aggregator::tests::aggregator_double_setup_fail ... ok
+test test::full_flow::tests::test_operator_end_round has been running for over 60 seconds
+test test::full_flow::tests::test_operator_end_round_with_challenge has been running for over 60 seconds
+test test::misc::test_deposit has been running for over 60 seconds
+test test::musig2::key_and_script_spend has been running for over 60 seconds
+test test::musig2::key_spend has been running for over 60 seconds
+test rpc::aggregator::tests::aggregator_deposit_movetx_lands_onchain ... ok
+test test::full_flow::tests::test_bad_path_2 ... ok
+test test::musig2::key_spend_with_script has been running for over 60 seconds
+test header_chain_prover::prover::tests::prove_block_headers_genesis ... ok
+test test::full_flow::tests::test_bad_path_1 ... ok
+test test::musig2::script_spend has been running for over 60 seconds
+test test::musig2::key_spend_with_script ... ok
+test test::musig2::key_and_script_spend ... ok
+test test::musig2::key_spend ... ok
+test test::musig2::script_spend ... ok
+test test::state_manager::test_process_block_parallel has been running for over 60 seconds
+test test::state_manager::test_process_empty_block_with_no_machines has been running for over 60 seconds
+test test::state_manager::test_save_and_load_state has been running for over 60 seconds
+test test::taproot::create_address_and_transaction_then_sign_transaction has been running for over 60 seconds
+test test::withdraw::citrea_withdraw_and_get_utxo has been running for over 60 seconds
+test tx_sender::tests::get_fee_rate has been running for over 60 seconds
+test test::full_flow::tests::test_happy_path_1 ... ok
+test test::full_flow::tests::test_operator_end_round ... ok
+test bitcoin_syncer::tests::set_initial_block_info_if_not_exists ... ok
+test test::misc::test_deposit ... ok
+test test::full_flow::tests::test_happy_path_2 ... ok
+test test::state_manager::test_process_empty_block_with_no_machines ... ok
+test test::state_manager::test_process_block_parallel ... ok
+test test::taproot::create_address_and_transaction_then_sign_transaction ... ok
+test tx_sender::tests::get_fee_rate ... ok
+test watchtower::tests::new_watchtower ... ok
+test watchtower::tests::watchtower_get_params ... ok
+test watchtower::tests::get_watchtower_winternitz_public_keys ... ok
+test test::deposit::citrea_deposit ... ok
+test test::state_manager::test_save_and_load_state ... ok
+Header chain circuit took 3845 cycles
+test test::withdraw::citrea_withdraw_and_get_utxo ... ok
+test tx_sender::tests::test_try_to_send has been running for over 60 seconds
+test tx_sender::tests::test_try_to_send ... ok
+test test::full_flow::tests::test_operator_end_round_with_challenge ... ok
+Header chain circuit took 28286 cycles

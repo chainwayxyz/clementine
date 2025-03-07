@@ -129,7 +129,7 @@ impl Verifier {
         let tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
 
         // Monitor the tx_sender_handle and abort if it dies unexpectedly
-        crate::utils::monitor_task_with_abort(tx_sender_handle, "tx_sender for verifier");
+        crate::utils::monitor_task_with_panic(tx_sender_handle, "tx_sender for verifier");
 
         let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
@@ -183,7 +183,7 @@ impl Verifier {
         )
         .await?;
         state_manager.load_from_db().await?;
-        let _state_manager_block_syncer = states::syncer::fetch_new_blocks(
+        let state_manager_block_syncer = states::syncer::fetch_new_blocks(
             state_manager.get_last_processed_block_height(),
             state_manager.get_consumer_handle(),
             db.clone(),
@@ -191,8 +191,17 @@ impl Verifier {
             config.protocol_paramset(),
         )
         .await;
-        let _state_manager_run_loop =
-            run_state_manager(state_manager, Duration::from_secs(1)).await;
+        let state_manager_run_loop = run_state_manager(state_manager, Duration::from_secs(1)).await;
+
+        // Monitor state manager handles
+        crate::utils::monitor_task_with_panic(
+            state_manager_block_syncer,
+            "verifier block syncer for state manager",
+        );
+        crate::utils::monitor_task_with_panic(
+            state_manager_run_loop,
+            "verifier run loop of state manager",
+        );
         Ok(verifier)
     }
 
