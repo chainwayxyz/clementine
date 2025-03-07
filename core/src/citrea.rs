@@ -41,6 +41,7 @@ sol!(
 #[derive(Clone, Debug)]
 pub struct CitreaClient {
     pub client: HttpClient,
+    pub light_client_prover_client: HttpClient,
     pub wallet_address: alloy::primitives::Address,
     pub provider: CitreaProvider,
     pub contract: CitreaContract,
@@ -50,9 +51,14 @@ impl CitreaClient {
     /// # Parameters
     ///
     /// - `citrea_rpc_url`: URL of the Citrea RPC.
+    /// - `citrea_rpc_url`: URL of the Citrea light client prover RPC.
     /// - `secret_key`: Etherium secret key of the EVM user. If not give, dummy
     ///   secret key is used (wallet is not required).
-    pub fn new(citrea_rpc_url: Url, secret_key: Option<String>) -> Result<Self, BridgeError> {
+    pub fn new(
+        citrea_rpc_url: Url,
+        light_client_prover_url: Url,
+        secret_key: Option<String>,
+    ) -> Result<Self, BridgeError> {
         let secret_key = secret_key.unwrap_or(["01"; 32].concat());
 
         let key = secret_key
@@ -73,9 +79,12 @@ impl CitreaClient {
         );
 
         let client = HttpClientBuilder::default().build(citrea_rpc_url)?;
+        let light_client_prover_client =
+            HttpClientBuilder::default().build(light_client_prover_url)?;
 
         Ok(CitreaClient {
             client,
+            light_client_prover_client,
             wallet_address,
             provider,
             contract,

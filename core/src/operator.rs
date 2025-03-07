@@ -120,10 +120,13 @@ impl Operator {
         };
         dbtx.commit().await?;
 
-        let citrea_contract_client = if !config.citrea_rpc_url.is_empty() {
+        let citrea_client = if !config.citrea_rpc_url.is_empty() {
             Some(CitreaClient::new(
                 Url::parse(&config.citrea_rpc_url).map_err(|e| {
                     BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
+                })?,
+                Url::parse(&config.citrea_light_client_prover_url).map_err(|e| {
+                    BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e))
                 })?,
                 None,
             )?)
@@ -146,7 +149,7 @@ impl Operator {
             idx,
             collateral_funding_outpoint,
             tx_sender,
-            citrea_client: citrea_contract_client,
+            citrea_client,
             reimburse_addr,
         })
     }

@@ -95,6 +95,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 
         let citrea_contract_client = CitreaClient::new(
             Url::parse(&config.citrea_rpc_url).unwrap(),
+            Url::parse(&config.citrea_light_client_prover_url).unwrap(),
             Some(SECRET_KEYS[0].to_string()),
         )
         .unwrap();
