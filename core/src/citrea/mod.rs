@@ -33,7 +33,7 @@ sol!(
     #[sol(rpc)]
     #[derive(Debug)]
     BRIDGE_CONTRACT,
-    "src/Bridge.json"
+    "src/citrea/Bridge.json"
 );
 
 /// Citrea client is responsible for creating contracts, interacting with the
@@ -116,7 +116,12 @@ impl CitreaClient {
         Ok(OutPoint { txid, vout })
     }
 
-    /// Returns deposit move txids with index for a block.
+    /// Returns deposit move txids with index for a given range of blocks.
+    ///
+    /// # Parameters
+    ///
+    /// - `from_height`: Start block height (inclusive)
+    /// - `to_height`: End block height (inclusive)
     pub async fn collect_deposit_move_txids(
         &self,
         from_height: u64,
@@ -145,7 +150,12 @@ impl CitreaClient {
         Ok(move_txids)
     }
 
-    /// Returns withdrawal utxos with index for a block.
+    /// Returns withdrawal utxos with index for given range of blocks.
+    ///
+    /// # Parameters
+    ///
+    /// - `from_height`: Start block height (inclusive)
+    /// - `to_height`: End block height (inclusive)
     pub async fn collect_withdrawal_utxos(
         &self,
         from_height: u64,
