@@ -110,17 +110,7 @@ impl BridgeCircuitBitvmInputs {
 
         let hash_bytes = journal_hash.as_bytes();
 
-        let mut combined_method_id_constant_buf = [0u8; 32];
-        let mut journal_buf = [0u8; 32];
-
-        reverse_bits_and_copy(
-            &self.combined_method_id,
-            &mut combined_method_id_constant_buf,
-        );
-
-        reverse_bits_and_copy(hash_bytes, &mut journal_buf);
-
-        let concat_input = [combined_method_id_constant_buf, journal_buf].concat();
+        let concat_input = [self.combined_method_id, *hash_bytes].concat();
 
         blake3::hash(&concat_input)
     }
@@ -140,18 +130,9 @@ impl BridgeCircuitBitvmInputs {
         let y_bytes: [u8; 32] = y.into();
         println!("Y bytes (Journal): {:#?}", y_bytes);
 
-        let mut combined_method_id_constant_buf = [0u8; 32];
-        let mut journal_buf = [0u8; 32];
-
-        reverse_bits_and_copy(
-            &self.combined_method_id,
-            &mut combined_method_id_constant_buf,
-        );
-        reverse_bits_and_copy(&y_bytes, &mut journal_buf);
-
         let mut hasher = blake3::Hasher::new();
-        hasher.update(&combined_method_id_constant_buf);
-        hasher.update(&journal_buf);
+        hasher.update(&self.combined_method_id);
+        hasher.update(&y_bytes);
         let public_output = hasher.finalize();
 
         let public_output_bytes: [u8; 32] = public_output.into();
