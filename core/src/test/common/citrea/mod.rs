@@ -48,6 +48,8 @@ pub const EVM_ADDRESSES: [&str; 10] = [
     "a0Ee7A142d267C1f36714E4a8F75612F20a79720",
 ];
 
+pub const DUMMY_LCP_URL: (&str, u16) = ("127.0.0.1", 8080);
+
 /// Starts typical nodes with typical configs for a test that needs Citrea.
 pub async fn start_citrea(
     sequencer_config: SequencerConfig,
@@ -91,7 +93,7 @@ pub fn update_config_with_citrea_e2e_values(
     config: &mut BridgeConfig,
     da: &citrea_e2e::bitcoin::BitcoinNode,
     sequencer: &citrea_e2e::node::Node<SequencerConfig>,
-    light_client_prover: Option<&citrea_e2e::node::Node<LightClientProverConfig>>,
+    light_client_prover: Option<(&str, u16)>,
 ) {
     config.bitcoin_rpc_password = da.config.rpc_password.clone();
     config.bitcoin_rpc_user = da.config.rpc_user.clone();
@@ -109,11 +111,11 @@ pub fn update_config_with_citrea_e2e_values(
     config.citrea_rpc_url = citrea_url;
 
     if let Some(light_client_prover) = light_client_prover {
-        let citrea_light_client_prover_url = format!(
-            "http://{}:{}",
-            light_client_prover.config.rollup.rpc.bind_host,
-            light_client_prover.config.rollup.rpc.bind_port
-        );
+        let citrea_light_client_prover_url =
+            format!("http://{}:{}", light_client_prover.0, light_client_prover.1);
+        config.citrea_light_client_prover_url = citrea_light_client_prover_url;
+    } else {
+        let citrea_light_client_prover_url = format!("http://{}:{}", "127.0.0.1", 8080); // Dummy value
         config.citrea_light_client_prover_url = citrea_light_client_prover_url;
     }
 }
