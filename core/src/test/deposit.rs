@@ -210,7 +210,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             _deposit_outpoint,
             move_txid,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 100).await.unwrap();
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
         let tx_info = rpc

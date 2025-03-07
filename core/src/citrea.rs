@@ -122,7 +122,7 @@ impl CitreaClient {
         for log in logs {
             let deposit_raw_data = log.data().clone().data.clone();
 
-            let deposit_index = Withdrawal::abi_decode_data(&deposit_raw_data, false)?.1;
+            let deposit_index = Deposit::abi_decode_data(&deposit_raw_data, false)?.4;
             let deposit_index: u64 = deposit_index
                 .try_into()
                 .map_err(|e| BridgeError::Error(format!("Can't convert deposit index: {:?}", e)))?;
