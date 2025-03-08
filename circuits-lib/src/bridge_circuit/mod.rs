@@ -11,7 +11,6 @@ use bridge_circuit_core::groth16::CircuitGroth16Proof;
 use bridge_circuit_core::structs::BridgeCircuitInput;
 use bridge_circuit_core::winternitz::{verify_winternitz_signature, WinternitzHandler};
 use lc_proof::lc_proof_verifier;
-use risc0_zkvm::guest::env;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
@@ -21,10 +20,7 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = [
 ];
 
 pub fn verify_winternitz_and_groth16(input: &WinternitzHandler) -> bool {
-    let start = env::cycle_count();
     let res = verify_winternitz_signature(input);
-    let end = env::cycle_count();
-    println!("WNV: {}", end - start);
     res
 }
 
@@ -48,7 +44,6 @@ pub fn convert_to_groth16_and_verify(message: &[u8], pre_state: &[u8; 32]) -> bo
         Ok(total_work) => total_work,
         Err(_) => return false,
     };
-    println!("Total work: {:?}", total_work);
 
     let seal = match CircuitGroth16Proof::from_compressed(&compressed_seal) {
         Ok(seal) => seal,
@@ -60,10 +55,8 @@ pub fn convert_to_groth16_and_verify(message: &[u8], pre_state: &[u8; 32]) -> bo
 }
 
 pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
-    let start = env::cycle_count();
     let input: BridgeCircuitInput = guest.read_from_host();
     assert_eq!(HEADER_CHAIN_METHOD_ID, input.hcp.method_id);
-    println!("Header chain proof {:?}", input.hcp);
     guest.verify(input.hcp.method_id, &input.hcp);
     let mut watchtower_flags: Vec<bool> = vec![];
     let mut wt_messages_with_idxs: Vec<(usize, Vec<u8>)> = vec![];
@@ -129,8 +122,11 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // MMR WILL BE FETCHED FROM LC PROOF WHEN IT IS READY - THIS IS JUST FOR PROOF OF CONCEPT
     let mmr = input.hcp.chain_state.block_hashes_mmr;
 
-    // SPV verification of payout transaction
-    println!("SPV verification {:?}", input.payout_spv.verify(mmr));
+    let spv_verification_res = input.payout_spv.verify(mmr);
+
+    if !spv_verification_res {
+        panic!("Invalid SPV proof");
+    }
 
     // Light client proof verification
     let state_root = lc_proof_verifier(input.lcp.clone());
@@ -138,7 +134,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // Storage proof verification for deposit tx index and withdrawal outpoint
     let user_wd_outpoint_str = verify_storage_proofs(&input.sp, state_root);
 
-    println!("User withdrawal outpoint: {:?}", user_wd_outpoint_str);
 
     let user_wd_outpoint = num_bigint::BigUint::from_str(&user_wd_outpoint_str).unwrap();
     let user_wd_txid = bitcoin::Txid::from_byte_array(
@@ -153,10 +148,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         user_wd_txid,
         input.payout_spv.transaction.input[0].previous_output.txid
     );
-    println!(
-        "Payout transaction output: {:?}",
-        input.payout_spv.transaction.output
-    );
 
     let last_output = input.payout_spv.transaction.output.last().unwrap();
     let last_output_script = last_output.script_pubkey.to_bytes();
@@ -169,7 +160,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     } else {
         operator_id[..len as usize].copy_from_slice(&last_output_script[2..(2 + len) as usize]);
     }
-    println!("Operator ID: {:?}", operator_id);
 
     let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).into();
     let pre_deposit_constant = [input.sp.txid_hex, wintertniz_pubkeys_digest, operator_id].concat();
@@ -203,6 +193,4 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let journal_hash = blake3::hash(&concat_journal);
 
     guest.commit(journal_hash.as_bytes());
-    let end = env::cycle_count();
-    println!("WNT: {}", end - start);
 }

@@ -28,9 +28,6 @@ pub fn create_output_digest(total_work: &[u8; 16]) -> [u8; 32] {
     .expect("slice has correct length");
 
     let res = Sha256::digest(output_pre_digest).into();
-    println!("Output digest: {:?}", res);
-    let hex_res = hex::encode(res);
-    println!("Hex output digest: {}", hex_res);
     res
 }
 
@@ -54,9 +51,6 @@ pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u
     claim_digest.reverse();
 
     let res = claim_digest.into();
-    println!("Claim digest: {:?}", res);
-    let hex_res = hex::encode(res);
-    println!("Hex claim digest: {}", hex_res);
     res
 }
 pub struct CircuitGroth16WithTotalWork {
@@ -76,10 +70,6 @@ impl CircuitGroth16WithTotalWork {
     }
 
     pub fn verify(&self, pre_state: &[u8; 32]) -> bool {
-        println!("Verifying Groth16 proof");
-        println!("Pre-state: {:?}", pre_state);
-        let hex_pre_state = hex::encode(pre_state);
-        println!("Hex pre-state: {}", hex_pre_state);
         let ark_proof: Proof<Bn254> = self.groth16_seal.into();
         let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
             CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();
@@ -103,7 +93,6 @@ impl CircuitGroth16WithTotalWork {
         let res =
             ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
                 .unwrap();
-        println!("Groth16 verification: {}", res);
         res
     }
 }

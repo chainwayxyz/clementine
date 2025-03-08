@@ -18,11 +18,6 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
     let deposit_storage_proof: EIP1186StorageProof =
         serde_json::from_str(&storage_proof.storage_proof_deposit_idx).unwrap();
 
-    println!(
-        "deposit storage proof value {:?}",
-        deposit_storage_proof.value
-    );
-
     let mut keccak = Keccak256::new();
     keccak.update(UTXOS_STORAGE_INDEX);
     let hash = keccak.finalize();
@@ -52,16 +47,13 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
     }
 
     storage_verify(&deposit_storage_proof, state_root);
-    println!("Deposit storage proof verification successful!");
 
     storage_verify(&utxo_storage_proof, state_root);
-    println!("UTXO storage proof verification successful!");
 
     utxo_storage_proof.value.to_string()
 }
 
-fn storage_verify(storage_proof: &EIP1186StorageProof, expected_root_hash: [u8; 32]) {
-    println!("key {:?}", storage_proof.key.as_b256().0);
+fn storage_verify(storage_proof: &EIP1186StorageProof, expected_root_hash: [u8; 32]) { 
     let storage_key = [
         b"Evm/s/",
         ADDRESS.as_slice(),

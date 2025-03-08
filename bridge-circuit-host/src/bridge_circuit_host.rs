@@ -5,6 +5,7 @@ use crate::structs::{
 use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
 use borsh;
+use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
 use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit_core::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit_core::winternitz::verify_winternitz_signature;
@@ -32,6 +33,23 @@ pub fn prove_bridge_circuit(
         num_watchtowers: bridge_circuit_host_params.num_of_watchtowers,
     };
 
+    let header_chain_proof_output_serialized = borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
+
+    // Sanity check for number of watchtowers
+    if bridge_circuit_input.winternitz_details.len() != bridge_circuit_host_params.num_of_watchtowers as usize {
+        panic!("Number of watchtowers mismatch");
+    }
+
+    // Header chain verification
+    if header_chain_proof_output_serialized != bridge_circuit_host_params.headerchain_receipt.journal.bytes {
+        panic!("Header chain proof output mismatch");
+    }
+
+    // sanity check for headerchain receipt
+    if bridge_circuit_host_params.headerchain_receipt.verify(HEADER_CHAIN_METHOD_ID).is_err() {
+        panic!("Header chain receipt verification failed");
+    }
+    
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
         public_inputs(bridge_circuit_input.clone());
     let journal_hash = public_inputs.journal_hash();
@@ -188,7 +206,7 @@ mod tests {
     const WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
     pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
-        hex_literal::hex!("4c46b3de707ca646d1dce3d6f94e10681075e6d20facec182944653c33167253");
+        hex_literal::hex!("989b954057d63b52d47b4a8a01680557b9c3899e3c68ed47b1ec16b0101d20cb");
     const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
     const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
 
