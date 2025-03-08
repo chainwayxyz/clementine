@@ -11,5 +11,5 @@ pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> [u8; 32] {
         panic!("Invalid light client journal");
     }
 
-    light_client_proof.lc_journal[0..32].try_into().unwrap() // state root 
+    light_client_proof.lc_journal[0..32].try_into().unwrap() // state root
 }

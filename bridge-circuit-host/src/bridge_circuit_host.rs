@@ -33,23 +33,32 @@ pub fn prove_bridge_circuit(
         num_watchtowers: bridge_circuit_host_params.num_of_watchtowers,
     };
 
-    let header_chain_proof_output_serialized = borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
+    let header_chain_proof_output_serialized =
+        borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
 
     // Sanity check for number of watchtowers
-    if bridge_circuit_input.winternitz_details.len() != bridge_circuit_host_params.num_of_watchtowers as usize {
+    if bridge_circuit_input.winternitz_details.len()
+        != bridge_circuit_host_params.num_of_watchtowers as usize
+    {
         panic!("Number of watchtowers mismatch");
     }
 
     // Header chain verification
-    if header_chain_proof_output_serialized != bridge_circuit_host_params.headerchain_receipt.journal.bytes {
+    if header_chain_proof_output_serialized
+        != bridge_circuit_host_params.headerchain_receipt.journal.bytes
+    {
         panic!("Header chain proof output mismatch");
     }
 
     // sanity check for headerchain receipt
-    if bridge_circuit_host_params.headerchain_receipt.verify(HEADER_CHAIN_METHOD_ID).is_err() {
+    if bridge_circuit_host_params
+        .headerchain_receipt
+        .verify(HEADER_CHAIN_METHOD_ID)
+        .is_err()
+    {
         panic!("Header chain receipt verification failed");
     }
-    
+
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
         public_inputs(bridge_circuit_input.clone());
     let journal_hash = public_inputs.journal_hash();

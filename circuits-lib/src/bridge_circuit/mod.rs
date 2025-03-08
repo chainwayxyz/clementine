@@ -20,8 +20,7 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = [
 ];
 
 pub fn verify_winternitz_and_groth16(input: &WinternitzHandler) -> bool {
-    let res = verify_winternitz_signature(input);
-    res
+    verify_winternitz_signature(input)
 }
 
 /// TODO: Change this to a feature in the future
@@ -133,7 +132,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
     // Storage proof verification for deposit tx index and withdrawal outpoint
     let user_wd_outpoint_str = verify_storage_proofs(&input.sp, state_root);
-
 
     let user_wd_outpoint = num_bigint::BigUint::from_str(&user_wd_outpoint_str).unwrap();
     let user_wd_txid = bitcoin::Txid::from_byte_array(

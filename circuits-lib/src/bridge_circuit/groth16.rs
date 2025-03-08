@@ -27,8 +27,7 @@ pub fn create_output_digest(total_work: &[u8; 16]) -> [u8; 32] {
     .try_into()
     .expect("slice has correct length");
 
-    let res = Sha256::digest(output_pre_digest).into();
-    res
+    Sha256::digest(output_pre_digest).into()
 }
 
 pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u8; 32] {
@@ -50,8 +49,7 @@ pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u
     let mut claim_digest = Sha256::digest(concatenated);
     claim_digest.reverse();
 
-    let res = claim_digest.into();
-    res
+    claim_digest.into()
 }
 pub struct CircuitGroth16WithTotalWork {
     groth16_seal: CircuitGroth16Proof,
@@ -90,9 +88,7 @@ impl CircuitGroth16WithTotalWork {
 
         let public_inputs = vec![A0_ARK, A1_ARK, c0, c1, BN_254_CONTROL_ID_ARK];
 
-        let res =
-            ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
-                .unwrap();
-        res
+        ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
+            .unwrap()
     }
 }

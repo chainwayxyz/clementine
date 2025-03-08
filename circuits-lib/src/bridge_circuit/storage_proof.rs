@@ -53,7 +53,7 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
     utxo_storage_proof.value.to_string()
 }
 
-fn storage_verify(storage_proof: &EIP1186StorageProof, expected_root_hash: [u8; 32]) { 
+fn storage_verify(storage_proof: &EIP1186StorageProof, expected_root_hash: [u8; 32]) {
     let storage_key = [
         b"Evm/s/",
         ADDRESS.as_slice(),
