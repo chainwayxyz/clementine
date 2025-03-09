@@ -27,9 +27,7 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
     let storage_key: alloy_primitives::Uint<256, 4> =
         storage_address + U256::from(storage_proof.index * 2);
 
-    let mut concantenated: [u8; 64] = [0; 64];
-    concantenated[..32].copy_from_slice(&storage_proof.txid_hex);
-    concantenated[32..].copy_from_slice(&DEPOSIT_MAPPING_STORAGE_INDEX);
+    let concantenated = [storage_proof.txid_hex, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
 
     let mut keccak = Keccak256::new();
     keccak.update(concantenated);

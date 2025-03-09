@@ -36,7 +36,16 @@ pub fn prove_bridge_circuit(
     let header_chain_proof_output_serialized =
         borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
 
-    // Sanity check for number of watchtowers
+    if bridge_circuit_input.lcp.lc_journal != bridge_circuit_host_params.lcp_receipt.journal.bytes {
+        panic!("Light client proof output mismatch");
+    }
+
+    // if bridge_circuit_host_params.lcp_receipt.verify(LC_IMAGE_ID).is_err()
+    // {
+    //     panic!("Light client proof receipt verification failed");
+    // }
+
+    // Check for number of watchtowers
     if bridge_circuit_input.winternitz_details.len()
         != bridge_circuit_host_params.num_of_watchtowers as usize
     {
@@ -50,13 +59,24 @@ pub fn prove_bridge_circuit(
         panic!("Header chain proof output mismatch");
     }
 
-    // sanity check for headerchain receipt
+    // Check for headerchain receipt
     if bridge_circuit_host_params
         .headerchain_receipt
         .verify(HEADER_CHAIN_METHOD_ID)
         .is_err()
     {
         panic!("Header chain receipt verification failed");
+    }
+
+    // SPV verification
+    if !bridge_circuit_input.payout_spv.verify(
+        bridge_circuit_input
+            .hcp
+            .chain_state
+            .block_hashes_mmr
+            .clone(),
+    ) {
+        panic!("SPV verification failed");
     }
 
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
@@ -316,13 +336,11 @@ mod tests {
             header_chain_circuit_output: block_header_circuit_output.clone(),
         };
 
-        println!("PROVING WORK ONLY CIRCUIT");
         let work_only_groth16_proof_receipt: Receipt =
             prove_work_only(headerchain_receipt.clone(), &work_only_circuit_input);
 
         let g16_proof_receipt: &risc0_zkvm::Groth16Receipt<risc0_zkvm::ReceiptClaim> =
             work_only_groth16_proof_receipt.inner.groth16().unwrap();
-        println!("G16 PROOF RECEIPT: {:?}", g16_proof_receipt);
 
         let seal =
             CircuitGroth16Proof::from_seal(g16_proof_receipt.seal.as_slice().try_into().unwrap());
@@ -398,8 +416,6 @@ mod tests {
             }
         }
 
-        println!("Done with the normal bridge circuit guest stuff");
-
         let (ark_groth16_proof, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
 
@@ -409,7 +425,6 @@ mod tests {
             output_scalar_bytes_trimmed,
             g16_pi_calculated_outside[0..31]
         );
-        println!("ARK GROTH16 PROOF");
         assert!(bridge_circuit_bitvm_inputs.verify_bridge_circuit(ark_groth16_proof));
     }
 }

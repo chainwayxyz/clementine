@@ -56,7 +56,10 @@ pub fn convert_to_groth16_and_verify(message: &[u8], pre_state: &[u8; 32]) -> bo
 pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let input: BridgeCircuitInput = guest.read_from_host();
     assert_eq!(HEADER_CHAIN_METHOD_ID, input.hcp.method_id);
+
+    // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);
+
     let mut watchtower_flags: Vec<bool> = vec![];
     let mut wt_messages_with_idxs: Vec<(usize, Vec<u8>)> = vec![];
 
@@ -121,9 +124,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // MMR WILL BE FETCHED FROM LC PROOF WHEN IT IS READY - THIS IS JUST FOR PROOF OF CONCEPT
     let mmr = input.hcp.chain_state.block_hashes_mmr;
 
-    let spv_verification_res = input.payout_spv.verify(mmr);
-
-    if !spv_verification_res {
+    if !input.payout_spv.verify(mmr) {
         panic!("Invalid SPV proof");
     }
 
@@ -164,7 +165,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
     let deposit_constant: [u8; 32] = Sha256::digest(&pre_deposit_constant).into();
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
-    // Convert bools to bit flags
+
+    // Convert bools to bit flags (Actually no need for bools we can directly use the bit flags, but for clarity)
     for (i, &flag) in watchtower_flags.iter().enumerate() {
         if flag {
             challenge_sending_watchtowers[i / 8] |= 1 << (i % 8);
