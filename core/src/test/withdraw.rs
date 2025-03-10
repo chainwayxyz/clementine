@@ -99,7 +99,8 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         .unwrap();
 
         let balance = citrea_contract_client
-            .provider
+            .contract
+            .provider()
             .get_balance(citrea_contract_client.wallet_address)
             .await
             .unwrap();

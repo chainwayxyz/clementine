@@ -43,7 +43,6 @@ pub struct CitreaClient {
     pub client: HttpClient,
     pub light_client_prover_client: HttpClient,
     pub wallet_address: alloy::primitives::Address,
-    pub provider: CitreaProvider,
     pub contract: CitreaContract,
 }
 
@@ -51,8 +50,8 @@ impl CitreaClient {
     /// # Parameters
     ///
     /// - `citrea_rpc_url`: URL of the Citrea RPC.
-    /// - `citrea_rpc_url`: URL of the Citrea light client prover RPC.
-    /// - `secret_key`: Etherium secret key of the EVM user. If not give, dummy
+    /// - `light_client_prover_url`: URL of the Citrea light client prover RPC.
+    /// - `secret_key`: Etherium secret key of the EVM user. If not given, dummy
     ///   secret key is used (wallet is not required).
     pub fn new(
         citrea_rpc_url: Url,
@@ -72,10 +71,10 @@ impl CitreaClient {
             .on_http(citrea_rpc_url.clone());
 
         let contract = BRIDGE_CONTRACT::new(
-            BRIDGE_CONTRACT_ADDRESS.parse().map_err(|e| {
-                BridgeError::Error(format!("Can't create bridge contract address {:?}", e))
-            })?,
-            provider.clone(),
+            BRIDGE_CONTRACT_ADDRESS
+                .parse()
+                .expect("Correct contract address"),
+            provider,
         );
 
         let client = HttpClientBuilder::default().build(citrea_rpc_url)?;
@@ -86,7 +85,6 @@ impl CitreaClient {
             client,
             light_client_prover_client,
             wallet_address,
-            provider,
             contract,
         })
     }
@@ -130,7 +128,7 @@ impl CitreaClient {
         let filter = self.contract.event_filter::<Deposit>().filter;
         let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
         let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
-        let logs = self.provider.get_logs(&filter).await?;
+        let logs = self.contract.provider().get_logs(&filter).await?;
 
         let mut move_txids = vec![];
         for log in logs {
@@ -164,7 +162,7 @@ impl CitreaClient {
         let filter = self.contract.event_filter::<Withdrawal>().filter;
         let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
         let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
-        let logs = self.provider.get_logs(&filter).await?;
+        let logs = self.contract.provider().get_logs(&filter).await?;
 
         let mut utxos = vec![];
         for log in logs {
@@ -214,14 +212,4 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
         >,
         RootProvider,
     >,
->;
-type CitreaProvider = FillProvider<
-    JoinFill<
-        JoinFill<
-            alloy::providers::Identity,
-            JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
-        >,
-        WalletFiller<EthereumWallet>,
-    >,
-    RootProvider,
 >;
