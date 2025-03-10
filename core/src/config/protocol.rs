@@ -1,6 +1,8 @@
 use bitcoin::{Amount, Network};
 use serde::{Deserialize, Serialize};
 
+use crate::errors::BridgeError;
+
 pub const BLOCKS_PER_HOUR: u16 = 6;
 
 pub const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
@@ -31,6 +33,44 @@ impl From<ProtocolParamsetName> for &'static ProtocolParamset {
             ProtocolParamsetName::Regtest => &REGTEST_PARAMSET,
             ProtocolParamsetName::Testnet4 => &TESTNET4_PARAMSET,
         }
+    }
+}
+
+impl TryFrom<&'static ProtocolParamset> for ProtocolParamsetName {
+    type Error = BridgeError;
+
+    fn try_from(paramset: &'static ProtocolParamset) -> Result<Self, Self::Error> {
+        Ok(match *paramset {
+            MAINNET_PARAMSET => Self::Mainnet,
+            REGTEST_PARAMSET => Self::Regtest,
+            TESTNET4_PARAMSET => Self::Testnet4,
+            _ => {
+                return Err(BridgeError::Error(
+                    "Expected a static protocol paramset".to_string(),
+                ))
+            }
+        })
+    }
+}
+
+impl Serialize for &'static ProtocolParamset {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let name = ProtocolParamsetName::try_from(*self)
+            .map_err(|e| serde::ser::Error::custom(e.to_string()))?;
+        name.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for &'static ProtocolParamset {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let name = ProtocolParamsetName::deserialize(deserializer)?;
+        Ok(name.into())
     }
 }
 

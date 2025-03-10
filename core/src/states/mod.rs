@@ -128,12 +128,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .init()
             .await
             .map_err(|e| BridgeError::Error(format!("Error initializing pqmq queue: {:?}", e)))?;
+
         queue.create(&consumer_handle).await.map_err(|e| {
             BridgeError::Error(format!(
                 "Error creating pqmq queue with consumer handle {}: {:?}",
                 consumer_handle, e
             ))
         })?;
+
         Ok(Self {
             context: context::StateContext::new(
                 db.clone(),
@@ -458,17 +460,17 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         M::State: Send + Sync + 'static,
         InitializedStateMachine<M>: ContextProcessor<T, M>,
     {
-        let mut new_machines = Vec::new();
+        let mut unchanged_machines = Vec::new();
         let mut processing_futures = Vec::new();
 
         for machine in std::mem::take(machines).into_iter() {
             match machine.process_with_ctx(base_context) {
                 ContextProcessResult::Processing(future) => processing_futures.push(future),
-                ContextProcessResult::Unchanged(machine) => new_machines.push(machine),
+                ContextProcessResult::Unchanged(machine) => unchanged_machines.push(machine),
             }
         }
 
-        (new_machines, processing_futures)
+        (unchanged_machines, processing_futures)
     }
 
     pub async fn process_and_add_new_states_from_height(

@@ -2,7 +2,7 @@ use crate::{
     bitcoin_syncer::BitcoinSyncerEvent, builder::transaction::OperatorData, database::Database,
 };
 use pgmq::{Message, PGMQueueExt};
-use std::time::Duration;
+use std::{ops::Deref, time::Duration};
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
@@ -180,7 +180,8 @@ where
                 break Ok(());
             }
 
-            let result: Result<bool, BridgeError> = async {
+
+            let poll_result: Result<bool, BridgeError> = async {
                 let new_event_received = async {
                     let mut dbtx = db.begin_transaction().await?;
                     let new_event: Option<Message<SystemEvent>> = state_manager
@@ -214,6 +215,7 @@ where
                     return_value
                 }
                 .await?;
+
                 if new_event_received {
                     // Don't wait in case new event was received
                     return Ok(true);
@@ -222,7 +224,7 @@ where
             }
             .await;
 
-            match result {
+            match poll_result {
                 Ok(true) => {
                     num_consecutive_errors = 0;
                 }
