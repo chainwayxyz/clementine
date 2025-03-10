@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,7 +6,9 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::builder::transaction::sign::{
+    create_and_sign_txs, AssertRequestData, TransactionRequestData,
+};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
@@ -32,7 +34,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, Witness,
+    XOnlyPublicKey,
 };
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
@@ -987,6 +990,42 @@ impl Operator {
 
         Ok(())
     }
+
+    async fn send_asserts(
+        &self,
+        kickoff_id: KickoffId,
+        deposit_data: DepositData,
+        _watchtower_challenges: HashMap<usize, Witness>,
+    ) -> Result<(), BridgeError> {
+        let assert_txs = self
+            .create_assert_commitment_txs(AssertRequestData {
+                kickoff_id,
+                deposit_data: deposit_data.clone(),
+            })
+            .await?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        for (tx_type, tx) in assert_txs {
+            self.tx_sender
+                .add_tx_to_queue(
+                    &mut dbtx,
+                    tx_type,
+                    &tx,
+                    &[],
+                    Some(TxDataForLogging {
+                        tx_type,
+                        operator_idx: Some(self.idx as u32),
+                        verifier_idx: None,
+                        round_idx: Some(kickoff_id.round_idx),
+                        kickoff_idx: Some(kickoff_id.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    }),
+                    &self.config,
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[tonic::async_trait]
@@ -999,16 +1038,15 @@ impl Owner for Operator {
                 operator_idx,
                 used_kickoffs,
             } => {
-                tracing::info!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", round_idx, operator_idx, used_kickoffs);
+                tracing::info!("Operator {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", self.idx, round_idx, operator_idx, used_kickoffs);
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
                 deposit_data,
             } => {
                 tracing::info!(
-                    "called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
-                    kickoff_id,
-                    deposit_data
+                    "Operator {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
+                    self.idx, kickoff_id, deposit_data
                 );
             }
             Duty::SendOperatorAsserts {
@@ -1016,7 +1054,9 @@ impl Owner for Operator {
                 deposit_data,
                 watchtower_challenges,
             } => {
-                tracing::info!("called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", kickoff_id, deposit_data, watchtower_challenges);
+                tracing::warn!("Operator {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", self.idx, kickoff_id, deposit_data, watchtower_challenges.len());
+                self.send_asserts(kickoff_id, deposit_data, watchtower_challenges)
+                    .await?;
             }
             Duty::VerifierDisprove {
                 kickoff_id,
@@ -1024,11 +1064,12 @@ impl Owner for Operator {
                 operator_asserts,
                 operator_acks,
             } => {
-                tracing::info!("called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}", kickoff_id, deposit_data, operator_asserts, operator_acks);
+                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len());
             }
             Duty::CheckIfKickoff { txid, block_height } => {
                 tracing::info!(
-                    "called check if kickoff with txid: {:?}, block_height: {:?}",
+                    "Operator {} called check if kickoff with txid: {:?}, block_height: {:?}",
+                    self.idx,
                     txid,
                     block_height,
                 );

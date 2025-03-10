@@ -782,7 +782,10 @@ pub mod clementine_operator_client {
         pub async fn internal_create_assert_commitment_txs(
             &mut self,
             request: impl tonic::IntoRequest<super::AssertRequest>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxsWithType>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1502,7 +1505,10 @@ pub mod clementine_watchtower_client {
         pub async fn internal_create_watchtower_challenge(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxWithType>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1748,7 +1754,10 @@ pub mod clementine_operator_server {
         async fn internal_create_assert_commitment_txs(
             &self,
             request: tonic::Request<super::AssertRequest>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxsWithType>,
+            tonic::Status,
+        >;
         /// Server streaming response type for the GetParams method.
         type GetParamsStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::OperatorParams, tonic::Status>,
@@ -2007,7 +2016,7 @@ pub mod clementine_operator_server {
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::AssertRequest>
                     for InternalCreateAssertCommitmentTxsSvc<T> {
-                        type Response = super::RawSignedTxs;
+                        type Response = super::SignedTxsWithType;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -3142,7 +3151,10 @@ pub mod clementine_watchtower_server {
         async fn internal_create_watchtower_challenge(
             &self,
             request: tonic::Request<super::TransactionRequest>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxWithType>,
+            tonic::Status,
+        >;
         /// Server streaming response type for the GetParams method.
         type GetParamsStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::WatchtowerParams, tonic::Status>,
@@ -3293,7 +3305,7 @@ pub mod clementine_watchtower_server {
                         T: ClementineWatchtower,
                     > tonic::server::UnaryService<super::TransactionRequest>
                     for InternalCreateWatchtowerChallengeSvc<T> {
-                        type Response = super::RawSignedTx;
+                        type Response = super::SignedTxWithType;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

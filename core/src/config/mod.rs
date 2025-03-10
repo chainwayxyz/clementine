@@ -90,6 +90,8 @@ pub struct BridgeConfig {
     /// - `Regtest`
     /// - `Testnet`
     pub protocol_paramset: ProtocolParamsetName,
+    /// Directory containing unix sockets
+    pub socket_path: String,
 }
 
 impl BridgeConfig {
@@ -298,6 +300,7 @@ impl Default for BridgeConfig {
                 )
                 .expect("known valid input"),
             ),
+            socket_path: "/".to_string(),
 
             verifier_endpoints: None,
             operator_endpoints: None,

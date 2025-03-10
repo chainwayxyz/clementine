@@ -18,7 +18,12 @@ use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
-use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature, WatchtowerKeys};
+use crate::rpc;
+use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+use crate::rpc::clementine::{
+    DepositParams, KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature,
+    TransactionRequest, WatchtowerKeys,
+};
 use crate::states;
 use crate::states::syncer::add_new_kickoff_machine;
 use crate::states::StateManager;
@@ -101,7 +106,6 @@ impl Verifier {
             config.winternitz_secret_key,
             config.protocol_paramset().network,
         );
-
         // let pk: bitcoin::secp256k1:: PublicKey = config.secret_key.public_key(&utils::SECP);
 
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
@@ -1021,6 +1025,58 @@ impl Verifier {
 
         Ok(())
     }
+
+    async fn send_watchtower_challenge(
+        &self,
+        kickoff_id: KickoffId,
+        deposit_data: DepositData,
+    ) -> Result<(), BridgeError> {
+        let watchtower_path = format!("{}/watchtower_{}.sock", self.config.socket_path, self.idx);
+        let watchtower_client =
+            rpc::get_clients(vec![watchtower_path], ClementineWatchtowerClient::new).await;
+
+        if let Ok(mut watchtower) = watchtower_client {
+            let raw_challenge_tx = watchtower[0]
+                .internal_create_watchtower_challenge(TransactionRequest {
+                    deposit_params: Some(DepositParams {
+                        deposit_outpoint: Some(deposit_data.deposit_outpoint.into()),
+                        evm_address: deposit_data.evm_address.0.to_vec(),
+                        recovery_taproot_address: deposit_data
+                            .recovery_taproot_address
+                            .assume_checked()
+                            .to_string(),
+                        nofn_xonly_pk: deposit_data.nofn_xonly_pk.serialize().to_vec(),
+                    }),
+                    transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
+                    kickoff_id: Some(kickoff_id),
+                })
+                .await?
+                .into_inner()
+                .raw_tx;
+            let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
+            let mut dbtx = self.db.begin_transaction().await?;
+            self.tx_sender
+                .add_tx_to_queue(
+                    &mut dbtx,
+                    TransactionType::WatchtowerChallenge(self.idx),
+                    &challenge_tx,
+                    &[],
+                    Some(TxDataForLogging {
+                        tx_type: TransactionType::WatchtowerChallenge(self.idx),
+                        operator_idx: None,
+                        verifier_idx: Some(self.idx as u32),
+                        round_idx: Some(kickoff_id.round_idx),
+                        kickoff_idx: Some(kickoff_id.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    }),
+                    &self.config,
+                )
+                .await?;
+            dbtx.commit().await?;
+            tracing::warn!("Commited watchtower challenge for watchtower {}", self.idx);
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1034,24 +1090,31 @@ impl Owner for Verifier {
                 operator_idx,
                 used_kickoffs,
             } => {
-                tracing::info!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",round_idx,operator_idx,used_kickoffs);
+                tracing::info!(
+                    "Verifier {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",
+                    self.idx, round_idx, operator_idx, used_kickoffs
+                );
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
                 deposit_data,
             } => {
-                tracing::info!(
-                    "called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
-                    kickoff_id,
-                    deposit_data
+                tracing::warn!(
+                    "Verifier {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
+                    self.idx, kickoff_id, deposit_data
                 );
+                self.send_watchtower_challenge(kickoff_id, deposit_data)
+                    .await?;
             }
             Duty::SendOperatorAsserts {
                 kickoff_id,
                 deposit_data,
                 watchtower_challenges,
             } => {
-                tracing::info!("called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",kickoff_id,deposit_data,watchtower_challenges);
+                tracing::info!(
+                    "Verifier {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
+                    self.idx, kickoff_id, deposit_data, watchtower_challenges.len()
+                );
             }
             Duty::VerifierDisprove {
                 kickoff_id,
@@ -1059,11 +1122,15 @@ impl Owner for Verifier {
                 operator_asserts,
                 operator_acks,
             } => {
-                tracing::info!("called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}",kickoff_id,deposit_data,operator_asserts,operator_acks);
+                tracing::warn!(
+                    "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}",
+                    self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len()
+                );
             }
             Duty::CheckIfKickoff { txid, block_height } => {
                 tracing::info!(
-                    "called check if kickoff with txid: {:?}, block_height: {:?}",
+                    "Verifier {} called check if kickoff with txid: {:?}, block_height: {:?}",
+                    self.idx,
                     txid,
                     block_height,
                 );
