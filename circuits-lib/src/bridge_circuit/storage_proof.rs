@@ -1,4 +1,4 @@
-use crate::bridge_circuit_core::structs::StorageProof;
+use crate::bridge_circuit_common::structs::StorageProof;
 use alloy_primitives::Bytes;
 use alloy_primitives::{Keccak256, U256};
 use alloy_rpc_types::EIP1186StorageProof;
@@ -18,11 +18,6 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
     let deposit_storage_proof: EIP1186StorageProof =
         serde_json::from_str(&storage_proof.storage_proof_deposit_idx).unwrap();
 
-    println!(
-        "deposit storage proof value {:?}",
-        deposit_storage_proof.value
-    );
-
     let mut keccak = Keccak256::new();
     keccak.update(UTXOS_STORAGE_INDEX);
     let hash = keccak.finalize();
@@ -32,9 +27,7 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
     let storage_key: alloy_primitives::Uint<256, 4> =
         storage_address + U256::from(storage_proof.index * 2);
 
-    let mut concantenated: [u8; 64] = [0; 64];
-    concantenated[..32].copy_from_slice(&storage_proof.txid_hex);
-    concantenated[32..].copy_from_slice(&DEPOSIT_MAPPING_STORAGE_INDEX);
+    let concantenated = [storage_proof.txid_hex, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
 
     let mut keccak = Keccak256::new();
     keccak.update(concantenated);
@@ -52,16 +45,13 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
     }
 
     storage_verify(&deposit_storage_proof, state_root);
-    println!("Deposit storage proof verification successful!");
 
     storage_verify(&utxo_storage_proof, state_root);
-    println!("UTXO storage proof verification successful!");
 
     utxo_storage_proof.value.to_string()
 }
 
 fn storage_verify(storage_proof: &EIP1186StorageProof, expected_root_hash: [u8; 32]) {
-    println!("key {:?}", storage_proof.key.as_b256().0);
     let storage_key = [
         b"Evm/s/",
         ADDRESS.as_slice(),

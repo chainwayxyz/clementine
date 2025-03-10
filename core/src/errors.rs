@@ -352,8 +352,12 @@ pub enum BridgeError {
     #[error("Eyre error: {0}")]
     Eyre(#[from] eyre::Report),
 
-    #[error("Error while creating contract: {0}")]
+    #[error("Error while calling EVM contract: {0}")]
     AlloyContract(#[from] alloy::contract::Error),
+    #[error("Error while calling EVM RPC function: {0}")]
+    AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
+    #[error("Error while encoding/decoding EVM type: {0}")]
+    AlloySolTypes(#[from] alloy::sol_types::Error),
 
     #[error("Transaction is already in block: {0}")]
     TransactionAlreadyInBlock(BlockHash),

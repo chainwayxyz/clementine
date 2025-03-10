@@ -125,7 +125,7 @@ impl ClementineOperator for Operator {
         Ok(Response::new(Empty {}))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn internal_create_assert_commitment_txs(
         &self,
         request: Request<AssertRequest>,
@@ -146,7 +146,7 @@ impl ClementineOperator for Operator {
         }))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_deposit_keys(
         &self,
         request: Request<DepositParams>,

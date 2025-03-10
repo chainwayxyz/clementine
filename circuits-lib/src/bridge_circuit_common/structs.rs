@@ -32,7 +32,7 @@ pub struct StorageProof {
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BridgeCircuitInput {
     pub winternitz_details: Vec<WinternitzHandler>,
-    pub hcp: BlockHeaderCircuitOutput, // This will be removed once the LightClientProof includes the MMRGuest of the Bitcoin blockhashes
+    pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
     pub lcp: LightClientProof,
     pub sp: StorageProof,
@@ -48,8 +48,8 @@ impl BridgeCircuitInput {
         sp: StorageProof,
         num_watchtowers: u32,
     ) -> Result<Self, &'static str> {
-        if num_watchtowers > (1 << 20) - 1 {
-            return Err("num_watchtowers exceeds u20 limit");
+        if num_watchtowers > 160 {
+            return Err("num_watchtowers exceeds the limit: 160");
         }
         Ok(Self {
             winternitz_details,

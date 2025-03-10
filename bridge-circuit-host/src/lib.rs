@@ -3,15 +3,16 @@ use alloy_primitives::U256;
 use alloy_rpc_client::RpcClient;
 use alloy_rpc_types::EIP1186AccountProofResponse;
 use anyhow::bail;
-use circuits_lib::bridge_circuit_core::structs::{LightClientProof, StorageProof};
-use config::PARAMETERS;
+use circuits_lib::bridge_circuit_common::structs::{LightClientProof, StorageProof};
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;
 
 pub mod bridge_circuit_host;
 pub mod config;
+pub mod docker;
 pub mod structs;
+pub mod utils;
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000026");
@@ -53,8 +54,13 @@ pub async fn fetch_light_client_proof(
     ))
 }
 
-pub async fn fetch_storage_proof(l2_height: &String, client: RpcClient) -> StorageProof {
-    let ind = PARAMETERS.deposit_index;
+pub async fn fetch_storage_proof(
+    l2_height: &String,
+    deposit_index: u32,
+    move_to_vault_txid: [u8; 32],
+    client: RpcClient,
+) -> StorageProof {
+    let ind = deposit_index;
     let tx_index: u32 = ind * 2;
 
     let storage_address_bytes = keccak256(UTXOS_STORAGE_INDEX);
@@ -67,7 +73,7 @@ pub async fn fetch_storage_proof(l2_height: &String, client: RpcClient) -> Stora
     println!("Storage key: {:?}", &storage_key_hex);
     let storage_key_hex = format!("0x{}", storage_key_hex);
 
-    let concantenated = [PARAMETERS.move_tx_id, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
+    let concantenated = [move_to_vault_txid, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
 
     let storage_address_deposit = keccak256(concantenated);
     let storage_address_deposit_hex = hex::encode(storage_address_deposit);
@@ -98,7 +104,7 @@ pub async fn fetch_storage_proof(l2_height: &String, client: RpcClient) -> Stora
         storage_proof_utxo: serialized_utxo,
         storage_proof_deposit_idx: serialized_deposit,
         index: ind,
-        txid_hex: PARAMETERS.move_tx_id,
+        txid_hex: move_to_vault_txid,
     }
 }
 

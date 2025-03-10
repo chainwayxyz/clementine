@@ -20,7 +20,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tokio = { workspace = true, features = ["full"] }
-jsonrpsee = { workspace = true, features = ["http-client"] }
+jsonrpsee = { workspace = true, features = ["http-client", "macros"] }
 async-trait = { workspace = true }
 futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -48,6 +48,7 @@ ark-serialize = { workspace = true }
 statig = { workspace = true, features = ["async", "serde"] }
 pgmq = { workspace = true }
 serde_with = { workspace = true }
+sov-rollup-interface = { workspace = true, features = ["native"] }
 
 [dev-dependencies]
 serial_test = { workspace = true }

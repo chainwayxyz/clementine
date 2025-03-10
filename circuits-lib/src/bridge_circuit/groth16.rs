@@ -1,10 +1,9 @@
-use crate::bridge_circuit_core::groth16::CircuitGroth16Proof;
-use crate::bridge_circuit_core::utils::to_decimal;
+use crate::bridge_circuit_common::groth16::CircuitGroth16Proof;
+use crate::bridge_circuit_common::utils::to_decimal;
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::PreparedVerifyingKey;
 use ark_groth16::Proof;
 use ark_serialize::CanonicalDeserialize;
-use risc0_zkvm::guest::env;
 
 use super::constants::{
     A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG, POST_STATE,
@@ -28,11 +27,7 @@ pub fn create_output_digest(total_work: &[u8; 16]) -> [u8; 32] {
     .try_into()
     .expect("slice has correct length");
 
-    let res = Sha256::digest(output_pre_digest).into();
-    println!("Output digest: {:?}", res);
-    let hex_res = hex::encode(res);
-    println!("Hex output digest: {}", hex_res);
-    res
+    Sha256::digest(output_pre_digest).into()
 }
 
 pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u8; 32] {
@@ -54,11 +49,7 @@ pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u
     let mut claim_digest = Sha256::digest(concatenated);
     claim_digest.reverse();
 
-    let res = claim_digest.into();
-    println!("Claim digest: {:?}", res);
-    let hex_res = hex::encode(res);
-    println!("Hex claim digest: {}", hex_res);
-    res
+    claim_digest.into()
 }
 pub struct CircuitGroth16WithTotalWork {
     groth16_seal: CircuitGroth16Proof,
@@ -77,17 +68,9 @@ impl CircuitGroth16WithTotalWork {
     }
 
     pub fn verify(&self, pre_state: &[u8; 32]) -> bool {
-        println!("Verifying Groth16 proof");
-        println!("Pre-state: {:?}", pre_state);
-        let hex_pre_state = hex::encode(pre_state);
-        println!("Hex pre-state: {}", hex_pre_state);
         let ark_proof: Proof<Bn254> = self.groth16_seal.into();
-        let start = env::cycle_count();
         let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
             CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();
-        let end = env::cycle_count();
-        println!("PVK: {}", end - start);
-        let start = env::cycle_count();
 
         let output_digest = create_output_digest(&self.total_work);
 
@@ -105,12 +88,7 @@ impl CircuitGroth16WithTotalWork {
 
         let public_inputs = vec![A0_ARK, A1_ARK, c0, c1, BN_254_CONTROL_ID_ARK];
 
-        let end = env::cycle_count();
-        println!("PPI: {}", end - start);
-        let res =
-            ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
-                .unwrap();
-        println!("Groth16 verification: {}", res);
-        res
+        ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
+            .unwrap()
     }
 }
