@@ -49,6 +49,7 @@ pub fn create_watchtower_challenge_txhandler(
             .add_output(UnspentTxOut::from_partial(
                 builder::transaction::anchor_output(),
             ))
+            .add_output(UnspentTxOut::from_partial(op_return_txout(b"PADDING")))
             .finalize(),
     )
 }
@@ -102,6 +103,7 @@ pub fn create_operator_challenge_nack_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
+
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
             .with_version(Version::non_standard(3))
@@ -135,6 +137,7 @@ pub fn create_operator_challenge_nack_txhandler(
             .add_output(UnspentTxOut::from_partial(
                 builder::transaction::anchor_output(),
             ))
+            .add_burn_output()
             .finalize(),
     )
 }
@@ -161,6 +164,7 @@ pub fn create_operator_challenge_ack_txhandler(
             .add_output(UnspentTxOut::from_partial(
                 builder::transaction::anchor_output(),
             ))
+            .add_output(UnspentTxOut::from_partial(op_return_txout(b"PADDING")))
             .finalize(),
     )
 }
@@ -203,7 +207,7 @@ pub fn create_challenge_txhandler(
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::Challenge,
-            kickoff_txhandler.get_spendable_output(1)?,
+            kickoff_txhandler.get_spendable_output(0)?,
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )

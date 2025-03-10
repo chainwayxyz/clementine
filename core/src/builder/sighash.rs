@@ -14,8 +14,9 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::KickoffId;
+use crate::rpc::clementine::{KickoffId, NormalSignatureKind};
 use async_stream::try_stream;
+use bitcoin::hashes::Hash;
 use bitcoin::{Address, OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
@@ -81,6 +82,7 @@ pub struct SignatureInfo {
     pub round_idx: usize,
     pub kickoff_utxo_idx: usize,
     pub signature_id: SignatureId,
+    pub kickoff_txid: Option<bitcoin::Txid>,
 }
 
 impl PartialSignatureInfo {
@@ -101,13 +103,24 @@ impl PartialSignatureInfo {
             round_idx: self.round_idx,
             kickoff_utxo_idx: self.kickoff_utxo_idx,
             signature_id,
+            kickoff_txid: None,
+        }
+    }
+    pub fn complete_with_kickoff_txid(&self, kickoff_txid: bitcoin::Txid) -> SignatureInfo {
+        SignatureInfo {
+            operator_idx: self.operator_idx,
+            round_idx: self.round_idx,
+            kickoff_utxo_idx: self.kickoff_utxo_idx,
+            signature_id: NormalSignatureKind::YieldKickoffTxid.into(),
+            kickoff_txid: Some(kickoff_txid),
         }
     }
 }
 
 /// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
 /// These sighashes are needed in order to create the message to be signed later for MuSig2 of NofN.
-/// WIP: Update if the design changes.
+/// yield_kickoff_txid is used to yield the kickoff txid
+/// Kickoff txid yield has an empty sighash and a signature info with the kickoff txid
 /// For a given deposit tx, for each operator and round tx, generates the sighash stream for:
 /// - challenge_tx,
 /// - start_happy_reimburse_tx,
@@ -124,6 +137,7 @@ pub fn create_nofn_sighash_stream(
     config: BridgeConfig,
     deposit_data: DepositData,
     nofn_xonly_pk: XOnlyPublicKey,
+    yield_kickoff_txid: bool,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
@@ -174,13 +188,28 @@ pub fn create_nofn_sighash_stream(
                     ).await?;
 
                     let mut sum = 0;
-                    for (_, txhandler) in txhandlers.iter() {
+                    let mut kickoff_txid = None;
+                    for (tx_type, txhandler) in txhandlers.iter() {
                         let sighashes = txhandler.calculate_shared_txins_sighash(EntityType::VerifierDeposit, partial)?;
                         sum += sighashes.len();
                         for sighash in sighashes {
                             yield sighash;
                         }
+                        if tx_type == &TransactionType::Kickoff {
+                            kickoff_txid = Some(txhandler.get_txid());
+                        }
                     }
+
+                    match (yield_kickoff_txid, kickoff_txid) {
+                        (true, Some(kickoff_txid)) => {
+                            yield (TapSighash::all_zeros(), partial.complete_with_kickoff_txid(*kickoff_txid));
+                        }
+                        (true, None) => {
+                            Err(BridgeError::Error("Kickoff txid not found in sighash stream".to_string()))?;
+                        }
+                        _ => {}
+                    }
+
 
                     if sum != config.get_num_required_nofn_sigs_per_kickoff() {
                         Err(BridgeError::NofNSighashMismatch(config.get_num_required_nofn_sigs_per_kickoff(), sum))?;

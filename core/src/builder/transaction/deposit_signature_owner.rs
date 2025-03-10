@@ -70,6 +70,7 @@ impl SignatureId {
                     OperatorChallengeAck1 => Ok(Own(SighashDefault)),
                     WatchtowerChallenge1 => Ok(Own(SighashDefault)),
                     NotStored => Ok(NotOwned),
+                    YieldKickoffTxid => Ok(NotOwned),
                 }
             }
             SignatureId::NumberedSignature(numbered_sig) => {

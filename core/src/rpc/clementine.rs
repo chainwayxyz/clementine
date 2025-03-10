@@ -379,6 +379,7 @@ pub enum NormalSignatureKind {
     OperatorChallengeAck1 = 12,
     NotStored = 13,
     WatchtowerChallenge1 = 14,
+    YieldKickoffTxid = 15,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -402,6 +403,7 @@ impl NormalSignatureKind {
             Self::OperatorChallengeAck1 => "OperatorChallengeAck1",
             Self::NotStored => "NotStored",
             Self::WatchtowerChallenge1 => "WatchtowerChallenge1",
+            Self::YieldKickoffTxid => "YieldKickoffTxid",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -422,6 +424,7 @@ impl NormalSignatureKind {
             "OperatorChallengeAck1" => Some(Self::OperatorChallengeAck1),
             "NotStored" => Some(Self::NotStored),
             "WatchtowerChallenge1" => Some(Self::WatchtowerChallenge1),
+            "YieldKickoffTxid" => Some(Self::YieldKickoffTxid),
             _ => None,
         }
     }
@@ -505,6 +508,7 @@ pub enum NormalTransactionId {
     KickoffNotFinalized = 12,
     ChallengeTimeout = 13,
     BurnUnusedKickoffConnectors = 14,
+    YieldKickoffTxid = 15,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -528,6 +532,7 @@ impl NormalTransactionId {
             Self::KickoffNotFinalized => "KICKOFF_NOT_FINALIZED",
             Self::ChallengeTimeout => "CHALLENGE_TIMEOUT",
             Self::BurnUnusedKickoffConnectors => "BURN_UNUSED_KICKOFF_CONNECTORS",
+            Self::YieldKickoffTxid => "YIELD_KICKOFF_TXID",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -548,6 +553,7 @@ impl NormalTransactionId {
             "KICKOFF_NOT_FINALIZED" => Some(Self::KickoffNotFinalized),
             "CHALLENGE_TIMEOUT" => Some(Self::ChallengeTimeout),
             "BURN_UNUSED_KICKOFF_CONNECTORS" => Some(Self::BurnUnusedKickoffConnectors),
+            "YIELD_KICKOFF_TXID" => Some(Self::YieldKickoffTxid),
             _ => None,
         }
     }
@@ -927,7 +933,7 @@ pub mod clementine_operator_client {
         pub async fn internal_finalized_payout(
             &mut self,
             request: impl tonic::IntoRequest<super::FinalizedPayoutParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1328,6 +1334,33 @@ pub mod clementine_verifier_client {
                     GrpcMethod::new("clementine.ClementineVerifier", "DepositFinalize"),
                 );
             self.inner.client_streaming(req, path, codec).await
+        }
+        /// Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
+        pub async fn internal_handle_kickoff(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Txid>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/InternalHandleKickoff",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineVerifier",
+                        "InternalHandleKickoff",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
     }
 }
@@ -1780,7 +1813,7 @@ pub mod clementine_operator_server {
         async fn internal_finalized_payout(
             &self,
             request: tonic::Request<super::FinalizedPayoutParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
         async fn internal_end_round(
             &self,
             request: tonic::Request<super::Empty>,
@@ -2206,7 +2239,7 @@ pub mod clementine_operator_server {
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::FinalizedPayoutParams>
                     for InternalFinalizedPayoutSvc<T> {
-                        type Response = super::Empty;
+                        type Response = super::Txid;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -2431,6 +2464,11 @@ pub mod clementine_verifier_server {
                 tonic::Streaming<super::VerifierDepositFinalizeParams>,
             >,
         ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status>;
+        /// Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
+        async fn internal_handle_kickoff(
+            &self,
+            request: tonic::Request<super::Txid>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ClementineVerifierServer<T> {
@@ -2980,6 +3018,53 @@ pub mod clementine_verifier_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.client_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineVerifier/InternalHandleKickoff" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalHandleKickoffSvc<T: ClementineVerifier>(pub Arc<T>);
+                    impl<T: ClementineVerifier> tonic::server::UnaryService<super::Txid>
+                    for InternalHandleKickoffSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Txid>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineVerifier>::internal_handle_kickoff(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalHandleKickoffSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

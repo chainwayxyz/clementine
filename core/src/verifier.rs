@@ -6,18 +6,19 @@ use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
 use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, DepositData, OperatorData, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::database::Database;
+use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
-use crate::rpc::clementine::{OperatorKeys, TaggedSignature, WatchtowerKeys};
-use crate::tx_sender::TxSender;
+use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature, WatchtowerKeys};
+use crate::tx_sender::{TxDataForLogging, TxSender};
 use crate::{bitcoin_syncer, utils::EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -385,6 +386,7 @@ impl Verifier {
                     recovery_taproot_address,
                 },
                 verifier.nofn_xonly_pk,
+                false,
             ));
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
 
@@ -463,6 +465,7 @@ impl Verifier {
                 recovery_taproot_address: recovery_taproot_address.clone(),
             },
             self.nofn_xonly_pk,
+            true,
         ));
 
         let num_required_nofn_sigs = self.config.get_num_required_nofn_sigs();
@@ -492,13 +495,33 @@ impl Verifier {
             num_operators
         ];
 
+        let mut kickoff_txids =
+            vec![vec![vec![None; num_kickoffs_per_round]; num_round_txs]; num_operators];
+
+        // ------ N-of-N SIGNATURES VERIFICATION ------
+
         let mut nonce_idx: usize = 0;
 
-        while let Some(sig) = sig_receiver.recv().await {
-            let sighash = sighash_stream
-                .next()
+        while let Some(sighash) = sighash_stream.next().await {
+            let sighash = sighash.map_err(|_| BridgeError::SighashStreamEndedPrematurely)?;
+
+            let &SignatureInfo {
+                operator_idx,
+                round_idx,
+                kickoff_utxo_idx,
+                signature_id,
+                kickoff_txid,
+            } = &sighash.1;
+
+            if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
+                kickoff_txids[operator_idx][round_idx][kickoff_utxo_idx] = kickoff_txid;
+                continue;
+            }
+
+            let sig = sig_receiver
+                .recv()
                 .await
-                .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
+                .ok_or(BridgeError::Error("No signature received".to_string()))?;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
             bitvm_client::SECP
@@ -510,12 +533,7 @@ impl Verifier {
                         x
                     ))
                 })?;
-            let &SignatureInfo {
-                operator_idx,
-                round_idx,
-                kickoff_utxo_idx,
-                signature_id,
-            } = &sighash.1;
+
             let tagged_sig = TaggedSignature {
                 signature: sig.serialize().to_vec(),
                 signature_id: Some(signature_id),
@@ -524,9 +542,6 @@ impl Verifier {
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
-            if nonce_idx == num_required_nofn_sigs {
-                break;
-            }
         }
 
         if nonce_idx != num_required_nofn_sigs {
@@ -536,45 +551,7 @@ impl Verifier {
             )));
         }
 
-        // Generate partial signature for move transaction
-        let move_txhandler = create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            self.nofn_xonly_pk,
-            self.config.protocol_paramset().user_takes_after,
-            self.config.protocol_paramset().bridge_amount,
-            self.config.protocol_paramset().network,
-        )?;
-
-        let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
-            0,
-            0,
-            bitcoin::TapSighashType::Default,
-        )?;
-
-        let agg_nonce =
-            agg_nonce_receiver
-                .recv()
-                .await
-                .ok_or(BridgeError::ChannelEndedPrematurely(
-                    "verifier::deposit_finalize",
-                    "aggregated nonces",
-                ))?;
-
-        let movetx_secnonce = {
-            let mut session_map = self.nonces.lock().await;
-            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
-                BridgeError::Error(format!(
-                    "could not find session with id {} in session cache",
-                    session_id
-                ))
-            })?;
-            session
-                .nonces
-                .pop()
-                .ok_or_else(|| BridgeError::Error("No move tx secnonce in session".to_string()))?
-        };
+        // ------ OPERATOR SIGNATURES VERIFICATION ------
 
         let num_required_total_op_sigs = num_required_op_sigs * self.config.num_operators;
         let mut total_op_sig_count = 0;
@@ -643,6 +620,7 @@ impl Verifier {
                     round_idx,
                     kickoff_utxo_idx,
                     signature_id,
+                    kickoff_txid: _,
                 } = &sighash.1;
                 let tagged_sig = TaggedSignature {
                     signature: operator_sig.serialize().to_vec(),
@@ -664,6 +642,48 @@ impl Verifier {
                 num_required_total_op_sigs, total_op_sig_count
             )));
         }
+
+        // ----- MOVE TX SIGNING
+
+        // Generate partial signature for move transaction
+        let move_txhandler = create_move_to_vault_txhandler(
+            deposit_outpoint,
+            evm_address,
+            &recovery_taproot_address,
+            self.nofn_xonly_pk,
+            self.config.protocol_paramset().user_takes_after,
+            self.config.protocol_paramset().bridge_amount,
+            self.config.protocol_paramset().network,
+        )?;
+
+        let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
+            0,
+            0,
+            bitcoin::TapSighashType::Default,
+        )?;
+
+        let agg_nonce =
+            agg_nonce_receiver
+                .recv()
+                .await
+                .ok_or(BridgeError::ChannelEndedPrematurely(
+                    "verifier::deposit_finalize",
+                    "aggregated nonces",
+                ))?;
+
+        let movetx_secnonce = {
+            let mut session_map = self.nonces.lock().await;
+            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
+                BridgeError::Error(format!(
+                    "could not find session with id {} in session cache",
+                    session_id
+                ))
+            })?;
+            session
+                .nonces
+                .pop()
+                .ok_or_else(|| BridgeError::Error("No move tx secnonce in session".to_string()))?
+        };
 
         // sign move tx and save everything to db if everything is correct
         let partial_sig = musig2::partial_sign(
@@ -692,6 +712,13 @@ impl Verifier {
         for (operator_idx, operator_sigs) in verified_sigs.into_iter().enumerate() {
             for (seq_idx, op_sequential_sigs) in operator_sigs.into_iter().enumerate() {
                 for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
+                    let kickoff_txid = kickoff_txids[operator_idx][seq_idx][kickoff_idx];
+                    if kickoff_txid.is_none() {
+                        return Err(BridgeError::Error(format!(
+                            "Kickoff txid not found for {}, {}, {}",
+                            operator_idx, seq_idx, kickoff_idx
+                        )));
+                    }
                     self.db
                         .set_deposit_signatures(
                             Some(&mut dbtx),
@@ -699,6 +726,7 @@ impl Verifier {
                             operator_idx,
                             seq_idx,
                             kickoff_idx,
+                            kickoff_txid.expect("Kickoff txid must be Some"),
                             kickoff_sigs,
                         )
                         .await?;
@@ -863,6 +891,81 @@ impl Verifier {
                     deposit_id.deposit_outpoint,
                 )
                 .await?;
+        }
+
+        Ok(())
+    }
+
+    // TODO: #402
+    async fn is_kickoff_malicious(
+        &self,
+        _kickoff_txid: bitcoin::Txid,
+    ) -> Result<bool, BridgeError> {
+        Ok(true)
+    }
+
+    pub async fn handle_kickoff<'a>(
+        &'a self,
+        dbtx: DatabaseTransaction<'a, '_>,
+        kickoff_txid: bitcoin::Txid,
+    ) -> Result<(), BridgeError> {
+        let is_malicious = self.is_kickoff_malicious(kickoff_txid).await?;
+        if !is_malicious {
+            return Ok(());
+        }
+
+        let (deposit_data, kickoff_id, _) = self
+            .db
+            .get_deposit_signatures_with_kickoff_txid(None, kickoff_txid)
+            .await?
+            .ok_or(BridgeError::Error("Kickoff txid not found".to_string()))?;
+
+        let transaction_data = TransactionRequestData {
+            deposit_data: deposit_data.clone(),
+            transaction_type: TransactionType::AllNeededForDeposit,
+            kickoff_id,
+        };
+        let signed_txs = create_and_sign_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+            None, // No need
+        )
+        .await?;
+
+        let tx_data_for_logging = Some(TxDataForLogging {
+            tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
+            operator_idx: Some(kickoff_id.operator_idx),
+            verifier_idx: Some(self.idx as u32),
+            round_idx: Some(kickoff_id.round_idx),
+            kickoff_idx: Some(kickoff_id.kickoff_idx),
+            deposit_outpoint: Some(deposit_data.deposit_outpoint),
+        });
+
+        // self._rpc.client.import_descriptors(vec!["tr("])
+
+        // try to send them
+        for (tx_type, signed_tx) in &signed_txs {
+            match *tx_type {
+                TransactionType::Challenge
+                | TransactionType::AssertTimeout(_)
+                | TransactionType::KickoffNotFinalized
+                | TransactionType::OperatorChallengeNack(_) => {
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            dbtx,
+                            *tx_type,
+                            signed_tx,
+                            &signed_txs,
+                            tx_data_for_logging,
+                            &self.config,
+                        )
+                        .await?;
+                }
+                _ => {}
+            }
         }
 
         Ok(())

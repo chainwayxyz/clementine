@@ -16,7 +16,7 @@ use bitcoin::{
     Address, ScriptBuf, TapSighash, TapTweakHash, Txid,
 };
 use bitcoin::{TapNodeHash, TapSighashType, Witness};
-use bitvm::signatures::winternitz::{self, ListpickVerifier, ToBytesConverter, Winternitz};
+use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
@@ -184,7 +184,7 @@ impl Actor {
         path: WinternitzDerivationPath,
         data: Vec<u8>,
     ) -> Result<Witness, BridgeError> {
-        let winternitz = Winternitz::<ListpickVerifier, ToBytesConverter>::new();
+        let winternitz = Winternitz::<BinarysearchVerifier, ToBytesConverter>::new();
 
         let winternitz_params = path.get_params();
 

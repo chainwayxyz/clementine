@@ -76,6 +76,8 @@ pub struct BridgeConfig {
     pub db_name: String,
     /// Citrea RPC URL.
     pub citrea_rpc_url: String,
+    /// Citrea light client prover RPC URL.
+    pub citrea_light_client_prover_url: String,
     /// Bridge contract address.
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
@@ -216,6 +218,7 @@ impl Default for BridgeConfig {
             confirmation_threshold: 1,
 
             citrea_rpc_url: "".to_string(),
+            citrea_light_client_prover_url: "".to_string(),
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
 
             header_chain_proof_path: Some(

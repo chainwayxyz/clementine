@@ -74,6 +74,7 @@ create table if not exists deposit_signatures (
     operator_idx int not null,
     round_idx int not null,
     kickoff_idx int not null,
+    kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
     signatures bytea not null,
     primary key (deposit_id, operator_idx, round_idx, kickoff_idx)
 );
@@ -179,6 +180,7 @@ create table if not exists tx_sender_try_to_send_txs (
 );
 
 create table if not exists tx_sender_rbf_txids (
+    insertion_order serial not null,
     id int not null references tx_sender_try_to_send_txs(id),
     txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now(),

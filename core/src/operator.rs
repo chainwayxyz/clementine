@@ -8,7 +8,8 @@ use crate::builder::transaction::{
     create_round_txhandlers, DepositData, KickoffWinternitzKeys, OperatorData, TransactionType,
     TxHandler,
 };
-use crate::citrea::CitreaContractClient;
+use crate::citrea::CitreaClient;
+use crate::config::protocol::ProtocolParamsetName;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
@@ -31,7 +32,6 @@ use bitcoin::{
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -51,8 +51,7 @@ pub struct Operator {
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSender,
-    pub citrea_client: Option<jsonrpsee::http_client::HttpClient>,
-    pub citrea_contract_client: Option<CitreaContractClient>,
+    pub citrea_client: Option<CitreaClient>,
 }
 
 impl Operator {
@@ -122,18 +121,24 @@ impl Operator {
         };
         dbtx.commit().await?;
 
-        let citrea_contract_client = if !config.citrea_rpc_url.is_empty() {
-            Some(CitreaContractClient::new(
+        let citrea_client = if !config.citrea_rpc_url.is_empty()
+            && !config.citrea_light_client_prover_url.is_empty()
+        {
+            Some(CitreaClient::new(
                 Url::parse(&config.citrea_rpc_url).map_err(|e| {
                     BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
                 })?,
+                Url::parse(&config.citrea_light_client_prover_url).map_err(|e| {
+                    BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e))
+                })?,
                 None,
             )?)
-        } else {
-            None
-        };
-        let citrea_client = if !config.citrea_rpc_url.is_empty() {
-            Some(HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?)
+        } else if config.protocol_paramset == ProtocolParamsetName::Mainnet
+            || config.protocol_paramset == ProtocolParamsetName::Testnet4
+        {
+            return Err(BridgeError::ConfigError(
+                "Citrea RPC URL and Citrea light client prover RPC URLs must be set!".to_string(),
+            ));
         } else {
             None
         };
@@ -154,7 +159,6 @@ impl Operator {
             collateral_funding_outpoint,
             tx_sender,
             citrea_client,
-            citrea_contract_client,
             reimburse_addr,
         })
     }
@@ -342,7 +346,7 @@ impl Operator {
         };
 
         // Check Citrea for the withdrawal state.
-        if let Some(citrea_contract_client) = &self.citrea_contract_client {
+        if let Some(citrea_contract_client) = &self.citrea_client {
             let txid = citrea_contract_client
                 .withdrawal_utxos(withdrawal_index.into())
                 .await?
@@ -441,7 +445,7 @@ impl Operator {
     ) -> Result<(), BridgeError> {
         // Don't check anything if Citrea client is not specified.
         let citrea_client = match &self.citrea_client {
-            Some(c) => c,
+            Some(c) => c.client.clone(),
             None => return Ok(()),
         };
 
@@ -531,12 +535,12 @@ impl Operator {
         &self,
         deposit_txid: Txid,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
-        tracing::error!("Generating assert winternitz pubkeys");
+        tracing::debug!("Generating assert winternitz pubkeys");
         let bitvm_pks = self
             .signer
             .generate_bitvm_pks_for_deposit(deposit_txid, self.config.protocol_paramset())?;
         let flattened_wpks = bitvm_pks.to_flattened_vec();
-        tracing::error!("Flattened wpks: {:?}", flattened_wpks);
+
         Ok(flattened_wpks)
     }
     /// Generates Winternitz public keys for every blockhash commit to be used in kickoff utxos.
@@ -659,7 +663,7 @@ impl Operator {
         dbtx: DatabaseTransaction<'a, '_>,
         deposit_outpoint: OutPoint,
         payout_tx_blockhash: BlockHash,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<bitcoin::Txid, BridgeError> {
         let (deposit_id, deposit_data) = self
             .db
             .get_deposit_data(Some(dbtx), deposit_outpoint)
@@ -749,7 +753,7 @@ impl Operator {
             .set_kickoff_connector_as_used(Some(dbtx), round_idx, kickoff_idx, Some(kickoff_txid))
             .await?;
 
-        Ok(())
+        Ok(kickoff_txid)
     }
 
     pub async fn end_round<'a>(

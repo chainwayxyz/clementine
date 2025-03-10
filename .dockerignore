@@ -1,5 +1,4 @@
 # exclude everything
-*
 
 # include source files
 !/core

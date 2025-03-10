@@ -92,6 +92,7 @@ pub enum TransactionType {
     KickoffNotFinalized,
     ChallengeTimeout,
     BurnUnusedKickoffConnectors,
+    YieldKickoffTxid, // This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
 }
 
 // converter from proto type to rust enum
@@ -121,6 +122,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::ChallengeTimeout => Ok(Self::ChallengeTimeout),
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
                     Normal::BurnUnusedKickoffConnectors => Ok(Self::BurnUnusedKickoffConnectors),
+                    Normal::YieldKickoffTxid => Ok(Self::YieldKickoffTxid),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -226,6 +228,9 @@ impl From<TransactionType> for GrpcTransactionId {
                 }
                 TransactionType::BurnUnusedKickoffConnectors => {
                     NormalTransaction(Normal::BurnUnusedKickoffConnectors as i32)
+                }
+                TransactionType::YieldKickoffTxid => {
+                    NormalTransaction(Normal::YieldKickoffTxid as i32)
                 }
             }),
         }

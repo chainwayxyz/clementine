@@ -730,7 +730,7 @@ impl ClementineAggregator for Aggregator {
         ))
         .await?;
 
-        tracing::error!("Sending deposit finalize streams to verifiers");
+        tracing::info!("Sending deposit finalize streams to verifiers");
 
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
@@ -757,6 +757,7 @@ impl ClementineAggregator for Aggregator {
             self.config.clone(),
             deposit_data,
             self.nofn_xonly_pk,
+            false,
         ));
 
         // Create channels for pipeline communication
@@ -810,13 +811,13 @@ impl ClementineAggregator for Aggregator {
             "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
         );
 
-        tracing::error!("Waiting for pipeline tasks to complete");
+        tracing::debug!("Waiting for pipeline tasks to complete");
         // Wait for all pipeline tasks to complete
         try_join_all([nonce_dist_handle, sig_agg_handle, sig_dist_handle])
             .await
             .map_err(|_| Status::internal("panic when pipelining"))?;
 
-        tracing::error!("Pipeline tasks completed");
+        tracing::debug!("Pipeline tasks completed");
 
         // Right now we collect all operator sigs then start to send them, we can do it simultaneously in the future
         // Need to change sig verification ordering in deposit_finalize() in verifiers so that we verify

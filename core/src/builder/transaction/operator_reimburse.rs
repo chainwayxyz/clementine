@@ -254,7 +254,7 @@ pub fn create_kickoff_not_finalized_txhandler(
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::KickoffNotFinalized1,
-            kickoff_txhandler.get_spendable_output(2)?,
+            kickoff_txhandler.get_spendable_output(1)?,
             builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
@@ -267,6 +267,7 @@ pub fn create_kickoff_not_finalized_txhandler(
         .add_output(UnspentTxOut::from_partial(
             builder::transaction::anchor_output(),
         ))
+        .add_burn_output()
         .finalize())
 }
 

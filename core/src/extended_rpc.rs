@@ -182,13 +182,40 @@ impl ExtendedRpc {
         txid: Txid,
         fee_rate: FeeRate,
     ) -> Result<Txid, BridgeError> {
+        let transaction_info = self.client.get_transaction(&txid, None).await?;
+        if transaction_info.info.blockhash.is_some() {
+            return Err(BridgeError::TransactionAlreadyInBlock(
+                transaction_info
+                    .info
+                    .blockhash
+                    .expect("Blockhash should be present"),
+            ));
+        }
+        let tx = transaction_info.transaction()?;
+        let tx_size = tx.weight().to_vbytes_ceil();
+        let current_fee_sat = u64::try_from(
+            -transaction_info
+                .fee
+                .expect("Fee should be present")
+                .to_sat(),
+        )?;
+        let current_fee_rate = FeeRate::from_sat_per_kwu(1000 * current_fee_sat / tx_size);
+        if current_fee_rate >= fee_rate {
+            return Ok(txid);
+        }
+        let network_info = self.client.get_network_info().await?;
+        let incremental_fee = network_info.incremental_fee;
+        let incremental_fee_rate: FeeRate = FeeRate::from_sat_per_kwu(incremental_fee.to_sat());
+        let new_fee_rate = FeeRate::from_sat_per_kwu(
+            current_fee_rate.to_sat_per_kwu() + incremental_fee_rate.to_sat_per_kwu(),
+        );
         let bump_fee_result = match self
             .client
             .bump_fee(
                 &txid,
                 Some(&bitcoincore_rpc::json::BumpFeeOptions {
                     fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
-                        fee_rate.to_sat_per_vb_ceil(),
+                        new_fee_rate.to_sat_per_vb_ceil(),
                     ))),
                     replaceable: Some(true),
                     ..Default::default()
@@ -238,8 +265,7 @@ impl ExtendedRpc {
             BridgeError::BumpFeeError(
                 txid,
                 fee_rate,
-                "Can't get Txid from bump_fee_result: Wallet private keys are disabled."
-                    .to_string(),
+                "Can't get Txid from bump_fee_result".to_string(),
             )
         })
     }
