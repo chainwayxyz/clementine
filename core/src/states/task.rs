@@ -8,7 +8,7 @@ use crate::{config::protocol::ProtocolParamset, errors::BridgeError, states::Sys
 use super::{context::Owner, StateManager};
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
-    /// Starts a new thread to periodically fetch new blocks from bitcoin_syncer
+    /// Starts a new task to periodically fetch new blocks from bitcoin_syncer
     pub async fn block_fetcher_task(
         last_processed_block_height: u32,
         db: Database,
