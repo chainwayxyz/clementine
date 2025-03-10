@@ -1,6 +1,8 @@
-use crate::{bridge_circuit_common, common::zkvm::ZkvmGuest};
+use crate::{
+    bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput},
+    common::zkvm::ZkvmGuest,
+};
 
-use bridge_circuit_common::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use crypto_bigint::{Encoding, U128, U256};
 use risc0_zkvm::guest::env;
 

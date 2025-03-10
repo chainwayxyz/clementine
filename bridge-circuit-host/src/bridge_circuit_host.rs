@@ -5,10 +5,11 @@ use crate::structs::{
 use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
 use borsh;
+use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
+use circuits_lib::bridge_circuit::winternitz::verify_winternitz_signature;
 use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
-use circuits_lib::bridge_circuit_common::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit_common::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
-use circuits_lib::bridge_circuit_common::winternitz::verify_winternitz_signature;
+
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
 
@@ -214,9 +215,8 @@ mod tests {
     use bitcoin::Transaction;
     use borsh::BorshDeserialize;
     use circuits_lib::bridge_circuit::convert_to_groth16_and_verify;
-    use circuits_lib::bridge_circuit_common::groth16::CircuitGroth16Proof;
-    use circuits_lib::bridge_circuit_common::structs::WorkOnlyCircuitInput;
-    use circuits_lib::bridge_circuit_common::winternitz::{
+
+    use circuits_lib::bridge_circuit::winternitz::{
         generate_public_key, sign_digits, Parameters, WinternitzHandler,
     };
     use final_spv::merkle_tree::BitcoinMerkleTree;
@@ -235,7 +235,7 @@ mod tests {
     const WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
     pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
-        hex_literal::hex!("fbb1477c9c59ab063a7ac59dc5e7432b279f100f3952b607abda00f9346ad736");
+        hex_literal::hex!("5e2ebb3cdbb2f6bfb9d3fcf27b87fbf229f1f29c3f4bb560e5dce31160cf3d5d");
     const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
     const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
 
@@ -316,6 +316,8 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn bridge_circuit_test() {
+        use circuits_lib::bridge_circuit::winternitz::verify_winternitz_signature;
+
         let work_only_method_id_from_elf = compute_image_id(WORK_ONLY_ELF).unwrap();
         assert_eq!(
             work_only_method_id_from_elf.as_bytes(),

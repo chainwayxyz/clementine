@@ -1,19 +1,21 @@
 pub mod constants;
 pub mod groth16;
+pub mod groth16_verifier;
 pub mod lc_proof;
 pub mod storage_proof;
+pub mod structs;
+pub mod winternitz;
 
-use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
-use crate::bridge_circuit_common;
 use crate::common::zkvm::ZkvmGuest;
 use bitcoin::hashes::Hash;
-use bridge_circuit_common::groth16::CircuitGroth16Proof;
-use bridge_circuit_common::structs::BridgeCircuitInput;
-use bridge_circuit_common::winternitz::{verify_winternitz_signature, WinternitzHandler};
+use groth16::CircuitGroth16Proof;
+use groth16_verifier::CircuitGroth16WithTotalWork;
 use lc_proof::lc_proof_verifier;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
+use structs::BridgeCircuitInput;
+use winternitz::{verify_winternitz_signature, WinternitzHandler};
 
 pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = [
     2421631365, 3264974484, 821027839, 1335612179, 1295879179, 713845602, 1229060261, 258954137,

@@ -1,11 +1,11 @@
-use super::utils;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 pub type HashOut = [u8; 20];
 pub type PublicKey = Vec<HashOut>;
 pub type SecretKey = Vec<u8>;
 use bitcoin::hashes::{self, Hash};
-use utils::hash160;
+
+use crate::common::hashes::hash160;
 
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WinternitzHandler {
