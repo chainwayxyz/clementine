@@ -63,6 +63,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                                         )))?;
 
                                     let event = SystemEvent::NewBlock {
+                                        block_id,
                                         block,
                                         height: next_height,
                                     };
@@ -198,9 +199,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     Err(e) => {
                         tracing::error!("State manager run loop error: {:?}", e);
                         num_consecutive_errors += 1;
-                        if num_consecutive_errors > 50 {
-                            return Err(eyre::eyre!("Too many consecutive state machine errors"));
-                        }
+                        // if num_consecutive_errors > 50 {
+                        //     return Err(eyre::eyre!("Too many consecutive state machine errors"));
+                        // }
                         tokio::time::sleep(poll_delay).await;
                     }
                 }
@@ -252,7 +253,6 @@ mod tests {
             _dbtx: DatabaseTransaction<'_, '_>,
             _block_id: u32,
             _block_height: u32,
-            _block_hash: bitcoin::BlockHash,
             _block: &bitcoin::Block,
         ) -> Result<(), BridgeError> {
             Ok(())

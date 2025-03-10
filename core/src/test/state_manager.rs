@@ -52,7 +52,6 @@ impl Owner for MockOwner {
         _dbtx: DatabaseTransaction<'_, '_>,
         _block_id: u32,
         _block_height: u32,
-        _block_hash: bitcoin::BlockHash,
         _block: &bitcoin::Block,
     ) -> Result<(), BridgeError> {
         Ok(())

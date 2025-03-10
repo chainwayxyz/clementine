@@ -13,6 +13,7 @@ use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, State
 #[derive(Debug, serde::Serialize, Clone, serde::Deserialize)]
 pub enum SystemEvent {
     NewBlock {
+        block_id: u32,
         block: bitcoin::Block,
         height: u32,
     },
@@ -74,7 +75,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         dbtx: DatabaseTransaction<'_, '_>,
     ) -> Result<(), BridgeError> {
         match event {
-            SystemEvent::NewBlock { block, height } => {
+            SystemEvent::NewBlock {
+                block_id,
+                block,
+                height,
+            } => {
+                let handle_finalized_block_result = self
+                    .owner
+                    .handle_finalized_block(dbtx, block_id, height, &block)
+                    .await?;
                 self.process_block_parallel(&block, height).await?;
             }
             SystemEvent::NewOperator {

@@ -89,7 +89,7 @@ impl Database {
         block_id: u32,
     ) -> Result<Vec<(u32, Txid)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB)>(
-            "SELECT w.idx, TxidDB(bsu.spending_txid) 
+            "SELECT w.idx, bsu.spending_txid
              FROM withdrawals w
              JOIN bitcoin_syncer_spent_utxos bsu 
                 ON bsu.txid = w.withdrawal_utxo_txid 
@@ -111,6 +111,9 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         payout_txs_and_payer_operator_idx: Vec<(u32, Txid, u32)>,
     ) -> Result<(), BridgeError> {
+        if payout_txs_and_payer_operator_idx.is_empty() {
+            return Ok(());
+        }
         // Convert all values first, propagating any errors
         let converted_values: Result<Vec<_>, BridgeError> = payout_txs_and_payer_operator_idx
             .iter()
