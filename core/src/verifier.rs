@@ -20,7 +20,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature, WatchtowerKeys};
 use crate::states;
-use crate::states::syncer::{add_new_kickoff_machine, run_state_manager};
+use crate::states::syncer::add_new_kickoff_machine;
 use crate::states::StateManager;
 use crate::states::{Duty, Owner};
 use crate::tx_sender::{TxDataForLogging, TxSender};
@@ -91,7 +91,6 @@ pub struct Verifier {
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
     pub tx_sender: TxSender,
-    pub state_manager_handle: String,
     pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
 }
 
@@ -164,8 +163,6 @@ impl Verifier {
         )
         .await?;
 
-        // start state manager
-        let state_manager_consumer_handle = format!("verifier{}_states", idx).to_string();
         let mut verifier = Verifier {
             _rpc: rpc,
             signer,
@@ -177,29 +174,23 @@ impl Verifier {
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
             tx_sender,
-            state_manager_handle: state_manager_consumer_handle.clone(),
             state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
         };
         // initialize and run state manager
-        let mut state_manager = StateManager::new(
-            db.clone(),
-            verifier.clone(),
-            config.protocol_paramset(),
-            state_manager_consumer_handle,
-        )
-        .await?;
+        let mut state_manager =
+            StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
         state_manager.load_from_db().await?;
-        let state_manager_block_syncer = states::syncer::fetch_new_blocks(
+        let state_manager_block_syncer = states::syncer::fetch_new_blocks::<Self>(
             state_manager.get_last_processed_block_height(),
-            state_manager.get_consumer_handle(),
             db.clone(),
             Duration::from_secs(1),
             config.protocol_paramset(),
         )
         .await;
 
-        let (state_manager_run_loop, shutdown_tx) =
-            run_state_manager(state_manager, Duration::from_secs(1)).await;
+        let (state_manager_run_loop, shutdown_tx) = state_manager
+            .into_polling_task(Duration::from_secs(1))
+            .await;
         verifier.state_manager_shutdown_tx = shutdown_tx.into();
 
         // Monitor state manager handles
@@ -366,9 +357,8 @@ impl Verifier {
             reimburse_addr: wallet_reimburse_address,
         };
 
-        states::syncer::add_new_round_machine(
+        states::syncer::add_new_round_machine::<Self>(
             self.db.clone(),
-            self.state_manager_handle.clone(),
             &mut dbtx,
             operator_data,
             operator_index,
@@ -1084,9 +1074,8 @@ impl Owner for Verifier {
                 if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
-                    add_new_kickoff_machine(
+                    add_new_kickoff_machine::<Self>(
                         self.db.clone(),
-                        self.state_manager_handle.clone(),
                         &mut dbtx,
                         kickoff_id,
                         block_height,

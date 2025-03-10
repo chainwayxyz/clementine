@@ -14,17 +14,17 @@ use crate::{
 use super::{context::Owner, StateManager};
 
 /// Starts a new thread to periodically fetch new blocks from bitcoin_syncer
-pub async fn fetch_new_blocks(
+pub async fn fetch_new_blocks<T: Owner + std::fmt::Debug + 'static>(
     last_processed_block_height: u32,
-    consumer_handle: String,
     db: Database,
     poll_delay: Duration,
     paramset: &'static ProtocolParamset,
 ) -> JoinHandle<Result<(), eyre::Report>> {
     tokio::spawn(async move {
+        let queue_name = StateManager::<T>::queue_name();
         tracing::info!(
-            "Starting state manager block syncing with consumer handle {} starting from height {}",
-            consumer_handle,
+            "Starting state manager block syncing with owner type {} starting from height {}",
+            T::OWNER_TYPE,
             last_processed_block_height
         );
         // variable to store locally last sent height
@@ -35,7 +35,7 @@ pub async fn fetch_new_blocks(
             let result: Result<bool, eyre::Report> = async {
                 let mut dbtx = db.begin_transaction().await?;
                 let has_updated_states = async {
-                    let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
+                    let event = db.get_event_and_update(&mut dbtx, &queue_name).await?;
                     Ok::<bool, eyre::Report>(match event {
                         Some(event) => match event {
                             BitcoinSyncerEvent::NewBlock(block_id) => {
@@ -59,7 +59,7 @@ pub async fn fetch_new_blocks(
                                             height: next_height,
                                         };
                                         queue
-                                            .send_with_cxn(&consumer_handle, &event, &mut *dbtx)
+                                            .send_with_cxn(&queue_name, &event, &mut *dbtx)
                                             .await
                                             .map_err(|e| {
                                                 BridgeError::Error(format!(
@@ -116,33 +116,33 @@ pub async fn fetch_new_blocks(
     })
 }
 
-pub async fn add_new_round_machine(
+pub async fn add_new_round_machine<T: Owner + std::fmt::Debug + 'static>(
     db: Database,
-    consumer_handle: String,
     tx: DatabaseTransaction<'_, '_>,
     operator_data: OperatorData,
     operator_idx: u32,
 ) -> Result<(), eyre::Report> {
+    let queue_name = StateManager::<T>::queue_name();
     let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
     let message = SystemEvent::NewOperator {
         operator_data,
         operator_idx,
     };
     queue
-        .send_with_cxn(&consumer_handle, &message, &mut *(*tx))
+        .send_with_cxn(&queue_name, &message, &mut *(*tx))
         .await
         .map_err(|e| BridgeError::Error(format!("Error sending NewOperator event: {:?}", e)))?;
     Ok(())
 }
 
-pub async fn add_new_kickoff_machine(
+pub async fn add_new_kickoff_machine<T: Owner + std::fmt::Debug + 'static>(
     db: Database,
-    consumer_handle: String,
     tx: DatabaseTransaction<'_, '_>,
     kickoff_id: KickoffId,
     kickoff_height: u32,
     deposit_data: DepositData,
 ) -> Result<(), eyre::Report> {
+    let queue_name = StateManager::<T>::queue_name();
     let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
     let message = SystemEvent::NewKickoff {
         kickoff_id,
@@ -150,100 +150,100 @@ pub async fn add_new_kickoff_machine(
         deposit_data,
     };
     queue
-        .send_with_cxn(&consumer_handle, &message, &mut *(*tx))
+        .send_with_cxn(&queue_name, &message, &mut *(*tx))
         .await
-        .map_err(|e| BridgeError::Error(format!("Error sending NewOperator event: {:?}", e)))?;
+        .map_err(|e| BridgeError::Error(format!("Error sending NewKickoff event: {:?}", e)))?;
     Ok(())
 }
 
-pub async fn run_state_manager<T>(
-    mut state_manager: StateManager<T>,
-    poll_delay: Duration,
-) -> (JoinHandle<Result<(), eyre::Report>>, oneshot::Sender<()>)
-where
-    T: Owner + std::fmt::Debug + 'static,
-{
-    let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
+    pub async fn into_polling_task(
+        mut self,
+        poll_delay: Duration,
+    ) -> (JoinHandle<Result<(), eyre::Report>>, oneshot::Sender<()>)
+    where
+        T: Owner + std::fmt::Debug + 'static,
+    {
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
 
-    let handle = tokio::spawn(async move {
-        tracing::info!(
-            "Starting state manager main run thread with consumer handle {}",
-            state_manager.consumer_handle
-        );
-        let db = state_manager.db.clone();
-        let mut num_consecutive_errors = 0;
+        let handle = tokio::spawn(async move {
+            let queue_name = StateManager::<T>::queue_name();
+            tracing::info!(
+                "Starting state manager main run thread with owner type {}",
+                T::OWNER_TYPE
+            );
+            let db = self.db.clone();
+            let mut num_consecutive_errors = 0;
 
-        loop {
-            // Check if shutdown signal was received or the channel was closed (meaning the operator was dropped)
-            if shutdown_rx.try_recv() != Err(oneshot::error::TryRecvError::Empty) {
-                tracing::info!("Shutdown signal received, stopping state manager");
-                break Ok(());
-            }
-
-            let poll_result: Result<bool, BridgeError> = async {
-                let new_event_received = async {
-                    let mut dbtx = db.begin_transaction().await?;
-                    let new_event: Option<Message<SystemEvent>> = state_manager
-                        .queue
-                        .read_with_cxn(&state_manager.consumer_handle, 1, &mut *dbtx)
-                        .await
-                        .map_err(|e| BridgeError::Error(format!("Error reading event: {:?}", e)))?;
-                    let return_value = Ok::<bool, BridgeError>(match new_event {
-                        Some(event) => {
-                            let event_id = event.msg_id;
-                            state_manager.handle_event(event.message, &mut dbtx).await?;
-                            // handled event, delete it from queue
-                            state_manager
-                                .queue
-                                .archive_with_cxn(
-                                    &state_manager.consumer_handle,
-                                    event_id,
-                                    &mut *dbtx,
-                                )
-                                .await
-                                .map_err(|e| {
-                                    BridgeError::Error(format!("Error deleting event: {:?}", e))
-                                })?;
-                            true
-                        }
-                        None => false,
-                    });
-                    dbtx.commit().await.map_err(|e| {
-                        BridgeError::Error(format!("Error committing transaction: {:?}", e))
-                    })?;
-                    return_value
+            loop {
+                // Check if shutdown signal was received or the channel was closed (meaning the operator was dropped)
+                if shutdown_rx.try_recv() != Err(oneshot::error::TryRecvError::Empty) {
+                    tracing::info!("Shutdown signal received, stopping state manager");
+                    break Ok(());
                 }
-                .await?;
 
-                if new_event_received {
-                    // Don't wait in case new event was received
-                    return Ok(true);
-                }
-                Ok(false)
-            }
-            .await;
-
-            match poll_result {
-                Ok(true) => {
-                    num_consecutive_errors = 0;
-                }
-                Ok(false) => {
-                    num_consecutive_errors = 0;
-                    tokio::time::sleep(poll_delay).await;
-                }
-                Err(e) => {
-                    tracing::error!("State manager run loop error: {:?}", e);
-                    num_consecutive_errors += 1;
-                    if num_consecutive_errors > 50 {
-                        return Err(eyre::eyre!("Too many consecutive state machine errors"));
+                let poll_result: Result<bool, BridgeError> = async {
+                    let new_event_received = async {
+                        let mut dbtx = db.begin_transaction().await?;
+                        let new_event: Option<Message<SystemEvent>> = self
+                            .queue
+                            .read_with_cxn(&queue_name, 1, &mut *dbtx)
+                            .await
+                            .map_err(|e| {
+                                BridgeError::Error(format!("Error reading event: {:?}", e))
+                            })?;
+                        let return_value = Ok::<bool, BridgeError>(match new_event {
+                            Some(event) => {
+                                let event_id = event.msg_id;
+                                self.handle_event(event.message, &mut dbtx).await?;
+                                // handled event, delete it from queue
+                                self.queue
+                                    .archive_with_cxn(&queue_name, event_id, &mut *dbtx)
+                                    .await
+                                    .map_err(|e| {
+                                        BridgeError::Error(format!("Error deleting event: {:?}", e))
+                                    })?;
+                                true
+                            }
+                            None => false,
+                        });
+                        dbtx.commit().await.map_err(|e| {
+                            BridgeError::Error(format!("Error committing transaction: {:?}", e))
+                        })?;
+                        return_value
                     }
-                    tokio::time::sleep(poll_delay).await;
+                    .await?;
+
+                    if new_event_received {
+                        // Don't wait in case new event was received
+                        return Ok(true);
+                    }
+                    Ok(false)
+                }
+                .await;
+
+                match poll_result {
+                    Ok(true) => {
+                        num_consecutive_errors = 0;
+                    }
+                    Ok(false) => {
+                        num_consecutive_errors = 0;
+                        tokio::time::sleep(poll_delay).await;
+                    }
+                    Err(e) => {
+                        tracing::error!("State manager run loop error: {:?}", e);
+                        num_consecutive_errors += 1;
+                        if num_consecutive_errors > 50 {
+                            return Err(eyre::eyre!("Too many consecutive state machine errors"));
+                        }
+                        tokio::time::sleep(poll_delay).await;
+                    }
                 }
             }
-        }
-    });
+        });
 
-    (handle, shutdown_tx)
+        (handle, shutdown_tx)
+    }
 }
 
 #[cfg(test)]
@@ -287,15 +287,13 @@ mod tests {
     ) -> (JoinHandle<Result<(), eyre::Report>>, oneshot::Sender<()>) {
         let db = Database::new(config).await.unwrap();
 
-        let state_manager = StateManager::new(
-            db,
-            MockHandler,
-            ProtocolParamsetName::Regtest.into(),
-            "test_consumer_handle".to_string(),
-        )
-        .await
-        .unwrap();
-        let (handle, shutdown) = run_state_manager(state_manager, Duration::from_millis(100)).await;
+        let state_manager =
+            StateManager::new(db, MockHandler, ProtocolParamsetName::Regtest.into())
+                .await
+                .unwrap();
+        let (handle, shutdown) = state_manager
+            .into_polling_task(Duration::from_millis(100))
+            .await;
         (handle, shutdown)
     }
 

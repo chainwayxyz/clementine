@@ -110,16 +110,18 @@ pub struct StateManager<T: Owner> {
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     context: context::StateContext<T>,
     paramset: &'static ProtocolParamset,
-    consumer_handle: String,
     last_processed_block_height: u32,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
+    pub fn queue_name() -> String {
+        format!("{}_state_mgr_events", T::OWNER_TYPE)
+    }
+
     pub async fn new(
         db: Database,
         handler: T,
         paramset: &'static ProtocolParamset,
-        consumer_handle: String,
     ) -> Result<Self, BridgeError> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         queue
@@ -127,10 +129,11 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .await
             .map_err(|e| BridgeError::Error(format!("Error initializing pqmq queue: {:?}", e)))?;
 
-        queue.create(&consumer_handle).await.map_err(|e| {
+        queue.create(&Self::queue_name()).await.map_err(|e| {
             BridgeError::Error(format!(
-                "Error creating pqmq queue with consumer handle {}: {:?}",
-                consumer_handle, e
+                "Error creating pqmq queue with name {}: {:?}",
+                Self::queue_name(),
+                e
             ))
         })?;
 
@@ -146,9 +149,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             paramset,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
-            consumer_handle,
-            last_processed_block_height: paramset.start_height,
             queue,
+            last_processed_block_height: paramset.start_height,
         })
     }
 
@@ -421,10 +423,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
     pub fn get_last_processed_block_height(&self) -> u32 {
         self.last_processed_block_height
-    }
-
-    pub fn get_consumer_handle(&self) -> String {
-        self.consumer_handle.clone()
     }
 
     /// Updates the machines using the context and returns machines without

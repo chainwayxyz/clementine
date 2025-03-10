@@ -21,7 +21,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
 use crate::states;
-use crate::states::syncer::{add_new_kickoff_machine, run_state_manager};
+use crate::states::syncer::add_new_kickoff_machine;
 use crate::states::{Duty, Owner, StateManager};
 use crate::tx_sender::TxSender;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
@@ -59,7 +59,6 @@ pub struct Operator {
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSender,
     pub citrea_client: Option<jsonrpsee::http_client::HttpClient>,
-    pub state_manager_handle: String,
     pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
     pub citrea_contract_client: Option<CitreaContractClient>,
 }
@@ -153,8 +152,6 @@ impl Operator {
             config.db_name
         );
 
-        let state_manager_consumer_handle = format!("operator{}_states", idx).to_string();
-
         let operator_data = OperatorData {
             xonly_pk: signer.xonly_public_key,
             collateral_funding_outpoint,
@@ -173,40 +170,33 @@ impl Operator {
             citrea_client,
             citrea_contract_client,
             reimburse_addr,
-            state_manager_handle: state_manager_consumer_handle.clone(),
             // temporarily set to avoid circular reference
             state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
         };
 
         // initialize and run state manager
-        let mut state_manager = StateManager::new(
-            db.clone(),
-            operator.clone(),
-            config.protocol_paramset(),
-            state_manager_consumer_handle.clone(),
-        )
-        .await?;
+        let mut state_manager =
+            StateManager::new(db.clone(), operator.clone(), config.protocol_paramset()).await?;
 
         state_manager.load_from_db().await?;
 
-        let state_manager_block_syncer = states::syncer::fetch_new_blocks(
+        let state_manager_block_syncer = states::syncer::fetch_new_blocks::<Self>(
             state_manager.get_last_processed_block_height(),
-            state_manager.get_consumer_handle(),
             db.clone(),
             Duration::from_secs(1),
             config.protocol_paramset(),
         )
         .await;
 
-        let (state_manager_run_loop, shutdown_tx) =
-            run_state_manager(state_manager, Duration::from_secs(1)).await;
+        let (state_manager_run_loop, shutdown_tx) = state_manager
+            .into_polling_task(Duration::from_secs(1))
+            .await;
         operator.state_manager_shutdown_tx = shutdown_tx.into(); // save the shutdown tx here
 
         // add own operator state to state manager
         let mut dbtx = db.begin_transaction().await?;
-        states::syncer::add_new_round_machine(
+        states::syncer::add_new_round_machine::<Self>(
             db.clone(),
-            state_manager_consumer_handle,
             &mut dbtx,
             operator_data,
             idx as u32,
@@ -1049,9 +1039,8 @@ impl Owner for Operator {
                 if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
-                    add_new_kickoff_machine(
+                    add_new_kickoff_machine::<Self>(
                         self.db.clone(),
-                        self.state_manager_handle.clone(),
                         &mut dbtx,
                         kickoff_id,
                         block_height,

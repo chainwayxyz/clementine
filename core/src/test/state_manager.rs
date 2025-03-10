@@ -56,10 +56,9 @@ async fn create_test_state_manager(
         .expect("Failed to create database");
     let owner = Default::default();
 
-    let state_manager =
-        StateManager::new(db, owner, config.protocol_paramset(), "test".to_string())
-            .await
-            .unwrap();
+    let state_manager = StateManager::new(db, owner, config.protocol_paramset())
+        .await
+        .unwrap();
 
     (state_manager, config.clone())
 }
