@@ -12,7 +12,8 @@ use crate::builder::transaction::{
     ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
-use crate::config::protocol::ProtocolParamset;
+use crate::citrea::CitreaClient;
+use crate::config::protocol::{ProtocolParamset, ProtocolParamsetName};
 use crate::config::BridgeConfig;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
@@ -28,6 +29,7 @@ use crate::states::StateManager;
 use crate::states::{Duty, Owner};
 use crate::tx_sender::{TxDataForLogging, TxSender};
 use crate::{bitcoin_syncer, EVMAddress};
+use alloy::transports::http::reqwest::Url;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -95,6 +97,7 @@ pub struct Verifier {
     pub idx: usize,
     pub tx_sender: TxSender,
     pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
+    pub citrea_client: Option<CitreaClient>,
 }
 
 impl Verifier {
@@ -120,6 +123,28 @@ impl Verifier {
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
+
+        let citrea_client = if !config.citrea_rpc_url.is_empty()
+            && !config.citrea_light_client_prover_url.is_empty()
+        {
+            Some(CitreaClient::new(
+                Url::parse(&config.citrea_rpc_url).map_err(|e| {
+                    BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
+                })?,
+                Url::parse(&config.citrea_light_client_prover_url).map_err(|e| {
+                    BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e))
+                })?,
+                None,
+            )?)
+        } else if config.protocol_paramset == ProtocolParamsetName::Mainnet // TODO: Remove this and move to config.rs or smth
+            || config.protocol_paramset == ProtocolParamsetName::Testnet4
+        {
+            return Err(BridgeError::ConfigError(
+                "Citrea RPC URL and Citrea light client prover RPC URLs must be set!".to_string(),
+            ));
+        } else {
+            None
+        };
 
         let tx_sender = TxSender::new(
             signer.clone(),
@@ -177,6 +202,7 @@ impl Verifier {
             idx,
             tx_sender,
             state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
+            citrea_client,
         };
         // initialize and run state manager
         let mut state_manager =
@@ -1172,6 +1198,7 @@ impl Owner for Verifier {
         block_id: u32,
         block_height: u32,
         block_hash: bitcoin::BlockHash,
+        block: &bitcoin::Block,
     ) -> Result<(), BridgeError> {
         Ok(())
     }

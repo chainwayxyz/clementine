@@ -249,10 +249,11 @@ mod tests {
 
         async fn handle_finalized_block(
             &self,
-            dbtx: DatabaseTransaction<'_, '_>,
-            block_id: u32,
-            block_height: u32,
-            block_hash: bitcoin::BlockHash,
+            _dbtx: DatabaseTransaction<'_, '_>,
+            _block_id: u32,
+            _block_height: u32,
+            _block_hash: bitcoin::BlockHash,
+            _block: &bitcoin::Block,
         ) -> Result<(), BridgeError> {
             Ok(())
         }

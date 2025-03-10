@@ -82,6 +82,7 @@ pub trait Owner: Send + Sync + Clone {
         block_id: u32,
         block_height: u32,
         block_hash: bitcoin::BlockHash,
+        block: &bitcoin::Block,
     ) -> Result<(), BridgeError>;
 }
 

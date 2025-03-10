@@ -1115,6 +1115,7 @@ impl Owner for Operator {
         _block_id: u32,
         _block_height: u32,
         _block_hash: bitcoin::BlockHash,
+        _block: &bitcoin::Block,
     ) -> Result<(), BridgeError> {
         Ok(())
     }
