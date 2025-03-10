@@ -4,6 +4,7 @@
 //! can use this module to operate over Bitcoin.
 
 use crate::{
+    config::protocol::ProtocolParamset,
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
@@ -147,6 +148,7 @@ async fn _get_transaction_spent_utxos(
 pub async fn set_initial_block_info_if_not_exists(
     db: &Database,
     rpc: &ExtendedRpc,
+    paramset: &'static ProtocolParamset,
 ) -> Result<(), BridgeError> {
     if db.get_max_height(None).await?.is_some() {
         return Ok(());
@@ -155,10 +157,19 @@ pub async fn set_initial_block_info_if_not_exists(
     // TODO: save blocks starting from start_height in config paramset
     let current_height = u32::try_from(rpc.client.get_block_count().await?)
         .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+    let mut height = paramset.start_height;
+    let mut dbtx = db.begin_transaction().await?;
+    // first collect previous needed blocks according to paramset start height
+    while height < current_height {
+        let block_info = fetch_block_info_from_height(rpc, height).await?;
+        let block = rpc.client.get_block(&block_info.hash).await?;
+        let block_id = save_block(db, &mut dbtx, &block, height).await?;
+        db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
+            .await?;
+        height += 1;
+    }
     let block_info = fetch_block_info_from_height(rpc, current_height).await?;
     let block = rpc.client.get_block(&block_info.hash).await?;
-
-    let mut dbtx = db.begin_transaction().await?;
 
     let block_id = save_block(db, &mut dbtx, &block, current_height).await?;
     db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
@@ -269,8 +280,9 @@ pub async fn start_bitcoin_syncer(
     db: Database,
     rpc: ExtendedRpc,
     poll_delay: Duration,
+    paramset: &'static ProtocolParamset,
 ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
-    set_initial_block_info_if_not_exists(&db, &rpc).await?;
+    set_initial_block_info_if_not_exists(&db, &rpc, paramset).await?;
 
     let mut current_height = db
         .get_max_height(None)
@@ -495,7 +507,7 @@ mod tests {
             .await
             .is_err());
 
-        super::set_initial_block_info_if_not_exists(&db, &rpc)
+        super::set_initial_block_info_if_not_exists(&db, &rpc, config.protocol_paramset())
             .await
             .unwrap();
 
@@ -608,7 +620,7 @@ mod tests {
         let hashes = rpc.mine_blocks(4).await.unwrap();
         let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
 
-        super::set_initial_block_info_if_not_exists(&db, &rpc)
+        super::set_initial_block_info_if_not_exists(&db, &rpc, config.protocol_paramset())
             .await
             .unwrap();
 
@@ -655,9 +667,14 @@ mod tests {
         let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
         let hash = rpc.client.get_block_hash(height as u64).await.unwrap();
 
-        super::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(0))
-            .await
-            .unwrap();
+        super::start_bitcoin_syncer(
+            db.clone(),
+            rpc.clone(),
+            Duration::from_secs(0),
+            config.protocol_paramset(),
+        )
+        .await
+        .unwrap();
 
         loop {
             let mut dbtx = db.begin_transaction().await.unwrap();

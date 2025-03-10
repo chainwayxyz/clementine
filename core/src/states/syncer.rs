@@ -2,7 +2,7 @@ use crate::{
     bitcoin_syncer::BitcoinSyncerEvent, builder::transaction::OperatorData, database::Database,
 };
 use pgmq::{Message, PGMQueueExt};
-use std::{ops::Deref, time::Duration};
+use std::time::Duration;
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
@@ -179,7 +179,6 @@ where
                 tracing::info!("Shutdown signal received, stopping state manager");
                 break Ok(());
             }
-
 
             let poll_result: Result<bool, BridgeError> = async {
                 let new_event_received = async {

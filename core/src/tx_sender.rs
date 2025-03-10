@@ -1071,10 +1071,14 @@ mod tests {
 
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender(rpc).await;
 
-        let _bitcoin_syncer_handle =
-            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
-                .await
-                .unwrap();
+        let _bitcoin_syncer_handle = bitcoin_syncer::start_bitcoin_syncer(
+            db.clone(),
+            rpc.clone(),
+            Duration::from_secs(1),
+            config.protocol_paramset(),
+        )
+        .await
+        .unwrap();
 
         let _tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await.unwrap();
 

@@ -154,10 +154,15 @@ impl Verifier {
             None
         };
 
-        bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc).await?;
-        let _handle =
-            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
-                .await?;
+        bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc, config.protocol_paramset())
+            .await?;
+        let _handle = bitcoin_syncer::start_bitcoin_syncer(
+            db.clone(),
+            rpc.clone(),
+            Duration::from_secs(1),
+            config.protocol_paramset(),
+        )
+        .await?;
 
         // start state manager
         let state_manager_consumer_handle = format!("verifier{}_states", idx).to_string();
