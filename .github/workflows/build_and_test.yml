@@ -119,7 +119,7 @@ jobs:
   bridge_circuit_release_build_test:
     name: Test bridge circuit host code with release build
     runs-on: ubicloud-standard-16
-    needs: release-build
+    needs: release_build
 
     env:
       RISC0_DEV_MODE: 0
