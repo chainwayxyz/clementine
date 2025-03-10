@@ -24,8 +24,11 @@ sqlx = { version = "0.7.4", default-features = false }
 serial_test = "3.2.0"
 tempfile = "3.16.0"
 eyre = { version = "0.6.12" }
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "078ea25" }
 alloy = { version = "0.11.1", features = ["full"] }
+
+# Citrea dependencies
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d1ba171" }
+sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "ccdbd5a96" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde"] }
