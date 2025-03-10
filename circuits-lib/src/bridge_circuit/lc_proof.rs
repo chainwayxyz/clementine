@@ -1,4 +1,4 @@
-use crate::bridge_circuit_core::structs::LightClientProof;
+use crate::bridge_circuit_common::structs::LightClientProof;
 // use risc0_zkvm::guest::env;
 
 // const LC_IMAGE_ID: [u8; 32] =

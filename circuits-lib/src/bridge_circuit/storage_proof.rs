@@ -1,4 +1,4 @@
-use crate::bridge_circuit_core::structs::StorageProof;
+use crate::bridge_circuit_common::structs::StorageProof;
 use alloy_primitives::Bytes;
 use alloy_primitives::{Keccak256, U256};
 use alloy_rpc_types::EIP1186StorageProof;

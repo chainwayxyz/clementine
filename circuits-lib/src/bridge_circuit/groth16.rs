@@ -1,5 +1,5 @@
-use crate::bridge_circuit_core::groth16::CircuitGroth16Proof;
-use crate::bridge_circuit_core::utils::to_decimal;
+use crate::bridge_circuit_common::groth16::CircuitGroth16Proof;
+use crate::bridge_circuit_common::utils::to_decimal;
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::PreparedVerifyingKey;
 use ark_groth16::Proof;

@@ -4,12 +4,12 @@ pub mod lc_proof;
 pub mod storage_proof;
 
 use crate::bridge_circuit::groth16::CircuitGroth16WithTotalWork;
-use crate::bridge_circuit_core;
+use crate::bridge_circuit_common;
 use crate::common::zkvm::ZkvmGuest;
 use bitcoin::hashes::Hash;
-use bridge_circuit_core::groth16::CircuitGroth16Proof;
-use bridge_circuit_core::structs::BridgeCircuitInput;
-use bridge_circuit_core::winternitz::{verify_winternitz_signature, WinternitzHandler};
+use bridge_circuit_common::groth16::CircuitGroth16Proof;
+use bridge_circuit_common::structs::BridgeCircuitInput;
+use bridge_circuit_common::winternitz::{verify_winternitz_signature, WinternitzHandler};
 use lc_proof::lc_proof_verifier;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;

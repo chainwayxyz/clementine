@@ -6,9 +6,9 @@ use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
 use borsh;
 use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
-use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit_core::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
-use circuits_lib::bridge_circuit_core::winternitz::verify_winternitz_signature;
+use circuits_lib::bridge_circuit_common::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit_common::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
+use circuits_lib::bridge_circuit_common::winternitz::verify_winternitz_signature;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
 
