@@ -112,7 +112,6 @@ pub struct StateManager<T: Owner> {
     paramset: &'static ProtocolParamset,
     consumer_handle: String,
     last_processed_block_height: u32,
-    start_block_height: u32,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
@@ -121,7 +120,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         handler: T,
         paramset: &'static ProtocolParamset,
         consumer_handle: String,
-        start_block_height: u32,
     ) -> Result<Self, BridgeError> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         queue
@@ -149,8 +147,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             consumer_handle,
-            last_processed_block_height: start_block_height,
-            start_block_height,
+            last_processed_block_height: paramset.start_height,
             queue,
         })
     }
@@ -296,7 +293,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 self.process_and_add_new_states_from_height(
                     vec![operator_machine],
                     vec![],
-                    self.start_block_height,
+                    self.paramset.start_height,
                 )
                 .await?;
             }

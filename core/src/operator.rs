@@ -184,7 +184,6 @@ impl Operator {
             operator.clone(),
             config.protocol_paramset(),
             state_manager_consumer_handle.clone(),
-            config.protocol_paramset().start_height,
         )
         .await?;
 

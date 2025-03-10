@@ -181,7 +181,6 @@ impl Verifier {
             verifier.clone(),
             config.protocol_paramset(),
             state_manager_consumer_handle,
-            config.protocol_paramset().start_height,
         )
         .await?;
         state_manager.load_from_db().await?;

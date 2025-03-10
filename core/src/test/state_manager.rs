@@ -57,7 +57,7 @@ async fn create_test_state_manager(
     let owner = Default::default();
 
     let state_manager =
-        StateManager::new(db, owner, config.protocol_paramset(), "test".to_string(), 0)
+        StateManager::new(db, owner, config.protocol_paramset(), "test".to_string())
             .await
             .unwrap();
 

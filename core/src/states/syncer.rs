@@ -293,7 +293,6 @@ mod tests {
             MockHandler,
             ProtocolParamsetName::Regtest.into(),
             "test_consumer_handle".to_string(),
-            config.protocol_paramset().start_height,
         )
         .await
         .unwrap();
