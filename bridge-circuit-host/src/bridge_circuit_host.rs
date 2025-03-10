@@ -214,9 +214,9 @@ mod tests {
     use bitcoin::Transaction;
     use borsh::BorshDeserialize;
     use circuits_lib::bridge_circuit::convert_to_groth16_and_verify;
-    use circuits_lib::bridge_circuit_core::groth16::CircuitGroth16Proof;
-    use circuits_lib::bridge_circuit_core::structs::WorkOnlyCircuitInput;
-    use circuits_lib::bridge_circuit_core::winternitz::{
+    use circuits_lib::bridge_circuit_common::groth16::CircuitGroth16Proof;
+    use circuits_lib::bridge_circuit_common::structs::WorkOnlyCircuitInput;
+    use circuits_lib::bridge_circuit_common::winternitz::{
         generate_public_key, sign_digits, Parameters, WinternitzHandler,
     };
     use final_spv::merkle_tree::BitcoinMerkleTree;
