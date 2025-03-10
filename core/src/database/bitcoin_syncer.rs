@@ -88,7 +88,7 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let block_bytes = bitcoin::consensus::serialize(block);
         let query = sqlx::query(
-            "INSERT INTO bitcoin_blocks (height, block_data) VALUES ($1, $2) 
+            "INSERT INTO bitcoin_blocks (height, block_data) VALUES ($1, $2)
              ON CONFLICT (height) DO UPDATE SET block_data = $2",
         )
         .bind(i32::try_from(block_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
@@ -252,7 +252,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_event_and_update(
+    pub async fn fetch_next_bitcoin_syncer_evt(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         consumer_handle: &str,
@@ -364,7 +364,7 @@ mod tests {
         // Test event consumption
         let consumer_handle = "test_consumer";
         let event = db
-            .get_event_and_update(&mut dbtx, consumer_handle)
+            .fetch_next_bitcoin_syncer_evt(&mut dbtx, consumer_handle)
             .await
             .unwrap();
 
@@ -372,7 +372,7 @@ mod tests {
 
         // Test that the same event is not returned twice
         let event = db
-            .get_event_and_update(&mut dbtx, consumer_handle)
+            .fetch_next_bitcoin_syncer_evt(&mut dbtx, consumer_handle)
             .await
             .unwrap();
         assert!(event.is_none());
@@ -384,7 +384,7 @@ mod tests {
 
         // Test that new event is received
         let event = db
-            .get_event_and_update(&mut dbtx, consumer_handle)
+            .fetch_next_bitcoin_syncer_evt(&mut dbtx, consumer_handle)
             .await
             .unwrap();
         assert!(matches!(event, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
@@ -502,17 +502,29 @@ mod tests {
         let consumer2 = "consumer2";
 
         // First consumer gets both events in order
-        let event1 = db.get_event_and_update(&mut dbtx, consumer1).await.unwrap();
+        let event1 = db
+            .fetch_next_bitcoin_syncer_evt(&mut dbtx, consumer1)
+            .await
+            .unwrap();
         assert!(matches!(event1, Some(BitcoinSyncerEvent::NewBlock(id)) if id == block_id));
 
-        let event2 = db.get_event_and_update(&mut dbtx, consumer1).await.unwrap();
+        let event2 = db
+            .fetch_next_bitcoin_syncer_evt(&mut dbtx, consumer1)
+            .await
+            .unwrap();
         assert!(matches!(event2, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
 
         // Second consumer also gets both events independently
-        let event1 = db.get_event_and_update(&mut dbtx, consumer2).await.unwrap();
+        let event1 = db
+            .fetch_next_bitcoin_syncer_evt(&mut dbtx, consumer2)
+            .await
+            .unwrap();
         assert!(matches!(event1, Some(BitcoinSyncerEvent::NewBlock(id)) if id == block_id));
 
-        let event2 = db.get_event_and_update(&mut dbtx, consumer2).await.unwrap();
+        let event2 = db
+            .fetch_next_bitcoin_syncer_evt(&mut dbtx, consumer2)
+            .await
+            .unwrap();
         assert!(matches!(event2, Some(BitcoinSyncerEvent::ReorgedBlock(id)) if id == block_id));
 
         dbtx.commit().await.unwrap();
