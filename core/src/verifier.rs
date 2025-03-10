@@ -12,7 +12,7 @@ use crate::builder::transaction::{
     ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
-use crate::citrea::CitreaClient;
+use crate::citrea::{CitreaClient, LightClientProverRpcClient};
 use crate::config::protocol::{ProtocolParamset, ProtocolParamsetName};
 use crate::config::BridgeConfig;
 use crate::database::{Database, DatabaseTransaction};
@@ -1194,12 +1194,80 @@ impl Owner for Verifier {
 
     async fn handle_finalized_block(
         &self,
-        dbtx: DatabaseTransaction<'_, '_>,
+        mut dbtx: DatabaseTransaction<'_, '_>,
         block_id: u32,
         block_height: u32,
-        block_hash: bitcoin::BlockHash,
-        block: &bitcoin::Block,
+        _block_hash: bitcoin::BlockHash,
+        _block: &bitcoin::Block,
     ) -> Result<(), BridgeError> {
+        if let Some(citrea_client) = self.citrea_client.as_ref() {
+            let proof_current = citrea_client
+                .client
+                .get_light_client_proof_by_l1_height(block_height as u64)
+                .await?
+                .ok_or(BridgeError::Error(
+                    "Light Client Proof not found".to_string(),
+                ))?;
+            let proof_previous = citrea_client
+                .client
+                .get_light_client_proof_by_l1_height(block_height as u64 - 1)
+                .await?
+                .ok_or(BridgeError::Error(
+                    "Light Client Proof not found".to_string(),
+                ))?;
+
+            let l2_height_end = proof_current
+                .light_client_proof_output
+                .last_l2_height
+                .to_be_bytes();
+            let l2_height_start = proof_previous
+                .light_client_proof_output
+                .last_l2_height
+                .to_be_bytes();
+
+            let l2_height_end = u64::from_be_bytes(l2_height_end);
+            let l2_height_start = u64::from_be_bytes(l2_height_start);
+
+            let new_deposits = citrea_client
+                .collect_deposit_move_txids(l2_height_start + 1, l2_height_end)
+                .await?;
+            let new_withdrawals = citrea_client
+                .collect_withdrawal_utxos(l2_height_start + 1, l2_height_end)
+                .await?;
+
+            for (idx, move_to_vault_txid) in new_deposits {
+                self.db
+                    .set_move_to_vault_txid_from_citrea_deposit(
+                        Some(&mut dbtx),
+                        idx as u32,
+                        &move_to_vault_txid,
+                    )
+                    .await?;
+            }
+            for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
+                self.db
+                    .set_withdrawal_utxo_from_citrea_withdrawal(
+                        Some(&mut dbtx),
+                        idx as u32,
+                        withdrawal_utxo_outpoint,
+                        block_height,
+                    )
+                    .await?;
+            }
+
+            let _payout_txs = self
+                .db
+                .get_payout_txs_from_citrea_withdrawal(Some(&mut dbtx), block_id)
+                .await?;
+
+            // TODO: Extract operator_idx from payout_txs
+            // save payout_txs to db
+        } else {
+            return Err(BridgeError::Error(
+                "Citrea client is not available".to_string(),
+            ));
+        }
+
         Ok(())
     }
 }
