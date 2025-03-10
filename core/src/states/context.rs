@@ -1,5 +1,6 @@
 use crate::builder::transaction::DepositData;
 use crate::config::protocol::ProtocolParamset;
+use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::KickoffId;
 
 use bitcoin::Txid;
@@ -74,6 +75,14 @@ pub trait Owner: Send + Sync + Clone {
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError>;
+
+    async fn handle_finalized_block(
+        &self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block_height: u32,
+        block_hash: bitcoin::BlockHash,
+    ) -> Result<(), BridgeError>;
 }
 
 #[derive(Debug, Clone)]

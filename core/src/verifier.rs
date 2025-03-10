@@ -1111,4 +1111,14 @@ impl Owner for Verifier {
         let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
         Ok(txhandlers)
     }
+
+    async fn handle_finalized_block(
+        &self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block_height: u32,
+        block_hash: bitcoin::BlockHash,
+    ) -> Result<(), BridgeError> {
+        Ok(())
+    }
 }

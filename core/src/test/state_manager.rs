@@ -6,6 +6,7 @@ use bitcoin::{consensus, Block};
 use tokio::sync::Mutex;
 
 use super::common::{create_test_config_with_thread_name, initialize_database};
+use crate::database::DatabaseTransaction;
 use crate::states::context::{Duty, Owner};
 use crate::{
     builder::transaction::{ContractContext, TransactionType, TxHandler},
@@ -44,6 +45,16 @@ impl Owner for MockOwner {
         _contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
         Ok(BTreeMap::new())
+    }
+
+    async fn handle_finalized_block(
+        &self,
+        _dbtx: DatabaseTransaction<'_, '_>,
+        _block_id: u32,
+        _block_height: u32,
+        _block_hash: bitcoin::BlockHash,
+    ) -> Result<(), BridgeError> {
+        Ok(())
     }
 }
 

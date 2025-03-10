@@ -280,6 +280,16 @@ mod tests {
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             Ok(BTreeMap::new())
         }
+
+        async fn handle_finalized_block(
+            &self,
+            _dbtx: DatabaseTransaction<'_, '_>,
+            _block_id: u32,
+            _block_height: u32,
+            _block_hash: bitcoin::BlockHash,
+        ) -> Result<(), BridgeError> {
+            Ok(())
+        }
     }
 
     async fn create_state_manager(
