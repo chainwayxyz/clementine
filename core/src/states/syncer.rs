@@ -284,7 +284,7 @@ mod tests {
     async fn create_state_manager(
         config: &mut BridgeConfig,
     ) -> (JoinHandle<Result<(), eyre::Report>>, oneshot::Sender<()>) {
-        let db = Database::new(&config).await.unwrap();
+        let db = Database::new(config).await.unwrap();
 
         let state_manager = StateManager::new(
             db,
