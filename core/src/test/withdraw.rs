@@ -91,22 +91,22 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         .outpoint;
         println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
-        let citrea_contract_client = CitreaClient::new(
+        let citrea_client = CitreaClient::new(
             Url::parse(&config.citrea_rpc_url).unwrap(),
             Url::parse(&config.citrea_light_client_prover_url).unwrap(),
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
         )
         .unwrap();
 
-        let balance = citrea_contract_client
+        let balance = citrea_client
             .contract
             .provider()
-            .get_balance(citrea_contract_client.wallet_address)
+            .get_balance(citrea_client.wallet_address)
             .await
             .unwrap();
         println!("Initial balance: {}", balance);
 
-        let withdrawal_count = citrea_contract_client
+        let withdrawal_count = citrea_client
             .contract
             .getWithdrawalCount()
             .call()
@@ -120,7 +120,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .await
             .unwrap()
             + 1;
-        let citrea_withdrawal_tx = citrea_contract_client
+        let citrea_withdrawal_tx = citrea_client
             .contract
             .withdraw(
                 FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
@@ -137,7 +137,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
 
-        let withdrawal_count = citrea_contract_client
+        let withdrawal_count = citrea_client
             .contract
             .getWithdrawalCount()
             .call()
@@ -145,7 +145,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .unwrap();
         assert_eq!(withdrawal_count._0, U256::from(1));
 
-        let utxos = citrea_contract_client
+        let utxos = citrea_client
             .collect_withdrawal_utxos(
                 withdrawal_tx_height_block_height,
                 withdrawal_tx_height_block_height,

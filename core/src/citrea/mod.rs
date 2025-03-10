@@ -12,6 +12,7 @@ use alloy::{
         },
         Provider, ProviderBuilder, RootProvider,
     },
+    rpc::types::{Filter, Log},
     signers::{local::PrivateKeySigner, Signer},
     sol,
     sol_types::SolEvent,
@@ -112,6 +113,36 @@ impl CitreaClient {
         Ok(OutPoint { txid, vout })
     }
 
+    /// Returns all logs for the given filter and block range while considering
+    /// about the 1000 block limit.
+    async fn get_logs(
+        &self,
+        filter: Filter,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<Vec<Log>, BridgeError> {
+        let mut logs = vec![];
+
+        let mut from_height = from_height;
+        while from_height <= to_height {
+            // Block num is 999 because limits are inclusive.
+            let to_height = std::cmp::min(from_height + 999, to_height);
+            tracing::debug!("Fetching logs from {} to {}", from_height, to_height);
+
+            // Update filter with the new range.
+            let filter = filter.clone();
+            let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
+            let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
+
+            let logs_chunk = self.contract.provider().get_logs(&filter).await?;
+            logs.extend(logs_chunk);
+
+            from_height += to_height;
+        }
+
+        Ok(logs)
+    }
+
     /// Returns deposit move txids with index for a given range of blocks.
     ///
     /// # Parameters
@@ -124,9 +155,7 @@ impl CitreaClient {
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
         let filter = self.contract.event_filter::<Deposit>().filter;
-        let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
-        let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
-        let logs = self.contract.provider().get_logs(&filter).await?;
+        let logs = self.get_logs(filter, from_height, to_height).await?;
 
         let mut move_txids = vec![];
         for log in logs {
@@ -158,9 +187,7 @@ impl CitreaClient {
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
         let filter = self.contract.event_filter::<Withdrawal>().filter;
-        let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
-        let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
-        let logs = self.contract.provider().get_logs(&filter).await?;
+        let logs = self.get_logs(filter, from_height, to_height).await?;
 
         let mut utxos = vec![];
         for log in logs {
@@ -211,3 +238,109 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
         RootProvider,
     >,
 >;
+
+#[cfg(test)]
+mod tests {
+    use crate::citrea::BRIDGE_CONTRACT::Withdrawal;
+    use crate::test::common::citrea::BRIDGE_PARAMS;
+    use crate::{
+        citrea::CitreaClient,
+        test::common::{
+            citrea::{self, SECRET_KEYS},
+            create_test_config_with_thread_name,
+        },
+    };
+    use alloy::providers::Provider;
+    use alloy::transports::http::reqwest::Url;
+    use citrea_e2e::{
+        config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
+        framework::TestFramework,
+        test_case::{TestCase, TestCaseRunner},
+    };
+    use tonic::async_trait;
+
+    struct CitreaGetLogsLimitCheck;
+    #[async_trait]
+    impl TestCase for CitreaGetLogsLimitCheck {
+        fn bitcoin_config() -> BitcoinConfig {
+            BitcoinConfig {
+                extra_args: vec![
+                    "-txindex=1",
+                    "-fallbackfee=0.000001",
+                    "-rpcallowip=0.0.0.0/0",
+                ],
+                ..Default::default()
+            }
+        }
+
+        fn test_config() -> TestCaseConfig {
+            TestCaseConfig {
+                with_batch_prover: false,
+                with_sequencer: true,
+                with_full_node: true,
+                docker: TestCaseDockerConfig {
+                    bitcoin: true,
+                    citrea: true,
+                },
+                ..Default::default()
+            }
+        }
+
+        fn sequencer_config() -> SequencerConfig {
+            SequencerConfig {
+                bridge_initialize_params: BRIDGE_PARAMS.to_string(),
+                ..Default::default()
+            }
+        }
+
+        async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
+            let (sequencer, _full_node, _, _, da) =
+                citrea::start_citrea(Self::sequencer_config(), f)
+                    .await
+                    .unwrap();
+
+            let mut config = create_test_config_with_thread_name(None).await;
+            citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, None);
+
+            let citrea_client = CitreaClient::new(
+                Url::parse(&config.citrea_rpc_url).unwrap(),
+                Url::parse(&config.citrea_light_client_prover_url).unwrap(),
+                Some(SECRET_KEYS[0].to_string().parse().unwrap()),
+            )
+            .unwrap();
+
+            let filter = citrea_client.contract.event_filter::<Withdrawal>().filter;
+            let start = 0;
+            let end = 1001;
+
+            // Generate blocks because Citrea will default `to_block` as the
+            // height if `to_block` is exceeded height.
+            for _ in start..end {
+                sequencer.client.send_publish_batch_request().await.unwrap();
+            }
+
+            let logs_from_citrea_module = citrea_client
+                .get_logs(filter.clone(), start, end)
+                .await
+                .unwrap();
+            println!("Logs from Citrea module: {:?}", logs_from_citrea_module);
+
+            let filter = filter.from_block(start).to_block(end);
+            let logs_from_direct_call = citrea_client.contract.provider().get_logs(&filter).await;
+            println!("Logs from direct call: {:?}", logs_from_direct_call);
+            assert!(logs_from_direct_call.is_err());
+
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn citrea_get_logs_limit_check() -> citrea_e2e::Result<()> {
+        // TODO: temp hack to use the correct docker image
+        std::env::set_var(
+            "CITREA_DOCKER_IMAGE",
+            "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
+        );
+        TestCaseRunner::new(CitreaGetLogsLimitCheck).run().await
+    }
+}
