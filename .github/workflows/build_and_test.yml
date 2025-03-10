@@ -5,7 +5,6 @@ on: [push]
 env:
   CARGO_TERM_COLOR: always
   CARGOFLAGS: --workspace --all-targets --all-features
-  TESTFLAGS: --workspace --exclude bridge-circuit-host
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
   RUST_MIN_STACK: 33554432
@@ -80,7 +79,7 @@ jobs:
         shared-key: "debug-build"
 
     - name: Run tests
-      run: cargo test $TESTFLAGS
+      run: cargo test
 
   release_build_test:
     name: Test code with release build
@@ -115,4 +114,24 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests
-      run: cargo test --release $TESTFLAGS
+      run: cargo test --release
+
+  bridge_circuit_release_build_test:
+    name: Test bridge circuit host code with release build
+    runs-on: ubicloud-standard-16
+    needs: release-build
+
+    env:
+      RISC0_DEV_MODE: 0
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
+
+    - name: Restore cached build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: "release-build"
+
+    - name: Run tests
+      run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
