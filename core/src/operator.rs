@@ -9,6 +9,7 @@ use crate::builder::transaction::{
     TxHandler,
 };
 use crate::citrea::CitreaClient;
+use crate::config::protocol::ProtocolParamsetName;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
@@ -132,6 +133,12 @@ impl Operator {
                 })?,
                 None,
             )?)
+        } else if config.protocol_paramset == ProtocolParamsetName::Mainnet
+            || config.protocol_paramset == ProtocolParamsetName::Testnet4
+        {
+            return Err(BridgeError::ConfigError(
+                "Citrea RPC URL and Citrea light client prover RPC URLs must be set!".to_string(),
+            ));
         } else {
             None
         };
