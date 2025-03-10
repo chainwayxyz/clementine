@@ -8,7 +8,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::Operator;
-use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
+use crate::rpc::clementine::KickoffId;
 use crate::watchtower::Watchtower;
 use bitcoin::Transaction;
 
@@ -130,7 +130,7 @@ impl Watchtower {
         &self,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
-    ) -> Result<RawSignedTx, BridgeError> {
+    ) -> Result<(TransactionType, Transaction), BridgeError> {
         if commit_data.len()
             != self
                 .config
@@ -177,7 +177,10 @@ impl Watchtower {
 
         let checked_txhandler = requested_txhandler.promote()?;
 
-        Ok(checked_txhandler.encode_tx())
+        Ok((
+            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            checked_txhandler.get_cached_tx().clone(),
+        ))
     }
 }
 
@@ -185,7 +188,7 @@ impl Operator {
     pub async fn create_assert_commitment_txs(
         &self,
         assert_data: AssertRequestData,
-    ) -> Result<RawSignedTxs, BridgeError> {
+    ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_asserts(
             assert_data.kickoff_id,
             assert_data.deposit_data.clone(),
@@ -219,11 +222,14 @@ impl Operator {
             signed_txhandlers.push(mini_assert_txhandler.promote()?);
         }
 
-        Ok(RawSignedTxs {
-            raw_txs: signed_txhandlers
-                .into_iter()
-                .map(|txhandler| txhandler.encode_tx())
-                .collect(),
-        })
+        Ok(signed_txhandlers
+            .into_iter()
+            .map(|txhandler| {
+                (
+                    txhandler.get_transaction_type(),
+                    txhandler.get_cached_tx().clone(),
+                )
+            })
+            .collect())
     }
 }

@@ -836,23 +836,19 @@ mod tests {
                                 TransactionType::AllNeededForDeposit,
                                 start_time.elapsed()
                             );
-                            // TODO: run with release after bitvm optimization? all raw tx's don't fit 4mb (grpc limit) for now
-                            #[cfg(debug_assertions)]
-                            {
-                                let _raw_assert_txs = operator_rpc
-                                    .internal_create_assert_commitment_txs(AssertRequest {
-                                        deposit_params: deposit_params.clone().into(),
-                                        kickoff_id: Some(kickoff_id),
-                                    })
-                                    .await
-                                    .unwrap()
-                                    .into_inner()
-                                    .raw_txs;
-                                tracing::info!(
-                                    "Operator Signed Assert txs of size: {}",
-                                    _raw_assert_txs.len()
-                                );
-                            }
+                            let _raw_assert_txs = operator_rpc
+                                .internal_create_assert_commitment_txs(AssertRequest {
+                                    deposit_params: deposit_params.clone().into(),
+                                    kickoff_id: Some(kickoff_id),
+                                })
+                                .await
+                                .unwrap()
+                                .into_inner()
+                                .signed_txs;
+                            tracing::info!(
+                                "Operator Signed Assert txs of size: {}",
+                                _raw_assert_txs.len()
+                            );
                         }
                     }
                 }

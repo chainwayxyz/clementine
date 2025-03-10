@@ -18,9 +18,12 @@ use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
-use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature, WatchtowerKeys};
-use crate::states;
-use crate::states::syncer::{add_new_kickoff_machine, run_state_manager};
+use crate::rpc;
+use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+use crate::rpc::clementine::{
+    DepositParams, KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature,
+    TransactionRequest, WatchtowerKeys,
+};
 use crate::states::StateManager;
 use crate::states::{Duty, Owner};
 use crate::tx_sender::{TxDataForLogging, TxSender};
@@ -91,7 +94,6 @@ pub struct Verifier {
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
     pub tx_sender: TxSender,
-    pub state_manager_handle: String,
     pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
 }
 
@@ -102,7 +104,6 @@ impl Verifier {
             config.winternitz_secret_key,
             config.protocol_paramset().network,
         );
-
         // let pk: bitcoin::secp256k1:: PublicKey = config.secret_key.public_key(&utils::SECP);
 
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
@@ -164,8 +165,6 @@ impl Verifier {
         )
         .await?;
 
-        // start state manager
-        let state_manager_consumer_handle = format!("verifier{}_states", idx).to_string();
         let mut verifier = Verifier {
             _rpc: rpc,
             signer,
@@ -177,29 +176,23 @@ impl Verifier {
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
             tx_sender,
-            state_manager_handle: state_manager_consumer_handle.clone(),
             state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
         };
         // initialize and run state manager
-        let mut state_manager = StateManager::new(
-            db.clone(),
-            verifier.clone(),
-            config.protocol_paramset(),
-            state_manager_consumer_handle,
-        )
-        .await?;
+        let mut state_manager =
+            StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
         state_manager.load_from_db().await?;
-        let state_manager_block_syncer = states::syncer::fetch_new_blocks(
+        let state_manager_block_syncer = StateManager::<Self>::block_fetcher_task(
             state_manager.get_last_processed_block_height(),
-            state_manager.get_consumer_handle(),
             db.clone(),
             Duration::from_secs(1),
             config.protocol_paramset(),
         )
         .await;
 
-        let (state_manager_run_loop, shutdown_tx) =
-            run_state_manager(state_manager, Duration::from_secs(1)).await;
+        let (state_manager_run_loop, shutdown_tx) = state_manager
+            .into_msg_consumer_task(Duration::from_secs(1))
+            .await;
         verifier.state_manager_shutdown_tx = shutdown_tx.into();
 
         // Monitor state manager handles
@@ -366,9 +359,8 @@ impl Verifier {
             reimburse_addr: wallet_reimburse_address,
         };
 
-        states::syncer::add_new_round_machine(
+        StateManager::<Self>::dispatch_new_round_machine(
             self.db.clone(),
-            self.state_manager_handle.clone(),
             &mut dbtx,
             operator_data,
             operator_index,
@@ -1031,6 +1023,58 @@ impl Verifier {
 
         Ok(())
     }
+
+    async fn send_watchtower_challenge(
+        &self,
+        kickoff_id: KickoffId,
+        deposit_data: DepositData,
+    ) -> Result<(), BridgeError> {
+        let watchtower_path = format!("{}/watchtower_{}.sock", self.config.socket_path, self.idx);
+        let watchtower_client =
+            rpc::get_clients(vec![watchtower_path], ClementineWatchtowerClient::new).await;
+
+        if let Ok(mut watchtower) = watchtower_client {
+            let raw_challenge_tx = watchtower[0]
+                .internal_create_watchtower_challenge(TransactionRequest {
+                    deposit_params: Some(DepositParams {
+                        deposit_outpoint: Some(deposit_data.deposit_outpoint.into()),
+                        evm_address: deposit_data.evm_address.0.to_vec(),
+                        recovery_taproot_address: deposit_data
+                            .recovery_taproot_address
+                            .assume_checked()
+                            .to_string(),
+                        nofn_xonly_pk: deposit_data.nofn_xonly_pk.serialize().to_vec(),
+                    }),
+                    transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
+                    kickoff_id: Some(kickoff_id),
+                })
+                .await?
+                .into_inner()
+                .raw_tx;
+            let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
+            let mut dbtx = self.db.begin_transaction().await?;
+            self.tx_sender
+                .add_tx_to_queue(
+                    &mut dbtx,
+                    TransactionType::WatchtowerChallenge(self.idx),
+                    &challenge_tx,
+                    &[],
+                    Some(TxDataForLogging {
+                        tx_type: TransactionType::WatchtowerChallenge(self.idx),
+                        operator_idx: None,
+                        verifier_idx: Some(self.idx as u32),
+                        round_idx: Some(kickoff_id.round_idx),
+                        kickoff_idx: Some(kickoff_id.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    }),
+                    &self.config,
+                )
+                .await?;
+            dbtx.commit().await?;
+            tracing::warn!("Commited watchtower challenge for watchtower {}", self.idx);
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1044,24 +1088,31 @@ impl Owner for Verifier {
                 operator_idx,
                 used_kickoffs,
             } => {
-                tracing::info!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",round_idx,operator_idx,used_kickoffs);
+                tracing::info!(
+                    "Verifier {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",
+                    self.idx, round_idx, operator_idx, used_kickoffs
+                );
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
                 deposit_data,
             } => {
-                tracing::info!(
-                    "called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
-                    kickoff_id,
-                    deposit_data
+                tracing::warn!(
+                    "Verifier {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
+                    self.idx, kickoff_id, deposit_data
                 );
+                self.send_watchtower_challenge(kickoff_id, deposit_data)
+                    .await?;
             }
             Duty::SendOperatorAsserts {
                 kickoff_id,
                 deposit_data,
                 watchtower_challenges,
             } => {
-                tracing::info!("called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",kickoff_id,deposit_data,watchtower_challenges);
+                tracing::info!(
+                    "Verifier {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
+                    self.idx, kickoff_id, deposit_data, watchtower_challenges.len()
+                );
             }
             Duty::VerifierDisprove {
                 kickoff_id,
@@ -1069,11 +1120,15 @@ impl Owner for Verifier {
                 operator_asserts,
                 operator_acks,
             } => {
-                tracing::info!("called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}",kickoff_id,deposit_data,operator_asserts,operator_acks);
+                tracing::warn!(
+                    "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}",
+                    self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len()
+                );
             }
             Duty::CheckIfKickoff { txid, block_height } => {
                 tracing::info!(
-                    "called check if kickoff with txid: {:?}, block_height: {:?}",
+                    "Verifier {} called check if kickoff with txid: {:?}, block_height: {:?}",
+                    self.idx,
                     txid,
                     block_height,
                 );
@@ -1084,9 +1139,8 @@ impl Owner for Verifier {
                 if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
-                    add_new_kickoff_machine(
+                    StateManager::<Self>::dispatch_new_kickoff_machine(
                         self.db.clone(),
-                        self.state_manager_handle.clone(),
                         &mut dbtx,
                         kickoff_id,
                         block_height,

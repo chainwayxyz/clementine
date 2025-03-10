@@ -51,6 +51,7 @@ db_name = "clementine"
 confirmation_threshold = 1
 
 citrea_rpc_url = ""
+citrea_light_client_prover_url = ""
 bridge_contract_address = "3100000000000000000000000000000000000002"
 
 collateral_funding_amount = 200000000
@@ -76,3 +77,5 @@ all_watchtowers_secret_keys = [
     "3333333333333333333333333333333333333333333333333333333333333333",
     "4444444444444444444444444444444444444444444444444444444444444444",
 ]
+
+socket_path = "/"

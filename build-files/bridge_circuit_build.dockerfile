@@ -20,6 +20,8 @@ ENV CFLAGS_riscv32im_risc0_zkvm_elf="-march=rv32im -nostdlib"
 # Set network environment variable
 ARG BITCOIN_NETWORK=testnet4
 ENV BITCOIN_NETWORK=${BITCOIN_NETWORK}
+ARG BRIDGE_CIRCUIT_MODE=prod
+ENV BRIDGE_CIRCUIT_MODE=${BRIDGE_CIRCUIT_MODE}
 
 # Only run the build once with the environment variable set
 RUN echo "Building for network: ${BITCOIN_NETWORK}" && \
@@ -28,5 +30,6 @@ RUN echo "Building for network: ${BITCOIN_NETWORK}" && \
 
 FROM scratch AS export
 ARG BITCOIN_NETWORK
+ARG BRIDGE_CIRCUIT_MODE
 COPY --from=build /src/risc0-circuits/bridge-circuit/guest/target/riscv32im-risc0-zkvm-elf/release ../target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/bridge-circuit-guest
-COPY --from=build /src/risc0-circuits/bridge-circuit/guest/target/riscv32im-risc0-zkvm-elf/release/bridge-circuit-guest risc0-circuits/elfs/${BITCOIN_NETWORK}-bridge-circuit-guest
+COPY --from=build /src/risc0-circuits/bridge-circuit/guest/target/riscv32im-risc0-zkvm-elf/release/bridge-circuit-guest risc0-circuits/elfs/${BRIDGE_CIRCUIT_MODE}-${BITCOIN_NETWORK}-bridge-circuit-guest

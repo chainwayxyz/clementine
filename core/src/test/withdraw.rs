@@ -1,6 +1,6 @@
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::bitvm_client::SECP;
-use crate::citrea::{CitreaContractClient, SATS_TO_WEI_MULTIPLIER};
+use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{
@@ -53,19 +53,18 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            test_mode: false,
             bridge_initialize_params: BRIDGE_PARAMS.to_string(),
             ..Default::default()
         }
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, _full_node, da) = citrea::start_citrea(Self::sequencer_config(), f)
+        let (sequencer, _full_node, _, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
             .await
             .unwrap();
 
         let mut config = create_test_config_with_thread_name(None).await;
-        citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer);
+        citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, None);
 
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -92,20 +91,22 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         .outpoint;
         println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
-        let citrea_contract_client = CitreaContractClient::new(
+        let citrea_client = CitreaClient::new(
             Url::parse(&config.citrea_rpc_url).unwrap(),
-            Some(SECRET_KEYS[0].to_string()),
+            Url::parse(&config.citrea_light_client_prover_url).unwrap(),
+            Some(SECRET_KEYS[0].to_string().parse().unwrap()),
         )
         .unwrap();
 
-        let balance = citrea_contract_client
-            .provider
-            .get_balance(citrea_contract_client.wallet_address)
+        let balance = citrea_client
+            .contract
+            .provider()
+            .get_balance(citrea_client.wallet_address)
             .await
             .unwrap();
         println!("Initial balance: {}", balance);
 
-        let withdrawal_count = citrea_contract_client
+        let withdrawal_count = citrea_client
             .contract
             .getWithdrawalCount()
             .call()
@@ -113,7 +114,13 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .unwrap();
         assert_eq!(withdrawal_count._0, U256::from(0));
 
-        let citrea_withdrawal_tx = citrea_contract_client
+        let withdrawal_tx_height_block_height = sequencer
+            .client
+            .ledger_get_head_soft_confirmation_height()
+            .await
+            .unwrap()
+            + 1;
+        let citrea_withdrawal_tx = citrea_client
             .contract
             .withdraw(
                 FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
@@ -125,11 +132,12 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .send()
             .await
             .unwrap();
+        sequencer.client.send_publish_batch_request().await.unwrap();
 
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
 
-        let withdrawal_count = citrea_contract_client
+        let withdrawal_count = citrea_client
             .contract
             .getWithdrawalCount()
             .call()
@@ -137,10 +145,14 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .unwrap();
         assert_eq!(withdrawal_count._0, U256::from(1));
 
-        let citrea_withdrawal_utxo = citrea_contract_client.withdrawal_utxos(0).await.unwrap();
-        println!("Citrea withdrawal UTXO: {:?}", citrea_withdrawal_utxo);
-
-        assert_eq!(citrea_withdrawal_utxo, withdrawal_utxo);
+        let utxos = citrea_client
+            .collect_withdrawal_utxos(
+                withdrawal_tx_height_block_height,
+                withdrawal_tx_height_block_height,
+            )
+            .await
+            .unwrap();
+        assert_eq!(withdrawal_utxo, utxos[0].1);
 
         Ok(())
     }
@@ -148,5 +160,10 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 
 #[tokio::test]
 async fn citrea_withdraw_and_get_utxo() -> Result<()> {
+    // TODO: temp hack to use the correct docker image
+    std::env::set_var(
+        "CITREA_DOCKER_IMAGE",
+        "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
+    );
     TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
 }

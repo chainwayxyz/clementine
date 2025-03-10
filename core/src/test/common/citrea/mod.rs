@@ -1,9 +1,10 @@
 //! # Citrea Related Utilities
 
-use crate::config::BridgeConfig;
+use crate::{config::BridgeConfig, extended_rpc::ExtendedRpc};
+use bitcoincore_rpc::RpcApi;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
-    config::{EmptyConfig, SequencerConfig},
+    config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
     framework::TestFramework,
     node::{Node, NodeKind},
 };
@@ -47,26 +48,35 @@ pub const EVM_ADDRESSES: [&str; 10] = [
     "a0Ee7A142d267C1f36714E4a8F75612F20a79720",
 ];
 
+pub const DUMMY_LCP_URL: (&str, u16) = ("127.0.0.1", 8080);
+
 /// Starts typical nodes with typical configs for a test that needs Citrea.
 pub async fn start_citrea(
     sequencer_config: SequencerConfig,
     f: &mut TestFramework,
-) -> citrea_e2e::Result<(&Node<SequencerConfig>, &mut Node<EmptyConfig>, &BitcoinNode)> {
+) -> citrea_e2e::Result<(
+    &Node<SequencerConfig>,
+    &mut Node<EmptyConfig>,
+    Option<&Node<LightClientProverConfig>>,
+    Option<&Node<BatchProverConfig>>,
+    &BitcoinNode,
+)> {
     let sequencer = f.sequencer.as_ref().expect("Sequencer is present");
     let full_node = f.full_node.as_mut().expect("Full node is present");
+    let batch_prover = f.batch_prover.as_ref();
+    let light_client_prover = f.light_client_prover.as_ref();
     let da = f.bitcoin_nodes.get(0).expect("There is a bitcoin node");
 
     let min_soft_confirmations_per_commitment =
         sequencer_config.min_soft_confirmations_per_commitment;
 
-    // sequencer_config.test_mode = true;
-    // sequencer.config.node.test_mode
-    // for _ in 0..min_soft_confirmations_per_commitment {
-    //     sequencer.client.send_publish_batch_request().await?;
-    // }
-
+    if sequencer_config.test_mode {
+        for _ in 0..min_soft_confirmations_per_commitment {
+            sequencer.client.send_publish_batch_request().await?;
+        }
+    }
     // Wait for blob inscribe tx to be in mempool
-    da.wait_mempool_len(1, None).await?;
+    da.wait_mempool_len(2, None).await?;
 
     da.generate(citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH)
         .await?;
@@ -75,7 +85,7 @@ pub async fn start_citrea(
         .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
         .await?;
 
-    Ok((sequencer, full_node, da))
+    Ok((sequencer, full_node, light_client_prover, batch_prover, da))
 }
 
 /// Updates given config with the values set by the Citrea e2e.
@@ -83,6 +93,7 @@ pub fn update_config_with_citrea_e2e_values(
     config: &mut BridgeConfig,
     da: &citrea_e2e::bitcoin::BitcoinNode,
     sequencer: &citrea_e2e::node::Node<SequencerConfig>,
+    light_client_prover: Option<(&str, u16)>,
 ) {
     config.bitcoin_rpc_password = da.config.rpc_password.clone();
     config.bitcoin_rpc_user = da.config.rpc_user.clone();
@@ -98,4 +109,39 @@ pub fn update_config_with_citrea_e2e_values(
         sequencer.config.rollup.rpc.bind_host, sequencer.config.rollup.rpc.bind_port
     );
     config.citrea_rpc_url = citrea_url;
+
+    if let Some(light_client_prover) = light_client_prover {
+        let citrea_light_client_prover_url =
+            format!("http://{}:{}", light_client_prover.0, light_client_prover.1);
+        config.citrea_light_client_prover_url = citrea_light_client_prover_url;
+    } else {
+        let citrea_light_client_prover_url = format!("http://{}:{}", "127.0.0.1", 8080); // Dummy value
+        config.citrea_light_client_prover_url = citrea_light_client_prover_url;
+    }
+}
+
+pub async fn sync_citrea_l2(
+    rpc: &ExtendedRpc,
+    sequencer: &citrea_e2e::node::Node<SequencerConfig>,
+    full_node: &citrea_e2e::node::Node<EmptyConfig>,
+) {
+    let l1_height = rpc.client.get_block_count().await.unwrap();
+    let l2_height = sequencer
+        .client
+        .ledger_get_head_soft_confirmation_height()
+        .await
+        .unwrap();
+
+    for i in l2_height..l1_height + 1 {
+        println!("Syncing L2 block {}", l2_height + i + 1);
+        sequencer.client.send_publish_batch_request().await.unwrap();
+    }
+
+    println!("Waiting for L2 to be in sync with L1");
+    full_node
+        .client
+        .wait_for_l2_block(l1_height, None)
+        .await
+        .unwrap();
+    println!("L2 is in sync with L1");
 }

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,13 +6,16 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::builder::transaction::sign::{
+    create_and_sign_txs, AssertRequestData, TransactionRequestData,
+};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
 };
-use crate::citrea::CitreaContractClient;
+use crate::citrea::CitreaClient;
+use crate::config::protocol::ProtocolParamsetName;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
@@ -20,8 +23,6 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
-use crate::states;
-use crate::states::syncer::{add_new_kickoff_machine, run_state_manager};
 use crate::states::{Duty, Owner, StateManager};
 use crate::tx_sender::TxSender;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
@@ -32,12 +33,12 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, Witness,
+    XOnlyPublicKey,
 };
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 use tokio::sync::mpsc;
@@ -58,10 +59,8 @@ pub struct Operator {
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSender,
-    pub citrea_client: Option<jsonrpsee::http_client::HttpClient>,
-    pub state_manager_handle: String,
     pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
-    pub citrea_contract_client: Option<CitreaContractClient>,
+    pub citrea_client: Option<CitreaClient>,
 }
 
 impl Operator {
@@ -131,18 +130,24 @@ impl Operator {
         };
         dbtx.commit().await?;
 
-        let citrea_contract_client = if !config.citrea_rpc_url.is_empty() {
-            Some(CitreaContractClient::new(
+        let citrea_client = if !config.citrea_rpc_url.is_empty()
+            && !config.citrea_light_client_prover_url.is_empty()
+        {
+            Some(CitreaClient::new(
                 Url::parse(&config.citrea_rpc_url).map_err(|e| {
                     BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
                 })?,
+                Url::parse(&config.citrea_light_client_prover_url).map_err(|e| {
+                    BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e))
+                })?,
                 None,
             )?)
-        } else {
-            None
-        };
-        let citrea_client = if !config.citrea_rpc_url.is_empty() {
-            Some(HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?)
+        } else if config.protocol_paramset == ProtocolParamsetName::Mainnet
+            || config.protocol_paramset == ProtocolParamsetName::Testnet4
+        {
+            return Err(BridgeError::ConfigError(
+                "Citrea RPC URL and Citrea light client prover RPC URLs must be set!".to_string(),
+            ));
         } else {
             None
         };
@@ -152,8 +157,6 @@ impl Operator {
             idx,
             config.db_name
         );
-
-        let state_manager_consumer_handle = format!("operator{}_states", idx).to_string();
 
         let operator_data = OperatorData {
             xonly_pk: signer.xonly_public_key,
@@ -171,42 +174,34 @@ impl Operator {
             collateral_funding_outpoint,
             tx_sender,
             citrea_client,
-            citrea_contract_client,
             reimburse_addr,
-            state_manager_handle: state_manager_consumer_handle.clone(),
             // temporarily set to avoid circular reference
             state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
         };
 
         // initialize and run state manager
-        let mut state_manager = StateManager::new(
-            db.clone(),
-            operator.clone(),
-            config.protocol_paramset(),
-            state_manager_consumer_handle.clone(),
-        )
-        .await?;
+        let mut state_manager =
+            StateManager::new(db.clone(), operator.clone(), config.protocol_paramset()).await?;
 
         state_manager.load_from_db().await?;
 
-        let state_manager_block_syncer = states::syncer::fetch_new_blocks(
+        let state_manager_block_syncer = StateManager::<Self>::block_fetcher_task(
             state_manager.get_last_processed_block_height(),
-            state_manager.get_consumer_handle(),
             db.clone(),
             Duration::from_secs(1),
             config.protocol_paramset(),
         )
         .await;
 
-        let (state_manager_run_loop, shutdown_tx) =
-            run_state_manager(state_manager, Duration::from_secs(1)).await;
+        let (state_manager_run_loop, shutdown_tx) = state_manager
+            .into_msg_consumer_task(Duration::from_secs(1))
+            .await;
         operator.state_manager_shutdown_tx = shutdown_tx.into(); // save the shutdown tx here
 
         // add own operator state to state manager
         let mut dbtx = db.begin_transaction().await?;
-        states::syncer::add_new_round_machine(
+        StateManager::<Self>::dispatch_new_round_machine(
             db.clone(),
-            state_manager_consumer_handle,
             &mut dbtx,
             operator_data,
             idx as u32,
@@ -404,7 +399,7 @@ impl Operator {
         };
 
         // Check Citrea for the withdrawal state.
-        if let Some(citrea_contract_client) = &self.citrea_contract_client {
+        if let Some(citrea_contract_client) = &self.citrea_client {
             let txid = citrea_contract_client
                 .withdrawal_utxos(withdrawal_index.into())
                 .await?
@@ -503,7 +498,7 @@ impl Operator {
     ) -> Result<(), BridgeError> {
         // Don't check anything if Citrea client is not specified.
         let citrea_client = match &self.citrea_client {
-            Some(c) => c,
+            Some(c) => c.client.clone(),
             None => return Ok(()),
         };
 
@@ -593,11 +588,12 @@ impl Operator {
         &self,
         deposit_txid: Txid,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
-        tracing::info!("Generating assert winternitz pubkeys");
+        tracing::debug!("Generating assert winternitz pubkeys");
         let bitvm_pks = self
             .signer
             .generate_bitvm_pks_for_deposit(deposit_txid, self.config.protocol_paramset())?;
         let flattened_wpks = bitvm_pks.to_flattened_vec();
+
         Ok(flattened_wpks)
     }
     /// Generates Winternitz public keys for every blockhash commit to be used in kickoff utxos.
@@ -997,6 +993,42 @@ impl Operator {
 
         Ok(())
     }
+
+    async fn send_asserts(
+        &self,
+        kickoff_id: KickoffId,
+        deposit_data: DepositData,
+        _watchtower_challenges: HashMap<usize, Witness>,
+    ) -> Result<(), BridgeError> {
+        let assert_txs = self
+            .create_assert_commitment_txs(AssertRequestData {
+                kickoff_id,
+                deposit_data: deposit_data.clone(),
+            })
+            .await?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        for (tx_type, tx) in assert_txs {
+            self.tx_sender
+                .add_tx_to_queue(
+                    &mut dbtx,
+                    tx_type,
+                    &tx,
+                    &[],
+                    Some(TxDataForLogging {
+                        tx_type,
+                        operator_idx: Some(self.idx as u32),
+                        verifier_idx: None,
+                        round_idx: Some(kickoff_id.round_idx),
+                        kickoff_idx: Some(kickoff_id.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    }),
+                    &self.config,
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[tonic::async_trait]
@@ -1009,16 +1041,15 @@ impl Owner for Operator {
                 operator_idx,
                 used_kickoffs,
             } => {
-                tracing::info!("called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", round_idx, operator_idx, used_kickoffs);
+                tracing::info!("Operator {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", self.idx, round_idx, operator_idx, used_kickoffs);
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
                 deposit_data,
             } => {
                 tracing::info!(
-                    "called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
-                    kickoff_id,
-                    deposit_data
+                    "Operator {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
+                    self.idx, kickoff_id, deposit_data
                 );
             }
             Duty::SendOperatorAsserts {
@@ -1026,7 +1057,9 @@ impl Owner for Operator {
                 deposit_data,
                 watchtower_challenges,
             } => {
-                tracing::info!("called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", kickoff_id, deposit_data, watchtower_challenges);
+                tracing::warn!("Operator {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", self.idx, kickoff_id, deposit_data, watchtower_challenges.len());
+                self.send_asserts(kickoff_id, deposit_data, watchtower_challenges)
+                    .await?;
             }
             Duty::VerifierDisprove {
                 kickoff_id,
@@ -1034,11 +1067,12 @@ impl Owner for Operator {
                 operator_asserts,
                 operator_acks,
             } => {
-                tracing::info!("called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}", kickoff_id, deposit_data, operator_asserts, operator_acks);
+                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len());
             }
             Duty::CheckIfKickoff { txid, block_height } => {
                 tracing::info!(
-                    "called check if kickoff with txid: {:?}, block_height: {:?}",
+                    "Operator {} called check if kickoff with txid: {:?}, block_height: {:?}",
+                    self.idx,
                     txid,
                     block_height,
                 );
@@ -1049,9 +1083,8 @@ impl Owner for Operator {
                 if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
-                    add_new_kickoff_machine(
+                    StateManager::<Self>::dispatch_new_kickoff_machine(
                         self.db.clone(),
-                        self.state_manager_handle.clone(),
                         &mut dbtx,
                         kickoff_id,
                         block_height,
