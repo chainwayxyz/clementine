@@ -36,8 +36,8 @@ sol!(
     "src/citrea/Bridge.json"
 );
 
-/// Citrea client is responsible for creating contracts, interacting with the
-/// EVM and Citrea RPC.
+/// Citrea client is responsible for interacting with the Citrea EVM and Citrea
+/// RPC.
 #[derive(Clone, Debug)]
 pub struct CitreaClient {
     pub client: HttpClient,
@@ -51,19 +51,17 @@ impl CitreaClient {
     ///
     /// - `citrea_rpc_url`: URL of the Citrea RPC.
     /// - `light_client_prover_url`: URL of the Citrea light client prover RPC.
-    /// - `secret_key`: Etherium secret key of the EVM user. If not given, dummy
-    ///   secret key is used (wallet is not required).
+    /// - `secret_key`: EVM secret key of the EVM user. If not given, random
+    ///   secret key is used (wallet is not required). This is given mostly for
+    ///   testing purposes.
     pub fn new(
         citrea_rpc_url: Url,
         light_client_prover_url: Url,
-        secret_key: Option<String>,
+        secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError> {
-        let secret_key = secret_key.unwrap_or(["01"; 32].concat());
+        let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
 
-        let key = secret_key
-            .parse::<PrivateKeySigner>()
-            .map_err(|e| BridgeError::Error(format!("Can't parse secret key: {:?}", e)))?
-            .with_chain_id(Some(CITREA_CHAIN_ID));
+        let key = secret_key.with_chain_id(Some(CITREA_CHAIN_ID));
         let wallet_address = key.address();
 
         let provider = ProviderBuilder::new()
