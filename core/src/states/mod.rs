@@ -1,17 +1,13 @@
-use crate::builder::transaction::{DepositData, OperatorData};
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
-use crate::rpc::clementine::KickoffId;
 use bitcoin::Block;
 use eyre::Context;
 use futures::future::{join, join_all};
 use kickoff::KickoffEvent;
-use kickoff::KickoffStateMachine;
 use matcher::BlockMatcher;
 use pgmq::PGMQueueExt;
 use round::RoundEvent;
-use round::RoundStateMachine;
 use statig::awaitable::{InitializedStateMachine, UninitializedStateMachine};
 use statig::prelude::*;
 use std::cmp::max;
@@ -20,12 +16,14 @@ use std::sync::Arc;
 
 mod block_cache;
 pub mod context;
+mod event;
 pub mod kickoff;
 mod matcher;
 pub mod round;
-pub mod syncer;
+pub mod task;
 
 pub use context::{Duty, Owner};
+pub use event::SystemEvent;
 
 pub(crate) enum ContextProcessResult<
     T: Owner,
@@ -81,23 +79,6 @@ where
             })
         }
     }
-}
-
-#[derive(Debug, serde::Serialize, Clone, serde::Deserialize)]
-pub enum SystemEvent {
-    NewBlock {
-        block: bitcoin::Block,
-        height: u32,
-    },
-    NewOperator {
-        operator_data: OperatorData,
-        operator_idx: u32,
-    },
-    NewKickoff {
-        kickoff_id: KickoffId,
-        kickoff_height: u32,
-        deposit_data: DepositData,
-    },
 }
 
 // New state manager to hold and coordinate state machines
@@ -274,55 +255,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         tx.commit().await?;
         Ok(())
     }
-
-    pub async fn handle_event(
-        &mut self,
-        event: SystemEvent,
-        dbtx: DatabaseTransaction<'_, '_>,
-    ) -> Result<(), BridgeError> {
-        match event {
-            SystemEvent::NewBlock { block, height } => {
-                self.process_block_parallel(&block, height).await?;
-            }
-            SystemEvent::NewOperator {
-                operator_data,
-                operator_idx,
-            } => {
-                let operator_machine = RoundStateMachine::new(operator_data, operator_idx)
-                    .uninitialized_state_machine()
-                    .init_with_context(&mut self.context)
-                    .await;
-                self.process_and_add_new_states_from_height(
-                    vec![operator_machine],
-                    vec![],
-                    self.paramset.start_height,
-                )
-                .await?;
-            }
-            SystemEvent::NewKickoff {
-                kickoff_id,
-                kickoff_height,
-                deposit_data,
-            } => {
-                let kickoff_machine =
-                    KickoffStateMachine::new(kickoff_id, kickoff_height, deposit_data)
-                        .uninitialized_state_machine()
-                        .init_with_context(&mut self.context)
-                        .await;
-                self.process_and_add_new_states_from_height(
-                    vec![],
-                    vec![kickoff_machine],
-                    kickoff_height,
-                )
-                .await?;
-            }
-        }
-        // Save the state machines to the database with the current block height
-        self.save_state_to_db(self.last_processed_block_height, Some(dbtx))
-            .await?;
-        Ok(())
-    }
-
     #[cfg(test)]
     #[doc(hidden)]
     pub fn round_machines(&self) -> Vec<InitializedStateMachine<round::RoundStateMachine<T>>> {

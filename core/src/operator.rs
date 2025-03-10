@@ -22,8 +22,6 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
-use crate::states;
-use crate::states::syncer::add_new_kickoff_machine;
 use crate::states::{Duty, Owner, StateManager};
 use crate::tx_sender::TxSender;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
@@ -183,7 +181,7 @@ impl Operator {
 
         state_manager.load_from_db().await?;
 
-        let state_manager_block_syncer = states::syncer::fetch_new_blocks::<Self>(
+        let state_manager_block_syncer = StateManager::<Self>::block_fetcher_task(
             state_manager.get_last_processed_block_height(),
             db.clone(),
             Duration::from_secs(1),
@@ -192,13 +190,13 @@ impl Operator {
         .await;
 
         let (state_manager_run_loop, shutdown_tx) = state_manager
-            .into_polling_task(Duration::from_secs(1))
+            .into_msg_consumer_task(Duration::from_secs(1))
             .await;
         operator.state_manager_shutdown_tx = shutdown_tx.into(); // save the shutdown tx here
 
         // add own operator state to state manager
         let mut dbtx = db.begin_transaction().await?;
-        states::syncer::add_new_round_machine::<Self>(
+        StateManager::<Self>::dispatch_new_round_machine(
             db.clone(),
             &mut dbtx,
             operator_data,
@@ -1080,7 +1078,7 @@ impl Owner for Operator {
                 if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
-                    add_new_kickoff_machine::<Self>(
+                    StateManager::<Self>::dispatch_new_kickoff_machine(
                         self.db.clone(),
                         &mut dbtx,
                         kickoff_id,
