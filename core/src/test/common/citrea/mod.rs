@@ -137,11 +137,11 @@ pub async fn sync_citrea_l2(
         sequencer.client.send_publish_batch_request().await.unwrap();
     }
 
-    println!("Waiting for L2 to sync with L1");
+    println!("Waiting for L2 to be in sync with L1");
     full_node
         .client
         .wait_for_l2_block(l1_height, None)
         .await
         .unwrap();
-    println!("L2 synced with L1");
+    println!("L2 is in sync with L1");
 }

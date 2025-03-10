@@ -59,7 +59,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, full_node, _, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
+        let (sequencer, _full_node, _, _, da) = citrea::start_citrea(Self::sequencer_config(), f)
             .await
             .unwrap();
 
@@ -72,8 +72,6 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
-
-        citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
 
         let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
         let withdrawal_address = Address::p2tr(
