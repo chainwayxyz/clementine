@@ -146,7 +146,7 @@ impl Default for BridgeConfig {
             )
             .expect("known valid input"),
 
-            num_verifiers: 4,
+            num_verifiers: 7,
             verifiers_public_keys: vec![
                 PublicKey::from_str(
                     "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
@@ -164,18 +164,18 @@ impl Default for BridgeConfig {
                     "032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991",
                 )
                 .expect("known valid input"),
-                // PublicKey::from_str(
-                //     "029ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
-                // )
-                // .expect("known valid input"),
-                // PublicKey::from_str(
-                //     "035ab4689e400a4a160cf01cd44730845a54768df8547dcdf073d964f109f18c30",
-                // )
-                // .expect("known valid input"),
-                // PublicKey::from_str(
-                //     "037962d45b38e8bcf82fa8efa8432a01f20c9a53e24c7d3f11df197cb8e70926da",
-                // )
-                // .expect("known valid input"),
+                PublicKey::from_str(
+                    "029ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
+                )
+                .expect("known valid input"),
+                PublicKey::from_str(
+                    "035ab4689e400a4a160cf01cd44730845a54768df8547dcdf073d964f109f18c30",
+                )
+                .expect("known valid input"),
+                PublicKey::from_str(
+                    "037962d45b38e8bcf82fa8efa8432a01f20c9a53e24c7d3f11df197cb8e70926da",
+                )
+                .expect("known valid input"),
             ],
 
             num_operators: 2,
@@ -246,18 +246,18 @@ impl Default for BridgeConfig {
                     "4444444444444444444444444444444444444444444444444444444444444444",
                 )
                 .expect("known valid input"),
-                // SecretKey::from_str(
-                //     "5555555555555555555555555555555555555555555555555555555555555555",
-                // )
-                // .expect("known valid input"),
-                // SecretKey::from_str(
-                //     "6666666666666666666666666666666666666666666666666666666666666666",
-                // )
-                // .expect("known valid input"),
-                // SecretKey::from_str(
-                //     "7777777777777777777777777777777777777777777777777777777777777777",
-                // )
-                // .expect("known valid input"),
+                SecretKey::from_str(
+                    "5555555555555555555555555555555555555555555555555555555555555555",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "6666666666666666666666666666666666666666666666666666666666666666",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "7777777777777777777777777777777777777777777777777777777777777777",
+                )
+                .expect("known valid input"),
             ]),
             all_operators_secret_keys: Some(vec![
                 SecretKey::from_str(
