@@ -3,7 +3,6 @@ use servers::{
     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
     create_watchtower_grpc_server,
 };
-use std::process::exit;
 use utils::get_configuration_for_binaries;
 
 pub mod actor;
@@ -33,74 +32,48 @@ pub mod test;
 
 #[tokio::main]
 async fn main() {
-    eprintln!("\nBEWARE: Current behavior of this binary might be incorrect! It is in active development.\n");
+    eprintln!("\nBEWARE: Current behavior of this binary is subject to change: It is in active development.\n");
 
-    let (mut config, args) = get_configuration_for_binaries();
-
-    if !args.verifier_server
-        && !args.operator_server
-        && !args.aggregator_server
-        && !args.watchtower_server
-    {
-        eprintln!("No servers are specified. Please specify one.");
-        exit(1);
-    }
+    let (config, args) = get_configuration_for_binaries();
 
     Database::run_schema_script(&config)
         .await
         .expect("Can't run schema script");
 
-    let mut handles = vec![];
+    let mut handle = match args.actor {
+        cli::Actors::Verifier => {
+            println!("Starting verifier server...");
 
-    if args.verifier_server {
-        handles.push(
             create_verifier_grpc_server(config.clone())
                 .await
                 .expect("Can't create verifier server")
-                .1,
-        );
-        config.port += 1;
+                .1
+        }
+        cli::Actors::Operator => {
+            println!("Starting operator server...");
 
-        println!("Verifier server is started.");
-    }
-
-    if args.operator_server {
-        handles.push(
             create_operator_grpc_server(config.clone())
                 .await
                 .expect("Can't create operator server")
-                .1,
-        );
-        config.port += 1;
+                .1
+        }
+        cli::Actors::Aggregator => {
+            println!("Starting aggregator server...");
 
-        println!("Operator server is started.");
-    }
-
-    if args.aggregator_server {
-        handles.push(
             create_aggregator_grpc_server(config.clone())
                 .await
                 .expect("Can't create aggregator server")
-                .1,
-        );
-        config.port += 1;
+                .1
+        }
+        cli::Actors::Watchtower => {
+            println!("Starting watchtower server...");
 
-        println!("Aggregator server is started.");
-    }
-
-    if args.watchtower_server {
-        handles.push(
-            create_watchtower_grpc_server(config)
+            create_watchtower_grpc_server(config.clone())
                 .await
                 .expect("Can't create watchtower server")
-                .1,
-        );
+                .1
+        }
+    };
 
-        println!("Watchtower server is started.");
-    }
-
-    // Wait for servers to close, A.K.A. run forever.
-    for mut handle in handles {
-        handle.closed().await;
-    }
+    handle.closed().await;
 }

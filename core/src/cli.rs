@@ -6,31 +6,30 @@
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use clap::Parser;
+use clap::ValueEnum;
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-/// Clementine (C) 2024 Chainway Limited
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum Actors {
+    Verifier,
+    Operator,
+    Aggregator,
+    Watchtower,
+}
+
+/// Clementine (C) 2025 Chainway Limited
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
+    /// Actor to run.
+    pub actor: Actors,
     /// TOML formatted configuration file.
     pub config_file: PathBuf,
     /// Verbosity level, ranging from 0 (none) to 5 (highest)
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(short, long, default_value_t = 3)]
     pub verbose: u8,
-    /// Enable verifier server.
-    #[clap(long)]
-    pub verifier_server: bool,
-    /// Enable operator server.
-    #[clap(long)]
-    pub operator_server: bool,
-    /// Enable aggregator server.
-    #[clap(long)]
-    pub aggregator_server: bool,
-    /// Enable watchtower server.
-    #[clap(long)]
-    pub watchtower_server: bool,
 }
 
 /// Parse all the command line arguments and generate a `BridgeConfig`.
