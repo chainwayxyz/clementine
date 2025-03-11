@@ -104,6 +104,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         tracing::error!("Running deposit");
 
+        tracing::error!(
+            "Deposit starting block_height: {:?}",
+            rpc.client.get_block_count().await?
+        );
         let (
             _verifiers,
             _operators,
@@ -114,7 +118,14 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             move_txid,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
 
-        rpc.mine_blocks(2 * DEFAULT_FINALITY_DEPTH).await.unwrap();
+        tracing::error!(
+            "Deposit ending block_height: {:?}",
+            rpc.client.get_block_count().await?
+        );
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+        // sleep for 1 second
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
         for _ in 0..sequencer.config.node.min_soft_confirmations_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();

@@ -48,8 +48,8 @@ impl Database {
         move_to_vault_txid: &Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO withdrawals (idx, move_to_vault_txid, withdrawal_utxo_txid, withdrawal_utxo_vout) 
-             VALUES ($1, $2, '', 0)
+            "INSERT INTO withdrawals (idx, move_to_vault_txid) 
+             VALUES ($1, $2)
              ON CONFLICT (idx) DO UPDATE 
              SET move_to_vault_txid = $2",
         )
