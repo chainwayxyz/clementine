@@ -100,16 +100,6 @@ pub async fn fetch_light_client_proof(
 ///   * `keccak256(UTXOS_STORAGE_INDEX)` does not return a valid 32-byte slice.
 ///   * The RPC request to `eth_getProof` fails.
 ///   * The response from the RPC call cannot be deserialized into an `EIP1186AccountProofResponse`.
-///
-/// # Example
-/// ```
-/// let client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
-/// let l2_height = "0x12a";
-/// let deposit_index = 42;
-/// let txid = [0u8; 32];
-///
-/// let proof = fetch_storage_proof(l2_height, deposit_index, txid, client).await;
-/// ```
 pub async fn fetch_storage_proof(
     l2_height: &String,
     deposit_index: u32,
@@ -172,12 +162,6 @@ pub async fn fetch_storage_proof(
 /// * If `claim.output.value()` is empty.
 /// * If `output` is `None`.
 /// * If `output.journal.value()` is empty.
-///
-/// # Example
-/// ```
-/// let inner_receipt = get_some_inner_receipt(); // Assume this exists
-/// let receipt = receipt_from_inner(inner_receipt)?;
-/// ```
 fn receipt_from_inner(inner: InnerReceipt) -> anyhow::Result<Receipt> {
     let mb_claim = inner.claim().or_else(|_| bail!("Claim is empty"))?;
     let claim = mb_claim

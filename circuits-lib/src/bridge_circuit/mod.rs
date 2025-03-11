@@ -158,7 +158,6 @@ pub fn total_work_and_watchtower_flags(
     wt_messages_with_idxs.sort_by(|a, b| b.1.cmp(&a.1));
     let mut total_work = [0u8; 32];
 
-    // More elegant way to do this? (if let + find?)
     for pair in wt_messages_with_idxs.iter() {
         // Grooth16 verification of work only circuit
         if IS_TEST || convert_to_groth16_and_verify(&pair.1, work_only_image_id) {
@@ -195,15 +194,15 @@ fn deposit_constant(
     let mut operator_id = [0u8; 32];
     operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
 
-    let num_wts = winternitz_details.len();
-    let pk_size = winternitz_details[0].pub_key.len();
-    let mut pub_key_concat: Vec<u8> = vec![0; num_wts * pk_size * 20];
-    for (i, wots_handler) in winternitz_details.iter().enumerate() {
-        for (j, pubkey) in wots_handler.pub_key.iter().enumerate() {
-            pub_key_concat[(pk_size * i * 20 + j * 20)..(pk_size * i * 20 + (j + 1) * 20)]
-                .copy_from_slice(pubkey);
-        }
-    }
+    let pub_key_concat: Vec<u8> = winternitz_details
+        .iter()
+        .flat_map(|wots_handler| {
+            wots_handler
+                .pub_key
+                .iter()
+                .flat_map(|pubkey| pubkey.to_vec())
+        })
+        .collect();
 
     let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).into();
     let pre_deposit_constant = [move_txid_hex, wintertniz_pubkeys_digest, operator_id].concat();
