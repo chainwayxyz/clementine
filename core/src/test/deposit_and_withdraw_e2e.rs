@@ -17,6 +17,7 @@ use alloy::transports::http::reqwest::Url;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
+use bitcoincore_rpc::RpcApi;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
 use citrea_e2e::{
     config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
@@ -70,7 +71,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            initial_da_height: 200,
+            initial_da_height: 100,
             ..Default::default()
         }
     }
@@ -134,6 +135,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .unwrap();
 
+        tracing::error!("Collecting deposits and withdrawals");
+
         let citrea_withdrawal_tx = citrea_client
             .contract
             .withdraw(
@@ -146,10 +149,36 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .send()
             .await
             .unwrap();
-        // sequencer.client.send_publish_batch_request().await.unwrap();
+        // waiting for the tx to be mined
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
+        tracing::error!("Withdrawal tx sent");
+        sequencer.client.send_publish_batch_request().await.unwrap();
+
+        // force sequencer to commit
+        sequencer.client.send_publish_batch_request().await.unwrap();
+        sequencer.client.send_publish_batch_request().await.unwrap();
+        sequencer.client.send_publish_batch_request().await.unwrap();
+        sequencer.client.send_publish_batch_request().await.unwrap();
+
+        tracing::error!("Publish batch request sent");
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
+
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
+
+        let block_height = rpc.client.get_block_count().await.unwrap();
+        rpc.mine_blocks(100).await.unwrap();
+        tracing::error!("Block height: {:?}", block_height);
+        lc_prover.wait_for_l1_height(block_height, None).await?;
+        tracing::error!("Waited for L1 height");
+
+        loop {
+            // mine 1 block
+            rpc.mine_blocks(1).await.unwrap();
+            citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
+            // wait 100ms
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        }
 
         // TODO: Send withdrawal signatures to operator.
 

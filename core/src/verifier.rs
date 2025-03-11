@@ -1205,32 +1205,35 @@ impl Owner for Verifier {
                 .light_client_prover_client
                 .get_light_client_proof_by_l1_height(block_height as u64)
                 .await?
-                .ok_or(BridgeError::Error(
-                    "Light Client Proof not found".to_string(),
-                ))?;
+                .ok_or(BridgeError::Error(format!(
+                    "Light client proof not found for block height: {}",
+                    block_height
+                )))?;
             tracing::error!("Light Client Proof found");
+            tracing::error!("Proof current: {:?}", proof_current);
             let proof_previous = citrea_client
                 .light_client_prover_client
                 .get_light_client_proof_by_l1_height(block_height as u64 - 1)
                 .await?
-                .ok_or(BridgeError::Error(
-                    "Light Client Proof not found".to_string(),
-                ))?;
+                .ok_or(BridgeError::Error(format!(
+                    "Light client proof not found for block height: {}",
+                    block_height - 1
+                )))?;
 
-            let l2_height_end = proof_current
+            let l2_height_end: u64 = proof_current
                 .light_client_proof_output
                 .last_l2_height
-                .to_be_bytes();
-            let l2_height_start = proof_previous
+                .try_into()
+                .expect("Failed to convert last_l2_height to u64");
+
+            let l2_height_start: u64 = proof_previous
                 .light_client_proof_output
                 .last_l2_height
-                .to_be_bytes();
+                .try_into()
+                .expect("Failed to convert last_l2_height to u64");
 
             tracing::error!("l2_height_end: {:?}", l2_height_end);
             tracing::error!("l2_height_start: {:?}", l2_height_start);
-
-            let l2_height_end = u64::from_be_bytes(l2_height_end);
-            let l2_height_start = u64::from_be_bytes(l2_height_start);
 
             tracing::error!("Collecting deposits and withdrawals");
             let new_deposits = citrea_client

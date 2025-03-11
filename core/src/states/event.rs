@@ -80,8 +80,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 block,
                 height,
             } => {
-                let handle_finalized_block_result = self
-                    .owner
+                self.owner
                     .handle_finalized_block(dbtx, block_id, height, &block)
                     .await?;
                 self.process_block_parallel(&block, height).await?;
