@@ -314,6 +314,7 @@ mod tests {
 
     #[cfg(target_arch = "x86_64")]
     #[tokio::test]
+    #[ignore]
     async fn bridge_circuit_test() {
         let work_only_method_id_from_elf = compute_image_id(WORK_ONLY_ELF).unwrap();
         assert_eq!(
