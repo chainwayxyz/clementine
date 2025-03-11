@@ -122,7 +122,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
-        citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
+        // citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
 
         citrea::deposit(
             sequencer.client.http_client().clone(),
@@ -131,8 +131,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             tx,
         )
         .await?;
-        sequencer.client.send_publish_batch_request().await?;
 
+        for _ in 0..sequencer.config.node.min_soft_confirmations_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
         // Make a withdrawal
 
         let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
@@ -162,6 +164,11 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         tracing::error!("Collecting deposits and withdrawals");
 
+        // let current_l2_height = sequencer
+        //     .client
+        //     .ledger_get_head_soft_confirmation_height()
+        //     .await?;
+
         let citrea_withdrawal_tx = citrea_client
             .contract
             .withdraw(
@@ -174,35 +181,43 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .send()
             .await
             .unwrap();
-        // waiting for the tx to be mined
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
         tracing::error!("Withdrawal tx sent");
-        sequencer.client.send_publish_batch_request().await.unwrap();
 
-        // force sequencer to commit
-        sequencer.client.send_publish_batch_request().await.unwrap();
-        sequencer.client.send_publish_batch_request().await.unwrap();
-        sequencer.client.send_publish_batch_request().await.unwrap();
-        sequencer.client.send_publish_batch_request().await.unwrap();
-
+        // 1. force sequencer to commit
+        for _ in 0..sequencer.config.node.min_soft_confirmations_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
         tracing::error!("Publish batch request sent");
-        let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
 
+        let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
+
+        // 2. wait until 2 commitment txs (commit, reveal) seen from DA to ensure their reveal prefix nonce is found
+        da.wait_mempool_len(2, None).await?;
+
+        // 3. generate FINALITY_DEPTH da blocks
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+        // 4. wait for batch prover to generate proof on the finalized height
+        // 5. ensure 2 batch proof txs on DA (commit, reveal)
+        da.wait_mempool_len(2, None).await?;
+
+        // 6. generate FINALITY_DEPTH da blocks
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
         let finalized_height = da.get_finalized_height(None).await.unwrap();
 
         tracing::error!("Finalized height: {:?}", finalized_height);
         lc_prover.wait_for_l1_height(finalized_height, None).await?;
         tracing::error!("Waited for L1 height");
 
-        // loop {
-        //     // mine 1 block
-        //     rpc.mine_blocks(1).await.unwrap();
-        //     citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
-        //     // wait 100ms
-        //     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        // }
+        loop {
+            // mine 1 block
+            rpc.mine_blocks(1).await.unwrap();
+            // wait 100ms
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        }
 
         // TODO: Send withdrawal signatures to operator.
 

@@ -232,7 +232,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
-        citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
+        // citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
 
         let deposit_tx_block_height = sequencer
             .client
