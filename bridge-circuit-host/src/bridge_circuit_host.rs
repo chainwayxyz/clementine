@@ -4,11 +4,17 @@ use crate::structs::{
 };
 use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
-use borsh;
+use bitcoin::Transaction;
+use bitcoin::{consensus::Decodable, hashes::Hash};
+use borsh::{self, BorshDeserialize};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit::winternitz::verify_winternitz_signature;
 use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
+use final_spv::merkle_tree::BitcoinMerkleTree;
+use final_spv::spv::SPV;
+use header_chain::header_chain::CircuitBlockHeader;
+use header_chain::mmr_native::MMRNative;
 
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
@@ -128,6 +134,42 @@ pub fn prove_bridge_circuit(
     )
 }
 
+pub fn create_spv(
+    payout_tx: &mut &[u8],
+    headers: &[u8],
+    payment_block: &[u8],
+    payment_block_height: u32,
+    payment_tx_index: u32,
+) -> SPV {
+    let payout_tx: Transaction = Transaction::consensus_decode::<&[u8]>(payout_tx).unwrap();
+    let headers = headers
+        .chunks(80)
+        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+        .collect::<Vec<CircuitBlockHeader>>();
+    let mut mmr_native = MMRNative::new();
+    for header in headers {
+        mmr_native.append(header.compute_block_hash());
+    }
+    let block_vec = payment_block.to_vec();
+    let block = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
+
+    let block_txids: Vec<[u8; 32]> = block
+        .txdata
+        .iter()
+        .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
+        .collect();
+    let mmr_inclusion_proof = mmr_native.generate_proof(payment_block_height);
+    let block_72041_mt = BitcoinMerkleTree::new(block_txids);
+    let payout_tx_proof = block_72041_mt.generate_proof(payment_tx_index);
+
+    SPV {
+        transaction: payout_tx.into(),
+        block_inclusion_proof: payout_tx_proof,
+        block_header: block.header.into(),
+        mmr_inclusion_proof: mmr_inclusion_proof.1,
+    }
+}
+
 pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
     let mut binding = ExecutorEnv::builder();
     binding.add_assumption(receipt);
@@ -210,18 +252,13 @@ mod tests {
     use crate::config::BCHostParameters;
     use crate::{fetch_light_client_proof, fetch_storage_proof};
     use alloy_rpc_client::ClientBuilder;
-    use bitcoin::consensus::Decodable;
-    use bitcoin::hashes::Hash;
-    use bitcoin::Transaction;
     use borsh::BorshDeserialize;
 
     use circuits_lib::bridge_circuit::winternitz::{
         generate_public_key, sign_digits, Parameters, WinternitzHandler,
     };
-    use final_spv::merkle_tree::BitcoinMerkleTree;
-    use final_spv::spv::SPV;
-    use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
-    use header_chain::mmr_native::MMRNative;
+
+    use header_chain::header_chain::BlockHeaderCircuitOutput;
     use hex_literal::hex;
     use rand::rngs::SmallRng;
     use rand::{Rng, SeedableRng};
@@ -253,61 +290,19 @@ mod tests {
         deposit_index: 37,
     };
 
-    fn create_spv() -> SPV {
-        let payout_tx = Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
-        let headers = HEADERS
-            .chunks(80)
-            .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-            .collect::<Vec<CircuitBlockHeader>>();
-        let mut mmr_native = MMRNative::new();
-        for i in 0..=TEST_PARAMETERS.l1_block_height {
-            mmr_native.append(headers[i as usize].compute_block_hash());
-        }
-        let block_vec = TESTNET_BLOCK_72041.to_vec();
-        let block_72041 =
-            bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
-
-        let block_72041_txids: Vec<[u8; 32]> = block_72041
-            .txdata
-            .iter()
-            .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
-            .collect();
-        let mmr_inclusion_proof = mmr_native.generate_proof(TEST_PARAMETERS.payment_block_height);
-        let block_72041_mt = BitcoinMerkleTree::new(block_72041_txids);
-        let payout_tx_proof = block_72041_mt.generate_proof(TEST_PARAMETERS.payout_tx_index);
-
-        SPV {
-            transaction: payout_tx.into(),
-            block_inclusion_proof: payout_tx_proof,
-            block_header: block_72041.header.into(),
-            mmr_inclusion_proof: mmr_inclusion_proof.1,
-        }
-    }
-
     fn generate_winternitz(
-        compressed_proof: &[u8; 128],
-        committed_total_work: &[u8],
+        message: Vec<u8>,
+        secret_key: Vec<u8>,
+        params: Parameters,
     ) -> WinternitzHandler {
-        let compressed_proof_and_total_work: Vec<u8> =
-            [compressed_proof, committed_total_work].concat();
-        println!(
-            "Compressed proof and total work: {:?}",
-            compressed_proof_and_total_work
-        );
-        let n0 = compressed_proof_and_total_work.len();
-        let log_d = 8;
-        let params = Parameters::new(n0.try_into().unwrap(), log_d);
-        let input: u64 = 1;
-        let mut rng = SmallRng::seed_from_u64(input);
-        let secret_key: Vec<u8> = (0..n0).map(|_| rng.gen()).collect();
         let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
-        let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
+        let signature = sign_digits(&params, &secret_key, &message);
 
         WinternitzHandler {
             pub_key,
             params,
             signature: Some(signature),
-            message: Some(compressed_proof_and_total_work),
+            message: Some(message),
         }
     }
 
@@ -328,7 +323,14 @@ mod tests {
             ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
         let headerchain_receipt: Receipt =
             Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
-        let spv = create_spv();
+
+        let spv = create_spv(
+            &mut PAYOUT_TX.as_ref(),
+            HEADERS,
+            TESTNET_BLOCK_72041,
+            TEST_PARAMETERS.payment_block_height,
+            TEST_PARAMETERS.payout_tx_index,
+        );
 
         let block_header_circuit_output: BlockHeaderCircuitOutput =
             borsh::BorshDeserialize::try_from_slice(&headerchain_receipt.journal.bytes[..])
@@ -355,7 +357,20 @@ mod tests {
             .try_into()
             .unwrap();
 
-        let winternitz_details = generate_winternitz(&compressed_proof, &commited_total_work);
+        let input: u64 = 1;
+
+        let compressed_proof_and_total_work: Vec<u8> =
+            [compressed_proof.as_ref(), commited_total_work.as_ref()].concat();
+
+        let len = compressed_proof_and_total_work.len();
+        let n0 = u32::try_from(len).expect("Length exceeds u32 max value");
+        let params = Parameters::new(n0, 8);
+
+        let mut rng = SmallRng::seed_from_u64(input);
+        let secret_key: Vec<u8> = (0..n0).map(|_| rng.gen()).collect();
+
+        let winternitz_details =
+            generate_winternitz(compressed_proof_and_total_work, secret_key, params);
 
         let (light_client_proof, lcp_receipt) =
             fetch_light_client_proof(72471, light_client_rpc_client)

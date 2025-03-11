@@ -43,7 +43,6 @@ pub async fn fetch_light_client_proof(
     let l2_height = response["lightClientProofOutput"]["lastL2Height"]
         .as_str()
         .expect("l2 height is not a string");
-    println!("L2 height: {:?}", l2_height);
 
     Ok((
         LightClientProof {
@@ -64,13 +63,11 @@ pub async fn fetch_storage_proof(
     let tx_index: u32 = ind * 2;
 
     let storage_address_bytes = keccak256(UTXOS_STORAGE_INDEX);
-    println!("Storage address: {:?}", &storage_address_bytes[..]);
     let storage_address: U256 = U256::from_be_bytes(
         <[u8; 32]>::try_from(&storage_address_bytes[..]).expect("Slice with incorrect length"),
     );
     let storage_key: alloy_primitives::Uint<256, 4> = storage_address + U256::from(tx_index);
     let storage_key_hex = hex::encode(storage_key.to_be_bytes::<32>());
-    println!("Storage key: {:?}", &storage_key_hex);
     let storage_key_hex = format!("0x{}", storage_key_hex);
 
     let concantenated = [move_to_vault_txid, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
@@ -78,10 +75,6 @@ pub async fn fetch_storage_proof(
     let storage_address_deposit = keccak256(concantenated);
     let storage_address_deposit_hex = hex::encode(storage_address_deposit);
     let storage_address_deposit_hex = format!("0x{}", storage_address_deposit_hex);
-    println!(
-        "Storage address deposit: {:?}",
-        &storage_address_deposit_hex
-    );
 
     let request = json!([
         CONTRACT_ADDRESS,
@@ -92,9 +85,6 @@ pub async fn fetch_storage_proof(
     let response: serde_json::Value = client.request("eth_getProof", request).await.unwrap();
 
     let response: EIP1186AccountProofResponse = serde_json::from_value(response).unwrap();
-
-    println!("HOST VALUE INDEX: {:?}", &response.storage_proof[1].value);
-    println!("HOST VALUE MOVE TX: {:?}", &response.storage_proof[0].value);
 
     let serialized_utxo = serde_json::to_string(&response.storage_proof[0]).unwrap();
 
