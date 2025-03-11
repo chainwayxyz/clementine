@@ -4,6 +4,7 @@ use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -49,6 +50,11 @@ pub async fn run_multiple_deposits(
 
     let mut deposit_outpoints = Vec::new();
     let mut move_txids = Vec::new();
+
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+            .unwrap();
+
     for _ in 0..count {
         let deposit_outpoint: OutPoint = rpc
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
@@ -60,6 +66,7 @@ pub async fn run_multiple_deposits(
                 deposit_outpoint: Some(deposit_outpoint.into()),
                 evm_address: evm_address.0.to_vec(),
                 recovery_taproot_address: actor.address.to_string(),
+                nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
             })
             .await?
             .into_inner()
@@ -139,11 +146,16 @@ pub async fn run_single_deposit(
         .await?;
     rpc.mine_blocks(18).await?;
 
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+            .unwrap();
+
     let move_txid: Txid = aggregator
         .new_deposit(DepositParams {
             deposit_outpoint: Some(deposit_outpoint.into()),
             evm_address: evm_address.0.to_vec(),
             recovery_taproot_address: actor.address.to_string(),
+            nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
         })
         .await?
         .into_inner()

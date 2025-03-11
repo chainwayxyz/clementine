@@ -756,7 +756,6 @@ impl ClementineAggregator for Aggregator {
             self.db.clone(),
             self.config.clone(),
             deposit_data,
-            self.nofn_xonly_pk,
             false,
         ));
 
@@ -926,6 +925,10 @@ mod tests {
             .await
             .unwrap();
 
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+                .unwrap();
+
         tracing::info!("Setup completed in {:?}", start.elapsed());
         tracing::info!("Depositing");
         let deposit_start = std::time::Instant::now();
@@ -944,6 +947,7 @@ mod tests {
                 evm_address: [1u8; 20].to_vec(),
                 recovery_taproot_address:
                     "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
+                nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
             })
             .await
             .unwrap();
@@ -997,6 +1001,7 @@ mod tests {
                 deposit_outpoint: Some(deposit_outpoint.into()),
                 evm_address: evm_address.0.to_vec(),
                 recovery_taproot_address: signer.address.to_string(),
+                nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
             })
             .await
             .unwrap()

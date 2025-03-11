@@ -12,6 +12,7 @@ use sqlx::{Pool, Postgres};
 mod bitcoin_syncer;
 mod header_chain_prover;
 mod operator;
+mod state_machine;
 mod tx_sender;
 mod verifier;
 mod watchtower;
@@ -63,6 +64,10 @@ impl Database {
     /// Closes database connection.
     pub async fn close(&self) {
         self.connection.close().await;
+    }
+
+    pub fn get_pool(&self) -> Pool<Postgres> {
+        self.connection.clone()
     }
 
     /// Runs the schema script on a database for the given configuration.

@@ -1,6 +1,7 @@
+use super::clementine::SignedTxWithType;
 use super::clementine::{
     clementine_watchtower_server::ClementineWatchtower, watchtower_params, DepositParams, Empty,
-    RawSignedTx, TransactionRequest, WatchtowerKeys, WatchtowerParams,
+    TransactionRequest, WatchtowerKeys, WatchtowerParams,
 };
 use crate::rpc::parser::{parse_deposit_params, parse_transaction_request};
 use crate::watchtower::Watchtower;
@@ -47,13 +48,12 @@ impl ClementineWatchtower for Watchtower {
     async fn internal_create_watchtower_challenge(
         &self,
         request: Request<TransactionRequest>,
-    ) -> Result<Response<RawSignedTx>, Status> {
+    ) -> Result<Response<SignedTxWithType>, Status> {
         let transaction_request = request.into_inner();
         let transaction_data = parse_transaction_request(transaction_request)?;
 
-        let raw_tx = self
+        let (tx_type, signed_tx) = self
             .create_and_sign_watchtower_challenge(
-                self.nofn_xonly_pk,
                 transaction_data,
                 &vec![
                     0u8;
@@ -65,7 +65,10 @@ impl ClementineWatchtower for Watchtower {
             )
             .await?;
 
-        Ok(Response::new(raw_tx))
+        Ok(Response::new(SignedTxWithType {
+            transaction_type: Some(tx_type.into()),
+            raw_tx: bitcoin::consensus::serialize(&signed_tx),
+        }))
     }
 
     async fn get_challenge_keys(

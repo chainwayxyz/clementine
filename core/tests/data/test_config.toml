@@ -89,3 +89,5 @@ all_operators_secret_keys = [
 ]
 
 winternitz_secret_key = "2222222222222222222222222222222222222222222222222222222222222222"
+
+socket_path = "/"

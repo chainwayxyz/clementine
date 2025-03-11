@@ -13,6 +13,7 @@ use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
 use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
+use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
 pub const DEFAULT_SEQUENCE: Sequence = Sequence::ENABLE_RBF_NO_LOCKTIME;
@@ -482,4 +483,13 @@ impl TxHandlerBuilder {
     pub fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
         self.finalize().promote()
     }
+}
+
+pub fn remove_txhandler_from_map<T: State>(
+    txhandlers: &mut BTreeMap<TransactionType, TxHandler<T>>,
+    tx_type: TransactionType,
+) -> Result<TxHandler<T>, BridgeError> {
+    txhandlers
+        .remove(&tx_type)
+        .ok_or(BridgeError::TxHandlerNotFound(tx_type))
 }

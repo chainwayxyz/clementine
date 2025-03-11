@@ -1,9 +1,8 @@
 use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
     self, AssertRequest, ChallengeAckDigest, DepositParams, DepositSignSession, Empty,
-    FinalizedPayoutParams, OperatorKeys, OperatorParams, RawSignedTxs, SchnorrSig,
-    SignedTxWithType, SignedTxsWithType, WithdrawParams, WithdrawResponse,
-    WithdrawalFinalizedParams,
+    FinalizedPayoutParams, OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType,
+    SignedTxsWithType, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::create_and_sign_txs;
@@ -130,15 +129,21 @@ impl ClementineOperator for Operator {
     async fn internal_create_assert_commitment_txs(
         &self,
         request: Request<AssertRequest>,
-    ) -> Result<Response<RawSignedTxs>, Status> {
+    ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let assert_request = request.into_inner();
         let assert_data = parse_assert_request(assert_request)?;
 
-        let raw_txs = self
-            .create_assert_commitment_txs(self.nofn_xonly_pk, assert_data)
-            .await?;
+        let raw_txs = self.create_assert_commitment_txs(assert_data).await?;
 
-        Ok(Response::new(raw_txs))
+        Ok(Response::new(SignedTxsWithType {
+            signed_txs: raw_txs
+                .into_iter()
+                .map(|(tx_type, signed_tx)| SignedTxWithType {
+                    transaction_type: Some(tx_type.into()),
+                    raw_tx: bitcoin::consensus::serialize(&signed_tx),
+                })
+                .collect(),
+        }))
     }
 
     #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -178,7 +183,6 @@ impl ClementineOperator for Operator {
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            self.nofn_xonly_pk,
             transaction_data,
             Some([0u8; 20]), // dummy blockhash
         )

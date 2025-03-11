@@ -109,7 +109,12 @@ impl TxSender {
                     let mut dbtx = db.begin_transaction().await?;
 
                     let is_block_update = async {
-                        let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
+                        let event = db
+                            .fetch_next_bitcoin_syncer_evt(&mut dbtx, &consumer_handle)
+                            .await?;
+                        if event.is_some() {
+                            tracing::debug!("TXSENDER: Event: {:?}", event);
+                        }
                         Ok::<bool, BridgeError>(match event {
                             Some(event) => match event {
                                 BitcoinSyncerEvent::NewBlock(block_id) => {
@@ -1068,10 +1073,14 @@ mod tests {
 
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender(rpc).await;
 
-        let _bitcoin_syncer_handle =
-            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
-                .await
-                .unwrap();
+        let _bitcoin_syncer_handle = bitcoin_syncer::start_bitcoin_syncer(
+            db.clone(),
+            rpc.clone(),
+            Duration::from_secs(1),
+            config.protocol_paramset(),
+        )
+        .await
+        .unwrap();
 
         let _tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await.unwrap();
 

@@ -5,14 +5,16 @@ use crate::builder::transaction::TransactionType;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::FinalizedPayoutParams;
-use crate::rpc::clementine::{DepositParams, Empty, KickoffId, TransactionRequest};
+use crate::musig2::AggregateFromPublicKeys;
+use crate::rpc::clementine::{
+    DepositParams, Empty, FinalizedPayoutParams, KickoffId, TransactionRequest,
+};
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxDataForLogging, TxSender};
 use crate::EVMAddress;
 use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use eyre::{bail, Context, Result};
 use secp256k1::rand::rngs::ThreadRng;
@@ -52,10 +54,14 @@ pub async fn run_operator_end_round(
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");
@@ -180,10 +186,14 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");
@@ -355,7 +365,11 @@ pub async fn send_tx(
                 verifier_idx: None,
             }),
             &tx,
-            FeePayingType::CPFP,
+            if tx_type == TransactionType::Challenge {
+                FeePayingType::RBF
+            } else {
+                FeePayingType::CPFP
+            },
             &[],
             &[],
             &[],
@@ -376,13 +390,17 @@ pub async fn send_tx(
     // Mine blocks to confirm the transaction
     rpc.mine_blocks(3).await?;
 
-    ensure_tx_onchain(rpc, tx.compute_txid()).await?;
+    if tx_type == TransactionType::Challenge {
+        ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
+    } else {
+        ensure_tx_onchain(rpc, tx.compute_txid()).await?;
+    }
 
     Ok(())
 }
 
 async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 40;
+    let mut timeout_counter = 50;
     while rpc
         .client
         .get_raw_transaction_info(&tx, None)
@@ -407,13 +425,13 @@ async fn ensure_outpoint_spent(rpc: &ExtendedRpc, outpoint: OutPoint) -> Result<
     let mut timeout_counter = 1000;
     while rpc
         .client
-        .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
         .await
         .unwrap()
         .is_some()
     {
         // Mine more blocks and wait longer between checks
-        rpc.mine_blocks(1).await?;
+        rpc.mine_blocks(2).await?;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         timeout_counter -= 1;
 
@@ -505,10 +523,14 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");
@@ -576,20 +598,20 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     // 7. Send Challenge Transaction
     tracing::info!("Sending challenge transaction");
-    // Add later when RBF is implemented
-    // let challenge_tx = all_txs
-    //     .signed_txs
-    //     .iter()
-    //     .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-    //     .unwrap();
-    // send_tx(
-    //     &tx_sender,
-    //     &tx_sender_db,
-    //     &rpc,
-    //     challenge_tx.raw_tx.as_slice(),
-    // )
-    // .await
-    // .context("failed to send challenge transaction")?;
+    let challenge_tx = all_txs
+        .signed_txs
+        .iter()
+        .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+        .unwrap();
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        challenge_tx.raw_tx.as_slice(),
+        TransactionType::Challenge,
+    )
+    .await
+    .context("failed to send challenge transaction")?;
 
     // 8. Send Watchtower Challenge Transactions
     for (watchtower_idx, watchtower) in watchtowers.iter_mut().enumerate() {
@@ -853,10 +875,14 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");
@@ -922,20 +948,21 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     .context("failed to send kickoff transaction")?;
 
     // 7. Send Challenge Transaction
-    // tracing::info!("Sending challenge transaction");
-    // let challenge_tx = all_txs
-    //     .signed_txs
-    //     .iter()
-    //     .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-    //     .unwrap();
-    // send_tx(
-    //     &tx_sender,
-    //     &tx_sender_db,
-    //     &rpc,
-    //     challenge_tx.raw_tx.as_slice(),
-    // )
-    // .await
-    // .context("failed to send challenge transaction")?;
+    tracing::info!("Sending challenge transaction");
+    let challenge_tx = all_txs
+        .signed_txs
+        .iter()
+        .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+        .unwrap();
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        challenge_tx.raw_tx.as_slice(),
+        TransactionType::Challenge,
+    )
+    .await
+    .context("failed to send challenge transaction")?;
 
     // 8. Send Watchtower Challenge Transaction (just for the first watchtower)
     // 8. Send Watchtower Challenge Transactions
@@ -1070,10 +1097,14 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
 
     tracing::info!("Creating move transaction");
@@ -1139,21 +1170,21 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     .context("failed to send kickoff transaction")?;
 
     // 7. Send Challenge Transaction
-    // TODO: Add challenge transaction
-    // tracing::info!("Sending challenge transaction");
-    // let challenge_tx = all_txs
-    //     .signed_txs
-    //     .iter()
-    //     .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-    //     .unwrap();
-    // send_tx(
-    //     &tx_sender,
-    //     &tx_sender_db,
-    //     &rpc,
-    //     challenge_tx.raw_tx.as_slice(),
-    // )
-    // .await
-    // .context("failed to send challenge transaction")?;
+    tracing::info!("Sending challenge transaction");
+    let challenge_tx = all_txs
+        .signed_txs
+        .iter()
+        .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+        .unwrap();
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        challenge_tx.raw_tx.as_slice(),
+        TransactionType::Challenge,
+    )
+    .await
+    .context("failed to send challenge transaction")?;
 
     // Ready to reimburse without finalized kickoff
     let ready_to_reimburse_tx = all_txs
@@ -1262,12 +1293,15 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
+    let nofn_xonly_pk =
+        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
     let dep_params = DepositParams {
         deposit_outpoint: Some(deposit_outpoint.into()),
         evm_address: evm_address.0.to_vec(),
         recovery_taproot_address: recovery_taproot_address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
     };
-
     tracing::info!("Creating move transaction");
     let move_tx_response = aggregator
         .new_deposit(dep_params.clone())
@@ -1331,20 +1365,21 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     .context("failed to send kickoff transaction")?;
 
     // 7. Send Challenge Transaction
-    // tracing::info!("Sending challenge transaction");
-    // let challenge_tx = all_txs
-    //     .signed_txs
-    //     .iter()
-    //     .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-    //     .unwrap();
-    // send_tx(
-    //     &tx_sender,
-    //     &tx_sender_db,
-    //     &rpc,
-    //     challenge_tx.raw_tx.as_slice(),
-    // )
-    // .await
-    // .context("failed to send challenge transaction")?;
+    tracing::info!("Sending challenge transaction");
+    let challenge_tx = all_txs
+        .signed_txs
+        .iter()
+        .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+        .unwrap();
+    send_tx(
+        &tx_sender,
+        &tx_sender_db,
+        &rpc,
+        challenge_tx.raw_tx.as_slice(),
+        TransactionType::Challenge,
+    )
+    .await
+    .context("failed to send challenge transaction")?;
 
     // 8. Send Watchtower Challenge Transactions
     for watchtower_idx in 0..config.protocol_paramset().num_watchtowers {
