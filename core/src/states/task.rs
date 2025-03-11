@@ -8,7 +8,7 @@ use crate::{config::protocol::ProtocolParamset, errors::BridgeError, states::Sys
 use super::{context::Owner, StateManager};
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
-    /// Starts a new thread to periodically fetch new blocks from bitcoin_syncer
+    /// Starts a new task to periodically fetch new blocks from bitcoin_syncer
     pub async fn block_fetcher_task(
         last_processed_block_height: u32,
         db: Database,
@@ -30,13 +30,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             loop {
                 let result: Result<bool, eyre::Report> = async {
                     let mut dbtx = db.begin_transaction().await?;
-                    let has_updated_states = async {
-                        let Some(event) = db.get_event_and_update(&mut dbtx, &queue_name).await?
+                    let did_find_new_block = async {
+                        let Some(event) = db
+                            .fetch_next_bitcoin_syncer_evt(&mut dbtx, &queue_name)
+                            .await?
                         else {
-                            return Ok(false);
+                            return Ok::<bool, eyre::Report>(false);
                         };
 
-                        let new_tip = match event {
+                        Ok(match event {
                             BitcoinSyncerEvent::NewBlock(block_id) => {
                                 let current_tip_height = db
                                     .get_block_info_from_id(Some(&mut dbtx), block_id)
@@ -83,15 +85,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                                 new_tip
                             }
                             BitcoinSyncerEvent::ReorgedBlock(_) => false,
-                        };
-
-                        Ok::<bool, eyre::Report>(new_tip)
+                        })
                     }
                     .await?;
 
                     dbtx.commit().await?;
 
-                    if has_updated_states {
+                    if did_find_new_block {
                         // Don't wait in new events
                         return Ok(true);
                     }
@@ -151,32 +151,31 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 let poll_result: Result<bool, BridgeError> = async {
                     let new_event_received = async {
                         let mut dbtx = db.begin_transaction().await?;
-                        let new_event: Option<Message<SystemEvent>> = self
+                        let Some(new_event): Option<Message<SystemEvent>> = self
                             .queue
                             .read_with_cxn(&queue_name, 1, &mut *dbtx)
                             .await
                             .map_err(|e| {
                                 BridgeError::Error(format!("Error reading event: {:?}", e))
+                            })?
+                        else {
+                            dbtx.commit().await?;
+                            return Ok::<bool, BridgeError>(false);
+                        };
+
+                        let event_id = new_event.msg_id;
+                        self.handle_event(new_event.message, &mut dbtx).await?;
+                        // handled event, delete it from queue
+                        self.queue
+                            .archive_with_cxn(&queue_name, event_id, &mut *dbtx)
+                            .await
+                            .map_err(|e| {
+                                BridgeError::Error(format!("Error deleting event: {:?}", e))
                             })?;
-                        let return_value = Ok::<bool, BridgeError>(match new_event {
-                            Some(event) => {
-                                let event_id = event.msg_id;
-                                self.handle_event(event.message, &mut dbtx).await?;
-                                // handled event, delete it from queue
-                                self.queue
-                                    .archive_with_cxn(&queue_name, event_id, &mut *dbtx)
-                                    .await
-                                    .map_err(|e| {
-                                        BridgeError::Error(format!("Error deleting event: {:?}", e))
-                                    })?;
-                                true
-                            }
-                            None => false,
-                        });
                         dbtx.commit().await.map_err(|e| {
                             BridgeError::Error(format!("Error committing transaction: {:?}", e))
                         })?;
-                        return_value
+                        Ok(true)
                     }
                     .await?;
 
