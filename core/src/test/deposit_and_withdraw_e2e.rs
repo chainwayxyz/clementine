@@ -102,6 +102,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await?;
 
+        tracing::error!("Running deposit");
+
         let (
             _verifiers,
             _operators,
@@ -111,7 +113,12 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _deposit_outpoint,
             move_txid,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+        rpc.mine_blocks(2 * DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+        for _ in 0..sequencer.config.node.min_soft_confirmations_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
 
         // Send deposit to Citrea
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
@@ -124,6 +131,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         // citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
 
+        tracing::error!("Depositing to Citrea");
         citrea::deposit(
             sequencer.client.http_client().clone(),
             block,
