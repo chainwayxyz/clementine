@@ -23,6 +23,34 @@ const _BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/prod-testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
 
+/// Generates a Groth16 proof for the Bridge Circuit after performing sanity checks.
+///
+/// This function first validates various conditions such as header chain output,
+/// light client proof, and SPV verification. It then constructs a succinct proof
+/// for the Bridge Circuit. Finally, it converts the succinct proof
+/// into a Groth16 proof using a Circom circuit.
+///
+/// # Arguments
+///
+/// * `bridge_circuit_host_params` - The host parameters containing circuit-related inputs.
+/// * `bridge_circuit_elf` - The compiled ELF binary representing the Bridge Circuit.
+///
+/// # Returns
+///
+/// Returns a tuple consisting of:
+/// - `ark_groth16::Proof<Bn254>`: The final Groth16 proof.
+/// - `[u8; 31]`: The Groth16 output.
+/// - `BridgeCircuitBitvmInputs`: The structured inputs for the Bridge Circuit BitVM.
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - The number of watchtowers does not match expectations.
+/// - The header chain proof output differs from the expected value.
+/// - Light client proof verification fails.
+/// - SPV verification fails.
+/// - The journal hash does not match the expected hash.
+///
 pub fn prove_bridge_circuit(
     bridge_circuit_host_params: BridgeCircuitHostParams,
     bridge_circuit_elf: &[u8],
@@ -134,6 +162,36 @@ pub fn prove_bridge_circuit(
     )
 }
 
+/// Constructs an SPV (Simplified Payment Verification) proof.
+///
+/// This function decodes a Bitcoin transaction, processes block headers,
+/// constructs an MMR (Merkle Mountain Range) for block header commitment,
+/// and generates a Merkle proof for the payout transaction's inclusion in
+/// the block.
+///
+/// # Arguments
+///
+/// * `payout_tx` - A mutable reference to a byte slice representing the payout transaction.
+/// * `headers` - A byte slice containing block headers, each 80 bytes long.
+/// * `payment_block` - A byte slice representing the full payment block.
+/// * `payment_block_height` - The height of the payment block in the blockchain.
+/// * `payment_tx_index` - The index of the payout transaction in the block's transaction list.
+///
+/// # Returns
+///
+/// Returns an `SPV` struct containing:
+/// - The decoded payout transaction.
+/// - A Merkle proof of the transaction's inclusion in the block.
+/// - The block header.
+/// - An MMR proof of the block header's inclusion in the MMR.
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - Decoding `payout_tx` or `payment_block` fails.
+/// - Any block header chunk is not 80 bytes long.
+/// - Generating the Merkle or MMR proof fails.
+///
 pub fn create_spv(
     payout_tx: &mut &[u8],
     headers: &[u8],
@@ -142,25 +200,30 @@ pub fn create_spv(
     payment_tx_index: u32,
 ) -> SPV {
     let payout_tx: Transaction = Transaction::consensus_decode::<&[u8]>(payout_tx).unwrap();
+
     let headers = headers
         .chunks(80)
         .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
         .collect::<Vec<CircuitBlockHeader>>();
+
     let mut mmr_native = MMRNative::new();
     for header in headers {
         mmr_native.append(header.compute_block_hash());
     }
-    let block_vec = payment_block.to_vec();
-    let block = bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
+
+    let block = bitcoin::block::Block::consensus_decode(&mut &payment_block[..]).unwrap();
 
     let block_txids: Vec<[u8; 32]> = block
         .txdata
         .iter()
         .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
         .collect();
+
     let mmr_inclusion_proof = mmr_native.generate_proof(payment_block_height);
-    let block_72041_mt = BitcoinMerkleTree::new(block_txids);
-    let payout_tx_proof = block_72041_mt.generate_proof(payment_tx_index);
+
+    let block_mt = BitcoinMerkleTree::new(block_txids);
+
+    let payout_tx_proof = block_mt.generate_proof(payment_tx_index);
 
     SPV {
         transaction: payout_tx.into(),
@@ -170,11 +233,28 @@ pub fn create_spv(
     }
 }
 
+/// Generates a Groth16 proof for work-only verification.
+///
+/// This function constructs an execution environment, serializes the provided
+/// input using Borsh, and utilizes a default prover to generate a proof using
+/// the Groth16 proving system.
+///
+/// # Arguments
+///
+/// * `receipt` - A header-chain `Receipt` that serves as an assumption for the proof.
+/// * `input` - A reference to `WorkOnlyCircuitInput` containing the necessary
+///   header chain output data.
+///
+/// # Returns
+///
+/// Returns a new `Receipt` containing the Groth16 proof result.
+///
 pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
-    let mut binding = ExecutorEnv::builder();
-    binding.add_assumption(receipt);
-    let env = binding.write_slice(&borsh::to_vec(&input).unwrap());
-    let env = env.build().unwrap();
+    let env = ExecutorEnv::builder()
+        .add_assumption(receipt)
+        .write_slice(&borsh::to_vec(&input).unwrap())
+        .build()
+        .unwrap();
     let prover = default_prover();
     prover
         .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
@@ -182,21 +262,35 @@ pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receip
         .receipt
 }
 
+/// Prepares the public inputs for the bridge circuit.
+///
+/// This function constructs the necessary public input values used in the
+/// succinct bridge circuit by processing watchtower signatures, computing
+/// block hashes, concatenating public keys, and extracting operator IDs.
+///
+/// # Arguments
+///
+/// * `input` - A `BridgeCircuitInput` containing all the necessary transaction
+///   and chain state details.
+///
+/// # Returns
+///
+/// Returns a `SuccinctBridgeCircuitPublicInputs` struct containing:
+/// - A compressed bitmask of watchtower challenges.
+/// - The payout transaction block hash.
+/// - The latest block hash.
+/// - The move-to-vault transaction ID.
+/// - A digest of watchtower challenge public keys.
+/// - The extracted operator ID.
+///
 fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs {
-    // OPTIMIZATION IS POSSIBLE HERE
     // challenge_sending_watchtowers
-    let mut watchtower_flags: Vec<bool> = vec![];
-    for winternitz_handler in input.winternitz_details.iter() {
-        if winternitz_handler.signature.is_none() || winternitz_handler.message.is_none() {
-            watchtower_flags.push(false);
-            continue;
-        }
-        let flag = verify_winternitz_signature(winternitz_handler);
-        watchtower_flags.push(flag);
-    }
-    let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
-    for (i, &flag) in watchtower_flags.iter().enumerate() {
-        if flag {
+    let mut challenge_sending_watchtowers = [0u8; 20];
+    for (i, winternitz_handler) in input.winternitz_details.iter().enumerate() {
+        if winternitz_handler.signature.is_some()
+            && winternitz_handler.message.is_some()
+            && verify_winternitz_signature(winternitz_handler)
+        {
             challenge_sending_watchtowers[i / 8] |= 1 << (i % 8);
         }
     }
@@ -212,16 +306,16 @@ fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs
         .unwrap();
 
     // watcthower_challenge_wpks_hash
-    let num_wts = input.winternitz_details.len();
-    let pk_size = input.winternitz_details[0].pub_key.len();
-
-    let mut pub_key_concat: Vec<u8> = vec![0; num_wts * pk_size * 20];
-    for (i, wots_handler) in input.winternitz_details.iter().enumerate() {
-        for (j, pubkey) in wots_handler.pub_key.iter().enumerate() {
-            pub_key_concat[(pk_size * i * 20 + j * 20)..(pk_size * i * 20 + (j + 1) * 20)]
-                .copy_from_slice(pubkey);
-        }
-    }
+    let pub_key_concat: Vec<u8> = input
+        .winternitz_details
+        .iter()
+        .flat_map(|wots_handler| {
+            wots_handler
+                .pub_key
+                .iter()
+                .flat_map(|pubkey| pubkey.to_vec())
+        })
+        .collect();
 
     let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).into();
 
@@ -229,13 +323,13 @@ fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs
     let last_output = input.payout_spv.transaction.output.last().unwrap();
     let last_output_script = last_output.script_pubkey.to_bytes();
 
-    let len: u8 = last_output_script[1];
-    let mut operator_id: [u8; 32] = [0u8; 32];
+    let len: usize = last_output_script[1] as usize;
     if len > 32 {
         panic!("Invalid operator id length");
-    } else {
-        operator_id[..len as usize].copy_from_slice(&last_output_script[2..(2 + len) as usize]);
     }
+
+    let mut operator_id = [0u8; 32];
+    operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
 
     SuccinctBridgeCircuitPublicInputs {
         challenge_sending_watchtowers,
