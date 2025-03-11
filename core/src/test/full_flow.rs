@@ -598,7 +598,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     // 7. Send Challenge Transaction
     tracing::info!("Sending challenge transaction");
-    //Add later when RBF is implemented
     let challenge_tx = all_txs
         .signed_txs
         .iter()

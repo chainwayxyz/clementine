@@ -1,4 +1,5 @@
 use crate::{bitcoin_syncer::BitcoinSyncerEvent, database::Database};
+use eyre::{Context as _, OptionExt};
 use pgmq::{Message, PGMQueueExt};
 use std::time::Duration;
 use tokio::{sync::oneshot, task::JoinHandle};
@@ -59,10 +60,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                                     let block = db
                                         .get_full_block(Some(&mut dbtx), next_height)
                                         .await?
-                                        .ok_or(eyre::eyre!(format!(
+                                        .ok_or_eyre(format!(
                                             "Block at height {} not found",
                                             next_height
-                                        )))?;
+                                        ))?;
 
                                     let event = SystemEvent::NewBlock {
                                         block,
@@ -72,12 +73,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                                     queue
                                         .send_with_cxn(&queue_name, &event, &mut *dbtx)
                                         .await
-                                        .map_err(|e| {
-                                            BridgeError::Error(format!(
-                                                "Error sending event: {:?}",
-                                                e
-                                            ))
-                                        })?;
+                                        .wrap_err("Error sending new block event to queue")?;
+
                                     last_sent_height += 1;
                                 }
 
@@ -111,8 +108,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                         tracing::error!("State manager block fetch error: {:?}", e);
                         num_consecutive_errors += 1;
                         if num_consecutive_errors > 50 {
-                            return Err(eyre::eyre!(
-                                "Too many consecutive state machine block fetching errors"
+                            return Err(e.wrap_err(
+                                "Too many consecutive state machine block fetching errors. Last error is included in the cause chain.",
                             ));
                         }
                         tokio::time::sleep(poll_delay).await;
