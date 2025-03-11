@@ -173,7 +173,7 @@ impl Verifier {
         let verifiers_pks = db.get_verifiers_public_keys(None).await?;
 
         let nofn = if !verifiers_pks.is_empty() {
-            tracing::debug!("Verifiers public keys found: {:?}", verifiers_pks);
+            tracing::debug!("Verifier public keys found: {:?}", verifiers_pks);
             let nofn = NofN::new(signer.public_key, verifiers_pks)?;
             Some(nofn)
         } else {

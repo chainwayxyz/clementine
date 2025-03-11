@@ -109,7 +109,9 @@ impl TxSender {
                     let mut dbtx = db.begin_transaction().await?;
 
                     let is_block_update = async {
-                        let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
+                        let event = db
+                            .fetch_next_bitcoin_syncer_evt(&mut dbtx, &consumer_handle)
+                            .await?;
                         if event.is_some() {
                             tracing::debug!("TXSENDER: Event: {:?}", event);
                         }

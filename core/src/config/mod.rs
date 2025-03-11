@@ -33,6 +33,7 @@ pub struct BridgeConfig {
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
     /// Verifiers public keys.
+    /// In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call
     pub verifiers_public_keys: Vec<PublicKey>,
     /// Number of verifiers.
     pub num_verifiers: usize,

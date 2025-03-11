@@ -422,7 +422,7 @@ async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Erro
 }
 
 async fn ensure_outpoint_spent(rpc: &ExtendedRpc, outpoint: OutPoint) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 50;
+    let mut timeout_counter = 1000;
     while rpc
         .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
@@ -432,7 +432,7 @@ async fn ensure_outpoint_spent(rpc: &ExtendedRpc, outpoint: OutPoint) -> Result<
     {
         // Mine more blocks and wait longer between checks
         rpc.mine_blocks(2).await?;
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         timeout_counter -= 1;
 
         if timeout_counter == 0 {
@@ -598,7 +598,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     // 7. Send Challenge Transaction
     tracing::info!("Sending challenge transaction");
-    //Add later when RBF is implemented
     let challenge_tx = all_txs
         .signed_txs
         .iter()
