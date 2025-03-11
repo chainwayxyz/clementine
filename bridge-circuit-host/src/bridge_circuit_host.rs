@@ -214,7 +214,6 @@ mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::Transaction;
     use borsh::BorshDeserialize;
-    use circuits_lib::bridge_circuit::convert_to_groth16_and_verify;
 
     use circuits_lib::bridge_circuit::winternitz::{
         generate_public_key, sign_digits, Parameters, WinternitzHandler,
@@ -316,7 +315,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn bridge_circuit_test() {
-        use circuits_lib::bridge_circuit::winternitz::verify_winternitz_signature;
+        use circuits_lib::bridge_circuit::total_work_and_watchtower_flags;
 
         let work_only_method_id_from_elf = compute_image_id(WORK_ONLY_ELF).unwrap();
         assert_eq!(
@@ -384,40 +383,11 @@ mod tests {
             num_of_watchtowers,
         };
         // Do what a normal bridge circuit guest is supposed to do
-        let mut wt_messages_with_idxs: Vec<(usize, Vec<u8>)> = vec![];
-        let mut watchtower_flags: Vec<bool> = vec![];
-        for (wt_idx, winternitz_handler) in bridge_circuit_host_params
-            .winternitz_details
-            .iter()
-            .enumerate()
-        {
-            if winternitz_handler.signature.is_none() || winternitz_handler.message.is_none() {
-                watchtower_flags.push(false);
-                continue;
-            }
-
-            let flag = verify_winternitz_signature(winternitz_handler);
-            watchtower_flags.push(flag);
-
-            if flag {
-                wt_messages_with_idxs.push((wt_idx, winternitz_handler.message.clone().unwrap()));
-            }
-        }
-        wt_messages_with_idxs.sort_by(|a, b| b.1.cmp(&a.1));
-        let mut total_work = [0u8; 32];
-        for pair in wt_messages_with_idxs.iter() {
-            // Grooth16 verification of work only circuit
-            if convert_to_groth16_and_verify(&pair.1, &WORK_ONLY_IMAGE_ID) {
-                total_work[16..32].copy_from_slice(
-                    &pair.1[128..144]
-                        .chunks_exact(4)
-                        .flat_map(|c| c.iter().rev())
-                        .copied()
-                        .collect::<Vec<_>>(),
-                );
-                break;
-            }
-        }
+        (_, _) = total_work_and_watchtower_flags(
+            &bridge_circuit_host_params.winternitz_details,
+            bridge_circuit_host_params.num_of_watchtowers,
+            &WORK_ONLY_IMAGE_ID,
+        );
 
         let (ark_groth16_proof, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
