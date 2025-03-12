@@ -404,14 +404,6 @@ impl Operator {
             .get_withdrawal_utxo_from_citrea_withdrawal(None, withdrawal_index)
             .await?;
 
-        tracing::error!("Withdrawal index: {:?}", withdrawal_index);
-        tracing::error!("Withdrawal utxo: {:?}", withdrawal_utxo);
-        tracing::error!("Input utxo: {:?}", input_utxo.outpoint);
-        tracing::error!("Output txout: {:?}", output_txout);
-        tracing::error!("In signature: {:?}", in_signature);
-        tracing::error!("In outpoint: {:?}", in_outpoint);
-        tracing::error!("Out amount: {:?}", out_amount);
-
         match withdrawal_utxo {
             Some(withdrawal_utxo) => {
                 if withdrawal_utxo != input_utxo.outpoint {
