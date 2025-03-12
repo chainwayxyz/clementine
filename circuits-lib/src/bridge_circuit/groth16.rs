@@ -61,12 +61,13 @@ impl CircuitGroth16Proof {
         let mut a_compressed = [0u8; 32];
         let mut b_compressed = [0u8; 64];
         let mut c_compressed = [0u8; 32];
+
         ark_bn254::G1Affine::serialize_with_mode(&self.a, &mut a_compressed[..], Compress::Yes)
-            .unwrap();
+            .expect("Serialization should not fail for valid curve points");
         ark_bn254::G2Affine::serialize_with_mode(&self.b, &mut b_compressed[..], Compress::Yes)
-            .unwrap();
+            .expect("Serialization should not fail for valid curve points");
         ark_bn254::G1Affine::serialize_with_mode(&self.c, &mut c_compressed[..], Compress::Yes)
-            .unwrap();
+            .expect("Serialization should not fail for valid curve points");
 
         let mut compressed = [0u8; 128];
         compressed[0..32].copy_from_slice(&a_compressed);
