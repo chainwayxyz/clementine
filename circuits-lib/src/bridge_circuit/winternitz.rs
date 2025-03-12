@@ -15,9 +15,42 @@ pub struct WinternitzHandler {
     pub message: Option<Vec<u8>>,
 }
 
+/// Verifies a Winternitz One-Time Signature (WOTS) using the provided parameters.
+///
+/// # Parameters
+///
+/// - `input`: A reference to `WinternitzHandler`, containing the message, signature, and public key.
+///
+/// # Returns
+///
+/// - `true` if the signature is valid.
+/// - `false` if the signature is invalid or if any input constraints are violated.
+///
+/// # Functionality
+///
+/// 1. **Validates Input Constraints:**
+///    - Ensures the message, signature, and public key lengths match expected values.
+/// 2. **Computes the message checksum.**
+/// 3. **Verifies the signature by iteratively hashing segments and comparing against the public key.**
+/// 4. **Verifies the checksum using the remaining signature and public key values.**
+///
+/// # Failure Cases
+///
+/// - Returns `false` if:
+///   - `message`, `signature`, or `pub_key` lengths do not match expected values.
+///   - Signature verification fails for any segment.
+///   - Checksum verification fails.
 pub fn verify_winternitz_signature(input: &WinternitzHandler) -> bool {
-    let message = input.message.as_ref().unwrap();
-    let signature = input.signature.as_ref().unwrap();
+    let message = match &input.message {
+        Some(msg) => msg,
+        None => return false,
+    };
+
+    let signature = match &input.signature {
+        Some(sig) => sig,
+        None => return false,
+    };
+
     if input.pub_key.len() != input.params.n as usize
         || signature.len() != input.params.n as usize
         || message.len() != input.params.n0 as usize
@@ -27,14 +60,21 @@ pub fn verify_winternitz_signature(input: &WinternitzHandler) -> bool {
 
     let checksum = get_message_checksum(&input.params, message);
 
-    for (i, &digit) in message.iter().enumerate() {
-        let signature_byte_arr: [u8; 20] = signature[i].as_slice().try_into().unwrap();
+    for ((&digit, sig), &pubkey) in message
+        .iter()
+        .zip(&signature[..message.len()])
+        .zip(&input.pub_key)
+    {
+        let signature_byte_arr: [u8; 20] = match sig.as_slice().try_into() {
+            Ok(arr) => arr,
+            Err(_) => return false,
+        };
 
         let hash_bytes =
             (0..(input.params.d - digit as u32)).fold(signature_byte_arr, |hash, _| hash160(&hash));
 
-        if hash_bytes != input.pub_key[i] {
-            println!("{:?}, {:?}", hash_bytes, input.pub_key[i]);
+        if hash_bytes != pubkey {
+            println!("Signature mismatch: {:?} != {:?}", hash_bytes, pubkey);
             return false;
         }
     }
@@ -44,12 +84,16 @@ pub fn verify_winternitz_signature(input: &WinternitzHandler) -> bool {
         .zip(&signature[message.len()..])
         .zip(&input.pub_key[message.len()..])
     {
-        let signature_byte_arr: [u8; 20] = sig.as_slice().try_into().unwrap();
+        let signature_byte_arr: [u8; 20] = match sig.as_slice().try_into() {
+            Ok(arr) => arr,
+            Err(_) => return false,
+        };
+
         let hash_bytes = (0..(input.params.d - checksum as u32))
             .fold(signature_byte_arr, |hash, _| hash160(&hash));
 
         if hash_bytes != pubkey {
-            println!("{:?}, {:?}", hash_bytes, pubkey);
+            println!("Checksum mismatch: {:?} != {:?}", hash_bytes, pubkey);
             return false;
         }
     }

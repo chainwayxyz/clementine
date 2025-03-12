@@ -10,6 +10,9 @@ use borsh::{self, BorshDeserialize};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit::winternitz::verify_winternitz_signature;
+use circuits_lib::bridge_circuit::winternitz::{
+    generate_public_key, sign_digits, Parameters, WinternitzHandler,
+};
 use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
 use final_spv::merkle_tree::BitcoinMerkleTree;
 use final_spv::spv::SPV;
@@ -341,16 +344,26 @@ fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs
     }
 }
 
+pub fn generate_winternitz(
+    message: Vec<u8>,
+    secret_key: Vec<u8>,
+    params: Parameters,
+) -> WinternitzHandler {
+    let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
+    let signature = sign_digits(&params, &secret_key, &message);
+
+    WinternitzHandler {
+        pub_key,
+        params,
+        signature: Some(signature),
+        message: Some(message),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::BCHostParameters;
-    use crate::{fetch_light_client_proof, fetch_storage_proof};
-    use alloy_rpc_client::ClientBuilder;
     use borsh::BorshDeserialize;
-
-    use circuits_lib::bridge_circuit::winternitz::{
-        generate_public_key, sign_digits, Parameters, WinternitzHandler,
-    };
 
     use header_chain::header_chain::BlockHeaderCircuitOutput;
     use hex_literal::hex;
@@ -365,14 +378,16 @@ mod tests {
     const WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
     pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
-        hex_literal::hex!("5e2ebb3cdbb2f6bfb9d3fcf27b87fbf229f1f29c3f4bb560e5dce31160cf3d5d");
-    const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
-    const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
+        hex_literal::hex!("1ff9f5b6d77bbd4296e1749049d4a841088fb72f7a324da71e31fa1576d4bc0b");
 
-    const HEADERS: &[u8] = include_bytes!("bin-files/testnet4_headers.bin");
-    const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/testnet4_first_72075.bin");
-    const PAYOUT_TX: &[u8; 303] = include_bytes!("bin-files/payout_tx.bin");
-    const TESTNET_BLOCK_72041: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
+    const HEADERS: &[u8] = include_bytes!("../bin-files/testnet4_headers.bin");
+    const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");
+    const PAYOUT_TX: &[u8; 303] = include_bytes!("../bin-files/payout_tx.bin");
+    const TESTNET_BLOCK_72041: &[u8] = include_bytes!("../bin-files/testnet4_block_72041.bin");
+
+    const LCP_RECEIPT: &[u8] = include_bytes!("../bin-files/lcp_receipt.bin");
+    const LIGHT_CLIENT_PROOF: &[u8] = include_bytes!("../bin-files/light_client_proof.bin");
+    const STORAGE_PROOF: &[u8] = include_bytes!("../bin-files/storage_proof.bin");
 
     pub const TEST_PARAMETERS: BCHostParameters = BCHostParameters {
         l1_block_height: 72075,
@@ -384,27 +399,14 @@ mod tests {
         deposit_index: 37,
     };
 
-    fn generate_winternitz(
-        message: Vec<u8>,
-        secret_key: Vec<u8>,
-        params: Parameters,
-    ) -> WinternitzHandler {
-        let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
-        let signature = sign_digits(&params, &secret_key, &message);
-
-        WinternitzHandler {
-            pub_key,
-            params,
-            signature: Some(signature),
-            message: Some(message),
-        }
-    }
-
     #[cfg(target_arch = "x86_64")]
     #[tokio::test]
     #[ignore]
     async fn bridge_circuit_test() {
-        use circuits_lib::bridge_circuit::total_work_and_watchtower_flags;
+        use circuits_lib::bridge_circuit::{
+            structs::{LightClientProof, StorageProof},
+            total_work_and_watchtower_flags,
+        };
 
         let work_only_method_id_from_elf = compute_image_id(WORK_ONLY_ELF).unwrap();
         assert_eq!(
@@ -412,9 +414,7 @@ mod tests {
             WORK_ONLY_IMAGE_ID,
             "Method ID mismatch, make sure to build the guest programs with new hardcoded values."
         );
-        let citrea_rpc_client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
-        let light_client_rpc_client =
-            ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
+
         let headerchain_receipt: Receipt =
             Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
 
@@ -466,18 +466,10 @@ mod tests {
         let winternitz_details =
             generate_winternitz(compressed_proof_and_total_work, secret_key, params);
 
-        let (light_client_proof, lcp_receipt) =
-            fetch_light_client_proof(72471, light_client_rpc_client)
-                .await
-                .unwrap();
+        let light_client_proof: LightClientProof = borsh::from_slice(LIGHT_CLIENT_PROOF).unwrap();
+        let lcp_receipt: Receipt = borsh::from_slice(LCP_RECEIPT).unwrap();
 
-        let storage_proof = fetch_storage_proof(
-            &light_client_proof.l2_height,
-            TEST_PARAMETERS.deposit_index,
-            TEST_PARAMETERS.move_to_vault_txid,
-            citrea_rpc_client,
-        )
-        .await;
+        let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
         let num_of_watchtowers: u32 = 1;
 

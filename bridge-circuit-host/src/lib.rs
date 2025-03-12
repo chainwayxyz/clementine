@@ -45,6 +45,26 @@ const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 /// * The proof cannot be deserialized into `InnerReceipt`.
 /// * The receipt cannot be extracted from the `InnerReceipt`.
 /// * The RPC response does not contain a valid `"lastL2Height"` string.
+///
+/// Example:
+/// ```rust, ignore
+/// use alloy_rpc_client::RpcClient;
+/// use alloy_rpc_client::ClientBuilder;
+/// use bridge_circuit_host::fetch_light_client_proof;
+///
+/// const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let light_client_rpc_client =
+///         ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
+///
+///     let (light_client_proof, lcp_receipt) =
+///         fetch_light_client_proof(72471, light_client_rpc_client)
+///             .await
+///             .unwrap();
+/// }
+/// ```
 pub async fn fetch_light_client_proof(
     l1_height: u32,
     client: RpcClient,
@@ -87,7 +107,7 @@ pub async fn fetch_light_client_proof(
 /// which includes proof details for both the UTXO and the deposit index.
 ///
 /// # Arguments
-/// * `l2_height` - A reference to `String` representing the L2 block height.
+/// * `l2_height` - A reference to `String` representing the L2 block height. (e.g. "0x123a")
 /// * `deposit_index` - A `u32` representing the deposit index.
 /// * `move_to_vault_txid` - A 32-byte array representing the transaction ID of the move-to-vault transaction.
 /// * `client` - An instance of `RpcClient` used to make the JSON-RPC request.
@@ -100,6 +120,28 @@ pub async fn fetch_light_client_proof(
 ///   * `keccak256(UTXOS_STORAGE_INDEX)` does not return a valid 32-byte slice.
 ///   * The RPC request to `eth_getProof` fails.
 ///   * The response from the RPC call cannot be deserialized into an `EIP1186AccountProofResponse`.
+///
+/// Example:
+/// ```rust,ignore
+/// use alloy_rpc_client::ClientBuilder;
+/// use bridge_circuit_host::fetch_storage_proof;
+/// use hex_literal::hex;
+///
+/// const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let citrea_rpc_client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
+///
+///     let storage_proof = fetch_storage_proof(
+///         &"0xabc".to_string(),
+///         37,
+///         hex!("BB25103468A467382ED9F585129AD40331B54425155D6F0FAE8C799391EE2E7F"),
+///         citrea_rpc_client,
+///     )
+///     .await;
+/// }
+/// ```
 pub async fn fetch_storage_proof(
     l2_height: &String,
     deposit_index: u32,
@@ -120,8 +162,8 @@ pub async fn fetch_storage_proof(
     let storage_key_hex = format!("0x{}", storage_key_hex);
 
     // Storage key address calculation Deposit
-    let concantenated = [move_to_vault_txid, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
-    let storage_address_deposit = keccak256(concantenated);
+    let concatenated = [move_to_vault_txid, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
+    let storage_address_deposit = keccak256(concatenated);
     let storage_address_deposit_hex = hex::encode(storage_address_deposit);
     let storage_address_deposit_hex = format!("0x{}", storage_address_deposit_hex);
 
