@@ -82,6 +82,7 @@ pub async fn start_citrea(
 
     da.generate(citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH)
         .await?;
+    println!("Blob inscribe tx is mined");
 
     if let Some(batch_prover) = batch_prover {
         let commitment_l1_height = da.get_finalized_height(None).await?;
