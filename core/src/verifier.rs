@@ -26,7 +26,7 @@ use crate::rpc::clementine::{
 };
 use crate::states::StateManager;
 use crate::states::{Duty, Owner};
-use crate::tx_sender::{TxDataForLogging, TxSender};
+use crate::tx_sender::{TxDataForLogging, TxSender, TxSenderClient};
 use crate::{bitcoin_syncer, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -93,7 +93,7 @@ pub struct Verifier {
     _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
-    pub tx_sender: TxSender,
+    pub tx_sender: TxSenderClient,
     pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
 }
 
@@ -174,7 +174,7 @@ impl Verifier {
             _operator_xonly_pks: operator_xonly_pks,
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
-            tx_sender,
+            tx_sender: tx_sender.client(),
             state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
         };
 

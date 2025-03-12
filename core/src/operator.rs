@@ -24,7 +24,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
 use crate::states::{Duty, Owner, StateManager};
-use crate::tx_sender::TxSender;
+use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
 use crate::{builder, UTXO};
 use alloy::transports::http::reqwest::Url;
@@ -58,7 +58,7 @@ pub struct Operator {
     pub collateral_funding_outpoint: OutPoint,
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
-    pub tx_sender: TxSender,
+    pub tx_sender: TxSenderClient,
     pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
     pub citrea_client: Option<CitreaClient>,
 }
@@ -91,13 +91,7 @@ impl Operator {
                 signer.xonly_public_key
             ))))?;
 
-        let tx_sender = TxSender::new(
-            signer.clone(),
-            rpc.clone(),
-            db.clone(),
-            &format!("operator_{}", idx).to_string(),
-            config.protocol_paramset().network,
-        );
+        let tx_sender = TxSenderClient::new(db.clone(), format!("operator_{}", idx).to_string());
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
@@ -266,7 +260,7 @@ impl Operator {
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 &mut dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::Round,
@@ -918,7 +912,7 @@ impl Operator {
             .tx_sign_and_fill_sigs(&mut burn_unspent_kickoff_connectors_tx, &[])?;
 
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
@@ -939,7 +933,7 @@ impl Operator {
 
         // send ready to reimburse tx
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::ReadyToReimburse,
@@ -960,7 +954,7 @@ impl Operator {
 
         // send next round tx
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::Round,
