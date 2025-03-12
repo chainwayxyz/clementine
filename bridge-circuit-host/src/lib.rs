@@ -2,8 +2,8 @@ use alloy::primitives::keccak256;
 use alloy_primitives::U256;
 use alloy_rpc_client::RpcClient;
 use alloy_rpc_types::EIP1186AccountProofResponse;
-use anyhow::bail;
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use eyre::bail;
 use hex::decode;
 use risc0_zkvm::{InnerReceipt, Receipt};
 use serde_json::json;
@@ -204,7 +204,7 @@ pub async fn fetch_storage_proof(
 /// * If `claim.output.value()` is empty.
 /// * If `output` is `None`.
 /// * If `output.journal.value()` is empty.
-fn receipt_from_inner(inner: InnerReceipt) -> anyhow::Result<Receipt> {
+fn receipt_from_inner(inner: InnerReceipt) -> eyre::Result<Receipt> {
     let mb_claim = inner.claim().or_else(|_| bail!("Claim is empty"))?;
     let claim = mb_claim
         .value()
