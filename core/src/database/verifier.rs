@@ -3,7 +3,7 @@
 //! This module includes database functions which are mainly used by a verifier.
 
 use super::{
-    wrapper::{PublicKeyDB, TxidDB},
+    wrapper::{BlockHashDB, PublicKeyDB, TxidDB},
     Database, DatabaseTransaction,
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
@@ -136,7 +136,7 @@ impl Database {
     pub async fn set_payout_txs_and_payer_operator_idx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        payout_txs_and_payer_operator_idx: Vec<(u32, Txid, u32)>,
+        payout_txs_and_payer_operator_idx: Vec<(u32, Txid, u32, bitcoin::BlockHash)>,
     ) -> Result<(), BridgeError> {
         if payout_txs_and_payer_operator_idx.is_empty() {
             return Ok(());
@@ -144,11 +144,12 @@ impl Database {
         // Convert all values first, propagating any errors
         let converted_values: Result<Vec<_>, BridgeError> = payout_txs_and_payer_operator_idx
             .iter()
-            .map(|(idx, txid, operator_idx)| {
+            .map(|(idx, txid, operator_idx, block_hash)| {
                 Ok((
                     i32::try_from(*idx)?,
                     TxidDB(*txid),
                     i32::try_from(*operator_idx)?,
+                    BlockHashDB(*block_hash),
                 ))
             })
             .collect();
@@ -163,13 +164,16 @@ impl Database {
 
         query_builder.push_values(
             converted_values.into_iter(),
-            |mut b, (idx, txid, operator_idx)| {
-                b.push_bind(idx).push_bind(txid).push_bind(operator_idx);
+            |mut b, (idx, txid, operator_idx, block_hash)| {
+                b.push_bind(idx)
+                    .push_bind(txid)
+                    .push_bind(operator_idx)
+                    .push_bind(block_hash);
             },
         );
 
         query_builder
-            .push(") AS c(idx, payout_txid, payout_payer_operator_idx) WHERE w.idx = c.idx");
+            .push(") AS c(idx, payout_txid, payout_payer_operator_idx, payout_tx_blockhash) WHERE w.idx = c.idx");
 
         let query = query_builder.build();
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -252,9 +256,11 @@ mod tests {
             .await
             .unwrap();
 
+        let block_hash = BlockHash::all_zeros();
+
         db.set_payout_txs_and_payer_operator_idx(
             Some(&mut dbtx),
-            vec![(index, txid, operator_index)],
+            vec![(index, txid, operator_index, block_hash)],
         )
         .await
         .unwrap();

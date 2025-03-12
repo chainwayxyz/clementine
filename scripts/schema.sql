@@ -215,6 +215,7 @@ create table if not exists withdrawals (
     withdrawal_batch_proof_bitcoin_block_height int,
     payout_txid text check (payout_txid ~ '^[a-fA-F0-9]{64}'),
     payout_payer_operator_idx int,
+    payout_tx_blockhash text check (payout_tx_blockhash ~ '^[a-fA-F0-9]{64}'),
     is_payout_handled boolean not null default false,
     created_at timestamp not null default now()
 );

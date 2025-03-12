@@ -1302,6 +1302,7 @@ impl Owner for Verifier {
             .map(|tx| (tx.compute_txid(), tx))
             .collect();
 
+        let block_hash = block.block_hash();
         let mut payout_txs_and_payer_operator_idx = Vec::new();
         for (idx, payout_txid) in payout_txids {
             let payout_tx = txid_to_tx_hashmap
@@ -1318,7 +1319,7 @@ impl Owner for Verifier {
                     .expect("Failed to convert last_output to u32"),
             );
 
-            payout_txs_and_payer_operator_idx.push((idx, payout_txid, operator_idx));
+            payout_txs_and_payer_operator_idx.push((idx, payout_txid, operator_idx, block_hash));
         }
 
         self.db
