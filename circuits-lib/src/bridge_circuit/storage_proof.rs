@@ -132,10 +132,11 @@ mod tests {
     fn test_verify_storage_proofs() {
         let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
-        let state_root: [u8; 32] = [
-            238, 57, 34, 25, 141, 185, 9, 255, 30, 154, 232, 28, 232, 121, 51, 187, 106, 252, 193,
-            54, 253, 20, 17, 8, 143, 114, 90, 218, 94, 252, 237, 120,
-        ];
+        let state_root: [u8; 32] =
+            hex::decode("ee3922198db909ff1e9ae81ce87933bb6afcc136fd1411088f725ada5efced78")
+                .expect("Valid hex, cannot fail")
+                .try_into()
+                .expect("Valid length, cannot fail");
 
         let user_wd_outpoint_str = verify_storage_proofs(&storage_proof, state_root);
 
@@ -159,10 +160,11 @@ mod tests {
     fn test_verify_storage_proofs_invalid_proof() {
         let mut storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
-        let state_root: [u8; 32] = [
-            238, 57, 34, 25, 141, 185, 9, 255, 30, 154, 232, 28, 232, 121, 51, 187, 106, 252, 193,
-            54, 253, 20, 17, 8, 143, 114, 90, 218, 94, 252, 237, 120,
-        ];
+        let state_root: [u8; 32] =
+            hex::decode("ee3922198db909ff1e9ae81ce87933bb6afcc136fd1411088f725ada5efced78")
+                .expect("Valid hex, cannot fail")
+                .try_into()
+                .expect("Valid length, cannot fail");
 
         storage_proof.storage_proof_utxo = "invalid_proof".to_string();
 
@@ -174,10 +176,11 @@ mod tests {
     fn test_verify_storage_proofs_invalid_state_root() {
         let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
-        let state_root: [u8; 32] = [
-            238, 57, 34, 25, 141, 185, 9, 255, 30, 154, 232, 28, 232, 121, 51, 187, 106, 252, 193,
-            54, 253, 20, 17, 8, 143, 114, 90, 218, 94, 252, 237, 121,
-        ];
+        let state_root: [u8; 32] =
+            hex::decode("ee3922198db909ff1e9ae81ce87933bb6afcc136fd1411088f725ada5efced79")
+                .expect("Valid hex, cannot fail")
+                .try_into()
+                .expect("Valid length, cannot fail");
 
         verify_storage_proofs(&storage_proof, state_root);
     }
