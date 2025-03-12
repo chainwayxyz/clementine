@@ -399,6 +399,7 @@ impl Task for BitcoinSyncerTask {
 
 /// Starts the Bitcoin syncer loop which continuously polls for new blocks, processes them,
 /// and handles potential reorganizations. Returns a [`JoinHandle`] for the background task.
+// TODO: this fn will be removed when migrating to bg task mgr
 pub async fn start_bitcoin_syncer(
     db: Database,
     rpc: ExtendedRpc,
@@ -413,6 +414,9 @@ pub async fn start_bitcoin_syncer(
 
     // Create a cancelable, looping task
     let (looping_task, _cancel_tx) = polling_task.into_loop();
+
+    // TODO: remove before merge
+    Box::leak(Box::new(_cancel_tx));
 
     // Run the task in the background
     Ok(looping_task.into_bg())
