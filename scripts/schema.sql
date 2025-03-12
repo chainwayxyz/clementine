@@ -210,7 +210,7 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
 create table if not exists withdrawals (
     idx int primary key,
     move_to_vault_txid text not null check (move_to_vault_txid ~ '^[a-fA-F0-9]{64}'),
-    withdrawal_utxo_txid text,
+    withdrawal_utxo_txid text check (withdrawal_utxo_txid ~ '^[a-fA-F0-9]{64}'),
     withdrawal_utxo_vout int,
     withdrawal_batch_proof_bitcoin_block_height int,
     payout_txid text check (payout_txid ~ '^[a-fA-F0-9]{64}'),

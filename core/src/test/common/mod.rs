@@ -20,6 +20,67 @@ use tonic::Request;
 pub mod citrea;
 mod test_utils;
 
+/// Wait for a transaction to be in the mempool and than mines a block to make
+/// sure that it is included in the next block.
+///
+/// # Parameters
+///
+/// - `rpc`: The RPC client to use.
+/// - `txid`: The txid to wait for.
+/// - `tx_name`: The name of the transaction to wait for.
+/// - `timeout`: The timeout in seconds.
+pub async fn wait_tx_to_be_in_mempool_and_mine_block(
+    rpc: &ExtendedRpc,
+    txid: Txid,
+    tx_name: Option<&str>,
+    timeout: Option<u64>,
+) -> Result<(), BridgeError> {
+    let timeout = timeout.unwrap_or(60);
+    let start = std::time::Instant::now();
+    let tx_name = tx_name.unwrap_or("Unnamed tx");
+
+    loop {
+        if start.elapsed() > std::time::Duration::from_secs(timeout) {
+            panic!("{} did not land onchain within {timeout} seconds", tx_name);
+        }
+
+        if rpc.client.get_mempool_entry(&txid).await.is_ok() {
+            break;
+        };
+
+        tracing::info!("Waiting for {} transaction to hit mempool...", tx_name);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    rpc.mine_blocks(1).await?;
+
+    let tx = rpc
+        .client
+        .get_raw_transaction_info(&txid, None)
+        .await
+        .map_err(|e| {
+            BridgeError::Error(format!(
+            "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
+            tx_name,
+            e
+        ))
+        })?;
+
+    if tx.blockhash.is_none() {
+        tracing::error!(
+            "{} did not land onchain after in mempool and mining 1 block",
+            tx_name
+        );
+
+        return Err(BridgeError::Error(format!(
+            "{} did not land onchain after in mempool and mining 1 block",
+            tx_name
+        )));
+    }
+
+    Ok(())
+}
+
 pub async fn run_multiple_deposits(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
@@ -110,64 +171,6 @@ pub async fn run_multiple_deposits(
     ))
 }
 
-pub async fn wait_tx_to_be_in_mempool_and_mine_block(
-    rpc: ExtendedRpc,
-    txid: Txid,
-    tx_name: Option<&str>,
-    timeout: Option<u64>,
-) -> Result<(), BridgeError> {
-    let timeout = timeout.unwrap_or(60);
-    let start = std::time::Instant::now();
-    let _tx = loop {
-        if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            panic!(
-                "{} did not land onchain within {timeout} seconds",
-                tx_name.unwrap_or("tx")
-            );
-        }
-
-        let tx_result = rpc.client.get_mempool_entry(&txid).await;
-
-        let tx_result = match tx_result {
-            Ok(tx) => tx,
-            Err(e) => {
-                tracing::info!("Waiting for transaction to be on-chain: {}", e);
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                continue;
-            }
-        };
-
-        break tx_result;
-    };
-
-    rpc.mine_blocks(1).await?;
-
-    let tx_result = rpc.client.get_raw_transaction_info(&txid, None).await;
-    match tx_result {
-        Ok(tx) => {
-            if tx.blockhash.is_none() {
-                tracing::error!(
-                    "{} did not land onchain after in mempool and mining 1 block",
-                    tx_name.unwrap_or("tx")
-                );
-                return Err(BridgeError::Error(format!(
-                    "{} did not land onchain after in mempool and mining 1 block",
-                    tx_name.unwrap_or("tx")
-                )));
-            }
-        }
-        Err(e) => {
-            return Err(BridgeError::Error(format!(
-                "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
-                tx_name.unwrap_or("tx"),
-                e
-            )));
-        }
-    }
-
-    Ok(())
-}
-
 pub async fn run_single_deposit(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
@@ -204,7 +207,7 @@ pub async fn run_single_deposit(
         .await?;
 
     wait_tx_to_be_in_mempool_and_mine_block(
-        rpc.clone(),
+        &rpc,
         deposit_outpoint.txid,
         Some("Deposit outpoint"),
         None,
@@ -231,7 +234,7 @@ pub async fn run_single_deposit(
     // mine 1 block
     rpc.mine_blocks(1).await?;
 
-    wait_tx_to_be_in_mempool_and_mine_block(rpc.clone(), move_txid, Some("Move tx"), None).await?;
+    wait_tx_to_be_in_mempool_and_mine_block(&rpc, move_txid, Some("Move tx"), None).await?;
 
     Ok((
         verifiers,

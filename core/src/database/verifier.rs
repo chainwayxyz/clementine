@@ -107,6 +107,8 @@ impl Database {
             .transpose()
     }
 
+    /// Returns the withdrawal indexes and their spending txid for the given
+    /// block id.
     pub async fn get_payout_txs_from_citrea_withdrawal(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -130,6 +132,7 @@ impl Database {
             .collect()
     }
 
+    /// Sets the given payout txs' txid and operator index for the given index.
     pub async fn set_payout_txs_and_payer_operator_idx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -155,11 +158,11 @@ impl Database {
             "UPDATE withdrawals AS w SET 
                 payout_txid = c.payout_txid,
                 payout_payer_operator_idx = c.payout_payer_operator_idx
-             FROM (VALUES ",
+                FROM (",
         );
 
         query_builder.push_values(
-            converted_values.iter(),
+            converted_values.into_iter(),
             |mut b, (idx, txid, operator_idx)| {
                 b.push_bind(idx).push_bind(txid).push_bind(operator_idx);
             },
@@ -172,5 +175,104 @@ impl Database {
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        bitvm_client::SECP, database::Database, test::common::create_test_config_with_thread_name,
+    };
+    use bitcoin::{hashes::Hash, BlockHash, Txid};
+
+    #[tokio::test]
+    async fn set_get_verifiers_public_keys() {
+        let config = create_test_config_with_thread_name(None).await;
+        let db = Database::new(&config).await.unwrap();
+
+        let pks = vec![
+            bitcoin::secp256k1::SecretKey::from_slice(&[1; 32])
+                .unwrap()
+                .public_key(&SECP),
+            bitcoin::secp256k1::SecretKey::from_slice(&[2; 32])
+                .unwrap()
+                .public_key(&SECP),
+            bitcoin::secp256k1::SecretKey::from_slice(&[3; 32])
+                .unwrap()
+                .public_key(&SECP),
+        ];
+
+        db.set_verifiers_public_keys(None, &pks).await.unwrap();
+
+        let fetched_pks = db.get_verifiers_public_keys(None).await.unwrap();
+
+        assert_eq!(pks, fetched_pks);
+    }
+
+    #[tokio::test]
+    async fn set_get_payout_txs_from_citrea_withdrawal() {
+        let config = create_test_config_with_thread_name(None).await;
+        let db = Database::new(&config).await.unwrap();
+
+        let txid = Txid::from_byte_array([0x45; 32]);
+        let index = 0x1F;
+        let operator_index = 0x45;
+        let utxo = bitcoin::OutPoint {
+            txid: bitcoin::Txid::from_byte_array([0x45; 32]),
+            vout: 0,
+        };
+
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        let block_id = db
+            .add_block_info(
+                Some(&mut dbtx),
+                &BlockHash::all_zeros(),
+                &BlockHash::all_zeros(),
+                utxo.vout,
+            )
+            .await
+            .unwrap();
+        db.add_txid_to_block(&mut dbtx, block_id, &txid)
+            .await
+            .unwrap();
+        db.insert_spent_utxo(&mut dbtx, block_id, &txid, &utxo.txid, utxo.vout.into())
+            .await
+            .unwrap();
+
+        assert!(db
+            .get_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index)
+            .await
+            .unwrap()
+            .is_none());
+        db.set_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index, &txid)
+            .await
+            .unwrap();
+        db.set_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index, utxo, block_id)
+            .await
+            .unwrap();
+
+        db.set_payout_txs_and_payer_operator_idx(
+            Some(&mut dbtx),
+            vec![(index, txid, operator_index)],
+        )
+        .await
+        .unwrap();
+
+        let txs = db
+            .get_payout_txs_from_citrea_withdrawal(Some(&mut dbtx), block_id)
+            .await
+            .unwrap();
+
+        assert_eq!(txs.len(), 1);
+        assert_eq!(txs[0].0, index);
+        assert_eq!(txs[0].1, txid);
+
+        let withdrawal_utxo = db
+            .get_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(withdrawal_utxo, utxo);
     }
 }
