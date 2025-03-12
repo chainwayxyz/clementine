@@ -751,11 +751,17 @@ impl ClementineAggregator for Aggregator {
 
         let deposit_data = parser::parse_deposit_params(deposit_params.clone())?;
 
+        let deposit_blockhash = self
+            .rpc
+            .get_blockhash_of_deposit(&deposit_data.deposit_outpoint.txid)
+            .await?;
+
         // Create sighash stream for transaction signing
         let sighash_stream = Box::pin(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
             deposit_data,
+            deposit_blockhash,
             false,
         ));
 

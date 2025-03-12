@@ -7,6 +7,7 @@
 
 use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
     create_txhandlers, ContractContext, DepositData, ReimburseDbCache, TransactionType, TxHandler,
 };
@@ -25,7 +26,7 @@ impl BridgeConfig {
     pub fn get_num_required_nofn_sigs(&self) -> usize {
         self.num_operators
             * self.protocol_paramset().num_round_txs
-            * self.protocol_paramset().num_kickoffs_per_round
+            * self.protocol_paramset().num_signed_kickoffs
             * self.get_num_required_nofn_sigs_per_kickoff()
     }
 
@@ -33,7 +34,7 @@ impl BridgeConfig {
     // This will change as we implement the system design.
     pub fn get_num_required_operator_sigs(&self) -> usize {
         self.protocol_paramset().num_round_txs
-            * self.protocol_paramset().num_kickoffs_per_round
+            * self.protocol_paramset().num_signed_kickoffs
             * self.get_num_required_operator_sigs_per_kickoff()
     }
 
@@ -136,6 +137,7 @@ pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,
     deposit_data: DepositData,
+    deposit_blockhash: bitcoin::BlockHash,
     yield_kickoff_txid: bool,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
@@ -147,9 +149,15 @@ pub fn create_nofn_sighash_stream(
             Err(BridgeError::NotEnoughOperators)?;
         }
 
-        for (operator_idx, _) in
+        for (operator_idx, (op_xonly_pk, _, _)) in
             operators.iter().enumerate()
         {
+            let utxo_idxs = get_kickoff_utxos_to_sign(
+                config.protocol_paramset(),
+                *op_xonly_pk,
+                deposit_blockhash,
+                deposit_data.deposit_outpoint,
+            );
             // need to create new TxHandlerDbData for each operator
             let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.clone(), config.protocol_paramset());
 
@@ -163,7 +171,7 @@ pub fn create_nofn_sighash_stream(
                 // (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
                 // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
                 // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
-                for kickoff_idx in 0..paramset.num_kickoffs_per_round {
+                for &kickoff_idx in &utxo_idxs {
                     let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
                     let context = ContractContext::new_context_for_kickoffs(
@@ -228,17 +236,31 @@ pub fn create_operator_sighash_stream(
     operator_idx: usize,
     config: BridgeConfig,
     deposit_data: DepositData,
+    deposit_blockhash: bitcoin::BlockHash,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.clone(), config.protocol_paramset());
 
+        let operator = db.get_operator(None, operator_idx as i32).await?;
+
+        let operator = match operator {
+            Some(operator) => operator,
+            None => Err(BridgeError::OperatorNotFound(operator_idx as u32))?,
+        };
+
+        let utxo_idxs = get_kickoff_utxos_to_sign(
+            config.protocol_paramset(),
+            operator.xonly_pk,
+            deposit_blockhash,
+            deposit_data.deposit_outpoint,
+        );
 
         let paramset = config.protocol_paramset();
         let mut last_ready_to_reimburse: Option<TxHandler> = None;
 
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
         for round_idx in 0..paramset.num_round_txs {
-            for kickoff_idx in 0..paramset.num_kickoffs_per_round {
+            for &kickoff_idx in &utxo_idxs {
                 let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
                 let context = ContractContext::new_context_for_kickoffs(

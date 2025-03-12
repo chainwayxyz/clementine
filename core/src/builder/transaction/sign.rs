@@ -4,13 +4,18 @@ use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::Operator;
 use crate::rpc::clementine::KickoffId;
 use crate::watchtower::Watchtower;
-use bitcoin::Transaction;
+use bitcoin::hashes::Hash;
+use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
+use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaCha12Rng;
+use secp256k1::rand::seq::SliceRandom;
 
 #[derive(Debug, Clone)]
 pub struct TransactionRequestData {
@@ -23,6 +28,37 @@ pub struct TransactionRequestData {
 pub struct AssertRequestData {
     pub deposit_data: DepositData,
     pub kickoff_id: KickoffId,
+}
+
+/// Get hash of operator xonly pubkey, deposit blockhash and deposit outpoint, and retrieve num_kickoffs_to_sign
+/// number of unique indexes to sign
+pub fn get_kickoff_utxos_to_sign(
+    paramset: &'static ProtocolParamset,
+    op_xonly_pk: XOnlyPublicKey,
+    deposit_blockhash: BlockHash,
+    deposit_outpoint: bitcoin::OutPoint,
+) -> Vec<usize> {
+    let mut hash = [
+        op_xonly_pk.serialize().to_vec(),
+        deposit_blockhash.to_byte_array().to_vec(),
+        deposit_outpoint.txid.to_byte_array().to_vec(),
+    ]
+    .concat();
+
+    hash = bitcoin::hashes::sha256d::Hash::hash(&hash)
+        .to_byte_array()
+        .to_vec();
+
+    let seed: [u8; 32] = hash.try_into().expect("Hash must be 32 bytes");
+    let mut rng = ChaCha12Rng::from_seed(seed);
+
+    let mut numbers: Vec<usize> = (0..paramset.num_kickoffs_per_round).collect();
+    numbers.shuffle(&mut rng);
+
+    numbers
+        .into_iter()
+        .take(paramset.num_signed_kickoffs)
+        .collect()
 }
 
 /// Signs all txes that are created and possible to be signed for the entity and returns them.

@@ -705,66 +705,35 @@ pub fn create_round_txhandlers(
 #[cfg(test)]
 mod tests {
 
+    use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
-    use crate::rpc::clementine::{self};
-    use crate::{rpc::clementine::DepositParams, test::common::*, EVMAddress};
-    use bitcoin::{Txid, XOnlyPublicKey};
+    use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
+    use crate::test::common::*;
+    use bitcoin::XOnlyPublicKey;
     use futures::future::try_join_all;
 
     use crate::builder::transaction::TransactionType;
-    use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
-    use std::str::FromStr;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_deposit_and_sign_txs() {
         let mut config = create_test_config_with_thread_name(None).await;
-        let _regtest = create_regtest_rpc(&mut config).await;
+        let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
+
+        let (
+            mut verifiers,
+            mut operators,
+            _,
+            mut watchtowers,
+            _cleanup,
+            deposit_params,
+            _,
+            deposit_blockhash,
+        ) = run_single_deposit(&mut config, rpc.clone(), None)
+            .await
+            .unwrap();
 
         let paramset = config.protocol_paramset();
-        let (mut verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
-            create_actors(&config).await;
-
-        tracing::info!("Setting up aggregator");
-        let start = std::time::Instant::now();
-
-        aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .unwrap();
-
-        tracing::info!("Setup completed in {:?}", start.elapsed());
-        tracing::info!("Depositing");
-        let deposit_start = std::time::Instant::now();
-        let deposit_outpoint = bitcoin::OutPoint {
-            txid: Txid::from_str(
-                "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
-            )
-            .unwrap(),
-            vout: 0,
-        };
-        let recovery_taproot_address = bitcoin::Address::from_str(
-            "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa",
-        )
-        .unwrap();
-        let recovery_addr_checked = recovery_taproot_address.assume_checked();
-        let evm_address = EVMAddress([1u8; 20]);
-
-        let nofn_xonly_pk =
-            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None).unwrap();
-
-        let deposit_params = DepositParams {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            evm_address: evm_address.0.to_vec(),
-            recovery_taproot_address: recovery_addr_checked.to_string(),
-            nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-        };
-
-        aggregator
-            .new_deposit(deposit_params.clone())
-            .await
-            .unwrap();
-        tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
 
         let mut txs_operator_can_sign = vec![
             TransactionType::Round,
@@ -787,9 +756,37 @@ mod tests {
         );
         txs_operator_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_operator_can_sign.extend(
-            (0..paramset.num_kickoffs_per_round).map(TransactionType::WatchtowerChallengeTimeout),
-        );
+        txs_operator_can_sign
+            .extend((0..paramset.num_watchtowers).map(TransactionType::WatchtowerChallengeTimeout));
+
+        let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap();
+        let operator_xonly_pks: Vec<XOnlyPublicKey> = all_operators_secret_keys
+            .iter()
+            .map(|&sk| {
+                Actor::new(
+                    sk,
+                    config.winternitz_secret_key,
+                    config.protocol_paramset().network,
+                )
+                .xonly_public_key
+            })
+            .collect();
+        let mut utxo_idxs: Vec<Vec<usize>> = Vec::with_capacity(operator_xonly_pks.len());
+        let deposit_outpoint: bitcoin::OutPoint = deposit_params
+            .clone()
+            .deposit_outpoint
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        for op_xonly_pk in operator_xonly_pks {
+            utxo_idxs.push(get_kickoff_utxos_to_sign(
+                config.protocol_paramset(),
+                op_xonly_pk,
+                deposit_blockhash,
+                deposit_outpoint,
+            ));
+        }
 
         // try to sign everything for all operators
         let operator_task_handles: Vec<_> = operators
@@ -799,9 +796,10 @@ mod tests {
                 let txs_operator_can_sign = txs_operator_can_sign.clone();
                 let deposit_params = deposit_params.clone();
                 let mut operator_rpc = operator_rpc.clone();
+                let utxo_idxs = utxo_idxs.clone();
                 async move {
                     for round_idx in 0..paramset.num_round_txs {
-                        for kickoff_idx in 0..paramset.num_kickoffs_per_round {
+                        for &kickoff_idx in &utxo_idxs[operator_idx] {
                             let kickoff_id = KickoffId {
                                 operator_idx: operator_idx as u32,
                                 round_idx: round_idx as u32,
@@ -863,10 +861,11 @@ mod tests {
             .map(|(watchtower_idx, watchtower_rpc)| {
                 let deposit_params = deposit_params.clone();
                 let mut watchtower_rpc = watchtower_rpc.clone();
+                let utxo_idxs = utxo_idxs.clone();
                 async move {
-                    for operator_idx in 0..config.num_operators {
+                    for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
                         for round_idx in 0..paramset.num_round_txs {
-                            for kickoff_idx in 0..paramset.num_kickoffs_per_round {
+                            for &kickoff_idx in utxo_idx {
                                 let kickoff_id = KickoffId {
                                     operator_idx: operator_idx as u32,
                                     round_idx: round_idx as u32,
@@ -908,9 +907,8 @@ mod tests {
         );
         txs_verifier_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_verifier_can_sign.extend(
-            (0..paramset.num_kickoffs_per_round).map(TransactionType::WatchtowerChallengeTimeout),
-        );
+        txs_verifier_can_sign
+            .extend((0..paramset.num_watchtowers).map(TransactionType::WatchtowerChallengeTimeout));
 
         // try to sign everything for all verifiers
         // try signing verifier transactions
@@ -920,10 +918,11 @@ mod tests {
                 let txs_verifier_can_sign = txs_verifier_can_sign.clone();
                 let deposit_params = deposit_params.clone();
                 let mut verifier_rpc = verifier_rpc.clone();
+                let utxo_idxs = utxo_idxs.clone();
                 async move {
-                    for operator_idx in 0..config.num_operators {
+                    for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
                         for round_idx in 0..paramset.num_round_txs {
-                            for kickoff_idx in 0..paramset.num_kickoffs_per_round {
+                            for &kickoff_idx in utxo_idx {
                                 let kickoff_id = KickoffId {
                                     operator_idx: operator_idx as u32,
                                     round_idx: round_idx as u32,

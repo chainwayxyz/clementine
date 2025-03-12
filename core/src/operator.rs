@@ -309,15 +309,21 @@ impl Operator {
 
     pub async fn deposit_sign(
         &self,
-        deposit_id: DepositData,
+        deposit_data: DepositData,
     ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
         let (sig_tx, sig_rx) = mpsc::channel(1280);
+
+        let deposit_blockhash = self
+            .rpc
+            .get_blockhash_of_deposit(&deposit_data.deposit_outpoint.txid)
+            .await?;
 
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
             self.db.clone(),
             self.idx,
             self.config.clone(),
-            deposit_id,
+            deposit_data,
+            deposit_blockhash,
         ));
 
         let operator = self.clone();

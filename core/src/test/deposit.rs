@@ -81,6 +81,7 @@ impl TestCase for CitreaDeposit {
             _cleanup,
             _deposit_outpoint,
             move_txid,
+            _deposit_blockhash,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
         // Mine blocks, so Citrea can fetch the block that contains the transaction.
         rpc.mine_blocks(101).await.unwrap();
@@ -221,6 +222,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             _cleanup,
             _deposit_outpoint,
             move_txid,
+            _deposit_blockhash,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 

@@ -89,6 +89,9 @@ pub struct ProtocolParamset {
     pub num_round_txs: usize,
     /// Number of kickoff UTXOs per round transaction.
     pub num_kickoffs_per_round: usize,
+    /// Number of kickoffs that are signed per round and deposit.
+    /// There are num_kickoffs_per_round utxo's, but only num_signed_kickoffs are signed.
+    pub num_signed_kickoffs: usize,
     /// Bridge deposit amount that users can deposit.
     pub bridge_amount: Amount,
     /// Number of watchtowers. (changes the number of watchtower challenge kickoff txouts)
@@ -135,8 +138,9 @@ pub struct ProtocolParamset {
 
 pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Bitcoin,
-    num_round_txs: 2,
+    num_round_txs: 200,
     num_kickoffs_per_round: 200,
+    num_signed_kickoffs: 5,
     bridge_amount: Amount::from_sat(1_000_000_000),
     kickoff_amount: Amount::from_sat(55_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
@@ -161,7 +165,8 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Regtest,
     num_round_txs: 2,
-    num_kickoffs_per_round: 2,
+    num_kickoffs_per_round: 10,
+    num_signed_kickoffs: 2,
     bridge_amount: Amount::from_sat(1_000_000_000),
     kickoff_amount: Amount::from_sat(55_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
@@ -180,13 +185,14 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
     time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
     finality_depth: 1,
-    start_height: 101,
+    start_height: 1,
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Testnet4,
-    num_round_txs: 2,
-    num_kickoffs_per_round: 2,
+    num_round_txs: 200,
+    num_kickoffs_per_round: 200,
+    num_signed_kickoffs: 5,
     bridge_amount: Amount::from_sat(10_000_000),
     kickoff_amount: Amount::from_sat(55_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),

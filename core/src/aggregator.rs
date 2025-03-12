@@ -38,6 +38,7 @@ use tonic::Status;
 /// For now, we do not have the last bit.
 #[derive(Debug, Clone)]
 pub struct Aggregator {
+    pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nofn_xonly_pk: XOnlyPublicKey,
@@ -94,13 +95,14 @@ impl Aggregator {
         .await?;
         let tx_sender = TxSender::new(
             signer,
-            rpc,
+            rpc.clone(),
             db.clone(),
             "aggregator",
             config.protocol_paramset().network,
         );
 
         Ok(Aggregator {
+            rpc,
             db,
             config,
             nofn_xonly_pk,
