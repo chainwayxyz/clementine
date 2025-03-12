@@ -8,11 +8,13 @@ use crate::{
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
+    task::{IntoTask, Task, TaskExt, WithDelay},
 };
 use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
 use std::time::Duration;
-use tokio::{task::JoinHandle, time::sleep};
+use tokio::task::JoinHandle;
+use tonic::async_trait;
 
 /// Represents basic information of a Bitcoin block.
 #[derive(Clone, Debug)]
@@ -274,6 +276,127 @@ async fn process_new_blocks(
     Ok(())
 }
 
+/// A task that syncs Bitcoin blocks from the Bitcoin node to the local database.
+#[derive(Debug)]
+pub struct BitcoinSyncerTask {
+    /// The database to store blocks in
+    db: Database,
+    /// The RPC client to fetch blocks from
+    rpc: ExtendedRpc,
+    /// The current block height that has been synced
+    current_height: u32,
+}
+
+#[derive(Debug)]
+struct BitcoinSyncer {
+    /// The database to store blocks in
+    db: Database,
+    /// The RPC client to fetch blocks from
+    rpc: ExtendedRpc,
+    /// The current block height that has been synced
+    current_height: u32,
+    /// The delay between polling for new blocks
+    poll_delay: Duration,
+}
+
+impl BitcoinSyncer {
+    /// Creates a new Bitcoin syncer task.
+    ///
+    /// This function initializes the database with the first block if it's empty.
+    pub async fn new(
+        db: Database,
+        rpc: ExtendedRpc,
+        poll_delay: Duration,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<Self, BridgeError> {
+        // Initialize the database if needed
+        set_initial_block_info_if_not_exists(&db, &rpc, paramset).await?;
+
+        // Get the current height from the database
+        let current_height = db
+            .get_max_height(None)
+            .await?
+            .ok_or(BridgeError::BlockNotFound)?;
+
+        Ok(Self {
+            db,
+            rpc,
+            current_height,
+            poll_delay,
+        })
+    }
+}
+impl IntoTask for BitcoinSyncer {
+    type Task = WithDelay<BitcoinSyncerTask>;
+
+    fn into_task(self) -> Self::Task {
+        BitcoinSyncerTask {
+            db: self.db,
+            rpc: self.rpc,
+            current_height: self.current_height,
+        }
+        .into_polling(self.poll_delay)
+    }
+}
+
+#[async_trait]
+impl Task for BitcoinSyncerTask {
+    type Output = bool;
+
+    async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
+        tracing::debug!("BitcoinSyncer: Fetching new blocks");
+
+        // Try to fetch new blocks (if any) from the RPC.
+        let maybe_new_blocks = fetch_new_blocks(&self.db, &self.rpc, self.current_height).await?;
+
+        tracing::debug!(
+            "BitcoinSyncer: Maybe new blocks: {:?} {}",
+            maybe_new_blocks.is_some(),
+            self.current_height,
+        );
+
+        // If there are no new blocks, return false to indicate no work was done
+        let new_blocks = match maybe_new_blocks {
+            Some(blocks) if !blocks.is_empty() => {
+                tracing::debug!("BitcoinSyncer: New blocks: {:?}", blocks.len());
+                blocks
+            }
+            _ => {
+                return Ok(false);
+            }
+        };
+
+        tracing::debug!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
+
+        // The common ancestor is the block preceding the first new block.
+        let common_ancestor_height = new_blocks[0].height - 1;
+        tracing::debug!(
+            "BitcoinSyncer: Common ancestor height: {:?}",
+            common_ancestor_height
+        );
+        let mut dbtx = self.db.begin_transaction().await?;
+
+        // Mark reorg blocks (if any) as non-canonical.
+        handle_reorg_events(&self.db, &mut dbtx, common_ancestor_height).await?;
+        tracing::debug!("BitcoinSyncer: Marked reorg blocks as non-canonical");
+
+        // Process and insert the new blocks.
+        tracing::debug!("BitcoinSyncer: Processing new blocks");
+        tracing::debug!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
+        process_new_blocks(&self.db, &self.rpc, &mut dbtx, &new_blocks).await?;
+
+        dbtx.commit().await?;
+
+        // Update the current height to the tip of the new chain.
+        tracing::debug!("BitcoinSyncer: Updating current height");
+        self.current_height = new_blocks.last().expect("new_blocks is not empty").height;
+        tracing::debug!("BitcoinSyncer: Current height: {:?}", self.current_height);
+
+        // Return true to indicate work was done
+        Ok(true)
+    }
+}
+
 /// Starts the Bitcoin syncer loop which continuously polls for new blocks, processes them,
 /// and handles potential reorganizations. Returns a [`JoinHandle`] for the background task.
 pub async fn start_bitcoin_syncer(
@@ -282,75 +405,17 @@ pub async fn start_bitcoin_syncer(
     poll_delay: Duration,
     paramset: &'static ProtocolParamset,
 ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
-    set_initial_block_info_if_not_exists(&db, &rpc, paramset).await?;
+    // Create the task
+    let syncer = BitcoinSyncer::new(db, rpc, poll_delay, paramset).await?;
 
-    let mut current_height = db
-        .get_max_height(None)
-        .await?
-        .ok_or(BridgeError::BlockNotFound)?;
+    // Create a task that polls at regular intervals
+    let polling_task = syncer.into_task();
 
-    let handle = tokio::spawn(async move {
-        loop {
-            let result: Result<(), BridgeError> = async {
-                tracing::debug!("BitcoinSyncer: Fetching new blocks");
-                // Try to fetch new blocks (if any) from the RPC.
-                let maybe_new_blocks = fetch_new_blocks(&db, &rpc, current_height).await?;
+    // Create a cancelable, looping task
+    let (looping_task, _cancel_tx) = polling_task.into_loop();
 
-                tracing::debug!(
-                    "BitcoinSyncer: Maybe new blocks: {:?} {}",
-                    maybe_new_blocks.is_some(),
-                    current_height,
-                );
-
-                // If there are no new blocks, wait for a while and continue.
-                let new_blocks = match maybe_new_blocks {
-                    Some(blocks) if !blocks.is_empty() => {
-                        tracing::debug!("BitcoinSyncer: New blocks: {:?}", blocks.len());
-                        blocks
-                    }
-                    _ => {
-                        sleep(poll_delay).await;
-                        return Ok(());
-                    }
-                };
-
-                tracing::debug!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
-
-                // The common ancestor is the block preceding the first new block.
-                let common_ancestor_height = new_blocks[0].height - 1;
-                tracing::debug!(
-                    "BitcoinSyncer: Common ancestor height: {:?}",
-                    common_ancestor_height
-                );
-                let mut dbtx = db.begin_transaction().await?;
-                // tracing::info!("BitcoinSyncer: Beginning transaction");
-
-                // Mark reorg blocks (if any) as non-canonical.
-                handle_reorg_events(&db, &mut dbtx, common_ancestor_height).await?;
-                tracing::debug!("BitcoinSyncer: Marked reorg blocks as non-canonical");
-
-                // Process and insert the new blocks.
-                tracing::debug!("BitcoinSyncer: Processing new blocks");
-                tracing::debug!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
-                process_new_blocks(&db, &rpc, &mut dbtx, &new_blocks).await?;
-
-                dbtx.commit().await?;
-
-                // Update the current height to the tip of the new chain.
-                tracing::debug!("BitcoinSyncer: Updating current height");
-                current_height = new_blocks.last().expect("new_blocks is not empty").height;
-                tracing::debug!("BitcoinSyncer: Current height: {:?}", current_height);
-
-                // sleep(poll_delay).await;
-                Ok(())
-            }
-            .await;
-
-            tracing::debug!("BitcoinSyncer: Result: {:?}", result);
-        }
-    });
-
-    Ok(handle)
+    // Run the task in the background
+    Ok(looping_task.into_bg())
 }
 
 #[cfg(test)]

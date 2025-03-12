@@ -12,6 +12,7 @@ use super::{Task, TaskExt};
 /// A background task manager that can hold and manage multiple tasks When
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
 /// `graceful_shutdown`
+#[derive(Debug, Default)]
 pub struct BackgroundTaskManager<T: Owner + 'static> {
     /// Task handles for spawned tasks
     abort_handles: Vec<AbortHandle>,
@@ -21,15 +22,6 @@ pub struct BackgroundTaskManager<T: Owner + 'static> {
 }
 
 impl<T: Owner + 'static> BackgroundTaskManager<T> {
-    /// Create a new empty task manager
-    pub fn new() -> Self {
-        BackgroundTaskManager {
-            abort_handles: Vec::new(),
-            cancel_txs: Vec::new(),
-            phantom: PhantomData,
-        }
-    }
-
     fn monitor_spawned_task(&self, handle: JoinHandle<Result<(), BridgeError>>, task_name: String) {
         tokio::spawn(async move {
             match handle.await {
@@ -54,7 +46,9 @@ impl<T: Owner + 'static> BackgroundTaskManager<T> {
         });
     }
 
-    /// Add a task to the manager with automatic polling
+    /// Wraps the task in a cancelable loop and spawns it in the background with built-in monitoring.
+    ///
+    /// If required, polling should be added **before** a call to this function via `task.into_polling()`
     pub fn run_and_monitor<U: Task + Sized + std::fmt::Debug>(&mut self, task: U)
     where
         U::Output: Into<bool>,

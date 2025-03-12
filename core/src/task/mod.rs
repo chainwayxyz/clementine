@@ -34,6 +34,14 @@ pub trait IntoTask {
     fn into_task(self) -> Self::Task;
 }
 
+impl<T: Task> IntoTask for T {
+    type Task = T;
+
+    fn into_task(self) -> Self::Task {
+        self
+    }
+}
+
 /// A task that polls another task at regular intervals
 #[derive(Debug)]
 pub struct WithDelay<T: Task>
@@ -191,13 +199,13 @@ pub trait TaskExt: Task + Sized {
 
     fn into_loop(self) -> (CancelableLoop<Self>, oneshot::Sender<()>);
 
-    fn polling(self, poll_delay: Duration) -> WithDelay<Self>
+    fn into_polling(self, poll_delay: Duration) -> WithDelay<Self>
     where
         Self::Output: Into<bool>;
 
     fn into_bg(self) -> JoinHandle<Result<Self::Output, BridgeError>>;
 
-    fn buffer_errors(self, error_overflow_limit: usize) -> BufferedError<Self>
+    fn into_error_buffered(self, error_overflow_limit: usize) -> BufferedError<Self>
     where
         Self::Output: Default;
 }
@@ -213,7 +221,7 @@ impl<T: Task + Sized> TaskExt for T {
         (CancelableLoop { inner: task }, cancel_tx)
     }
 
-    fn polling(self, poll_delay: Duration) -> WithDelay<Self>
+    fn into_polling(self, poll_delay: Duration) -> WithDelay<Self>
     where
         Self::Output: Into<bool>,
     {
@@ -224,7 +232,7 @@ impl<T: Task + Sized> TaskExt for T {
         tokio::spawn(async move { self.run_once().await })
     }
 
-    fn buffer_errors(self, error_overflow_limit: usize) -> BufferedError<Self>
+    fn into_error_buffered(self, error_overflow_limit: usize) -> BufferedError<Self>
     where
         Self::Output: Default,
     {
