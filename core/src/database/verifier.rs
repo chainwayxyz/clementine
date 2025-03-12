@@ -240,6 +240,11 @@ mod tests {
             .await
             .unwrap();
 
+        assert!(db
+            .get_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index)
+            .await
+            .unwrap()
+            .is_none());
         db.set_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index, &txid)
             .await
             .unwrap();
@@ -262,5 +267,12 @@ mod tests {
         assert_eq!(txs.len(), 1);
         assert_eq!(txs[0].0, index);
         assert_eq!(txs[0].1, txid);
+
+        let withdrawal_utxo = db
+            .get_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(withdrawal_utxo, utxo);
     }
 }
