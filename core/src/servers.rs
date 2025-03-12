@@ -3,14 +3,14 @@
 //! Utilities for operator and verifier servers.
 use crate::aggregator::Aggregator;
 use crate::extended_rpc::ExtendedRpc;
+use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
 use crate::rpc::clementine::clementine_watchtower_server::ClementineWatchtowerServer;
 use crate::watchtower::Watchtower;
-use crate::{config::BridgeConfig, errors, operator, verifier::Verifier};
+use crate::{config::BridgeConfig, errors, verifier::Verifier};
 use errors::BridgeError;
-use operator::Operator;
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
@@ -164,7 +164,7 @@ pub async fn create_operator_grpc_server(
         config.port
     );
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let operator = Operator::new(config).await?;
+    let operator = OperatorServer::new(config).await?;
     tracing::info!("Operator gRPC server created");
     let svc = ClementineOperatorServer::new(operator);
 
@@ -253,7 +253,7 @@ pub async fn create_operator_unix_server(
     )
     .await?;
 
-    let operator = Operator::new(config).await?;
+    let operator = OperatorServer::new(config).await?;
     let svc = ClementineOperatorServer::new(operator);
 
     let (server_addr, shutdown_tx) =

@@ -114,7 +114,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             format!("Error creating pqmq queue with name {}", Self::queue_name())
         })?;
 
-        Ok(Self {
+        let mut mgr = Self {
             context: context::StateContext::new(
                 db.clone(),
                 Arc::new(owner.clone()),
@@ -128,7 +128,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             kickoff_machines: Vec::new(),
             queue,
             last_processed_block_height: paramset.start_height,
-        })
+        };
+
+        mgr.load_from_db().await?;
+        Ok(mgr)
     }
 
     /// Loads the state machines from the database.

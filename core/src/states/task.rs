@@ -1,4 +1,8 @@
-use crate::{bitcoin_syncer::BitcoinSyncerEvent, database::Database};
+use crate::{
+    bitcoin_syncer::BitcoinSyncerEvent,
+    database::Database,
+    task::{BufferedError, IntoTask, WithDelay},
+};
 use eyre::Context as _;
 use pgmq::{Message, PGMQueueExt};
 use std::time::Duration;
@@ -13,6 +17,12 @@ use crate::{
 };
 
 use super::{context::Owner, StateManager};
+
+const POLL_DELAY: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_secs(1)
+};
 
 /// A task that fetches new blocks from Bitcoin and adds them to the state management queue
 #[derive(Debug)]
@@ -181,9 +191,35 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
     }
 }
 
+impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
+    type Task = WithDelay<BufferedError<MessageConsumerTask<T>>>;
+
+    /// Converts the StateManager into the consumer task with a delay
+    fn into_task(self) -> Self::Task {
+        MessageConsumerTask {
+            db: self.db.clone(),
+            inner: self,
+            queue_name: StateManager::<T>::queue_name(),
+        }
+        .into_error_buffered(50)
+        .with_delay(POLL_DELAY)
+    }
+}
+
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
+    pub async fn block_fetcher_task(&self) -> Result<WithDelay<BlockFetcherTask<T>>, BridgeError> {
+        Ok(BlockFetcherTask::<T>::new(
+            self.last_processed_block_height,
+            self.db.clone(),
+            self.paramset,
+        )
+        .await?
+        .with_delay(POLL_DELAY))
+    }
+
     /// Starts a new task to periodically fetch new blocks from bitcoin_syncer
-    pub async fn block_fetcher_task(
+    #[deprecated]
+    pub async fn block_fetcher_bg(
         last_processed_block_height: u32,
         db: Database,
         poll_delay: Duration,
@@ -206,6 +242,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(looping_task.into_bg())
     }
 
+    #[deprecated]
     pub async fn into_msg_consumer(
         self,
         poll_delay: Duration,

@@ -84,16 +84,21 @@ impl NofN {
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
+    pub idx: usize,
+
     _rpc: ExtendedRpc,
+
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
+
     pub(crate) nofn_xonly_pk: bitcoin::secp256k1::XOnlyPublicKey,
     pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
-    pub idx: usize,
+
     pub tx_sender: TxSenderClient,
+
     pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
 }
 
@@ -181,8 +186,8 @@ impl Verifier {
         // initialize and run state manager
         let mut state_manager =
             StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
-        state_manager.load_from_db().await?;
-        let state_manager_block_syncer = StateManager::<Self>::block_fetcher_task(
+
+        let state_manager_block_syncer = StateManager::<Self>::block_fetcher_bg(
             state_manager.get_last_processed_block_height(),
             db.clone(),
             Duration::from_secs(1),

@@ -8,17 +8,27 @@ use tokio::time::sleep;
 use crate::errors::BridgeError;
 use crate::states::Owner;
 
-use super::{Task, TaskExt};
+use super::{IntoTask, Task, TaskExt};
 /// A background task manager that can hold and manage multiple tasks When
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
 /// `graceful_shutdown`
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BackgroundTaskManager<T: Owner + 'static> {
     /// Task handles for spawned tasks
     abort_handles: Vec<AbortHandle>,
     /// Cancellation senders for tasks
     cancel_txs: Vec<oneshot::Sender<()>>,
     phantom: PhantomData<T>,
+}
+
+impl<T: Owner + 'static> Default for BackgroundTaskManager<T> {
+    fn default() -> Self {
+        Self {
+            abort_handles: Vec::new(),
+            cancel_txs: Vec::new(),
+            phantom: PhantomData,
+        }
+    }
 }
 
 impl<T: Owner + 'static> BackgroundTaskManager<T> {
@@ -49,10 +59,12 @@ impl<T: Owner + 'static> BackgroundTaskManager<T> {
     /// Wraps the task in a cancelable loop and spawns it in the background with built-in monitoring.
     ///
     /// If required, polling should be added **before** a call to this function via `task.into_polling()`
-    pub fn run_and_monitor<U: Task + Sized + std::fmt::Debug>(&mut self, task: U)
+    pub fn loop_and_monitor<S, U: IntoTask<Task = S>>(&mut self, task: U)
     where
-        U::Output: Into<bool>,
+        S: Task + Sized + std::fmt::Debug,
+        <S as Task>::Output: Into<bool>,
     {
+        let task = task.into_task();
         let task_name = format!("{:?}", task);
         let (task, cancel_tx) = task.cancelable_loop();
 
