@@ -77,13 +77,6 @@ pub async fn start_citrea(
         .await?;
     println!("Sequencer is ready");
 
-    // Wait for blob inscribe tx to be in mempool
-    da.wait_mempool_len(2, None).await?;
-
-    da.generate(citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH)
-        .await?;
-    println!("Blob inscribe tx is mined");
-
     Ok((sequencer, full_node, light_client_prover, batch_prover, da))
 }
 
