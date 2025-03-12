@@ -1,12 +1,13 @@
 //! # Citrea Related Utilities
 
-use crate::config::BridgeConfig;
+use crate::{config::BridgeConfig, errors::BridgeError};
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
     framework::TestFramework,
     node::{Node, NodeKind},
 };
+use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
 
@@ -110,4 +111,22 @@ pub fn update_config_with_citrea_e2e_values(
         let citrea_light_client_prover_url = format!("http://{}:{}", "127.0.0.1", 8080); // Dummy value
         config.citrea_light_client_prover_url = citrea_light_client_prover_url;
     }
+}
+
+pub async fn wait_until_lc_contract_updated(
+    client: &HttpClient,
+    block_height: u64,
+) -> Result<(), BridgeError> {
+    let mut attempts = 0;
+    let max_attempts = 600;
+
+    while attempts < max_attempts {
+        let block_number = block_number(client).await?;
+        if block_number >= block_height as u32 {
+            break;
+        }
+        attempts += 1;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    }
+    Ok(())
 }

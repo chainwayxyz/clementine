@@ -78,7 +78,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        tracing::error!("Starting Citrea");
+        tracing::info!("Starting Citrea");
         let (sequencer, _full_node, lc_prover, _, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
@@ -105,9 +105,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await?;
 
-        tracing::error!("Running deposit");
+        tracing::info!("Running deposit");
 
-        tracing::error!(
+        tracing::info!(
             "Deposit starting block_height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -121,7 +121,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             move_txid,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
 
-        tracing::error!(
+        tracing::info!(
             "Deposit ending block_height: {:?}",
             rpc.client.get_block_count().await?
         );
@@ -143,9 +143,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
 
+        citrea::wait_until_lc_contract_updated(sequencer.client.http_client(), block_height)
+            .await
+            .unwrap();
+
         // citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
 
-        tracing::error!("Depositing to Citrea");
+        tracing::info!("Depositing to Citrea");
         citrea::deposit(
             sequencer.client.http_client().clone(),
             block,
@@ -190,7 +194,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             })
             .await;
 
-        tracing::error!("Withdrawal response: {:?}", withdrawal_response);
+        tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
         println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
@@ -201,12 +205,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .unwrap();
 
-        tracing::error!("Collecting deposits and withdrawals");
-
-        // let current_l2_height = sequencer
-        //     .client
-        //     .ledger_get_head_soft_confirmation_height()
-        //     .await?;
+        tracing::info!("Collecting deposits and withdrawals");
 
         let citrea_withdrawal_tx = citrea_client
             .contract
@@ -221,13 +220,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await
             .unwrap();
 
-        tracing::error!("Withdrawal tx sent");
+        tracing::info!("Withdrawal tx sent");
 
         // 1. force sequencer to commit
         for _ in 0..sequencer.config.node.min_soft_confirmations_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
-        tracing::error!("Publish batch request sent");
+        tracing::info!("Publish batch request sent");
 
         let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
         println!("Citrea withdrawal tx receipt: {:?}", receipt);
@@ -247,9 +246,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         let finalized_height = da.get_finalized_height(None).await.unwrap();
 
-        tracing::error!("Finalized height: {:?}", finalized_height);
+        tracing::info!("Finalized height: {:?}", finalized_height);
         lc_prover.wait_for_l1_height(finalized_height, None).await?;
-        tracing::error!("Waited for L1 height");
+        tracing::info!("Waited for L1 height");
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
@@ -264,15 +263,15 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 })
                 .await;
 
-            tracing::error!("Withdrawal response: {:?}", withdrawal_response);
+            tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
             match withdrawal_response {
                 Ok(withdrawal_response) => {
-                    tracing::error!("Withdrawal response: {:?}", withdrawal_response);
+                    tracing::info!("Withdrawal response: {:?}", withdrawal_response);
                     break;
                 }
                 Err(e) => {
-                    tracing::error!("Withdrawal error: {:?}", e);
+                    tracing::info!("Withdrawal error: {:?}", e);
                 }
             }
 
