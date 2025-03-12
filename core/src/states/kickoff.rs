@@ -64,6 +64,7 @@ pub struct KickoffStateMachine<T: Owner> {
     pub(crate) kickoff_id: KickoffId,
     deposit_data: DepositData,
     kickoff_height: u32,
+    payout_blockhash: Witness,
     spent_watchtower_utxos: HashSet<usize>,
     watchtower_challenges: HashMap<usize, Witness>,
     operator_asserts: HashMap<usize, Witness>,
@@ -90,11 +91,17 @@ impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
 
 impl<T: Owner> KickoffStateMachine<T> {
     // TODO: num_operators and num_watchtowers in deposit_data in the future
-    pub fn new(kickoff_id: KickoffId, kickoff_height: u32, deposit_data: DepositData) -> Self {
+    pub fn new(
+        kickoff_id: KickoffId,
+        kickoff_height: u32,
+        deposit_data: DepositData,
+        payout_blockhash: Witness,
+    ) -> Self {
         Self {
             kickoff_id,
             kickoff_height,
             deposit_data,
+            payout_blockhash,
             matchers: HashMap::new(),
             dirty: true,
             phantom: std::marker::PhantomData,
@@ -162,6 +169,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                                 kickoff_id: self.kickoff_id,
                                 deposit_data: self.deposit_data.clone(),
                                 watchtower_challenges: self.watchtower_challenges.clone(),
+                                payout_blockhash: self.payout_blockhash.clone(),
                             })
                             .await?;
                     }
@@ -201,6 +209,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                             deposit_data: self.deposit_data.clone(),
                             operator_asserts: self.operator_asserts.clone(),
                             operator_acks: self.operator_challenge_acks.clone(),
+                            payout_blockhash: self.payout_blockhash.clone(),
                         })
                         .await?;
                     Ok(())

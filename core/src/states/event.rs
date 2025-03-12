@@ -1,3 +1,4 @@
+use bitcoin::Witness;
 use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
 
@@ -24,6 +25,7 @@ pub enum SystemEvent {
         kickoff_id: KickoffId,
         kickoff_height: u32,
         deposit_data: DepositData,
+        payout_blockhash: Witness,
     },
 }
 
@@ -53,6 +55,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         kickoff_id: KickoffId,
         kickoff_height: u32,
         deposit_data: DepositData,
+        payout_blockhash: Witness,
     ) -> Result<(), eyre::Report> {
         let queue_name = StateManager::<T>::queue_name();
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
@@ -60,6 +63,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             kickoff_id,
             kickoff_height,
             deposit_data,
+            payout_blockhash,
         };
         queue
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
@@ -96,12 +100,17 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 kickoff_id,
                 kickoff_height,
                 deposit_data,
+                payout_blockhash,
             } => {
-                let kickoff_machine =
-                    KickoffStateMachine::new(kickoff_id, kickoff_height, deposit_data)
-                        .uninitialized_state_machine()
-                        .init_with_context(&mut self.context)
-                        .await;
+                let kickoff_machine = KickoffStateMachine::new(
+                    kickoff_id,
+                    kickoff_height,
+                    deposit_data,
+                    payout_blockhash,
+                )
+                .uninitialized_state_machine()
+                .init_with_context(&mut self.context)
+                .await;
                 self.process_and_add_new_states_from_height(
                     vec![],
                     vec![kickoff_machine],
