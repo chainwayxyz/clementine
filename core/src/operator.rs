@@ -415,15 +415,15 @@ impl Operator {
         match withdrawal_utxo {
             Some(withdrawal_utxo) => {
                 if withdrawal_utxo != input_utxo.outpoint {
-                    return Err(BridgeError::UsersWithdrawalUtxoNotSetForWithdrawalIndex(
-                        withdrawal_index,
+                    return Err(BridgeError::InvalidInputUTXO(
+                        input_utxo.outpoint.txid,
+                        withdrawal_utxo.txid,
                     ));
                 }
             }
             None => {
-                return Err(BridgeError::InvalidInputUTXO(
-                    input_utxo.outpoint.txid,
-                    input_utxo.outpoint.txid,
+                return Err(BridgeError::UsersWithdrawalUtxoNotSetForWithdrawalIndex(
+                    withdrawal_index,
                 ));
             }
         }
