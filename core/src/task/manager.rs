@@ -80,7 +80,10 @@ impl<T: Owner + 'static> BackgroundTaskManager<T> {
 
     /// Graceful shutdown of all tasks
     ///
-    /// This function does not have any timeout, please use `graceful_shutdown_with_timeout` instead for cases where you need a timeout.
+    /// This function does not have any timeout, please use
+    /// `graceful_shutdown_with_timeout` instead for cases where you need a
+    /// timeout. The function polls tasks until they are finished with a 100ms
+    /// poll interval.
     pub async fn graceful_shutdown(&mut self) {
         self.cancel_txs.clear();
 
@@ -98,6 +101,13 @@ impl<T: Owner + 'static> BackgroundTaskManager<T> {
     }
 
     /// Graceful shutdown of all tasks with a timeout. All tasks will be aborted if the timeout is reached.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - The timeout duration for the graceful shutdown. Since the
+    ///   `graceful_shutdown` function polls tasks until they are finished with a
+    ///   100ms poll interval, the timeout should be at least 100ms for the
+    ///   timeout to be effective.
     pub async fn graceful_shutdown_with_timeout(&mut self, timeout: Duration) {
         let timeout_handle = tokio::time::timeout(timeout, self.graceful_shutdown());
         match timeout_handle.await {
