@@ -30,7 +30,7 @@ mod test_utils;
 /// - `tx_name`: The name of the transaction to wait for.
 /// - `timeout`: The timeout in seconds.
 pub async fn wait_tx_to_be_in_mempool_and_mine_block(
-    rpc: ExtendedRpc,
+    rpc: &ExtendedRpc,
     txid: Txid,
     tx_name: Option<&str>,
     timeout: Option<u64>,
@@ -207,7 +207,7 @@ pub async fn run_single_deposit(
         .await?;
 
     wait_tx_to_be_in_mempool_and_mine_block(
-        rpc.clone(),
+        &rpc,
         deposit_outpoint.txid,
         Some("Deposit outpoint"),
         None,
@@ -234,7 +234,7 @@ pub async fn run_single_deposit(
     // mine 1 block
     rpc.mine_blocks(1).await?;
 
-    wait_tx_to_be_in_mempool_and_mine_block(rpc.clone(), move_txid, Some("Move tx"), None).await?;
+    wait_tx_to_be_in_mempool_and_mine_block(&rpc, move_txid, Some("Move tx"), None).await?;
 
     Ok((
         verifiers,
