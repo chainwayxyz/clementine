@@ -335,7 +335,7 @@ impl IntoTask for BitcoinSyncer {
             rpc: self.rpc,
             current_height: self.current_height,
         }
-        .into_polling(self.poll_delay)
+        .with_delay(self.poll_delay)
     }
 }
 
@@ -413,7 +413,7 @@ pub async fn start_bitcoin_syncer(
     let polling_task = syncer.into_task();
 
     // Create a cancelable, looping task
-    let (looping_task, _cancel_tx) = polling_task.into_loop();
+    let (looping_task, _cancel_tx) = polling_task.cancelable_loop();
 
     // TODO: remove before merge
     Box::leak(Box::new(_cancel_tx));

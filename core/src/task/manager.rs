@@ -54,7 +54,7 @@ impl<T: Owner + 'static> BackgroundTaskManager<T> {
         U::Output: Into<bool>,
     {
         let task_name = format!("{:?}", task);
-        let (task, cancel_tx) = task.into_loop();
+        let (task, cancel_tx) = task.cancelable_loop();
 
         let bg_task = task.into_bg();
         let abort_handle = bg_task.abort_handle();

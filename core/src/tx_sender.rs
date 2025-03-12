@@ -7,6 +7,7 @@ use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
+use tonic::async_trait;
 
 use crate::{
     actor::Actor,
@@ -26,6 +27,7 @@ use crate::{
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
     rpc::clementine::NormalSignatureKind,
+    task::{IntoTask, Task, TaskExt},
 };
 
 #[derive(Clone, Debug)]
@@ -66,6 +68,87 @@ pub struct TxDataForLogging {
     pub tx_type: TransactionType,
 }
 
+#[derive(Debug)]
+pub struct TxSenderTask {
+    db: Database,
+    current_tip_height: u32,
+    inner: TxSender,
+}
+
+impl IntoTask for TxSender {
+    type Task = TxSenderTask;
+
+    fn into_task(self) -> Self::Task {
+        TxSenderTask {
+            db: self.db.clone(),
+            current_tip_height: 0,
+            inner: self,
+        }
+    }
+}
+
+#[async_trait]
+impl Task for TxSenderTask {
+    type Output = bool;
+
+    async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+
+        let is_block_update = async {
+            let event = self
+                .db
+                .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.consumer_handle)
+                .await?;
+            if event.is_some() {
+                tracing::debug!("TXSENDER: Event: {:?}", event);
+            }
+            Ok::<bool, BridgeError>(match event {
+                Some(event) => match event {
+                    BitcoinSyncerEvent::NewBlock(block_id) => {
+                        self.db.confirm_transactions(&mut dbtx, block_id).await?;
+                        self.current_tip_height = self
+                            .db
+                            .get_block_info_from_id(Some(&mut dbtx), block_id)
+                            .await?
+                            .ok_or(BridgeError::Error("Block not found".to_string()))?
+                            .1;
+
+                        tracing::trace!("TXSENDER: Confirmed transactions for block {}", block_id);
+                        dbtx.commit().await?;
+                        true
+                    }
+                    BitcoinSyncerEvent::ReorgedBlock(block_id) => {
+                        tracing::trace!(
+                            "TXSENDER: Unconfirming transactions for block {}",
+                            block_id
+                        );
+                        self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
+                        dbtx.commit().await?;
+                        true
+                    }
+                },
+                None => false,
+            })
+        }
+        .await?;
+
+        if is_block_update {
+            // Don't wait in new events
+            return Ok(true);
+        }
+
+        tracing::trace!("TXSENDER: Getting fee rate");
+        let fee_rate = self.inner.get_fee_rate().await?;
+        tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
+
+        self.inner
+            .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)
+            .await?;
+
+        Ok(false)
+    }
+}
+
 impl TxSender {
     pub fn new(
         signer: Actor,
@@ -92,90 +175,26 @@ impl TxSender {
         &self,
         poll_delay: Duration,
     ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
-        // Clone the required fields for the async task
-        let db = self.db.clone();
-        let consumer_handle = self.consumer_handle.clone();
-        let this = self.clone();
-
         tracing::trace!(
             "TXSENDER: Starting tx sender with handle {}",
-            consumer_handle
+            self.consumer_handle
         );
 
-        let handle = tokio::spawn(async move {
-            let mut current_tip_height = 0;
-            loop {
-                let result: Result<bool, BridgeError> = async {
-                    let mut dbtx = db.begin_transaction().await?;
+        // Clone self to move into task
+        let task = self
+            .clone()
+            .into_task()
+            .ignore_error()
+            .with_delay(poll_delay);
 
-                    let is_block_update = async {
-                        let event = db
-                            .fetch_next_bitcoin_syncer_evt(&mut dbtx, &consumer_handle)
-                            .await?;
-                        if event.is_some() {
-                            tracing::debug!("TXSENDER: Event: {:?}", event);
-                        }
-                        Ok::<bool, BridgeError>(match event {
-                            Some(event) => match event {
-                                BitcoinSyncerEvent::NewBlock(block_id) => {
-                                    db.confirm_transactions(&mut dbtx, block_id).await?;
-                                    current_tip_height = db
-                                        .get_block_info_from_id(Some(&mut dbtx), block_id)
-                                        .await?
-                                        .ok_or(BridgeError::Error("Block not found".to_string()))?
-                                        .1;
+        // Create a cancelable, looping task
+        let (looping_task, _cancel_tx) = task.cancelable_loop();
 
-                                    tracing::trace!(
-                                        "TXSENDER: Confirmed transactions for block {}",
-                                        block_id
-                                    );
-                                    dbtx.commit().await?;
-                                    true
-                                }
-                                BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                                    tracing::trace!(
-                                        "TXSENDER: Unconfirming transactions for block {}",
-                                        block_id
-                                    );
-                                    db.unconfirm_transactions(&mut dbtx, block_id).await?;
-                                    dbtx.commit().await?;
-                                    true
-                                }
-                            },
-                            None => false,
-                        })
-                    }
-                    .await?;
+        // TODO: remove before merging to a task manager
+        Box::leak(Box::new(_cancel_tx));
 
-                    if is_block_update {
-                        // Don't wait in new events
-                        return Ok(true);
-                    }
-
-                    tracing::trace!("TXSENDER: Getting fee rate");
-                    let fee_rate = this.get_fee_rate().await?;
-                    tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
-                    this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height)
-                        .await?;
-
-                    Ok(false)
-                }
-                .await;
-
-                match result {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        tokio::time::sleep(poll_delay).await;
-                    }
-                    Err(e) => {
-                        tracing::error!("TXSENDER: Error sending txs: {:?}", e);
-                        tokio::time::sleep(poll_delay).await;
-                    }
-                }
-            }
-        });
-
-        Ok(handle)
+        // Run the task in the background
+        Ok(looping_task.into_bg())
     }
 
     pub async fn add_tx_to_queue<'a>(

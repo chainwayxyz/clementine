@@ -198,7 +198,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let inner_task =
             BlockFetcherTask::<T>::new(last_processed_block_height, db, paramset).await?;
 
-        let (looping_task, _cancel_tx) = inner_task.into_polling(poll_delay).into_loop();
+        let (looping_task, _cancel_tx) = inner_task.with_delay(poll_delay).cancelable_loop();
 
         // TODO: remove after migration
         Box::leak(Box::new(_cancel_tx));
@@ -221,8 +221,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         let (handle, cancel_tx) = consumer
             .into_error_buffered(50)
-            .into_polling(poll_delay)
-            .into_loop();
+            .with_delay(poll_delay)
+            .cancelable_loop();
 
         (handle.into_bg(), cancel_tx)
     }

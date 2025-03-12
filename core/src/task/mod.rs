@@ -221,15 +221,34 @@ impl<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 'static> Tas
     }
 }
 
+pub struct ErrorIgnored<T: Task + Sized>
+where
+    T::Output: Default,
+{
+    inner: T,
+}
+
+#[async_trait]
+impl<T: Task + Sized> Task for ErrorIgnored<T>
+where
+    T::Output: Default,
+{
+    type Output = T::Output;
+
+    async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
+        Ok(self.inner.run_once().await.ok().unwrap_or_default())
+    }
+}
+
 pub trait TaskExt: Task + Sized {
     /// Skips running the task after cancellation using the sender.
-    fn into_cancelable(self) -> (CancelableTask<Self>, oneshot::Sender<()>);
+    fn cancelable(self) -> (CancelableTask<Self>, oneshot::Sender<()>);
 
     /// Runs the task in an infinite loop until cancelled using the sender.
-    fn into_loop(self) -> (CancelableLoop<Self>, oneshot::Sender<()>);
+    fn cancelable_loop(self) -> (CancelableLoop<Self>, oneshot::Sender<()>);
 
     /// Adds the given delay after a run of the task when the task returns false.
-    fn into_polling(self, poll_delay: Duration) -> WithDelay<Self>
+    fn with_delay(self, poll_delay: Duration) -> WithDelay<Self>
     where
         Self::Output: Into<bool>;
 
@@ -243,24 +262,29 @@ pub trait TaskExt: Task + Sized {
         Self::Output: Default;
 
     /// Maps the task's `Ok()` output using the given function.
-    fn into_mapped<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
+    fn map<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
         self,
         map: F,
     ) -> Map<Self, F>;
+
+    /// Ignores errors from the task.
+    fn ignore_error(self) -> ErrorIgnored<Self>
+    where
+        Self::Output: Default;
 }
 
 impl<T: Task + Sized> TaskExt for T {
-    fn into_cancelable(self) -> (CancelableTask<Self>, oneshot::Sender<()>) {
+    fn cancelable(self) -> (CancelableTask<Self>, oneshot::Sender<()>) {
         let (cancel_tx, cancel_rx) = oneshot::channel();
         (CancelableTask::new(self, cancel_rx), cancel_tx)
     }
 
-    fn into_loop(self) -> (CancelableLoop<Self>, oneshot::Sender<()>) {
-        let (task, cancel_tx) = self.into_cancelable();
+    fn cancelable_loop(self) -> (CancelableLoop<Self>, oneshot::Sender<()>) {
+        let (task, cancel_tx) = self.cancelable();
         (CancelableLoop { inner: task }, cancel_tx)
     }
 
-    fn into_polling(self, poll_delay: Duration) -> WithDelay<Self>
+    fn with_delay(self, poll_delay: Duration) -> WithDelay<Self>
     where
         Self::Output: Into<bool>,
     {
@@ -278,10 +302,17 @@ impl<T: Task + Sized> TaskExt for T {
         BufferedError::new(self, error_overflow_limit)
     }
 
-    fn into_mapped<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
+    fn map<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
         self,
         map: F,
     ) -> Map<Self, F> {
         Map { inner: self, map }
+    }
+
+    fn ignore_error(self) -> ErrorIgnored<Self>
+    where
+        Self::Output: Default,
+    {
+        ErrorIgnored { inner: self }
     }
 }
