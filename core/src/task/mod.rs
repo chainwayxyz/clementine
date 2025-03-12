@@ -135,6 +135,7 @@ impl<T: Task + Sized> Task for CancelableLoop<T> {
         loop {
             match self.inner.run_once().await {
                 Ok(CancelableResult::Running(_)) => {
+                    tokio::task::yield_now().await;
                     continue;
                 }
                 Ok(CancelableResult::Cancelled) => return Ok(()),
@@ -185,13 +186,18 @@ where
             Err(e) => {
                 self.buffer.push(e);
                 if self.buffer.len() >= self.error_overflow_limit {
-                    let mut base_error = eyre::eyre!(
-                        "Exiting due to {} consecutive errors, the following chain is the list of errors.",
-                        self.error_overflow_limit
-                    );
+                    let mut base_error: eyre::Report =
+                        self.buffer.pop().expect("just inserted above").into();
+
                     for error in std::mem::take(&mut self.buffer) {
                         base_error = base_error.wrap_err(error);
                     }
+
+                    base_error = base_error.wrap_err(format!(
+                        "Exiting due to {} consecutive errors, the following chain is the list of errors.",
+                        self.error_overflow_limit
+                    ));
+
                     Err(base_error.into())
                 } else {
                     Ok(Default::default())
@@ -318,3 +324,6 @@ impl<T: Task + Sized> TaskExt for T {
         IgnoreError { inner: self }
     }
 }
+
+#[cfg(test)]
+mod tests;
