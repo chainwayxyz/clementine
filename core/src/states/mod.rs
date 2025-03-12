@@ -103,19 +103,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         db: Database,
         handler: T,
         paramset: &'static ProtocolParamset,
-    ) -> Result<Self, BridgeError> {
+    ) -> eyre::Result<Self> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         queue
             .init()
             .await
-            .map_err(|e| BridgeError::Error(format!("Error initializing pqmq queue: {:?}", e)))?;
+            .wrap_err("Error initializing pqmq queue")?;
 
-        queue.create(&Self::queue_name()).await.map_err(|e| {
-            BridgeError::Error(format!(
-                "Error creating pqmq queue with name {}: {:?}",
-                Self::queue_name(),
-                e
-            ))
+        queue.create(&Self::queue_name()).await.wrap_err_with(|| {
+            format!("Error creating pqmq queue with name {}", Self::queue_name())
         })?;
 
         Ok(Self {

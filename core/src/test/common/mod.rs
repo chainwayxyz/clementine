@@ -110,6 +110,64 @@ pub async fn run_multiple_deposits(
     ))
 }
 
+pub async fn wait_tx_to_be_in_mempool_and_mine_block(
+    rpc: ExtendedRpc,
+    txid: Txid,
+    tx_name: Option<&str>,
+    timeout: Option<u64>,
+) -> Result<(), BridgeError> {
+    let timeout = timeout.unwrap_or(60);
+    let start = std::time::Instant::now();
+    let _tx = loop {
+        if start.elapsed() > std::time::Duration::from_secs(timeout) {
+            panic!(
+                "{} did not land onchain within {timeout} seconds",
+                tx_name.unwrap_or("tx")
+            );
+        }
+
+        let tx_result = rpc.client.get_mempool_entry(&txid).await;
+
+        let tx_result = match tx_result {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::info!("Waiting for transaction to be on-chain: {}", e);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+
+        break tx_result;
+    };
+
+    rpc.mine_blocks(1).await?;
+
+    let tx_result = rpc.client.get_raw_transaction_info(&txid, None).await;
+    match tx_result {
+        Ok(tx) => {
+            if tx.blockhash.is_none() {
+                tracing::error!(
+                    "{} did not land onchain after in mempool and mining 1 block",
+                    tx_name.unwrap_or("tx")
+                );
+                return Err(BridgeError::Error(format!(
+                    "{} did not land onchain after in mempool and mining 1 block",
+                    tx_name.unwrap_or("tx")
+                )));
+            }
+        }
+        Err(e) => {
+            return Err(BridgeError::Error(format!(
+                "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
+                tx_name.unwrap_or("tx"),
+                e
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn run_single_deposit(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
@@ -144,7 +202,14 @@ pub async fn run_single_deposit(
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
-    rpc.mine_blocks(18).await?;
+
+    wait_tx_to_be_in_mempool_and_mine_block(
+        rpc.clone(),
+        deposit_outpoint.txid,
+        Some("Deposit outpoint"),
+        None,
+    )
+    .await?;
 
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
@@ -160,31 +225,13 @@ pub async fn run_single_deposit(
         .await?
         .into_inner()
         .try_into()?;
+
+    // sleep 3 seconds
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    // mine 1 block
     rpc.mine_blocks(1).await?;
 
-    let start = std::time::Instant::now();
-    let timeout = 60;
-    let _tx = loop {
-        if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            panic!("MoveTx did not land onchain within {timeout} seconds");
-        }
-        rpc.mine_blocks(1).await?;
-
-        let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
-
-        let tx_result = match tx_result {
-            Ok(tx) => tx,
-            Err(e) => {
-                tracing::info!("Waiting for transaction to be on-chain: {}", e);
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                continue;
-            }
-        };
-
-        break tx_result;
-    };
-
-    tracing::info!("MoveTx landed onchain: Deposit successful");
+    wait_tx_to_be_in_mempool_and_mine_block(rpc.clone(), move_txid, Some("Move tx"), None).await?;
 
     Ok((
         verifiers,

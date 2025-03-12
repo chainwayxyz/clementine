@@ -120,28 +120,3 @@ pub fn update_config_with_citrea_e2e_values(
     }
 }
 
-pub async fn sync_citrea_l2(
-    rpc: &ExtendedRpc,
-    sequencer: &citrea_e2e::node::Node<SequencerConfig>,
-    full_node: &citrea_e2e::node::Node<EmptyConfig>,
-) {
-    let l1_height = rpc.client.get_block_count().await.unwrap();
-    let l2_height = sequencer
-        .client
-        .ledger_get_head_soft_confirmation_height()
-        .await
-        .unwrap();
-
-    for i in l2_height..l1_height + 1 {
-        println!("Syncing L2 block {}", l2_height + i + 1);
-        sequencer.client.send_publish_batch_request().await.unwrap();
-    }
-
-    println!("Waiting for L2 to be in sync with L1");
-    full_node
-        .client
-        .wait_for_l2_block(l1_height, None)
-        .await
-        .unwrap();
-    println!("L2 is in sync with L1");
-}
