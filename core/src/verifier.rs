@@ -1101,6 +1101,142 @@ impl Verifier {
         }
         Ok(())
     }
+
+    async fn get_citrea_l2_height_range(
+        citrea_client: &CitreaClient,
+        block_height: u32,
+        max_attempts: u32,
+    ) -> Result<(u64, u64), BridgeError> {
+        let mut attempts = 0;
+
+        let proof_current = loop {
+            if let Some(proof) = citrea_client
+                .light_client_prover_client
+                .get_light_client_proof_by_l1_height(block_height as u64)
+                .await?
+            {
+                break proof;
+            }
+
+            attempts += 1;
+            if attempts >= max_attempts {
+                return Err(BridgeError::Error(format!(
+                    "Light client proof not found for block height {} after {} attempts with 1 second intervals",
+                    block_height,
+                    max_attempts
+                )));
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        };
+
+        let proof_previous = citrea_client
+            .light_client_prover_client
+            .get_light_client_proof_by_l1_height(block_height as u64 - 1)
+            .await?
+            .ok_or(BridgeError::Error(format!(
+                "Light client proof not found for block height: {}",
+                block_height - 1
+            )))?;
+
+        let l2_height_end: u64 = proof_current
+            .light_client_proof_output
+            .last_l2_height
+            .try_into()
+            .expect("Failed to convert last_l2_height to u64");
+
+        let l2_height_start: u64 = proof_previous
+            .light_client_proof_output
+            .last_l2_height
+            .try_into()
+            .expect("Failed to convert last_l2_height to u64");
+
+        Ok((l2_height_start, l2_height_end))
+    }
+
+    async fn update_citrea_withdrawals(
+        &self,
+        dbtx: &mut DatabaseTransaction<'_, '_>,
+        citrea_client: &CitreaClient,
+        l2_height_start: u64,
+        l2_height_end: u64,
+        block_height: u32,
+    ) -> Result<(), BridgeError> {
+        let new_deposits = citrea_client
+            .collect_deposit_move_txids(l2_height_start + 1, l2_height_end)
+            .await?;
+        tracing::info!("New Deposits: {:?}", new_deposits);
+        let new_withdrawals = citrea_client
+            .collect_withdrawal_utxos(l2_height_start + 1, l2_height_end)
+            .await?;
+        tracing::info!("New Withdrawals: {:?}", new_withdrawals);
+        for (idx, move_to_vault_txid) in new_deposits {
+            tracing::info!("Setting move to vault txid: {:?}", move_to_vault_txid);
+            self.db
+                .set_move_to_vault_txid_from_citrea_deposit(
+                    Some(dbtx),
+                    idx as u32 - 1,
+                    &move_to_vault_txid,
+                )
+                .await?;
+        }
+        for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
+            tracing::info!("Setting withdrawal utxo: {:?}", withdrawal_utxo_outpoint);
+            self.db
+                .set_withdrawal_utxo_from_citrea_withdrawal(
+                    Some(dbtx),
+                    idx as u32,
+                    withdrawal_utxo_outpoint,
+                    block_height,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn update_finalized_payouts(
+        &self,
+        dbtx: &mut DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block: &bitcoin::Block,
+    ) -> Result<(), BridgeError> {
+        let payout_txids = self
+            .db
+            .get_payout_txs_from_citrea_withdrawal(Some(dbtx), block_id)
+            .await?;
+
+        let txid_to_tx_hashmap: HashMap<bitcoin::Txid, &bitcoin::Transaction> = block
+            .txdata
+            .iter()
+            .map(|tx| (tx.compute_txid(), tx))
+            .collect();
+
+        let block_hash = block.block_hash();
+        let mut payout_txs_and_payer_operator_idx = Vec::new();
+        for (idx, payout_txid) in payout_txids {
+            let payout_tx = txid_to_tx_hashmap
+                .get(&payout_txid)
+                .ok_or(BridgeError::Error("Payout tx not found".to_string()))?;
+            let last_output = &payout_tx.output[payout_tx.output.len() - 1]
+                .script_pubkey
+                .to_bytes();
+            tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
+
+            let operator_idx = u32::from_le_bytes(
+                last_output[2..6]
+                    .try_into()
+                    .expect("Failed to convert last_output to u32"),
+            );
+
+            payout_txs_and_payer_operator_idx.push((idx, payout_txid, operator_idx, block_hash));
+        }
+
+        self.db
+            .set_payout_txs_and_payer_operator_idx(Some(dbtx), payout_txs_and_payer_operator_idx)
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1200,7 +1336,6 @@ impl Owner for Verifier {
         block: &bitcoin::Block,
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
-        // TODO: Remove this once we have a mock citrea client
         if self.citrea_client.is_none() {
             return Ok(());
         }
@@ -1211,122 +1346,25 @@ impl Owner for Verifier {
             .ok_or_else(|| BridgeError::Error("Citrea client is not available".to_string()))?;
 
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(600);
-        let mut attempts = 0;
 
-        let proof_current = loop {
-            if let Some(proof) = citrea_client
-                .light_client_prover_client
-                .get_light_client_proof_by_l1_height(block_height as u64)
-                .await?
-            {
-                break proof;
-            }
-
-            attempts += 1;
-            if attempts >= max_attempts {
-                return Err(BridgeError::Error(format!(
-                    "Light client proof not found for block height {} after {} attempts with 1 second intervals",
-                    block_height,
-                    max_attempts
-                )));
-            }
-
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        };
-        tracing::info!("Light Client Proof found");
-        tracing::info!("Proof current: {:?}", proof_current);
-        let proof_previous = citrea_client
-            .light_client_prover_client
-            .get_light_client_proof_by_l1_height(block_height as u64 - 1)
-            .await?
-            .ok_or(BridgeError::Error(format!(
-                "Light client proof not found for block height: {}",
-                block_height - 1
-            )))?;
-
-        let l2_height_end: u64 = proof_current
-            .light_client_proof_output
-            .last_l2_height
-            .try_into()
-            .expect("Failed to convert last_l2_height to u64");
-
-        let l2_height_start: u64 = proof_previous
-            .light_client_proof_output
-            .last_l2_height
-            .try_into()
-            .expect("Failed to convert last_l2_height to u64");
+        let (l2_height_start, l2_height_end) =
+            Self::get_citrea_l2_height_range(citrea_client, block_height, max_attempts).await?;
 
         tracing::info!("l2_height_end: {:?}", l2_height_end);
         tracing::info!("l2_height_start: {:?}", l2_height_start);
 
         tracing::info!("Collecting deposits and withdrawals");
-        let new_deposits = citrea_client
-            .collect_deposit_move_txids(l2_height_start + 1, l2_height_end)
-            .await?;
-        tracing::info!("New Deposits: {:?}", new_deposits);
-        let new_withdrawals = citrea_client
-            .collect_withdrawal_utxos(l2_height_start + 1, l2_height_end)
-            .await?;
-        tracing::info!("New Withdrawals: {:?}", new_withdrawals);
-        for (idx, move_to_vault_txid) in new_deposits {
-            tracing::info!("Setting move to vault txid: {:?}", move_to_vault_txid);
-            self.db
-                .set_move_to_vault_txid_from_citrea_deposit(
-                    Some(&mut dbtx),
-                    idx as u32 - 1,
-                    &move_to_vault_txid,
-                )
-                .await?;
-        }
-        for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
-            tracing::info!("Setting withdrawal utxo: {:?}", withdrawal_utxo_outpoint);
-            self.db
-                .set_withdrawal_utxo_from_citrea_withdrawal(
-                    Some(&mut dbtx),
-                    idx as u32,
-                    withdrawal_utxo_outpoint,
-                    block_height,
-                )
-                .await?;
-        }
+        self.update_citrea_withdrawals(
+            &mut dbtx,
+            citrea_client,
+            l2_height_start,
+            l2_height_end,
+            block_height,
+        )
+        .await?;
 
         tracing::info!("Getting payout txids");
-        let payout_txids = self
-            .db
-            .get_payout_txs_from_citrea_withdrawal(Some(&mut dbtx), block_id)
-            .await?;
-
-        let txid_to_tx_hashmap: HashMap<bitcoin::Txid, &bitcoin::Transaction> = block
-            .txdata
-            .iter()
-            .map(|tx| (tx.compute_txid(), tx))
-            .collect();
-
-        let block_hash = block.block_hash();
-        let mut payout_txs_and_payer_operator_idx = Vec::new();
-        for (idx, payout_txid) in payout_txids {
-            let payout_tx = txid_to_tx_hashmap
-                .get(&payout_txid)
-                .ok_or(BridgeError::Error("Payout tx not found".to_string()))?;
-            let last_output = &payout_tx.output[payout_tx.output.len() - 1]
-                .script_pubkey
-                .to_bytes();
-            tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
-
-            let operator_idx = u32::from_le_bytes(
-                last_output[2..6]
-                    .try_into()
-                    .expect("Failed to convert last_output to u32"),
-            );
-
-            payout_txs_and_payer_operator_idx.push((idx, payout_txid, operator_idx, block_hash));
-        }
-
-        self.db
-            .set_payout_txs_and_payer_operator_idx(
-                Some(&mut dbtx),
-                payout_txs_and_payer_operator_idx,
-            )
+        self.update_finalized_payouts(&mut dbtx, block_id, block)
             .await?;
 
         Ok(())
