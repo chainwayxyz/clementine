@@ -24,7 +24,7 @@ const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
 /// Fetches the light client proof for a given L1 block height.
 ///
-/// This function queries an Ethereum-compatible RPC client to obtain a light client proof
+/// This function queries an Citrea light client prover RPC endpoint to obtain a light client proof
 /// for a specified L1 height. The proof is then decoded and deserialized into an `InnerReceipt`,
 /// which is further processed to extract a valid `Receipt`.
 ///
@@ -103,7 +103,7 @@ pub async fn fetch_light_client_proof(
 
 /// Fetches the storage proof for a given deposit index and transaction ID.
 ///
-/// This function interacts with an Ethereum-compatible RPC client to retrieve a storage proof,
+/// This function interacts with an Citrea RPC endpoint to retrieve a storage proof,
 /// which includes proof details for both the UTXO and the deposit index.
 ///
 /// # Arguments
