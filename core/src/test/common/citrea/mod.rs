@@ -1,7 +1,6 @@
 //! # Citrea Related Utilities
 
-use crate::{config::BridgeConfig, extended_rpc::ExtendedRpc};
-use bitcoincore_rpc::RpcApi;
+use crate::config::BridgeConfig;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
@@ -48,8 +47,6 @@ pub const EVM_ADDRESSES: [&str; 10] = [
     "a0Ee7A142d267C1f36714E4a8F75612F20a79720",
 ];
 
-pub const DUMMY_LCP_URL: (&str, u16) = ("127.0.0.1", 8080);
-
 /// Starts typical nodes with typical configs for a test that needs Citrea.
 pub async fn start_citrea(
     sequencer_config: SequencerConfig,
@@ -75,15 +72,44 @@ pub async fn start_citrea(
             sequencer.client.send_publish_batch_request().await?;
         }
     }
+    sequencer
+        .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
+        .await?;
+    println!("Sequencer is ready");
+
     // Wait for blob inscribe tx to be in mempool
     da.wait_mempool_len(2, None).await?;
 
     da.generate(citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH)
         .await?;
 
+    if let Some(batch_prover) = batch_prover {
+        let commitment_l1_height = da.get_finalized_height(None).await?;
+
+        // Wait for batch prover to generate proof for commitment
+        batch_prover
+            .wait_for_l1_height(commitment_l1_height, None)
+            .await
+            .unwrap();
+        println!("Batch prover is ready");
+    }
+
     full_node
         .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
         .await?;
+    println!("Full node is ready");
+
+    if let Some(light_client_prover) = light_client_prover {
+        let batch_proof_l1_height = da.get_finalized_height(None).await?;
+
+        // Wait for light client prover to process batch proofs.
+        light_client_prover
+            .wait_for_l1_height(batch_proof_l1_height, None)
+            .await
+            .unwrap();
+
+        println!("Light client prover is ready");
+    }
 
     Ok((sequencer, full_node, light_client_prover, batch_prover, da))
 }
@@ -119,4 +145,3 @@ pub fn update_config_with_citrea_e2e_values(
         config.citrea_light_client_prover_url = citrea_light_client_prover_url;
     }
 }
-

@@ -184,7 +184,7 @@ impl TestCase for CitreaFetchLCPAndDeposit {
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
-        let (sequencer, full_node, lc_prover, _, da) =
+        let (sequencer, _full_node, lc_prover, _, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
@@ -221,7 +221,9 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             _cleanup,
             _deposit_outpoint,
             move_txid,
-        ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
+        ) = run_single_deposit(&mut config, rpc.clone(), None)
+            .await
+            .unwrap();
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         let tx = rpc.client.get_raw_transaction(&move_txid, None).await?;
@@ -231,8 +233,10 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             .await?;
         let block = rpc.client.get_block(&tx_info.blockhash.unwrap()).await?;
         let block_height = rpc.client.get_block_info(&block.block_hash()).await?.height as u64;
+        println!("block_height: {}", block_height);
 
-        // citrea::sync_citrea_l2(&rpc, sequencer, full_node).await;
+        sequencer.client.send_publish_batch_request().await.unwrap();
+        sequencer.client.send_publish_batch_request().await.unwrap();
 
         let deposit_tx_block_height = sequencer
             .client
@@ -246,8 +250,9 @@ impl TestCase for CitreaFetchLCPAndDeposit {
             block_height.try_into().unwrap(),
             tx,
         )
-        .await?;
-        sequencer.client.send_publish_batch_request().await?;
+        .await
+        .unwrap();
+        sequencer.client.send_publish_batch_request().await.unwrap();
 
         let balance =
             citrea::eth_get_balance(sequencer.client.http_client().clone(), EVMAddress([1; 20]))
@@ -260,10 +265,14 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 
         let move_txids = citrea_client
             .collect_deposit_move_txids(deposit_tx_block_height, deposit_tx_block_height)
-            .await?;
+            .await
+            .unwrap();
         assert_eq!(move_txid, move_txids[0].1);
 
-        lc_prover.wait_for_l1_height(block_height, None).await?;
+        lc_prover
+            .wait_for_l1_height(block_height, None)
+            .await
+            .unwrap();
         let lcp = lc_prover
             .client
             .http_client()
