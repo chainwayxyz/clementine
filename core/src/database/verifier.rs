@@ -48,9 +48,10 @@ impl Database {
         move_to_vault_txid: &Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE withdrawals
-             SET idx = $1,
-             move_to_vault_txid = $2",
+            "INSERT INTO withdrawals (idx, move_to_vault_txid) 
+             VALUES ($1, $2)
+             ON CONFLICT (idx) DO UPDATE 
+             SET move_to_vault_txid = $2",
         )
         .bind(i32::try_from(idx)?)
         .bind(TxidDB(*move_to_vault_txid));
@@ -211,14 +212,14 @@ mod tests {
         db.add_txid_to_block(&mut dbtx, block_id, &txid)
             .await
             .unwrap();
-        db.insert_spent_utxo(&mut dbtx, block_id, &txid, &txid, utxo.vout.into())
+        db.insert_spent_utxo(&mut dbtx, block_id, &txid, &utxo.txid, utxo.vout.into())
             .await
             .unwrap();
 
-        db.set_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index, utxo, block_id)
+        db.set_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index, &txid)
             .await
             .unwrap();
-        db.set_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index, &txid)
+        db.set_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index, utxo, block_id)
             .await
             .unwrap();
 
