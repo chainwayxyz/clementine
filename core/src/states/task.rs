@@ -1,12 +1,11 @@
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
     database::Database,
-    task::{BufferedError, IntoTask, WithDelay},
+    task::{BufferedErrors, IntoTask, WithDelay},
 };
 use eyre::Context as _;
 use pgmq::{Message, PGMQueueExt};
 use std::time::Duration;
-use tokio::{sync::oneshot, task::JoinHandle};
 use tonic::async_trait;
 
 use crate::{
@@ -192,7 +191,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
-    type Task = WithDelay<BufferedError<MessageConsumerTask<T>>>;
+    type Task = WithDelay<BufferedErrors<MessageConsumerTask<T>>>;
 
     /// Converts the StateManager into the consumer task with a delay
     fn into_task(self) -> Self::Task {
@@ -201,7 +200,7 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
             inner: self,
             queue_name: StateManager::<T>::queue_name(),
         }
-        .into_error_buffered(50)
+        .into_buffered_errors(50)
         .with_delay(POLL_DELAY)
     }
 }
@@ -216,60 +215,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         .await?
         .with_delay(POLL_DELAY))
     }
-
-    /// Starts a new task to periodically fetch new blocks from bitcoin_syncer
-    #[deprecated]
-    pub async fn block_fetcher_bg(
-        last_processed_block_height: u32,
-        db: Database,
-        poll_delay: Duration,
-        paramset: &'static ProtocolParamset,
-    ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
-        tracing::info!(
-            "Starting state manager block syncing with owner type {} starting from height {}",
-            T::OWNER_TYPE,
-            last_processed_block_height
-        );
-
-        let inner_task =
-            BlockFetcherTask::<T>::new(last_processed_block_height, db, paramset).await?;
-
-        let (looping_task, _cancel_tx) = inner_task.with_delay(poll_delay).cancelable_loop();
-
-        // TODO: remove after migration
-        Box::leak(Box::new(_cancel_tx));
-
-        Ok(looping_task.into_bg())
-    }
-
-    #[deprecated]
-    pub async fn into_msg_consumer(
-        self,
-        poll_delay: Duration,
-    ) -> (JoinHandle<Result<(), BridgeError>>, oneshot::Sender<()>)
-    where
-        T: Owner + std::fmt::Debug + 'static,
-    {
-        let consumer = MessageConsumerTask {
-            db: self.db.clone(),
-            inner: self,
-            queue_name: StateManager::<T>::queue_name(),
-        };
-
-        let (handle, cancel_tx) = consumer
-            .into_error_buffered(50)
-            .with_delay(poll_delay)
-            .cancelable_loop();
-
-        (handle.into_bg(), cancel_tx)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
-    use tokio::time::timeout;
+    use tokio::{sync::oneshot, task::JoinHandle, time::timeout};
     use tonic::async_trait;
 
     use crate::{
@@ -310,10 +262,8 @@ mod tests {
             StateManager::new(db, MockHandler, ProtocolParamsetName::Regtest.into())
                 .await
                 .unwrap();
-        let (handle, shutdown) = state_manager
-            .into_msg_consumer(Duration::from_millis(100))
-            .await;
-        (handle, shutdown)
+        let (t, shutdown) = state_manager.into_task().cancelable_loop();
+        (t.into_bg(), shutdown)
     }
 
     #[tokio::test]

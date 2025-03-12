@@ -8,8 +8,9 @@ use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorSe
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
 use crate::rpc::clementine::clementine_watchtower_server::ClementineWatchtowerServer;
+use crate::verifier::VerifierServer;
 use crate::watchtower::Watchtower;
-use crate::{config::BridgeConfig, errors, verifier::Verifier};
+use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
 use std::thread;
 use tokio::sync::oneshot;
@@ -144,7 +145,7 @@ pub async fn create_verifier_grpc_server(
     .await?;
 
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let verifier = Verifier::new(config).await?;
+    let verifier = VerifierServer::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Verifier").await?;
@@ -219,7 +220,7 @@ pub async fn create_verifier_unix_server(
     )
     .await?;
 
-    let verifier = Verifier::new(config).await?;
+    let verifier = VerifierServer::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) =

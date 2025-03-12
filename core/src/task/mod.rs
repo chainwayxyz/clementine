@@ -145,7 +145,7 @@ impl<T: Task + Sized> Task for CancelableLoop<T> {
 }
 
 #[derive(Debug)]
-pub struct BufferedError<T: Task + Sized>
+pub struct BufferedErrors<T: Task + Sized>
 where
     T::Output: Default,
 {
@@ -154,7 +154,7 @@ where
     error_overflow_limit: usize,
 }
 
-impl<T: Task + Sized> BufferedError<T>
+impl<T: Task + Sized> BufferedErrors<T>
 where
     T::Output: Default,
 {
@@ -168,7 +168,7 @@ where
 }
 
 #[async_trait]
-impl<T: Task + Sized> Task for BufferedError<T>
+impl<T: Task + Sized> Task for BufferedErrors<T>
 where
     T::Output: Default,
 {
@@ -221,7 +221,9 @@ impl<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 'static> Tas
     }
 }
 
-pub struct ErrorIgnored<T: Task + Sized>
+/// A task that ignores errors from the inner task and returns a default value.
+#[derive(Debug)]
+pub struct IgnoreError<T: Task + Sized>
 where
     T::Output: Default,
 {
@@ -229,7 +231,7 @@ where
 }
 
 #[async_trait]
-impl<T: Task + Sized> Task for ErrorIgnored<T>
+impl<T: Task + Sized> Task for IgnoreError<T>
 where
     T::Output: Default,
 {
@@ -257,7 +259,7 @@ pub trait TaskExt: Task + Sized {
 
     /// Buffers consecutive errors until the task succeeds, emits all errors when there are
     /// more than `error_overflow_limit` consecutive errors.
-    fn into_error_buffered(self, error_overflow_limit: usize) -> BufferedError<Self>
+    fn into_buffered_errors(self, error_overflow_limit: usize) -> BufferedErrors<Self>
     where
         Self::Output: Default;
 
@@ -268,7 +270,7 @@ pub trait TaskExt: Task + Sized {
     ) -> Map<Self, F>;
 
     /// Ignores errors from the task.
-    fn ignore_error(self) -> ErrorIgnored<Self>
+    fn ignore_error(self) -> IgnoreError<Self>
     where
         Self::Output: Default;
 }
@@ -295,11 +297,11 @@ impl<T: Task + Sized> TaskExt for T {
         tokio::spawn(async move { self.run_once().await })
     }
 
-    fn into_error_buffered(self, error_overflow_limit: usize) -> BufferedError<Self>
+    fn into_buffered_errors(self, error_overflow_limit: usize) -> BufferedErrors<Self>
     where
         Self::Output: Default,
     {
-        BufferedError::new(self, error_overflow_limit)
+        BufferedErrors::new(self, error_overflow_limit)
     }
 
     fn map<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
@@ -309,10 +311,10 @@ impl<T: Task + Sized> TaskExt for T {
         Map { inner: self, map }
     }
 
-    fn ignore_error(self) -> ErrorIgnored<Self>
+    fn ignore_error(self) -> IgnoreError<Self>
     where
         Self::Output: Default,
     {
-        ErrorIgnored { inner: self }
+        IgnoreError { inner: self }
     }
 }

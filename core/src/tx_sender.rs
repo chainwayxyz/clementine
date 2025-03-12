@@ -6,9 +6,9 @@ use bitcoin::{
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
 use serde::{Deserialize, Serialize};
-use tokio::task::JoinHandle;
 use tonic::async_trait;
 
+use crate::task::{IgnoreError, WithDelay};
 use crate::{
     actor::Actor,
     bitcoin_syncer::BitcoinSyncerEvent,
@@ -28,6 +28,12 @@ use crate::{
     extended_rpc::ExtendedRpc,
     rpc::clementine::NormalSignatureKind,
     task::{IntoTask, Task, TaskExt},
+};
+
+const POLL_DELAY: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_secs(1)
 };
 
 #[derive(Clone, Debug)]
@@ -73,18 +79,6 @@ pub struct TxSenderTask {
     db: Database,
     current_tip_height: u32,
     inner: TxSender,
-}
-
-impl IntoTask for TxSender {
-    type Task = TxSenderTask;
-
-    fn into_task(self) -> Self::Task {
-        TxSenderTask {
-            db: self.db.clone(),
-            current_tip_height: 0,
-            inner: self,
-        }
-    }
 }
 
 #[async_trait]
@@ -149,52 +143,35 @@ impl Task for TxSenderTask {
     }
 }
 
+impl IntoTask for TxSender {
+    type Task = WithDelay<IgnoreError<TxSenderTask>>;
+
+    fn into_task(self) -> Self::Task {
+        TxSenderTask {
+            db: self.db.clone(),
+            current_tip_height: 0,
+            inner: self,
+        }
+        .ignore_error()
+        .with_delay(POLL_DELAY)
+    }
+}
+
 impl TxSender {
     pub fn new(
         signer: Actor,
         rpc: ExtendedRpc,
         db: Database,
-        btc_syncer_consumer_id: &str,
+        btc_syncer_consumer_id: String,
         network: bitcoin::Network,
     ) -> Self {
         Self {
             signer,
             rpc,
             db,
-            btc_syncer_consumer_id: btc_syncer_consumer_id.to_string(),
+            btc_syncer_consumer_id,
             network,
         }
-    }
-
-    /// Runs the tx sender.
-    /// It will start a background task that will listen for new blocks and confirm transactions.
-    /// It will also listen for reorged blocks and unconfirm transactions.
-    /// It will also periodically bump fees of both the package and the fee payer txs.
-    /// consumer_handle is the name of the consumer that will be used to listen for events, it should be unique for each tx sender.
-    pub async fn run(
-        &self,
-        poll_delay: Duration,
-    ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
-        tracing::trace!(
-            "TXSENDER: Starting tx sender with handle {}",
-            self.btc_syncer_consumer_id
-        );
-
-        // Clone self to move into task
-        let task = self
-            .clone()
-            .into_task()
-            .ignore_error()
-            .with_delay(poll_delay);
-
-        // Create a cancelable, looping task
-        let (looping_task, _cancel_tx) = task.cancelable_loop();
-
-        // TODO: remove before merging to a task manager
-        Box::leak(Box::new(_cancel_tx));
-
-        // Run the task in the background
-        Ok(looping_task.into_bg())
     }
 
     /// Creates a fee payer UTXO for a CPFP transaction.
@@ -1013,7 +990,7 @@ impl TxSenderClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bitcoin_syncer;
+    use crate::bitcoin_syncer::BitcoinSyncer;
     use crate::bitvm_client::SECP;
     use crate::builder::script::{CheckSig, SpendableScript};
     use crate::builder::transaction::TransactionType;
@@ -1034,7 +1011,13 @@ mod tests {
 
         let db = Database::new(&config).await.unwrap();
 
-        let tx_sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), "tx_sender", network);
+        let tx_sender = TxSender::new(
+            actor.clone(),
+            rpc.clone(),
+            db.clone(),
+            "tx_sender".into(),
+            network,
+        );
 
         (tx_sender, rpc, db, actor, network)
     }
@@ -1111,24 +1094,23 @@ mod tests {
 
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender(rpc).await;
 
-        let _bitcoin_syncer_handle = bitcoin_syncer::start_bitcoin_syncer(
-            db.clone(),
-            rpc.clone(),
-            Duration::from_secs(1),
-            config.protocol_paramset(),
-        )
-        .await
-        .unwrap();
+        let btc_syncer = BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+            .await
+            .unwrap()
+            .into_task()
+            .cancelable_loop();
+        btc_syncer.0.into_bg();
 
-        let _tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await.unwrap();
+        let client = tx_sender.client();
+        let tx_sender = tx_sender.into_task().cancelable_loop();
+        tx_sender.0.into_bg();
 
         let tx = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::CPFP)
             .await
             .unwrap();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
-        let tx_id1 = tx_sender
-            .client()
+        let tx_id1 = client
             .insert_try_to_send(
                 &mut dbtx,
                 None,
@@ -1141,8 +1123,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let tx_id2 = tx_sender
-            .client()
+        let tx_id2 = client
             .insert_try_to_send(
                 &mut dbtx,
                 None,
@@ -1187,8 +1168,7 @@ mod tests {
             .unwrap();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
-        tx_sender
-            .client()
+        client
             .insert_try_to_send(
                 &mut dbtx,
                 None,
@@ -1239,7 +1219,7 @@ mod tests {
             signer.clone(),
             rpc.clone(),
             db,
-            "tx_sender",
+            "tx_sender".into(),
             config.protocol_paramset().network,
         );
 

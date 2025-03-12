@@ -13,8 +13,13 @@ use crate::{
 use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
 use std::time::Duration;
-use tokio::task::JoinHandle;
 use tonic::async_trait;
+
+const POLL_DELAY: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_secs(1)
+};
 
 /// Represents basic information of a Bitcoin block.
 #[derive(Clone, Debug)]
@@ -288,15 +293,13 @@ pub struct BitcoinSyncerTask {
 }
 
 #[derive(Debug)]
-struct BitcoinSyncer {
+pub struct BitcoinSyncer {
     /// The database to store blocks in
     db: Database,
     /// The RPC client to fetch blocks from
     rpc: ExtendedRpc,
     /// The current block height that has been synced
     current_height: u32,
-    /// The delay between polling for new blocks
-    poll_delay: Duration,
 }
 
 impl BitcoinSyncer {
@@ -306,7 +309,6 @@ impl BitcoinSyncer {
     pub async fn new(
         db: Database,
         rpc: ExtendedRpc,
-        poll_delay: Duration,
         paramset: &'static ProtocolParamset,
     ) -> Result<Self, BridgeError> {
         // Initialize the database if needed
@@ -322,7 +324,6 @@ impl BitcoinSyncer {
             db,
             rpc,
             current_height,
-            poll_delay,
         })
     }
 }
@@ -335,7 +336,7 @@ impl IntoTask for BitcoinSyncer {
             rpc: self.rpc,
             current_height: self.current_height,
         }
-        .with_delay(self.poll_delay)
+        .with_delay(POLL_DELAY)
     }
 }
 
@@ -397,42 +398,18 @@ impl Task for BitcoinSyncerTask {
     }
 }
 
-/// Starts the Bitcoin syncer loop which continuously polls for new blocks, processes them,
-/// and handles potential reorganizations. Returns a [`JoinHandle`] for the background task.
-// TODO: this fn will be removed when migrating to bg task mgr
-pub async fn start_bitcoin_syncer(
-    db: Database,
-    rpc: ExtendedRpc,
-    poll_delay: Duration,
-    paramset: &'static ProtocolParamset,
-) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
-    // Create the task
-    let syncer = BitcoinSyncer::new(db, rpc, poll_delay, paramset).await?;
-
-    // Create a task that polls at regular intervals
-    let polling_task = syncer.into_task();
-
-    // Create a cancelable, looping task
-    let (looping_task, _cancel_tx) = polling_task.cancelable_loop();
-
-    // TODO: remove before merge
-    Box::leak(Box::new(_cancel_tx));
-
-    // Run the task in the background
-    Ok(looping_task.into_bg())
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::bitcoin_syncer::BitcoinSyncer;
     use crate::builder::transaction::DEFAULT_SEQUENCE;
 
+    use crate::task::{IntoTask, TaskExt};
     use crate::{database::Database, test::common::*};
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
     use bitcoin::{OutPoint, ScriptBuf, Transaction, TxIn, Witness};
     use bitcoincore_rpc::RpcApi;
-    use std::time::Duration;
 
     #[tokio::test]
     #[serial_test::serial]
@@ -736,14 +713,14 @@ mod tests {
         let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
         let hash = rpc.client.get_block_hash(height as u64).await.unwrap();
 
-        super::start_bitcoin_syncer(
-            db.clone(),
-            rpc.clone(),
-            Duration::from_secs(0),
-            config.protocol_paramset(),
-        )
-        .await
-        .unwrap();
+        let (looping_task, _cancel_tx) =
+            BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+                .await
+                .unwrap()
+                .into_task()
+                .cancelable_loop();
+
+        looping_task.into_bg();
 
         loop {
             let mut dbtx = db.begin_transaction().await.unwrap();

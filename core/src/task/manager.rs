@@ -112,7 +112,8 @@ impl<T: Owner + 'static> BackgroundTaskManager<T> {
         .await;
     }
 
-    /// Graceful shutdown of all tasks with a timeout. All tasks will be aborted if the timeout is reached.
+    /// Graceful shutdown of all tasks with a timeout. All tasks will be aborted
+    /// if the timeout is reached.
     ///
     /// # Arguments
     ///
@@ -122,11 +123,9 @@ impl<T: Owner + 'static> BackgroundTaskManager<T> {
     ///   timeout to be effective.
     pub async fn graceful_shutdown_with_timeout(&mut self, timeout: Duration) {
         let timeout_handle = tokio::time::timeout(timeout, self.graceful_shutdown());
-        match timeout_handle.await {
-            Ok(_) => {}
-            Err(_) => {
-                self.abort_all();
-            }
+
+        if timeout_handle.await.is_err() {
+            self.abort_all();
         }
     }
 }
