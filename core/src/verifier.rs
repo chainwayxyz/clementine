@@ -188,10 +188,10 @@ impl Verifier {
             Duration::from_secs(1),
             config.protocol_paramset(),
         )
-        .await;
+        .await?;
 
         let (state_manager_run_loop, shutdown_tx) = state_manager
-            .into_msg_consumer_task(Duration::from_secs(1))
+            .into_msg_consumer(Duration::from_secs(1))
             .await;
         verifier.state_manager_shutdown_tx = shutdown_tx.into();
 

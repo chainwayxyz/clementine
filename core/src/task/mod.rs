@@ -42,7 +42,8 @@ impl<T: Task> IntoTask for T {
     }
 }
 
-/// A task that polls another task at regular intervals
+/// A task that adds a certain delay after the inner task has run
+/// to reduce polling frequency. When inner returns false, the delay is applied.
 #[derive(Debug)]
 pub struct WithDelay<T: Task>
 where
@@ -177,11 +178,17 @@ where
         let result = self.inner.run_once().await;
 
         match result {
-            Ok(output) => Ok(output),
+            Ok(output) => {
+                self.buffer.clear(); // clear buffer on first success
+                Ok(output)
+            }
             Err(e) => {
                 self.buffer.push(e);
                 if self.buffer.len() >= self.error_overflow_limit {
-                    let mut base_error = eyre::eyre!("The task with buffered errors have failed, the following chain is the list of errors.");
+                    let mut base_error = eyre::eyre!(
+                        "Exiting due to {} consecutive errors, the following chain is the list of errors.",
+                        self.error_overflow_limit
+                    );
                     for error in std::mem::take(&mut self.buffer) {
                         base_error = base_error.wrap_err(error);
                     }
@@ -194,20 +201,52 @@ where
     }
 }
 
+#[derive(Debug)]
+pub struct Map<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 'static> {
+    inner: T,
+    map: F,
+}
+
+#[async_trait]
+impl<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 'static> Task for Map<T, F> {
+    type Output = T::Output;
+
+    async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
+        let result = self.inner.run_once().await;
+        let output = match result {
+            Ok(output) => (self.map)(output),
+            Err(e) => return Err(e),
+        };
+        Ok(output)
+    }
+}
+
 pub trait TaskExt: Task + Sized {
+    /// Skips running the task after cancellation using the sender.
     fn into_cancelable(self) -> (CancelableTask<Self>, oneshot::Sender<()>);
 
+    /// Runs the task in an infinite loop until cancelled using the sender.
     fn into_loop(self) -> (CancelableLoop<Self>, oneshot::Sender<()>);
 
+    /// Adds the given delay after a run of the task when the task returns false.
     fn into_polling(self, poll_delay: Duration) -> WithDelay<Self>
     where
         Self::Output: Into<bool>;
 
+    /// Spawns a [`tokio::task`] that runs the task once in the background.
     fn into_bg(self) -> JoinHandle<Result<Self::Output, BridgeError>>;
 
+    /// Buffers consecutive errors until the task succeeds, emits all errors when there are
+    /// more than `error_overflow_limit` consecutive errors.
     fn into_error_buffered(self, error_overflow_limit: usize) -> BufferedError<Self>
     where
         Self::Output: Default;
+
+    /// Maps the task's `Ok()` output using the given function.
+    fn into_mapped<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
+        self,
+        map: F,
+    ) -> Map<Self, F>;
 }
 
 impl<T: Task + Sized> TaskExt for T {
@@ -237,5 +276,12 @@ impl<T: Task + Sized> TaskExt for T {
         Self::Output: Default,
     {
         BufferedError::new(self, error_overflow_limit)
+    }
+
+    fn into_mapped<F: Fn(Self::Output) -> Self::Output + Send + Sync + 'static>(
+        self,
+        map: F,
+    ) -> Map<Self, F> {
+        Map { inner: self, map }
     }
 }
