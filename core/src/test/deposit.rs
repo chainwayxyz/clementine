@@ -237,6 +237,8 @@ impl TestCase for CitreaFetchLCPAndDeposit {
 
         sequencer.client.send_publish_batch_request().await.unwrap();
         sequencer.client.send_publish_batch_request().await.unwrap();
+        sequencer.client.send_publish_batch_request().await.unwrap();
+        sequencer.client.send_publish_batch_request().await.unwrap();
 
         let deposit_tx_block_height = sequencer
             .client
