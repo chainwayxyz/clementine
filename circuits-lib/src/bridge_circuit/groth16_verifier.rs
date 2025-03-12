@@ -16,13 +16,13 @@ use std::str::FromStr;
 
 pub fn create_output_digest(total_work: &[u8; 16]) -> [u8; 32] {
     let total_work_digest: [u8; 32] = Sha256::digest(total_work).into();
-    let len_output: [u8; 2] = hex::decode("0200").unwrap().try_into().unwrap();
+    let len_output: u16 = 2;
 
     let output_pre_digest: [u8; 98] = [
         &OUTPUT_TAG,
         &total_work_digest[..],
         &ASSUMPTIONS[..],
-        &len_output[..],
+        &len_output.to_le_bytes(),
     ]
     .concat()
     .try_into()
@@ -34,7 +34,7 @@ pub fn create_output_digest(total_work: &[u8; 16]) -> [u8; 32] {
 pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u8; 32] {
     let data: [u8; 8] = [0; 8];
 
-    let claim_len: [u8; 2] = [4, 0];
+    let claim_len: u16 = 4;
 
     let concatenated = [
         &CLAIM_TAG,
@@ -43,7 +43,7 @@ pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u
         &POST_STATE,
         output_digest,
         &data[..],
-        &claim_len,
+        &claim_len.to_le_bytes(),
     ]
     .concat();
 
