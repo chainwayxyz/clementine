@@ -1198,20 +1198,41 @@ impl Owner for Verifier {
         block_id: u32,
         block_height: u32,
         block: &bitcoin::Block,
+        light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
+        // TODO: Remove this once we have a mock citrea client
+        if self.citrea_client.is_none() {
+            return Ok(());
+        }
+
         let citrea_client = self
             .citrea_client
             .as_ref()
             .ok_or_else(|| BridgeError::Error("Citrea client is not available".to_string()))?;
 
-        let proof_current = citrea_client
-            .light_client_prover_client
-            .get_light_client_proof_by_l1_height(block_height as u64)
-            .await?
-            .ok_or(BridgeError::Error(format!(
-                "Light client proof not found for block height: {}",
-                block_height
-            )))?;
+        let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(600);
+        let mut attempts = 0;
+
+        let proof_current = loop {
+            if let Some(proof) = citrea_client
+                .light_client_prover_client
+                .get_light_client_proof_by_l1_height(block_height as u64)
+                .await?
+            {
+                break proof;
+            }
+
+            attempts += 1;
+            if attempts >= max_attempts {
+                return Err(BridgeError::Error(format!(
+                    "Light client proof not found for block height {} after {} attempts with 1 second intervals",
+                    block_height,
+                    max_attempts
+                )));
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        };
         tracing::info!("Light Client Proof found");
         tracing::info!("Proof current: {:?}", proof_current);
         let proof_previous = citrea_client
@@ -1252,7 +1273,7 @@ impl Owner for Verifier {
             self.db
                 .set_move_to_vault_txid_from_citrea_deposit(
                     Some(&mut dbtx),
-                    idx as u32,
+                    idx as u32 - 1,
                     &move_to_vault_txid,
                 )
                 .await?;

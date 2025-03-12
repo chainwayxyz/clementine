@@ -83,6 +83,30 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_withdrawal_utxo_from_citrea_withdrawal(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        idx: u32,
+    ) -> Result<Option<OutPoint>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, i32)>(
+            "SELECT w.withdrawal_utxo_txid, w.withdrawal_utxo_vout
+             FROM withdrawals w
+             WHERE w.idx = $1",
+        )
+        .bind(i32::try_from(idx)?);
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        results
+            .map(|(txid, vout)| {
+                Ok(OutPoint {
+                    txid: txid.0,
+                    vout: u32::try_from(vout)?,
+                })
+            })
+            .transpose()
+    }
+
     pub async fn get_payout_txs_from_citrea_withdrawal(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

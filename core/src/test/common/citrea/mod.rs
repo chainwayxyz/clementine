@@ -77,40 +77,6 @@ pub async fn start_citrea(
         .await?;
     println!("Sequencer is ready");
 
-    // Wait for blob inscribe tx to be in mempool
-    da.wait_mempool_len(2, None).await?;
-
-    da.generate(citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH)
-        .await?;
-
-    if let Some(batch_prover) = batch_prover {
-        let commitment_l1_height = da.get_finalized_height(None).await?;
-
-        // Wait for batch prover to generate proof for commitment
-        batch_prover
-            .wait_for_l1_height(commitment_l1_height, None)
-            .await
-            .unwrap();
-        println!("Batch prover is ready");
-    }
-
-    full_node
-        .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
-        .await?;
-    println!("Full node is ready");
-
-    if let Some(light_client_prover) = light_client_prover {
-        let batch_proof_l1_height = da.get_finalized_height(None).await?;
-
-        // Wait for light client prover to process batch proofs.
-        light_client_prover
-            .wait_for_l1_height(batch_proof_l1_height, None)
-            .await
-            .unwrap();
-
-        println!("Light client prover is ready");
-    }
-
     Ok((sequencer, full_node, light_client_prover, batch_prover, da))
 }
 

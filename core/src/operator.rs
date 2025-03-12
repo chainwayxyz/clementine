@@ -356,7 +356,7 @@ impl Operator {
         let net_profit = bridge_amount_sats - withdrawal_amount;
 
         // Net profit must be bigger than withdrawal fee.
-        net_profit > operator_withdrawal_fee_sats
+        net_profit >= operator_withdrawal_fee_sats
     }
 
     /// Prepares a withdrawal by:
@@ -399,16 +399,30 @@ impl Operator {
         };
 
         // Check Citrea for the withdrawal state.
-        if let Some(citrea_contract_client) = &self.citrea_client {
-            let txid = citrea_contract_client
-                .withdrawal_utxos(withdrawal_index.into())
-                .await?
-                .txid;
+        let withdrawal_utxo = self
+            .db
+            .get_withdrawal_utxo_from_citrea_withdrawal(None, withdrawal_index)
+            .await?;
 
-            if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
-                // TODO: Fix this, vout can be different from 0 as well
+        tracing::error!("Withdrawal index: {:?}", withdrawal_index);
+        tracing::error!("Withdrawal utxo: {:?}", withdrawal_utxo);
+        tracing::error!("Input utxo: {:?}", input_utxo.outpoint);
+        tracing::error!("Output txout: {:?}", output_txout);
+        tracing::error!("In signature: {:?}", in_signature);
+        tracing::error!("In outpoint: {:?}", in_outpoint);
+        tracing::error!("Out amount: {:?}", out_amount);
+
+        match withdrawal_utxo {
+            Some(withdrawal_utxo) => {
+                if withdrawal_utxo != input_utxo.outpoint {
+                    return Err(BridgeError::UsersWithdrawalUtxoNotSetForWithdrawalIndex(
+                        withdrawal_index,
+                    ));
+                }
+            }
+            None => {
                 return Err(BridgeError::InvalidInputUTXO(
-                    txid,
+                    input_utxo.outpoint.txid,
                     input_utxo.outpoint.txid,
                 ));
             }
@@ -1115,6 +1129,7 @@ impl Owner for Operator {
         _block_id: u32,
         _block_height: u32,
         _block: &bitcoin::Block,
+        _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
         Ok(())
     }
