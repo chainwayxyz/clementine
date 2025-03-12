@@ -999,6 +999,7 @@ impl Operator {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
         _watchtower_challenges: HashMap<usize, Witness>,
+        _payout_blockhash: Witness,
     ) -> Result<(), BridgeError> {
         let assert_txs = self
             .create_assert_commitment_txs(AssertRequestData {
@@ -1026,7 +1027,7 @@ impl Operator {
                 )
                 .await?;
         }
-
+        dbtx.commit().await?;
         Ok(())
     }
 }
@@ -1056,20 +1057,32 @@ impl Owner for Operator {
                 kickoff_id,
                 deposit_data,
                 watchtower_challenges,
+                payout_blockhash,
             } => {
                 tracing::warn!("Operator {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", self.idx, kickoff_id, deposit_data, watchtower_challenges.len());
-                self.send_asserts(kickoff_id, deposit_data, watchtower_challenges)
-                    .await?;
+                self.send_asserts(
+                    kickoff_id,
+                    deposit_data,
+                    watchtower_challenges,
+                    payout_blockhash,
+                )
+                .await?;
             }
             Duty::VerifierDisprove {
                 kickoff_id,
                 deposit_data,
                 operator_asserts,
                 operator_acks,
+                payout_blockhash,
             } => {
-                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len());
+                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
+                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash);
             }
-            Duty::CheckIfKickoff { txid, block_height } => {
+            Duty::CheckIfKickoff {
+                txid,
+                block_height,
+                witness,
+            } => {
                 tracing::info!(
                     "Operator {} called check if kickoff with txid: {:?}, block_height: {:?}",
                     self.idx,
@@ -1089,6 +1102,7 @@ impl Owner for Operator {
                         kickoff_id,
                         block_height,
                         deposit_data,
+                        witness,
                     )
                     .await?;
                     dbtx.commit().await?;

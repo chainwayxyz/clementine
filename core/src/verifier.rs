@@ -1108,6 +1108,7 @@ impl Owner for Verifier {
                 kickoff_id,
                 deposit_data,
                 watchtower_challenges,
+                ..
             } => {
                 tracing::info!(
                     "Verifier {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
@@ -1119,13 +1120,17 @@ impl Owner for Verifier {
                 deposit_data,
                 operator_asserts,
                 operator_acks,
+                payout_blockhash,
             } => {
                 tracing::warn!(
-                    "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}",
-                    self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len()
-                );
+                    "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
+                    payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash);
             }
-            Duty::CheckIfKickoff { txid, block_height } => {
+            Duty::CheckIfKickoff {
+                txid,
+                block_height,
+                witness,
+            } => {
                 tracing::info!(
                     "Verifier {} called check if kickoff with txid: {:?}, block_height: {:?}",
                     self.idx,
@@ -1145,6 +1150,7 @@ impl Owner for Verifier {
                         kickoff_id,
                         block_height,
                         deposit_data,
+                        witness,
                     )
                     .await?;
                     //self.handle_kickoff(&mut dbtx, txid).await?;

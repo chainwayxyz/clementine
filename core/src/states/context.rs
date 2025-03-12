@@ -44,16 +44,19 @@ pub enum Duty {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Witness>,
+        payout_blockhash: Witness,
     },
     VerifierDisprove {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
         operator_asserts: HashMap<usize, Witness>,
         operator_acks: HashMap<usize, Witness>,
+        payout_blockhash: Witness,
     },
     CheckIfKickoff {
         txid: Txid,
         block_height: u32,
+        witness: Witness,
     },
 }
 
