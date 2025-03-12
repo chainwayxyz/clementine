@@ -195,9 +195,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     Err(e) => {
                         tracing::error!("State manager run loop error: {:?}", e);
                         num_consecutive_errors += 1;
-                        // if num_consecutive_errors > 50 {
-                        //     return Err(eyre::eyre!("Too many consecutive state machine errors"));
-                        // }
+                        if num_consecutive_errors > 50 {
+                            return Err(eyre::eyre!("Too many consecutive state machine errors"));
+                        }
                         tokio::time::sleep(poll_delay).await;
                     }
                 }
@@ -250,6 +250,7 @@ mod tests {
             _block_id: u32,
             _block_height: u32,
             _block: &bitcoin::Block,
+            _light_client_proof_wait_interval_secs: Option<u32>,
         ) -> Result<(), BridgeError> {
             Ok(())
         }

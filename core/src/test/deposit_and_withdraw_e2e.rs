@@ -1,6 +1,7 @@
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
+use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::{generate_withdrawal_transaction_and_signature, run_single_deposit};
 use crate::{
@@ -71,16 +72,19 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            initial_da_height: 100,
+            initial_da_height: 200,
             ..Default::default()
         }
     }
 
     async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        tracing::error!("Starting Citrea");
         let (sequencer, _full_node, lc_prover, _, da) =
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
+        let block_count = da.get_block_count().await?;
+        println!("Block count before deposit: {:?}", block_count);
         let lc_prover = lc_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name(None).await;
@@ -109,7 +113,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         );
         let (
             _verifiers,
-            _operators,
+            mut operators,
             _aggregator,
             _watchtowers,
             _cleanup,
@@ -162,15 +166,32 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             None,
             config.protocol_paramset().network,
         );
-        let withdrawal_utxo = generate_withdrawal_transaction_and_signature(
-            &config,
-            &rpc,
-            &withdrawal_address,
-            Amount::from_sat(330),
-        )
-        .await
-        .0
-        .outpoint;
+        let (withdrawal_utxo_with_txout, payout_txout, sig) =
+            generate_withdrawal_transaction_and_signature(
+                &config,
+                &rpc,
+                &withdrawal_address,
+                config.protocol_paramset().bridge_amount
+                    - config
+                        .operator_withdrawal_fee_sats
+                        .unwrap_or(Amount::from_sat(0)),
+            )
+            .await;
+
+        let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
+
+        let withdrawal_response = operators[0]
+            .withdraw(WithdrawParams {
+                withdrawal_id: 0,
+                input_signature: sig.serialize().to_vec(),
+                input_outpoint: Some(withdrawal_utxo.into()),
+                output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
+                output_amount: payout_txout.txout().value.to_sat(),
+            })
+            .await;
+
+        tracing::error!("Withdrawal response: {:?}", withdrawal_response);
+
         println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
         let citrea_client = CitreaClient::new(
@@ -230,18 +251,39 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         lc_prover.wait_for_l1_height(finalized_height, None).await?;
         tracing::error!("Waited for L1 height");
 
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
+
         loop {
-            // mine 1 block
-            rpc.mine_blocks(1).await.unwrap();
-            // wait 100ms
+            let withdrawal_response = operators[0]
+                .withdraw(WithdrawParams {
+                    withdrawal_id: 0,
+                    input_signature: sig.serialize().to_vec(),
+                    input_outpoint: Some(withdrawal_utxo.into()),
+                    output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
+                    output_amount: payout_txout.txout().value.to_sat(),
+                })
+                .await;
+
+            tracing::error!("Withdrawal response: {:?}", withdrawal_response);
+
+            match withdrawal_response {
+                Ok(withdrawal_response) => {
+                    tracing::error!("Withdrawal response: {:?}", withdrawal_response);
+                    break;
+                }
+                Err(e) => {
+                    tracing::error!("Withdrawal error: {:?}", e);
+                }
+            }
+
+            // wait 1000ms
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         }
 
-        // TODO: Send withdrawal signatures to operator.
+        Ok(())
     }
 }
 
-#[ignore = "temp infinite loop"]
 #[tokio::test]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     // TODO: temp hack to use the correct docker image
