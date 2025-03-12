@@ -104,7 +104,6 @@ impl Verifier {
             config.winternitz_secret_key,
             config.protocol_paramset().network,
         );
-        // let pk: bitcoin::secp256k1:: PublicKey = config.secret_key.public_key(&utils::SECP);
 
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
         let idx = config
@@ -114,6 +113,7 @@ impl Verifier {
             .ok_or(BridgeError::PublicKeyNotFound)?;
 
         let db = Database::new(&config).await?;
+
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -128,6 +128,7 @@ impl Verifier {
             &format!("verifier_{}", idx).to_string(),
             config.protocol_paramset().network,
         );
+
         let tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
 
         // Monitor the tx_sender_handle and abort if it dies unexpectedly
@@ -155,8 +156,6 @@ impl Verifier {
             None
         };
 
-        bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc, config.protocol_paramset())
-            .await?;
         let _handle = bitcoin_syncer::start_bitcoin_syncer(
             db.clone(),
             rpc.clone(),
@@ -178,6 +177,7 @@ impl Verifier {
             tx_sender,
             state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
         };
+
         // initialize and run state manager
         let mut state_manager =
             StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
