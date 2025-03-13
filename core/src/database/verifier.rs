@@ -7,7 +7,7 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{secp256k1::PublicKey, OutPoint, Txid};
+use bitcoin::{secp256k1::PublicKey, BlockHash, OutPoint, Txid};
 use sqlx::QueryBuilder;
 
 impl Database {
@@ -178,6 +178,47 @@ impl Database {
         let query = query_builder.build();
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
+        Ok(())
+    }
+
+    pub async fn get_first_unhandled_payout_by_operator_id(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        operator_id: u32,
+    ) -> Result<Option<(u32, Txid, BlockHash)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, BlockHashDB)>(
+            "SELECT w.idx, w.move_to_vault_txid, w.payout_tx_blockhash
+             FROM withdrawals w
+             WHERE w.payout_txid IS NOT NULL
+                AND w.is_payout_handled = FALSE
+                AND w.payout_payer_operator_idx = $1
+                ORDER BY w.idx ASC
+             LIMIT 1",
+        )
+        .bind(i32::try_from(operator_id)?);
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        results
+            .map(|(citrea_idx, move_to_vault_txid, payout_tx_blockhash)| {
+                Ok((
+                    u32::try_from(citrea_idx)?,
+                    move_to_vault_txid.0,
+                    payout_tx_blockhash.0,
+                ))
+            })
+            .transpose()
+    }
+
+    pub async fn set_payout_handled(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        citrea_idx: u32,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("UPDATE withdrawals SET is_payout_handled = TRUE WHERE idx = $1")
+            .bind(i32::try_from(citrea_idx)?);
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
     }
 }

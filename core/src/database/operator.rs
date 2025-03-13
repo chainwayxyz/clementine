@@ -369,9 +369,10 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_data: DepositData,
+        move_to_vault_txid: Txid,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_as(
-            "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk)
+            "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk, move_to_vault_txid)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (deposit_outpoint) DO UPDATE
                 SET recovery_taproot_address = EXCLUDED.recovery_taproot_address,
@@ -383,12 +384,36 @@ impl Database {
         .bind(OutPointDB(deposit_data.deposit_outpoint))
         .bind(AddressDB(deposit_data.recovery_taproot_address))
         .bind(EVMAddressDB(deposit_data.evm_address))
-        .bind(XOnlyPublicKeyDB(deposit_data.nofn_xonly_pk));
-
+        .bind(XOnlyPublicKeyDB(deposit_data.nofn_xonly_pk))
+        .bind(TxidDB(move_to_vault_txid));
         let deposit_id: Result<(i32,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
         Ok(u32::try_from(deposit_id?.0)?)
+    }
+
+    pub async fn get_deposit_data_with_move_tx(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        move_to_vault_txid: Txid,
+    ) -> Result<Option<DepositData>, BridgeError> {
+        let query = sqlx::query_as("SELECT deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk FROM deposits WHERE move_to_vault_txid = $1;")
+            .bind(TxidDB(move_to_vault_txid));
+
+        let result: Option<(OutPointDB, AddressDB, EVMAddressDB, XOnlyPublicKeyDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk)) => {
+                Ok(Some(DepositData {
+                    deposit_outpoint: deposit_outpoint.0,
+                    recovery_taproot_address: recovery_taproot_address.0,
+                    evm_address: evm_address.0,
+                    nofn_xonly_pk: nofn_xonly_pk.0,
+                }))
+            }
+            None => Ok(None),
+        }
     }
 
     pub async fn get_deposit_data(

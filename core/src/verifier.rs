@@ -786,6 +786,7 @@ impl Verifier {
                     recovery_taproot_address: recovery_taproot_address.clone(),
                     nofn_xonly_pk: self.nofn_xonly_pk,
                 },
+                *move_txhandler.get_txid(),
             )
             .await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
