@@ -30,7 +30,8 @@ and modify fields to your local configuration.
 
 ### Starting a Server
 
-An actor's server can be started using its corresponding argument:
+Clementine is designed to be run multiple times for every actor that an entity
+requires. An actor's server can be started using its corresponding argument:
 
 ```sh
 # Build the binary
@@ -61,7 +62,7 @@ For more information, use `--help` flag:
 
 1. **PostgreSQL Database**
 
-   Tests require a PostgreSQL database with a high max connection limit due to parallelism of tests. 
+   Tests require a PostgreSQL database with a high max connection limit due to parallelism of tests.
    It is also required to have pgmq extension installed for PostgreSQL.
    You can quickly set one up using Docker:
 

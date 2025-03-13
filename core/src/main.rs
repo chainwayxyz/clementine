@@ -1,3 +1,11 @@
+//! # Clementine 🍊
+//!
+//! This is Clementine, Citrea's BitVM based trust-minimized two-way peg program.
+//!
+//! Clementine binary acts as a server for the every actor. An entity should
+//! spawn multiple actor servers that it needs, in different processes. Meaning
+//! Clementine binary should be run multiple times with different arguments.
+
 use database::Database;
 use servers::{
     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
@@ -34,8 +42,6 @@ pub mod test;
 
 #[tokio::main]
 async fn main() {
-    eprintln!("\nBEWARE: Current behavior of this binary is subject to change: It is in active development.\n");
-
     let (config, args) = get_configuration_for_binaries();
 
     Database::run_schema_script(&config)
@@ -76,6 +82,7 @@ async fn main() {
                 .1
         }
     };
+    println!("Server has started successfully.");
 
     handle.closed().await;
 }
