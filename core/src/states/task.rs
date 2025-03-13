@@ -113,11 +113,11 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                             next_height
                         )))?;
 
-                                    let event = SystemEvent::NewBlock {
-                                        block_id,
-                                        block,
-                                        height: next_height,
-                                    };
+                    let event = SystemEvent::NewBlock {
+                        block_id,
+                        block,
+                        height: next_height,
+                    };
 
                     self.queue
                         .send_with_cxn(&self.queue_name, &event, &mut *dbtx)
