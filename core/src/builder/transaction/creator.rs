@@ -79,7 +79,7 @@ pub struct ReimburseDbCache {
 }
 
 impl ReimburseDbCache {
-    /// Creates a db cache that can be used to create txhandlers for a specific operator and deposit
+    /// Creates a db cache that can be used to create txhandlers for a specific operator and deposit/kickoff
     pub fn new_for_deposit(
         db: Database,
         operator_idx: u32,
@@ -148,7 +148,7 @@ impl ReimburseDbCache {
         }
     }
 
-    pub async fn watchtower_challenge_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
+    pub async fn watchtower_challenge_root_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
         if let Some(deposit_data) = &self.deposit_data {
             match self.watchtower_challenge_hashes {
                 Some(ref addr) => Ok(addr),
@@ -359,6 +359,7 @@ pub async fn create_txhandlers(
 
     let operator_data = db_cache.get_operator_data().await?.clone();
     let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?;
+
     let ContractContext {
         operator_idx,
         round_idx,
@@ -427,7 +428,8 @@ pub async fn create_txhandlers(
 
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
-    let watchtower_challenge_hashes = db_cache.watchtower_challenge_hash().await?.to_vec();
+    let watchtower_challenge_root_hashes =
+        db_cache.watchtower_challenge_root_hash().await?.to_vec();
 
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
@@ -452,7 +454,7 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
-            &watchtower_challenge_hashes,
+            &watchtower_challenge_root_hashes,
             &public_hashes,
             paramset,
         )?;
@@ -476,7 +478,7 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
-            &watchtower_challenge_hashes,
+            &watchtower_challenge_root_hashes,
             &public_hashes,
             paramset,
         )?

@@ -288,7 +288,7 @@ impl TxSender {
                             txid: kickoff_txid,
                             vout: get_watchtower_challenge_utxo_vout(watchtower_idx) as u32,
                         },
-                        relative_block_height: config.confirmation_threshold,
+                        relative_block_height: config.protocol_paramset().finality_depth,
                     }],
                 )
                 .await
@@ -315,15 +315,16 @@ impl TxSender {
         activate_txids: &[ActivatedWithTxid],
         activate_outpoints: &[ActivatedWithOutpoint],
     ) -> Result<u32, BridgeError> {
+        let txid = signed_tx.compute_txid();
         tracing::info!(
-            "{} added tx {:?} with tx_data_for_logging: {:?}",
+            "{} added tx {:?} with tx_data_for_logging: {:?}, txid: {:?}",
             self.consumer_handle,
             tx_data_for_logging
                 .map(|data| data.tx_type)
                 .unwrap_or(TransactionType::Dummy),
-            tx_data_for_logging
+            tx_data_for_logging,
+            txid
         );
-        let txid = signed_tx.compute_txid();
         let try_to_send_id = self
             .db
             .save_tx(

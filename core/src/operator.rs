@@ -886,7 +886,7 @@ impl Operator {
                             txid: kickoff_txid,
                             vout: 1, // Kickoff finalizer output index
                         },
-                        relative_block_height: self.config.confirmation_threshold,
+                        relative_block_height: self.config.protocol_paramset().finality_depth,
                     });
                 }
                 None => {
@@ -905,7 +905,7 @@ impl Operator {
                         .await?;
                     activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: unspent_kickoff_connector,
-                        relative_block_height: self.config.confirmation_threshold,
+                        relative_block_height: self.config.protocol_paramset().finality_depth,
                     });
                 }
             }

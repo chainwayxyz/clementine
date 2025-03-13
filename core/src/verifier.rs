@@ -792,6 +792,7 @@ impl Verifier {
                             operator_idx, round_idx, kickoff_idx
                         )));
                     }
+
                     self.db
                         .set_deposit_signatures(
                             Some(&mut dbtx),

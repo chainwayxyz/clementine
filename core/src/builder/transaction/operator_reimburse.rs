@@ -46,7 +46,7 @@ pub fn create_kickoff_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let kickoff_idx: usize = kickoff_id.kickoff_idx as usize;
     let operator_idx: usize = kickoff_id.operator_idx as usize;
-    let move_txid: Txid = deposit_outpoint.txid;
+    let move_txid: Txid = deposit_outpoint.txid; // TODO: Bug!! change to actual move txid not deposit txid
     let mut builder =
         TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(3));
     builder = builder.add_input(

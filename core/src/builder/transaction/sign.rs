@@ -38,18 +38,15 @@ pub fn get_kickoff_utxos_to_sign(
     deposit_blockhash: BlockHash,
     deposit_outpoint: bitcoin::OutPoint,
 ) -> Vec<usize> {
-    let mut hash = [
+    let deposit_data = [
         op_xonly_pk.serialize().to_vec(),
         deposit_blockhash.to_byte_array().to_vec(),
         deposit_outpoint.txid.to_byte_array().to_vec(),
+        deposit_outpoint.vout.to_le_bytes().to_vec(),
     ]
     .concat();
 
-    hash = bitcoin::hashes::sha256d::Hash::hash(&hash)
-        .to_byte_array()
-        .to_vec();
-
-    let seed: [u8; 32] = hash.try_into().expect("Hash must be 32 bytes");
+    let seed = bitcoin::hashes::sha256d::Hash::hash(&deposit_data).to_byte_array();
     let mut rng = ChaCha12Rng::from_seed(seed);
 
     let mut numbers: Vec<usize> = (0..paramset.num_kickoffs_per_round).collect();
