@@ -234,7 +234,7 @@ pub fn create_spv(
     }
 }
 
-/// Generates a Groth16 proof for work-only verification.
+/// Generates a Groth16 proof of a bitcoin header chain proof where it only outputs the total work.
 ///
 /// This function constructs an execution environment, serializes the provided
 /// input using Borsh, and utilizes a default prover to generate a proof using
@@ -250,7 +250,7 @@ pub fn create_spv(
 ///
 /// Returns a new `Receipt` containing the Groth16 proof result.
 ///
-pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
+pub fn prove_work_only_header_chain_proof(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
     let env = ExecutorEnv::builder()
         .add_assumption(receipt)
         .write_slice(&borsh::to_vec(&input).unwrap())
@@ -436,7 +436,7 @@ mod tests {
         };
 
         let work_only_groth16_proof_receipt: Receipt =
-            prove_work_only(headerchain_receipt.clone(), &work_only_circuit_input);
+            prove_work_only_header_chain_proof(headerchain_receipt.clone(), &work_only_circuit_input);
 
         let g16_proof_receipt: &risc0_zkvm::Groth16Receipt<risc0_zkvm::ReceiptClaim> =
             work_only_groth16_proof_receipt.inner.groth16().unwrap();
