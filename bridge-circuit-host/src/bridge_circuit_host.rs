@@ -118,7 +118,7 @@ pub fn prove_bridge_circuit(
     }
 
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
-        public_inputs(bridge_circuit_input.clone());
+        generate_succinct_bridge_circuit_public_inputs(bridge_circuit_input.clone());
     let journal_hash = public_inputs.journal_hash();
 
     let mut binding = ExecutorEnv::builder();
@@ -284,7 +284,7 @@ pub fn prove_work_only_header_chain_proof(receipt: Receipt, input: &WorkOnlyCirc
 /// - A digest of watchtower challenge public keys.
 /// - The extracted operator ID.
 ///
-fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs {
+fn generate_succinct_bridge_circuit_public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs {
     // challenge_sending_watchtowers
     let mut challenge_sending_watchtowers = [0u8; 20];
     for (i, winternitz_handler) in input.winternitz_details.iter().enumerate() {
