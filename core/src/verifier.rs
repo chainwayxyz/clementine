@@ -1103,6 +1103,11 @@ impl Verifier {
         Ok(())
     }
 
+    /// Get's the l2 height range for the given Bitcoin block height
+    /// It fetches the light client proof for the given block height and the previous block height
+    /// Then it calculates the l2 height range from the light client proof
+    /// Note that this is not the best way to do this, but it's a quick fix for now
+    /// it will attempt to fetch the light client proof max_attempts times with 1 second intervals
     async fn get_citrea_l2_height_range(
         citrea_client: &CitreaClient,
         block_height: u32,
