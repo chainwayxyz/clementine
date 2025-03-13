@@ -16,6 +16,7 @@ use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys
 use crate::citrea::{CitreaClient, LightClientProverRpcClient};
 use crate::config::protocol::{ProtocolParamset, ProtocolParamsetName};
 use crate::config::BridgeConfig;
+use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -1202,7 +1203,7 @@ impl Verifier {
     ) -> Result<(), BridgeError> {
         let payout_txids = self
             .db
-            .get_payout_txs_from_citrea_withdrawal(Some(dbtx), block_id)
+            .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
             .await?;
 
         let txid_to_tx_hashmap: HashMap<bitcoin::Txid, &bitcoin::Transaction> = block
@@ -1351,7 +1352,7 @@ impl Owner for Verifier {
             .as_ref()
             .ok_or_else(|| BridgeError::Error("Citrea client is not available".to_string()))?;
 
-        let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(600);
+        let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
 
         let (l2_height_start, l2_height_end) =
             Self::get_citrea_l2_height_range(citrea_client, block_height, max_attempts).await?;

@@ -44,7 +44,7 @@ impl Database {
     pub async fn set_move_to_vault_txid_from_citrea_deposit(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        idx: u32,
+        citrea_idx: u32,
         move_to_vault_txid: &Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
@@ -53,7 +53,7 @@ impl Database {
              ON CONFLICT (idx) DO UPDATE 
              SET move_to_vault_txid = $2",
         )
-        .bind(i32::try_from(idx)?)
+        .bind(i32::try_from(citrea_idx)?)
         .bind(TxidDB(*move_to_vault_txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -63,7 +63,7 @@ impl Database {
     pub async fn set_withdrawal_utxo_from_citrea_withdrawal(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        idx: u32,
+        citrea_idx: u32,
         withdrawal_utxo: OutPoint,
         withdrawal_batch_proof_bitcoin_block_height: u32,
     ) -> Result<(), BridgeError> {
@@ -74,7 +74,7 @@ impl Database {
                  withdrawal_batch_proof_bitcoin_block_height = $4
              WHERE idx = $1",
         )
-        .bind(i32::try_from(idx)?)
+        .bind(i32::try_from(citrea_idx)?)
         .bind(TxidDB(withdrawal_utxo.txid))
         .bind(i32::try_from(withdrawal_utxo.vout)?)
         .bind(i32::try_from(withdrawal_batch_proof_bitcoin_block_height)?);
@@ -86,14 +86,14 @@ impl Database {
     pub async fn get_withdrawal_utxo_from_citrea_withdrawal(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        idx: u32,
+        citrea_idx: u32,
     ) -> Result<Option<OutPoint>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB, i32)>(
             "SELECT w.withdrawal_utxo_txid, w.withdrawal_utxo_vout
              FROM withdrawals w
              WHERE w.idx = $1",
         )
-        .bind(i32::try_from(idx)?);
+        .bind(i32::try_from(citrea_idx)?);
 
         let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -109,7 +109,7 @@ impl Database {
 
     /// Returns the withdrawal indexes and their spending txid for the given
     /// block id.
-    pub async fn get_payout_txs_from_citrea_withdrawal(
+    pub async fn get_payout_txs_for_withdrawal_utxos(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_id: u32,
@@ -266,7 +266,7 @@ mod tests {
         .unwrap();
 
         let txs = db
-            .get_payout_txs_from_citrea_withdrawal(Some(&mut dbtx), block_id)
+            .get_payout_txs_for_withdrawal_utxos(Some(&mut dbtx), block_id)
             .await
             .unwrap();
 
