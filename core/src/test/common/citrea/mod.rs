@@ -25,7 +25,7 @@ lazy_static::lazy_static! {
     pub static ref BRIDGE_PARAMS: String = {
         let config = BridgeConfig::default();
         let nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+            bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys, None)
             .unwrap()
             .to_string();
 
