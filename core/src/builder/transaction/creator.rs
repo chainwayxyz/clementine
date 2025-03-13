@@ -448,8 +448,8 @@ pub async fn create_txhandlers(
 
         let kickoff_txhandler = create_kickoff_txhandler(
             kickoff_id,
-            deposit_data.deposit_outpoint,
             get_txhandler(&txhandlers, TransactionType::Round)?,
+            get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
             deposit_data.nofn_xonly_pk,
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
@@ -472,8 +472,8 @@ pub async fn create_txhandlers(
         // use db data for scripts
         create_kickoff_txhandler(
             kickoff_id,
-            deposit_data.deposit_outpoint,
             get_txhandler(&txhandlers, TransactionType::Round)?,
+            get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
             deposit_data.nofn_xonly_pk,
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),

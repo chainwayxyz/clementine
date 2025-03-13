@@ -19,7 +19,6 @@ use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::transaction::Version;
-use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{Address, TapNodeHash, TxOut, Txid};
 use std::sync::Arc;
@@ -33,8 +32,8 @@ pub enum AssertScripts<'a> {
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
     kickoff_id: KickoffId,
-    deposit_outpoint: OutPoint,
     round_txhandler: &TxHandler,
+    move_txhandler: &TxHandler,
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
     // either actual SpendableScripts or scriptpubkeys from db
@@ -46,7 +45,7 @@ pub fn create_kickoff_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let kickoff_idx: usize = kickoff_id.kickoff_idx as usize;
     let operator_idx: usize = kickoff_id.operator_idx as usize;
-    let move_txid: Txid = deposit_outpoint.txid; // TODO: Bug!! change to actual move txid not deposit txid
+    let move_txid: Txid = *move_txhandler.get_txid();
     let mut builder =
         TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(3));
     builder = builder.add_input(
