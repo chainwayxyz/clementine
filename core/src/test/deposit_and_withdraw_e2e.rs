@@ -119,7 +119,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _cleanup,
             _deposit_outpoint,
             move_txid,
-        ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
+        ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
 
         tracing::info!(
             "Deposit ending block_height: {:?}",

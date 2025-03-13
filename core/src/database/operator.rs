@@ -779,16 +779,16 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::hashes::Hash;
-    use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
-    use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid};
-
+    use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
     use crate::rpc::clementine::{
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
     use crate::UTXO;
     use crate::{database::Database, test::common::*};
+    use bitcoin::hashes::Hash;
+    use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
+    use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid};
     use std::str::FromStr;
 
     #[tokio::test]
@@ -1019,7 +1019,7 @@ mod tests {
         let database = Database::new(&config).await.unwrap();
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config).await.unwrap();
+        let operator = Operator::<MockCitreaClient>::new(config).await.unwrap();
         let operator_idx = 0x45;
         let wpks = operator
             .generate_assert_winternitz_pubkeys(Txid::all_zeros())

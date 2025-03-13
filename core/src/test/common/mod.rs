@@ -1,6 +1,7 @@
 //! # Common Utilities for Integration Tests
 
 use crate::actor::Actor;
+use crate::citrea::CitreaClientTrait;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -81,7 +82,7 @@ pub async fn mine_once_after_in_mempool(
     Ok(())
 }
 
-pub async fn run_multiple_deposits(
+pub async fn run_multiple_deposits<C: CitreaClientTrait>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     count: usize,
@@ -97,7 +98,8 @@ pub async fn run_multiple_deposits(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers, cleanup) = create_actors(config).await;
+    let (verifiers, operators, mut aggregator, watchtowers, cleanup) =
+        create_actors::<C>(config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
     let actor = Actor::new(
@@ -171,7 +173,7 @@ pub async fn run_multiple_deposits(
     ))
 }
 
-pub async fn run_single_deposit(
+pub async fn run_single_deposit<C: CitreaClientTrait>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     evm_address: Option<EVMAddress>,
@@ -187,7 +189,8 @@ pub async fn run_single_deposit(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers, cleanup) = create_actors(config).await;
+    let (verifiers, operators, mut aggregator, watchtowers, cleanup) =
+        create_actors::<C>(config).await;
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(

@@ -1,6 +1,7 @@
 use super::common::{create_actors, create_test_config_with_thread_name};
 use crate::actor::Actor;
 use crate::builder::transaction::TransactionType;
+use crate::citrea::mock::MockCitreaClient;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
@@ -28,7 +29,7 @@ pub async fn run_operator_end_round(
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (mut verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
-        create_actors(&config).await;
+        create_actors::<MockCitreaClient>(&config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
@@ -122,7 +123,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     let verifier_0_config = {
         let mut config = config.clone();
@@ -443,7 +444,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
@@ -786,7 +787,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
@@ -992,7 +993,7 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
@@ -1172,7 +1173,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {

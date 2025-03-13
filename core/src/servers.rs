@@ -2,6 +2,7 @@
 //!
 //! Utilities for operator and verifier servers.
 use crate::aggregator::Aggregator;
+use crate::citrea::CitreaClientTrait;
 use crate::extended_rpc::ExtendedRpc;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
@@ -156,7 +157,7 @@ pub async fn create_verifier_grpc_server(
     }
 }
 
-pub async fn create_operator_grpc_server(
+pub async fn create_operator_grpc_server<C: CitreaClientTrait>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     tracing::info!(
@@ -165,7 +166,7 @@ pub async fn create_operator_grpc_server(
         config.port
     );
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let operator = OperatorServer::new(config).await?;
+    let operator = OperatorServer::<C>::new(config).await?;
     tracing::info!("Operator gRPC server created");
     let svc = ClementineOperatorServer::new(operator);
 
@@ -243,7 +244,7 @@ pub async fn create_verifier_unix_server(
 }
 
 #[cfg(unix)]
-pub async fn create_operator_unix_server(
+pub async fn create_operator_unix_server<C: CitreaClientTrait>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
@@ -254,7 +255,7 @@ pub async fn create_operator_unix_server(
     )
     .await?;
 
-    let operator = OperatorServer::new(config).await?;
+    let operator = OperatorServer::<C>::new(config).await?;
     let svc = ClementineOperatorServer::new(operator);
 
     let (server_addr, shutdown_tx) =

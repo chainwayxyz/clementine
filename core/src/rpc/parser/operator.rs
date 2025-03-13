@@ -1,4 +1,5 @@
 use crate::{
+    citrea::CitreaClientTrait,
     fetch_next_message_from_stream,
     operator::Operator,
     rpc::{
@@ -17,8 +18,11 @@ use bitvm::signatures::winternitz;
 use std::str::FromStr;
 use tonic::Status;
 
-impl From<Operator> for OperatorParams {
-    fn from(operator: Operator) -> Self {
+impl<C> From<Operator<C>> for OperatorParams
+where
+    C: CitreaClientTrait,
+{
+    fn from(operator: Operator<C>) -> Self {
         let operator_config = OperatorConfig {
             operator_idx: operator.idx as u32,
             collateral_funding_outpoint: Some(Outpoint {

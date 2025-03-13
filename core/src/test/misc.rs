@@ -1,5 +1,5 @@
 use super::common::run_single_deposit;
-use crate::extended_rpc::ExtendedRpc;
+use crate::{citrea::mock::MockCitreaClient, extended_rpc::ExtendedRpc};
 use bitcoincore_rpc::RpcApi;
 
 use crate::test::common::*;
@@ -9,7 +9,9 @@ async fn test_deposit() {
     let mut config = create_test_config_with_thread_name(None).await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    let _ = run_single_deposit(&mut config, rpc, None).await.unwrap();
+    let _ = run_single_deposit::<MockCitreaClient>(&mut config, rpc, None)
+        .await
+        .unwrap();
 }
 
 #[ignore = "We are switching to gRPC"]
@@ -18,7 +20,9 @@ async fn multiple_deposits_for_operator() {
     let mut config = create_test_config_with_thread_name(None).await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    let _ = run_multiple_deposits(&mut config, rpc, 2).await.unwrap();
+    let _ = run_multiple_deposits::<MockCitreaClient>(&mut config, rpc, 2)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

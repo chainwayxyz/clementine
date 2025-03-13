@@ -704,16 +704,15 @@ pub fn create_round_txhandlers(
 
 #[cfg(test)]
 mod tests {
-
     use crate::bitvm_client::ClementineBitVMPublicKeys;
+    use crate::builder::transaction::TransactionType;
+    use crate::citrea::mock::MockCitreaClient;
+    use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{self};
+    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use crate::{rpc::clementine::DepositParams, test::common::*, EVMAddress};
     use bitcoin::{Txid, XOnlyPublicKey};
     use futures::future::try_join_all;
-
-    use crate::builder::transaction::TransactionType;
-    use crate::musig2::AggregateFromPublicKeys;
-    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
     #[tokio::test(flavor = "multi_thread")]
@@ -723,7 +722,7 @@ mod tests {
 
         let paramset = config.protocol_paramset();
         let (mut verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
-            create_actors(&config).await;
+            create_actors::<MockCitreaClient>(&config).await;
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();

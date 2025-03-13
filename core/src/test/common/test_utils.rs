@@ -3,6 +3,7 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+use crate::citrea::CitreaClientTrait;
 use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -310,7 +311,7 @@ pub async fn initialize_database(config: &BridgeConfig) {
 ///
 /// Returns a tuple of vectors of clients, handles, and socket paths for the
 /// verifiers, operators, aggregator and watchtowers, along with shutdown channels.
-pub async fn create_actors(
+pub async fn create_actors<C: CitreaClientTrait>(
     config: &BridgeConfig,
 ) -> (
     Vec<ClementineVerifierClient<Channel>>,
@@ -389,7 +390,7 @@ pub async fn create_actors(
             let socket_path = socket_dir.path().join(format!("operator_{}.sock", i));
             let verifier_config = verifier_configs[i].clone();
             async move {
-                let (socket_path, shutdown_tx) = create_operator_unix_server(
+                let (socket_path, shutdown_tx) = create_operator_unix_server::<C>(
                     BridgeConfig {
                         secret_key: *sk,
                         ..verifier_config

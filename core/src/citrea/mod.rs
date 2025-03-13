@@ -21,8 +21,12 @@ use alloy::{
 use bitcoin::{hashes::Hash, OutPoint, Txid};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
+use std::fmt::Debug;
 use tonic::async_trait;
 use BRIDGE_CONTRACT::{Deposit, Withdrawal};
+
+#[cfg(test)]
+pub mod mock;
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
@@ -39,8 +43,8 @@ sol!(
 );
 
 #[async_trait]
-pub trait CitreaClientTrait: Send + Sync {
-    type Client;
+pub trait CitreaClientTrait: Send + Sync + Debug + Clone + 'static {
+    type Client: Debug + Clone + Sync + Send;
 
     fn new(
         citrea_rpc_url: Url,
