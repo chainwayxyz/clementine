@@ -10,9 +10,6 @@ use borsh::{self, BorshDeserialize};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit::winternitz::verify_winternitz_signature;
-use circuits_lib::bridge_circuit::winternitz::{
-    generate_public_key, sign_digits, Parameters, WinternitzHandler,
-};
 use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
 use final_spv::merkle_tree::BitcoinMerkleTree;
 use final_spv::spv::SPV;
@@ -250,7 +247,10 @@ pub fn create_spv(
 ///
 /// Returns a new `Receipt` containing the Groth16 proof result.
 ///
-pub fn prove_work_only_header_chain_proof(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
+pub fn prove_work_only_header_chain_proof(
+    receipt: Receipt,
+    input: &WorkOnlyCircuitInput,
+) -> Receipt {
     let env = ExecutorEnv::builder()
         .add_assumption(receipt)
         .write_slice(&borsh::to_vec(&input).unwrap())
@@ -284,7 +284,9 @@ pub fn prove_work_only_header_chain_proof(receipt: Receipt, input: &WorkOnlyCirc
 /// - A digest of watchtower challenge public keys.
 /// - The extracted operator ID.
 ///
-fn generate_succinct_bridge_circuit_public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs {
+fn generate_succinct_bridge_circuit_public_inputs(
+    input: BridgeCircuitInput,
+) -> SuccinctBridgeCircuitPublicInputs {
     // challenge_sending_watchtowers
     let mut challenge_sending_watchtowers = [0u8; 20];
     for (i, winternitz_handler) in input.winternitz_details.iter().enumerate() {
@@ -342,27 +344,14 @@ fn generate_succinct_bridge_circuit_public_inputs(input: BridgeCircuitInput) -> 
     }
 }
 
-pub fn generate_winternitz(
-    message: Vec<u8>,
-    secret_key: Vec<u8>,
-    params: Parameters,
-) -> WinternitzHandler {
-    let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
-    let signature = sign_digits(&params, &secret_key, &message);
-
-    WinternitzHandler {
-        pub_key,
-        params,
-        signature: Some(signature),
-        message: Some(message),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::config::BCHostParameters;
     use borsh::BorshDeserialize;
 
+    use circuits_lib::bridge_circuit::winternitz::{
+        generate_public_key, sign_digits, Parameters, WinternitzHandler,
+    };
     use header_chain::header_chain::BlockHeaderCircuitOutput;
     use hex_literal::hex;
     use rand::rngs::SmallRng;
@@ -396,6 +385,22 @@ mod tests {
         payout_tx_index: 51,
         deposit_index: 37,
     };
+
+    pub fn sign_winternitz(
+        message: Vec<u8>,
+        secret_key: Vec<u8>,
+        params: Parameters,
+    ) -> WinternitzHandler {
+        let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
+        let signature = sign_digits(&params, &secret_key, &message);
+
+        WinternitzHandler {
+            pub_key,
+            params,
+            signature: Some(signature),
+            message: Some(message),
+        }
+    }
 
     #[cfg(target_arch = "x86_64")]
     #[tokio::test]
@@ -435,8 +440,10 @@ mod tests {
             header_chain_circuit_output: block_header_circuit_output.clone(),
         };
 
-        let work_only_groth16_proof_receipt: Receipt =
-            prove_work_only_header_chain_proof(headerchain_receipt.clone(), &work_only_circuit_input);
+        let work_only_groth16_proof_receipt: Receipt = prove_work_only_header_chain_proof(
+            headerchain_receipt.clone(),
+            &work_only_circuit_input,
+        );
 
         let g16_proof_receipt: &risc0_zkvm::Groth16Receipt<risc0_zkvm::ReceiptClaim> =
             work_only_groth16_proof_receipt.inner.groth16().unwrap();
@@ -465,7 +472,7 @@ mod tests {
         let secret_key: Vec<u8> = (0..n0).map(|_| rng.gen()).collect();
 
         let winternitz_details =
-            generate_winternitz(compressed_proof_and_total_work, secret_key, params);
+            sign_winternitz(compressed_proof_and_total_work, secret_key, params);
 
         let light_client_proof: LightClientProof = borsh::from_slice(LIGHT_CLIENT_PROOF).unwrap();
         let lcp_receipt: Receipt = borsh::from_slice(LCP_RECEIPT).unwrap();
