@@ -198,7 +198,7 @@ pub fn prove_bridge_circuit(
 pub fn create_spv(
     payout_tx: &mut &[u8],
     headers: &[u8],
-    payment_block: &[u8],
+    payment_block: bitcoin::Block,
     payment_block_height: u32,
     payment_tx_index: u32,
 ) -> SPV {
@@ -214,9 +214,7 @@ pub fn create_spv(
         mmr_native.append(header.compute_block_hash());
     }
 
-    let block = bitcoin::block::Block::consensus_decode(&mut &payment_block[..]).unwrap();
-
-    let block_txids: Vec<[u8; 32]> = block
+    let block_txids: Vec<[u8; 32]> = payment_block
         .txdata
         .iter()
         .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
@@ -231,7 +229,7 @@ pub fn create_spv(
     SPV {
         transaction: payout_tx.into(),
         block_inclusion_proof: payout_tx_proof,
-        block_header: block.header.into(),
+        block_header: payment_block.header.into(),
         mmr_inclusion_proof: mmr_inclusion_proof.1,
     }
 }
@@ -418,10 +416,13 @@ mod tests {
         let headerchain_receipt: Receipt =
             Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
 
+        let payment_block: bitcoin::Block =
+            bitcoin::block::Block::consensus_decode(&mut &TESTNET_BLOCK_72041[..]).unwrap();
+
         let spv = create_spv(
             &mut PAYOUT_TX.as_ref(),
             HEADERS,
-            TESTNET_BLOCK_72041,
+            payment_block,
             TEST_PARAMETERS.payment_block_height,
             TEST_PARAMETERS.payout_tx_index,
         );
