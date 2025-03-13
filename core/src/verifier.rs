@@ -27,7 +27,7 @@ use crate::rpc::clementine::{
     DepositParams, KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature,
     TransactionRequest, WatchtowerKeys,
 };
-use crate::states::StateManager;
+use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
@@ -1204,25 +1204,27 @@ impl Verifier {
         &self,
         dbtx: &mut DatabaseTransaction<'_, '_>,
         block_id: u32,
-        block: &bitcoin::Block,
+        block_cache: &block_cache::BlockCache,
     ) -> Result<(), BridgeError> {
         let payout_txids = self
             .db
             .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
             .await?;
 
-        let txid_to_tx_hashmap: HashMap<bitcoin::Txid, &bitcoin::Transaction> = block
-            .txdata
-            .iter()
-            .map(|tx| (tx.compute_txid(), tx))
-            .collect();
+        let block = block_cache
+            .block
+            .as_ref()
+            .ok_or(BridgeError::Error("Block not found".to_string()))?;
 
         let block_hash = block.block_hash();
-        let mut payout_txs_and_payer_operator_idx = Vec::new();
+
+        let mut payout_txs_and_payer_operator_idx = vec![];
         for (idx, payout_txid) in payout_txids {
-            let payout_tx = txid_to_tx_hashmap
+            let payout_tx_idx = block_cache
+                .txids
                 .get(&payout_txid)
                 .ok_or(BridgeError::Error("Payout tx not found".to_string()))?;
+            let payout_tx = &block.txdata[*payout_tx_idx];
             let last_output = &payout_tx.output[payout_tx.output.len() - 1]
                 .script_pubkey
                 .to_bytes();
@@ -1345,7 +1347,7 @@ impl Owner for Verifier {
         mut dbtx: DatabaseTransaction<'_, '_>,
         block_id: u32,
         block_height: u32,
-        block: &bitcoin::Block,
+        block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
         if self.citrea_client.is_none() {
@@ -1376,7 +1378,7 @@ impl Owner for Verifier {
         .await?;
 
         tracing::info!("Getting payout txids");
-        self.update_finalized_payouts(&mut dbtx, block_id, block)
+        self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
 
         Ok(())

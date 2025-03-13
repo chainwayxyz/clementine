@@ -14,7 +14,7 @@ use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
     create_watchtower_unix_server,
 };
-use crate::states::{Duty, Owner};
+use crate::states::{block_cache, Duty, Owner};
 use crate::utils::initialize_logger;
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
@@ -668,7 +668,7 @@ impl Owner for MockOwner {
         _dbtx: DatabaseTransaction<'_, '_>,
         _block_id: u32,
         _block_height: u32,
-        _block: &bitcoin::Block,
+        _block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
         Ok(())

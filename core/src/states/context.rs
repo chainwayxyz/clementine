@@ -84,7 +84,7 @@ pub trait Owner: Send + Sync + Clone {
         dbtx: DatabaseTransaction<'_, '_>,
         block_id: u32,
         block_height: u32,
-        block: &bitcoin::Block,
+        block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError>;
 }

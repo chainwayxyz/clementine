@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bitcoin::Witness;
 use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
@@ -9,7 +11,9 @@ use crate::{
     rpc::clementine::KickoffId,
 };
 
-use super::{kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, StateManager};
+use super::{
+    block_cache, kickoff::KickoffStateMachine, round::RoundStateMachine, Owner, StateManager,
+};
 
 #[derive(Debug, serde::Serialize, Clone, serde::Deserialize)]
 pub enum SystemEvent {
@@ -73,6 +77,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(())
     }
 
+    pub fn update_block_cache(&mut self, block: &bitcoin::Block, block_height: u32) {
+        let mut cache: block_cache::BlockCache = Default::default();
+        cache.update_with_block(block, block_height);
+        self.context.cache = Arc::new(cache);
+    }
+
     pub async fn handle_event(
         &mut self,
         event: SystemEvent,
@@ -84,10 +94,18 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 block,
                 height,
             } => {
+                self.update_block_cache(&block, height);
+
                 self.owner
-                    .handle_finalized_block(dbtx, block_id, height, &block, None)
+                    .handle_finalized_block(
+                        dbtx,
+                        block_id,
+                        height,
+                        self.context.cache.clone(),
+                        None,
+                    )
                     .await?;
-                self.process_block_parallel(&block, height).await?;
+                self.process_block_parallel(height).await?;
             }
             SystemEvent::NewOperator {
                 operator_data,

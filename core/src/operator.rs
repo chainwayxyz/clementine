@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, WinternitzDerivationPath};
@@ -22,7 +23,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
-use crate::states::{Duty, Owner, StateManager};
+use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 use crate::tx_sender::TxSenderClient;
@@ -1135,7 +1136,7 @@ impl Owner for Operator {
         _dbtx: DatabaseTransaction<'_, '_>,
         _block_id: u32,
         _block_height: u32,
-        _block: &bitcoin::Block,
+        _block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
         Ok(())
