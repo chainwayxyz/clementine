@@ -1,6 +1,6 @@
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::bitvm_client::SECP;
-use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
+use crate::citrea::{CitreaClient, CitreaClientTrait, SATS_TO_WEI_MULTIPLIER};
 use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::{generate_withdrawal_transaction_and_signature, run_single_deposit};

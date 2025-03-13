@@ -21,6 +21,7 @@ use alloy::{
 use bitcoin::{hashes::Hash, OutPoint, Txid};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
+use tonic::async_trait;
 use BRIDGE_CONTRACT::{Deposit, Withdrawal};
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
@@ -37,6 +38,31 @@ sol!(
     "src/citrea/Bridge.json"
 );
 
+#[async_trait]
+pub trait CitreaClientTrait: Send + Sync {
+    type Client;
+
+    fn new(
+        citrea_rpc_url: Url,
+        light_client_prover_url: Url,
+        secret_key: Option<PrivateKeySigner>,
+    ) -> Result<Self::Client, BridgeError>;
+
+    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError>;
+
+    async fn collect_deposit_move_txids(
+        &self,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<Vec<(u64, Txid)>, BridgeError>;
+
+    async fn collect_withdrawal_utxos(
+        &self,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<Vec<(u64, OutPoint)>, BridgeError>;
+}
+
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
 /// RPC.
 #[derive(Clone, Debug)]
@@ -48,6 +74,41 @@ pub struct CitreaClient {
 }
 
 impl CitreaClient {
+    /// Returns all logs for the given filter and block range while considering
+    /// about the 1000 block limit.
+    async fn get_logs(
+        &self,
+        filter: Filter,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<Vec<Log>, BridgeError> {
+        let mut logs = vec![];
+
+        let mut from_height = from_height;
+        while from_height <= to_height {
+            // Block num is 999 because limits are inclusive.
+            let to_height = std::cmp::min(from_height + 999, to_height);
+            tracing::debug!("Fetching logs from {} to {}", from_height, to_height);
+
+            // Update filter with the new range.
+            let filter = filter.clone();
+            let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
+            let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
+
+            let logs_chunk = self.contract.provider().get_logs(&filter).await?;
+            logs.extend(logs_chunk);
+
+            from_height += to_height;
+        }
+
+        Ok(logs)
+    }
+}
+
+#[async_trait]
+impl CitreaClientTrait for CitreaClient {
+    type Client = CitreaClient;
+
     /// # Parameters
     ///
     /// - `citrea_rpc_url`: URL of the Citrea RPC.
@@ -55,7 +116,7 @@ impl CitreaClient {
     /// - `secret_key`: EVM secret key of the EVM user. If not given, random
     ///   secret key is used (wallet is not required). This is given mostly for
     ///   testing purposes.
-    pub fn new(
+    fn new(
         citrea_rpc_url: Url,
         light_client_prover_url: Url,
         secret_key: Option<PrivateKeySigner>,
@@ -97,7 +158,7 @@ impl CitreaClient {
     /// # Returns
     ///
     /// - [`OutPoint`]: UTXO for the given withdrawal.
-    pub async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
+    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
         let withdrawal_utxo = self
             .contract
             .withdrawalUTXOs(U256::from(withdrawal_index))
@@ -113,43 +174,13 @@ impl CitreaClient {
         Ok(OutPoint { txid, vout })
     }
 
-    /// Returns all logs for the given filter and block range while considering
-    /// about the 1000 block limit.
-    async fn get_logs(
-        &self,
-        filter: Filter,
-        from_height: u64,
-        to_height: u64,
-    ) -> Result<Vec<Log>, BridgeError> {
-        let mut logs = vec![];
-
-        let mut from_height = from_height;
-        while from_height <= to_height {
-            // Block num is 999 because limits are inclusive.
-            let to_height = std::cmp::min(from_height + 999, to_height);
-            tracing::debug!("Fetching logs from {} to {}", from_height, to_height);
-
-            // Update filter with the new range.
-            let filter = filter.clone();
-            let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
-            let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
-
-            let logs_chunk = self.contract.provider().get_logs(&filter).await?;
-            logs.extend(logs_chunk);
-
-            from_height += to_height;
-        }
-
-        Ok(logs)
-    }
-
     /// Returns deposit move txids with index for a given range of blocks.
     ///
     /// # Parameters
     ///
     /// - `from_height`: Start block height (inclusive)
     /// - `to_height`: End block height (inclusive)
-    pub async fn collect_deposit_move_txids(
+    async fn collect_deposit_move_txids(
         &self,
         from_height: u64,
         to_height: u64,
@@ -181,7 +212,7 @@ impl CitreaClient {
     ///
     /// - `from_height`: Start block height (inclusive)
     /// - `to_height`: End block height (inclusive)
-    pub async fn collect_withdrawal_utxos(
+    async fn collect_withdrawal_utxos(
         &self,
         from_height: u64,
         to_height: u64,
@@ -241,6 +272,7 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
 
 #[cfg(test)]
 mod tests {
+    use crate::citrea::CitreaClientTrait;
     use crate::citrea::BRIDGE_CONTRACT::Withdrawal;
     use crate::test::common::citrea::BRIDGE_PARAMS;
     use crate::{

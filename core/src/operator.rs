@@ -14,7 +14,7 @@ use crate::builder::transaction::{
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
 };
-use crate::citrea::CitreaClient;
+use crate::citrea::{CitreaClient, CitreaClientTrait};
 use crate::config::protocol::ProtocolParamsetName;
 use crate::config::BridgeConfig;
 use crate::database::Database;
