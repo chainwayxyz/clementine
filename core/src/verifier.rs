@@ -9,7 +9,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, OperatorData,
-    ReimburseDbCache, TransactionType, TxHandler,
+    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::config::protocol::ProtocolParamset;
@@ -253,7 +253,7 @@ impl Verifier {
                 idx,
                 &operator_data,
                 kickoff_wpks,
-                prev_ready_to_reimburse.clone(),
+                prev_ready_to_reimburse.as_ref(),
             )?;
             for txhandler in txhandlers {
                 if let TransactionType::UnspentKickoff(kickoff_idx) =
@@ -1188,7 +1188,13 @@ impl Owner for Verifier {
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
         let mut db_cache =
             ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
-        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        let txhandlers = create_txhandlers(
+            tx_type,
+            contract_context,
+            &mut TxHandlerCache::new(),
+            &mut db_cache,
+        )
+        .await?;
         Ok(txhandlers)
     }
 }

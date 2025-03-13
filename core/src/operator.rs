@@ -13,6 +13,7 @@ use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
+    TxHandlerCache,
 };
 use crate::citrea::CitreaClient;
 use crate::config::protocol::ProtocolParamsetName;
@@ -656,7 +657,7 @@ impl Operator {
                 idx,
                 &operator_data,
                 kickoff_wpks,
-                prev_ready_to_reimburse.clone(),
+                prev_ready_to_reimburse.as_ref(),
             )?;
             for txhandler in txhandlers {
                 if let TransactionType::UnspentKickoff(kickoff_idx) =
@@ -1125,7 +1126,13 @@ impl Owner for Operator {
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
         let mut db_cache =
             ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
-        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        let txhandlers = create_txhandlers(
+            tx_type,
+            contract_context,
+            &mut TxHandlerCache::new(),
+            &mut db_cache,
+        )
+        .await?;
         Ok(txhandlers)
     }
 }

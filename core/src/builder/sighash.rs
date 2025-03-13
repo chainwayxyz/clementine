@@ -5,13 +5,12 @@
 //! under which conditions the input is signed. For more, see:
 //! https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types
 
-use std::collections::BTreeMap;
-
 use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    create_txhandlers, ContractContext, DepositData, ReimburseDbCache, TransactionType, TxHandler,
+    create_txhandlers, ContractContext, DepositData, ReimburseDbCache, TransactionType,
+    TxHandlerCache,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -163,8 +162,7 @@ pub fn create_nofn_sighash_stream(
             // need to create new TxHandlerDbData for each operator
             let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.clone(), config.protocol_paramset());
 
-            let mut last_ready_to_reimburse: Option<TxHandler> = None;
-            let mut txhandlers: BTreeMap<TransactionType, TxHandler> = BTreeMap::new();
+            let mut txhandler_cache = TxHandlerCache::new();
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
             for round_idx in 0..paramset.num_round_txs {
@@ -187,10 +185,10 @@ pub fn create_nofn_sighash_stream(
                         config.protocol_paramset(),
                     );
 
-                    txhandlers = create_txhandlers(
+                    let mut txhandlers = create_txhandlers(
                         TransactionType::AllNeededForDeposit,
                         context,
-                        last_ready_to_reimburse.clone(),
+                        &mut txhandler_cache,
                         &mut tx_db_data,
                     ).await?;
 
@@ -221,9 +219,11 @@ pub fn create_nofn_sighash_stream(
                     if sum != config.get_num_required_nofn_sigs_per_kickoff() {
                         Err(BridgeError::NofNSighashMismatch(config.get_num_required_nofn_sigs_per_kickoff(), sum))?;
                     }
+                    // recollect round_tx, ready_to_reimburse_tx, and move_to_vault_tx for the next kickoff_utxo
+                    txhandler_cache.store_for_next_kickoff(&mut txhandlers)?;
                 }
                 // collect the last ready_to_reimburse txhandler for the next round
-                last_ready_to_reimburse = txhandlers.remove(&TransactionType::ReadyToReimburse);
+                txhandler_cache.store_for_next_round()?;
             }
         }
     }
@@ -261,8 +261,7 @@ pub fn create_operator_sighash_stream(
 
 
         let paramset = config.protocol_paramset();
-        let mut last_ready_to_reimburse: Option<TxHandler> = None;
-        let mut txhandlers: BTreeMap<TransactionType, TxHandler> = BTreeMap::new();
+        let mut txhandler_cache = TxHandlerCache::new();
 
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
         for round_idx in 0..paramset.num_round_txs {
@@ -279,10 +278,10 @@ pub fn create_operator_sighash_stream(
                     config.protocol_paramset(),
                 );
 
-                txhandlers = create_txhandlers(
+                let mut txhandlers = create_txhandlers(
                     TransactionType::AllNeededForDeposit,
                     context,
-                    last_ready_to_reimburse.clone(),
+                    &mut txhandler_cache,
                     &mut tx_db_data,
                 ).await?;
 
@@ -297,9 +296,11 @@ pub fn create_operator_sighash_stream(
                 if sum != config.get_num_required_operator_sigs_per_kickoff() {
                     Err(BridgeError::OperatorSighashMismatch(config.get_num_required_operator_sigs_per_kickoff(), sum))?;
                 }
+                // recollect round_tx, ready_to_reimburse_tx, and move_to_vault_tx for the next kickoff_utxo
+                txhandler_cache.store_for_next_kickoff(&mut txhandlers)?;
             }
             // collect the last ready_to_reimburse txhandler for the next round
-            last_ready_to_reimburse = txhandlers.remove(&TransactionType::ReadyToReimburse);
+            txhandler_cache.store_for_next_round()?;
         }
     }
 }

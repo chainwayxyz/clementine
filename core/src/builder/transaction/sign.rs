@@ -1,4 +1,4 @@
-use super::ContractContext;
+use super::{ContractContext, TxHandlerCache};
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -77,7 +77,7 @@ pub async fn create_and_sign_txs(
     let txhandlers = builder::transaction::create_txhandlers(
         transaction_data.transaction_type,
         context,
-        None,
+        &mut TxHandlerCache::new(),
         &mut ReimburseDbCache::new_for_deposit(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
@@ -184,7 +184,7 @@ impl Watchtower {
         let mut txhandlers = builder::transaction::create_txhandlers(
             TransactionType::WatchtowerChallenge(self.config.index as usize),
             context,
-            None,
+            &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
@@ -232,7 +232,7 @@ impl Operator {
         let mut txhandlers = builder::transaction::create_txhandlers(
             TransactionType::MiniAssert(0),
             context,
-            None,
+            &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,

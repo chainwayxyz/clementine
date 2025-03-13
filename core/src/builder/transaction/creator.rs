@@ -16,7 +16,7 @@ use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use super::RoundTxInput;
+use super::{remove_txhandler_from_map, RoundTxInput};
 
 // helper function to get a txhandler from a hashmap
 fn get_txhandler(
@@ -346,15 +346,73 @@ impl ContractContext {
     }
 }
 
+/// Struct to store common txhandlers for kickoffs
+pub struct TxHandlerCache {
+    pub prev_ready_to_reimburse: Option<TxHandler>,
+    pub saved_txs: BTreeMap<TransactionType, TxHandler>,
+}
+
+impl Default for TxHandlerCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TxHandlerCache {
+    pub fn new() -> Self {
+        Self {
+            saved_txs: BTreeMap::new(),
+            prev_ready_to_reimburse: None,
+        }
+    }
+    pub fn store_for_next_kickoff(
+        &mut self,
+        txhandlers: &mut BTreeMap<TransactionType, TxHandler>,
+    ) -> Result<(), BridgeError> {
+        // can possibly cache next round tx too, as next round has the needed reimburse utxos
+        // but need to implement a new TransactionType for that
+        for x in [
+            TransactionType::MoveToVault,
+            TransactionType::Round,
+            TransactionType::ReadyToReimburse,
+        ]
+        .iter()
+        {
+            let txhandler = txhandlers
+                .remove(x)
+                .ok_or(BridgeError::TxHandlerNotFound(*x))?;
+            self.saved_txs.insert(*x, txhandler);
+        }
+        Ok(())
+    }
+    /// store move_to_vault and previous ready to reimburse
+    pub fn store_for_next_round(&mut self) -> Result<(), BridgeError> {
+        let move_to_vault =
+            remove_txhandler_from_map(&mut self.saved_txs, TransactionType::MoveToVault)?;
+        self.prev_ready_to_reimburse = Some(remove_txhandler_from_map(
+            &mut self.saved_txs,
+            TransactionType::ReadyToReimburse,
+        )?);
+        self.saved_txs = BTreeMap::new();
+        self.saved_txs
+            .insert(move_to_vault.get_transaction_type(), move_to_vault);
+        Ok(())
+    }
+    pub fn get_prev_ready_to_reimburse(&self) -> Option<&TxHandler> {
+        self.prev_ready_to_reimburse.as_ref()
+    }
+    pub fn get_cached_txs(&mut self) -> BTreeMap<TransactionType, TxHandler> {
+        std::mem::take(&mut self.saved_txs)
+    }
+}
+
 #[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_data, txtype = ?transaction_type, ?context))]
 pub async fn create_txhandlers(
     transaction_type: TransactionType,
     context: ContractContext,
-    prev_ready_to_reimburse: Option<TxHandler>,
+    txhandler_cache: &mut TxHandlerCache,
     db_cache: &mut ReimburseDbCache,
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-    let mut txhandlers = BTreeMap::new();
-
     let ReimburseDbCache { paramset, .. } = db_cache.clone();
 
     let operator_data = db_cache.get_operator_data().await?.clone();
@@ -366,17 +424,20 @@ pub async fn create_txhandlers(
         ..
     } = context;
 
-    // create round tx, ready to reimburse tx, and unspent kickoff txs
-    let round_txhandlers = create_round_txhandlers(
-        paramset,
-        round_idx as usize,
-        &operator_data,
-        kickoff_winternitz_keys,
-        prev_ready_to_reimburse,
-    )?;
+    let mut txhandlers = txhandler_cache.get_cached_txs();
 
-    for round_txhandler in round_txhandlers.into_iter() {
-        txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
+    if !txhandlers.contains_key(&TransactionType::Round) {
+        // create round tx, ready to reimburse tx, and unspent kickoff txs if not in cache
+        let round_txhandlers = create_round_txhandlers(
+            paramset,
+            round_idx as usize,
+            &operator_data,
+            kickoff_winternitz_keys,
+            txhandler_cache.get_prev_ready_to_reimburse(),
+        )?;
+        for round_txhandler in round_txhandlers.into_iter() {
+            txhandlers.insert(round_txhandler.get_transaction_type(), round_txhandler);
+        }
     }
 
     if matches!(
@@ -412,19 +473,19 @@ pub async fn create_txhandlers(
         .deposit_data
         .ok_or(BridgeError::InsufficientContext)?;
 
-    // Create move_tx handler. This is unique for each deposit tx.
-    // Technically this can be also given as a parameter because it is calculated repeatedly in streams
-    // TODO: change parameters...
-    let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
-        deposit_data.deposit_outpoint,
-        deposit_data.evm_address,
-        &deposit_data.recovery_taproot_address,
-        deposit_data.nofn_xonly_pk,
-        paramset.user_takes_after,
-        paramset.bridge_amount,
-        paramset.network,
-    )?;
-    txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
+    if !txhandlers.contains_key(&TransactionType::MoveToVault) {
+        // if not cached create move_txhandler
+        let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
+            deposit_data.deposit_outpoint,
+            deposit_data.evm_address,
+            &deposit_data.recovery_taproot_address,
+            deposit_data.nofn_xonly_pk,
+            paramset.user_takes_after,
+            paramset.bridge_amount,
+            paramset.network,
+        )?;
+        txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
+    }
 
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
@@ -647,14 +708,13 @@ pub async fn create_txhandlers(
     Ok(txhandlers)
 }
 
-/// Function to create next round txhandler, ready to reimburse txhandler,
-/// and all unspentkickoff txhandlers for a specific operator
+/// Function to create the round txhandler and ready to reimburse txhandler for a specific operator and round index
 pub fn create_round_txhandlers(
     paramset: &'static ProtocolParamset,
     round_idx: usize,
     operator_data: &OperatorData,
     kickoff_winternitz_keys: &KickoffWinternitzKeys,
-    prev_ready_to_reimburse: Option<TxHandler>,
+    prev_ready_to_reimburse: Option<&TxHandler>,
 ) -> Result<Vec<TxHandler>, BridgeError> {
     let mut txhandlers = Vec::with_capacity(2 + paramset.num_kickoffs_per_round);
 
