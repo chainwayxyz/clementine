@@ -1,7 +1,6 @@
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
-use bitcoin::Block;
 use eyre::Context;
 use futures::future::{join, join_all};
 use kickoff::KickoffEvent;
