@@ -1,3 +1,4 @@
+use super::ContractContext;
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -7,9 +8,9 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::Operator;
-use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
+use crate::rpc::clementine::KickoffId;
 use crate::watchtower::Watchtower;
-use bitcoin::{Transaction, XOnlyPublicKey};
+use bitcoin::Transaction;
 
 #[derive(Debug, Clone)]
 pub struct TransactionRequestData {
@@ -31,38 +32,27 @@ pub async fn create_and_sign_txs(
     db: Database,
     signer: &Actor,
     config: BridgeConfig,
-    nofn_xonly_pk: XOnlyPublicKey,
     transaction_data: TransactionRequestData,
     block_hash: Option<[u8; 20]>, //to sign kickoff
 ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
-    // get operator data
-    let operator_data = db
-        .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
-        .await?
-        .ok_or(BridgeError::OperatorNotFound(
-            transaction_data.kickoff_id.operator_idx,
-        ))?;
-
-    let start_time = std::time::Instant::now();
-    let txhandlers = builder::transaction::create_txhandlers(
-        nofn_xonly_pk,
-        transaction_data.transaction_type,
+    let context = ContractContext::new_context_for_kickoffs(
         transaction_data.kickoff_id,
-        operator_data,
+        transaction_data.deposit_data.clone(),
+        config.protocol_paramset(),
+    );
+
+    let txhandlers = builder::transaction::create_txhandlers(
+        transaction_data.transaction_type,
+        context,
         None,
-        &mut ReimburseDbCache::new(
+        &mut ReimburseDbCache::new_for_deposit(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
             transaction_data.deposit_data.clone(),
-            &config,
+            config.protocol_paramset(),
         ),
     )
     .await?;
-    tracing::trace!(
-        "create_txhandlers for {:?} finished in {:?}",
-        transaction_data.transaction_type,
-        start_time.elapsed()
-    );
 
     // signatures saved during deposit
     let deposit_sigs_query = db
@@ -138,10 +128,9 @@ impl Watchtower {
     /// Creates and signs the watchtower challenge
     pub async fn create_and_sign_watchtower_challenge(
         &self,
-        nofn_xonly_pk: XOnlyPublicKey,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
-    ) -> Result<RawSignedTx, BridgeError> {
+    ) -> Result<(TransactionType, Transaction), BridgeError> {
         if commit_data.len()
             != self
                 .config
@@ -151,35 +140,26 @@ impl Watchtower {
         {
             return Err(BridgeError::InvalidWatchtowerChallengeData);
         }
-        // get operator data
-        let operator_data = self
-            .db
-            .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
-            .await?
-            .ok_or(BridgeError::OperatorNotFound(
-                transaction_data.kickoff_id.operator_idx,
-            ))?;
 
-        let start_time = std::time::Instant::now();
-        let mut txhandlers = builder::transaction::create_txhandlers(
-            nofn_xonly_pk,
-            TransactionType::WatchtowerChallenge(self.config.index as usize),
+        let context = ContractContext::new_context_for_asserts(
             transaction_data.kickoff_id,
-            operator_data,
+            transaction_data.deposit_data.clone(),
+            self.config.protocol_paramset(),
+            self.signer.clone(),
+        );
+
+        let mut txhandlers = builder::transaction::create_txhandlers(
+            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            context,
             None,
-            &mut ReimburseDbCache::new(
+            &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
                 transaction_data.deposit_data.clone(),
-                &self.config,
+                self.config.protocol_paramset(),
             ),
         )
         .await?;
-        tracing::trace!(
-            "create_txhandlers for {:?} finished in {:?}",
-            TransactionType::WatchtowerChallenge(self.config.index as usize),
-            start_time.elapsed()
-        );
 
         let mut requested_txhandler = txhandlers
             .remove(&transaction_data.transaction_type)
@@ -197,36 +177,34 @@ impl Watchtower {
 
         let checked_txhandler = requested_txhandler.promote()?;
 
-        Ok(checked_txhandler.encode_tx())
+        Ok((
+            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            checked_txhandler.get_cached_tx().clone(),
+        ))
     }
 }
 
 impl Operator {
     pub async fn create_assert_commitment_txs(
         &self,
-        nofn_xonly_pk: XOnlyPublicKey,
         assert_data: AssertRequestData,
-    ) -> Result<RawSignedTxs, BridgeError> {
-        // get operator data
-        let operator_data = self
-            .db
-            .get_operator(None, assert_data.kickoff_id.operator_idx as i32)
-            .await?
-            .ok_or(BridgeError::OperatorNotFound(
-                assert_data.kickoff_id.operator_idx,
-            ))?;
+    ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
+        let context = ContractContext::new_context_for_asserts(
+            assert_data.kickoff_id,
+            assert_data.deposit_data.clone(),
+            self.config.protocol_paramset(),
+            self.signer.clone(),
+        );
 
         let mut txhandlers = builder::transaction::create_txhandlers(
-            nofn_xonly_pk,
             TransactionType::MiniAssert(0),
-            assert_data.kickoff_id,
-            operator_data,
+            context,
             None,
-            &mut ReimburseDbCache::new(
+            &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,
                 assert_data.deposit_data.clone(),
-                &self.config,
+                self.config.protocol_paramset(),
             ),
         )
         .await?;
@@ -244,11 +222,14 @@ impl Operator {
             signed_txhandlers.push(mini_assert_txhandler.promote()?);
         }
 
-        Ok(RawSignedTxs {
-            raw_txs: signed_txhandlers
-                .into_iter()
-                .map(|txhandler| txhandler.encode_tx())
-                .collect(),
-        })
+        Ok(signed_txhandlers
+            .into_iter()
+            .map(|txhandler| {
+                (
+                    txhandler.get_transaction_type(),
+                    txhandler.get_cached_tx().clone(),
+                )
+            })
+            .collect())
     }
 }

@@ -1,11 +1,13 @@
 use bitcoin::{Amount, Network};
 use serde::{Deserialize, Serialize};
 
-const BLOCKS_PER_HOUR: u16 = 6;
+use crate::errors::BridgeError;
 
-const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
+pub const BLOCKS_PER_HOUR: u16 = 6;
 
-const BLOCKS_PER_WEEK: u16 = BLOCKS_PER_DAY * 7;
+pub const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
+
+pub const BLOCKS_PER_WEEK: u16 = BLOCKS_PER_DAY * 7;
 
 /// This is the log_d used across the codebase.
 ///
@@ -31,6 +33,44 @@ impl From<ProtocolParamsetName> for &'static ProtocolParamset {
             ProtocolParamsetName::Regtest => &REGTEST_PARAMSET,
             ProtocolParamsetName::Testnet4 => &TESTNET4_PARAMSET,
         }
+    }
+}
+
+impl TryFrom<&'static ProtocolParamset> for ProtocolParamsetName {
+    type Error = BridgeError;
+
+    fn try_from(paramset: &'static ProtocolParamset) -> Result<Self, Self::Error> {
+        Ok(match *paramset {
+            MAINNET_PARAMSET => Self::Mainnet,
+            REGTEST_PARAMSET => Self::Regtest,
+            TESTNET4_PARAMSET => Self::Testnet4,
+            _ => {
+                return Err(BridgeError::Error(
+                    "Expected a static protocol paramset".to_string(),
+                ))
+            }
+        })
+    }
+}
+
+impl Serialize for &'static ProtocolParamset {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let name = ProtocolParamsetName::try_from(*self)
+            .map_err(|e| serde::ser::Error::custom(e.to_string()))?;
+        name.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for &'static ProtocolParamset {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let name = ProtocolParamsetName::deserialize(deserializer)?;
+        Ok(name.into())
     }
 }
 
@@ -83,6 +123,14 @@ pub struct ProtocolParamset {
     pub operator_reimburse_timelock: u16,
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)
     pub watchtower_challenge_timeout_timelock: u16,
+    /// Time to wait after a kickoff to send a watchtower challenge
+    pub time_to_send_watchtower_challenge: u16,
+    /// Time to wait before trying to disprove (so that you collect all operator challenge acks before disproving)
+    pub time_to_disprove: u16,
+    /// Amount of depth a block should have from the current head to be considered finalized
+    pub finality_depth: u32,
+    /// start height to sync the chain from, i.e. the height bridge was deployed
+    pub start_height: u32,
 }
 
 pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -96,7 +144,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 380,
     winternitz_log_d: WINTERNITZ_LOG_D,
-    num_watchtowers: 4,
+    num_watchtowers: 3,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
@@ -104,6 +152,10 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
     operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
+    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
+    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    finality_depth: 6,
+    start_height: 1,
 };
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -117,7 +169,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 380,
     winternitz_log_d: WINTERNITZ_LOG_D,
-    num_watchtowers: 4,
+    num_watchtowers: 3,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_DAY,
     operator_challenge_nack_timelock: BLOCKS_PER_DAY * 3,
@@ -125,6 +177,10 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     assert_timeout_timelock: BLOCKS_PER_DAY * 4,
     operator_reimburse_timelock: BLOCKS_PER_HOUR * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_DAY * 2,
+    time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
+    time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
+    finality_depth: 1,
+    start_height: 101,
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -138,7 +194,7 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     kickoff_blockhash_commit_length: 40,
     watchtower_challenge_message_length: 380,
     winternitz_log_d: WINTERNITZ_LOG_D,
-    num_watchtowers: 4,
+    num_watchtowers: 3,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
@@ -146,4 +202,8 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
     operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
+    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
+    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    finality_depth: 60,
+    start_height: 1,
 };

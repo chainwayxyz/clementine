@@ -8,11 +8,11 @@ use super::error;
 use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::parser::parse_transaction_request;
+use crate::verifier::VerifierServer;
 use crate::{
     errors::BridgeError,
     fetch_next_message_from_stream,
     rpc::parser::{self},
-    verifier::Verifier,
 };
 use bitcoin::secp256k1::PublicKey;
 use clementine::verifier_deposit_finalize_params::Params;
@@ -22,13 +22,13 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
 #[async_trait]
-impl ClementineVerifier for Verifier {
+impl ClementineVerifier for VerifierServer {
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
-        let params: VerifierParams = self.try_into()?;
+        let params: VerifierParams = (&self.verifier).try_into()?;
 
         Ok(Response::new(params))
     }
@@ -40,7 +40,7 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Empty>, Status> {
         let verifiers_public_keys: Vec<PublicKey> = request.into_inner().try_into()?;
 
-        self.set_verifiers(verifiers_public_keys).await?;
+        self.verifier.set_verifiers(verifiers_public_keys).await?;
 
         Ok(Response::new(Empty {}))
     }
@@ -61,14 +61,14 @@ impl ClementineVerifier for Verifier {
 
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
-        for _ in 0..self.config.get_num_kickoff_winternitz_pks() {
+        for _ in 0..self.verifier.config.get_num_kickoff_winternitz_pks() {
             operator_kickoff_winternitz_public_keys
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
         }
 
         let mut unspent_kickoff_sigs =
-            Vec::with_capacity(self.config.get_num_unspent_kickoff_sigs());
-        for _ in 0..self.config.get_num_unspent_kickoff_sigs() {
+            Vec::with_capacity(self.verifier.config.get_num_unspent_kickoff_sigs());
+        for _ in 0..self.verifier.config.get_num_unspent_kickoff_sigs() {
             unspent_kickoff_sigs.push(parser::operator::parse_schnorr_sig(&mut in_stream).await?);
         }
 
@@ -78,15 +78,16 @@ impl ClementineVerifier for Verifier {
             ));
         }
 
-        self.set_operator(
-            operator_index,
-            collateral_funding_outpoint,
-            operator_xonly_pk,
-            wallet_reimburse_address,
-            operator_kickoff_winternitz_public_keys,
-            unspent_kickoff_sigs,
-        )
-        .await?;
+        self.verifier
+            .set_operator(
+                operator_index,
+                collateral_funding_outpoint,
+                operator_xonly_pk,
+                wallet_reimburse_address,
+                operator_kickoff_winternitz_public_keys,
+                unspent_kickoff_sigs,
+            )
+            .await?;
 
         Ok(Response::new(Empty {}))
     }
@@ -102,7 +103,9 @@ impl ClementineVerifier for Verifier {
 
         let xonly_pk = parser::watchtower::parse_xonly_pk(&mut in_stream).await?;
 
-        self.set_watchtower(watchtower_id, xonly_pk).await?;
+        self.verifier
+            .set_watchtower(watchtower_id, xonly_pk)
+            .await?;
 
         Ok(Response::new(Empty {}))
     }
@@ -114,7 +117,7 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Self::NonceGenStream>, Status> {
         let num_nonces = req.into_inner().num_nonces;
 
-        let (session_id, pub_nonces) = self.nonce_gen(num_nonces).await?;
+        let (session_id, pub_nonces) = self.verifier.nonce_gen(num_nonces).await?;
 
         let (tx, rx) = mpsc::channel(pub_nonces.len() + 1);
 
@@ -142,7 +145,7 @@ impl ClementineVerifier for Verifier {
         req: Request<Streaming<VerifierDepositSignParams>>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
-        let verifier = self.clone();
+        let verifier = self.verifier.clone();
 
         let (tx, rx) = mpsc::channel(1280);
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
@@ -250,7 +253,7 @@ impl ClementineVerifier for Verifier {
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
         let mut in_stream = req.into_inner();
-        tracing::trace!("In verifier {} deposit_finalize()", self.idx);
+        tracing::trace!("In verifier {} deposit_finalize()", self.verifier.idx);
 
         let (sig_tx, sig_rx) = mpsc::channel(1280);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
@@ -259,17 +262,20 @@ impl ClementineVerifier for Verifier {
         let params = fetch_next_message_from_stream!(in_stream, params)?;
         let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params {
             Params::DepositSignFirstParam(deposit_sign_session) => {
-                parser::verifier::parse_deposit_sign_session(deposit_sign_session, self.idx)?
+                parser::verifier::parse_deposit_sign_session(
+                    deposit_sign_session,
+                    self.verifier.idx,
+                )?
             }
             _ => Err(Status::internal("Expected DepositOutpoint"))?,
         };
         tracing::trace!(
             "verifier {} got DepositSignFirstParam in deposit_finalize()",
-            self.idx
+            self.verifier.idx
         );
 
         // Start deposit finalize job.
-        let verifier = self.clone();
+        let verifier = self.verifier.clone();
         let deposit_finalize_handle = tokio::spawn(async move {
             verifier
                 .deposit_finalize(
@@ -285,7 +291,7 @@ impl ClementineVerifier for Verifier {
         });
 
         // Start parsing inputs and send them to deposit finalize job.
-        let verifier = self.clone();
+        let verifier = self.verifier.clone();
         tokio::spawn(async move {
             let num_required_nofn_sigs = verifier.config.get_num_required_nofn_sigs();
             let mut nonce_idx = 0;
@@ -380,7 +386,8 @@ impl ClementineVerifier for Verifier {
         let data = request.into_inner();
         let (deposit_params, op_keys, operator_idx) =
             parser::verifier::parse_op_keys_with_deposit(data)?;
-        self.set_operator_keys(deposit_params, op_keys, operator_idx)
+        self.verifier
+            .set_operator_keys(deposit_params, op_keys, operator_idx)
             .await?;
         Ok(Response::new(Empty {}))
     }
@@ -393,7 +400,8 @@ impl ClementineVerifier for Verifier {
         let (deposit_params, wt_keys, watchtower_idx) =
             parser::verifier::parse_wt_keys_with_deposit(data)?;
 
-        self.set_watchtower_keys(deposit_params, wt_keys, watchtower_idx)
+        self.verifier
+            .set_watchtower_keys(deposit_params, wt_keys, watchtower_idx)
             .await?;
         Ok(Response::new(Empty {}))
     }
@@ -405,10 +413,9 @@ impl ClementineVerifier for Verifier {
         let transaction_request = request.into_inner();
         let transaction_data = parse_transaction_request(transaction_request)?;
         let raw_txs = create_and_sign_txs(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            self.nofn_xonly_pk,
+            self.verifier.db.clone(),
+            &self.verifier.signer,
+            self.verifier.config.clone(),
             transaction_data,
             None, // empty blockhash, will not sign this
         )
@@ -430,12 +437,13 @@ impl ClementineVerifier for Verifier {
         request: Request<clementine::Txid>,
     ) -> Result<Response<Empty>, Status> {
         let txid = request.into_inner();
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.handle_kickoff(
-            &mut dbtx,
-            bitcoin::Txid::try_from(txid).expect("Should be able to convert"),
-        )
-        .await?;
+        let mut dbtx = self.verifier.db.begin_transaction().await?;
+        self.verifier
+            .handle_kickoff(
+                &mut dbtx,
+                bitcoin::Txid::try_from(txid).expect("Should be able to convert"),
+            )
+            .await?;
         dbtx.commit().await.expect("Failed to commit transaction");
         Ok(Response::new(Empty {}))
     }

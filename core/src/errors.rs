@@ -172,8 +172,14 @@ pub enum BridgeError {
     #[error("Error while parsing a musig member: {0}")]
     MusigParseError(#[from] musig::ParseError),
 
+    #[error("Insufficient Context data for the requested TxHandler")]
+    InsufficientContext,
+
     #[error("NoncesNotFound")]
     NoncesNotFound,
+
+    #[error("State machine received event that it doesn't know how to handle: {0}")]
+    UnhandledEvent(String),
 
     #[error("KickoffOutpointsNotFound")]
     KickoffOutpointsNotFound,
@@ -342,6 +348,9 @@ pub enum BridgeError {
     /// 0: Data name, 1: Error message
     #[error("Error while sending {0} data: {1}")]
     SendError(&'static str, String),
+
+    #[error("Eyre error: {0}")]
+    Eyre(#[from] eyre::Report),
 
     #[error("Error while calling EVM contract: {0}")]
     AlloyContract(#[from] alloy::contract::Error),

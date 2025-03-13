@@ -1,11 +1,10 @@
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit, WatchtowerKeysWithDeposit};
+use crate::tx_sender::TxSenderClient;
 use crate::{
-    actor::Actor,
     builder::{self},
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedRpc,
     musig2::{aggregate_partial_signatures, AggregateFromPublicKeys},
     rpc::{
         self,
@@ -15,7 +14,6 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
-    tx_sender::TxSender,
     utils::EVMAddress,
 };
 use bitcoin::hashes::Hash;
@@ -41,7 +39,7 @@ pub struct Aggregator {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nofn_xonly_pk: XOnlyPublicKey,
-    pub(crate) tx_sender: TxSender,
+    pub(crate) tx_sender: TxSenderClient,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     pub(crate) watchtower_clients: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
@@ -85,20 +83,7 @@ impl Aggregator {
         let watchtower_clients =
             rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::new).await?;
 
-        let signer = Actor::new(config.secret_key, None, config.protocol_paramset().network);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await?;
-        let tx_sender = TxSender::new(
-            signer,
-            rpc,
-            db.clone(),
-            "aggregator",
-            config.protocol_paramset().network,
-        );
+        let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
 
         Ok(Aggregator {
             db,

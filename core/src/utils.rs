@@ -3,6 +3,7 @@ use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use bitcoin::OutPoint;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::process::exit;
 use std::str::FromStr;
 use tracing::level_filters::LevelFilter;
@@ -194,8 +195,8 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
 
 /// Monitors a JoinHandle and aborts the process if the task completes with an error.
 /// Returns a handle to the monitoring task that can be used to cancel it.
-pub fn monitor_task_with_abort<T: Send + 'static>(
-    task_handle: tokio::task::JoinHandle<Result<T, crate::errors::BridgeError>>,
+pub fn monitor_task_with_panic<T: Send + 'static, E: Debug + Send + 'static>(
+    task_handle: tokio::task::JoinHandle<Result<T, E>>,
     task_name: &str,
 ) {
     let task_name = task_name.to_string();
@@ -210,7 +211,7 @@ pub fn monitor_task_with_abort<T: Send + 'static>(
             Ok(Err(e)) => {
                 // Task returned an error
                 tracing::error!("Task {} failed with error: {:?}", task_name, e);
-                std::process::abort();
+                panic!();
             }
             Err(e) => {
                 if e.is_cancelled() {
@@ -220,7 +221,7 @@ pub fn monitor_task_with_abort<T: Send + 'static>(
                 }
                 // Task panicked or was aborted
                 tracing::error!("Task {} panicked: {:?}", task_name, e);
-                std::process::abort();
+                panic!();
             }
         }
     });

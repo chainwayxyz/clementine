@@ -91,6 +91,8 @@ message DepositParams {
   bytes evm_address = 2;
   // User's recovery taproot address.
   string recovery_taproot_address = 3;
+  // nofn public key used to sign the deposit
+  bytes nofn_xonly_pk = 4;
 }
 
 enum NormalTransactionId {
@@ -260,7 +262,7 @@ service ClementineOperator {
   //
   // # Returns
   // - Raw signed assert transactions
-  rpc InternalCreateAssertCommitmentTxs(AssertRequest) returns (RawSignedTxs) {}
+  rpc InternalCreateAssertCommitmentTxs(AssertRequest) returns (SignedTxsWithType) {}
   // Returns an operator's parameters. It will be called once, by the
   // aggregator, to set all the public keys.
   //
@@ -437,7 +439,7 @@ service ClementineWatchtower {
   //
   // # Returns
   // - Raw signed transaction
-  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (RawSignedTx) {}
+  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (SignedTxWithType) {}
   // Returns every operator's winternitz public keys.
   rpc GetParams(Empty) returns (stream WatchtowerParams) {}
 }

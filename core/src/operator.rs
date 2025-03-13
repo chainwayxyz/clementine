@@ -1,12 +1,17 @@
+use std::collections::{BTreeMap, HashMap};
+use std::time::Duration;
+
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
+use crate::builder::transaction::sign::{
+    create_and_sign_txs, AssertRequestData, TransactionRequestData,
+};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, DepositData, KickoffWinternitzKeys, OperatorData, TransactionType,
-    TxHandler,
+    create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
+    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::citrea::CitreaClient;
 use crate::config::protocol::ProtocolParamsetName;
@@ -17,9 +22,11 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
-use crate::tx_sender::{
-    ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging, TxSender,
-};
+use crate::states::{Duty, Owner, StateManager};
+use crate::task::manager::BackgroundTaskManager;
+use crate::task::IntoTask;
+use crate::tx_sender::TxSenderClient;
+use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
 use crate::{builder, utils::UTXO};
 use alloy::transports::http::reqwest::Url;
 use bitcoin::consensus::deserialize;
@@ -27,7 +34,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{
-    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+    Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, Witness,
+    XOnlyPublicKey,
 };
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
@@ -40,6 +48,11 @@ use tokio_stream::StreamExt;
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
 
+pub struct OperatorServer {
+    pub operator: Operator,
+    background_tasks: BackgroundTaskManager<Operator>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Operator {
     pub rpc: ExtendedRpc,
@@ -50,8 +63,37 @@ pub struct Operator {
     pub collateral_funding_outpoint: OutPoint,
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
-    pub tx_sender: TxSender,
+    pub tx_sender: TxSenderClient,
     pub citrea_client: Option<CitreaClient>,
+}
+
+impl OperatorServer {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let paramset = config.protocol_paramset();
+        let operator = Operator::new(config).await?;
+        let mut background_tasks = BackgroundTaskManager::default();
+
+        // initialize and run state manager
+        let state_manager =
+            StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
+
+        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+        background_tasks.loop_and_monitor(state_manager.into_task());
+
+        // track the operator's round state
+        operator.track_rounds().await?;
+
+        Ok(Self {
+            operator,
+            background_tasks,
+        })
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.background_tasks
+            .graceful_shutdown_with_timeout(Duration::from_secs(10))
+            .await;
+    }
 }
 
 impl Operator {
@@ -82,13 +124,7 @@ impl Operator {
                 signer.xonly_public_key
             ))))?;
 
-        let tx_sender = TxSender::new(
-            signer.clone(),
-            rpc.clone(),
-            db.clone(),
-            &format!("operator_{}", idx).to_string(),
-            config.protocol_paramset().network,
-        );
+        let tx_sender = TxSenderClient::new(db.clone(), format!("operator_{}", idx).to_string());
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
@@ -149,11 +185,11 @@ impl Operator {
             config.db_name
         );
 
-        Ok(Self {
+        Ok(Operator {
             rpc,
-            db,
+            db: db.clone(),
             signer,
-            config,
+            config: config.clone(),
             nofn_xonly_pk,
             idx,
             collateral_funding_outpoint,
@@ -209,7 +245,7 @@ impl Operator {
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 &mut dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::Round,
@@ -259,12 +295,8 @@ impl Operator {
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
             self.db.clone(),
             self.idx,
-            self.collateral_funding_outpoint,
-            self.reimburse_addr.clone(),
-            self.signer.xonly_public_key,
             self.config.clone(),
             deposit_id,
-            self.nofn_xonly_pk,
         ));
 
         let operator = self.clone();
@@ -282,6 +314,20 @@ impl Operator {
         });
 
         Ok(sig_rx)
+    }
+
+    /// Creates the round state machine by adding a system event to the database
+    pub async fn track_rounds(&self) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+        StateManager::<Operator>::dispatch_new_round_machine(
+            self.db.clone(),
+            &mut dbtx,
+            self.data(),
+            self.idx as u32,
+        )
+        .await?;
+        dbtx.commit().await?;
+        Ok(())
     }
 
     /// Checks if the withdrawal amount is within the acceptable range.
@@ -693,7 +739,6 @@ impl Operator {
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            self.nofn_xonly_pk,
             transaction_data,
             Some(
                 payout_tx_blockhash.as_byte_array()[12..] // TODO: Make a helper function for this
@@ -866,7 +911,7 @@ impl Operator {
             .tx_sign_and_fill_sigs(&mut burn_unspent_kickoff_connectors_tx, &[])?;
 
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
@@ -887,7 +932,7 @@ impl Operator {
 
         // send ready to reimburse tx
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::ReadyToReimburse,
@@ -908,7 +953,7 @@ impl Operator {
 
         // send next round tx
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::Round,
@@ -940,6 +985,143 @@ impl Operator {
             .await?;
 
         Ok(())
+    }
+
+    async fn send_asserts(
+        &self,
+        kickoff_id: KickoffId,
+        deposit_data: DepositData,
+        _watchtower_challenges: HashMap<usize, Witness>,
+        _payout_blockhash: Witness,
+    ) -> Result<(), BridgeError> {
+        let assert_txs = self
+            .create_assert_commitment_txs(AssertRequestData {
+                kickoff_id,
+                deposit_data: deposit_data.clone(),
+            })
+            .await?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        for (tx_type, tx) in assert_txs {
+            self.tx_sender
+                .add_tx_to_queue(
+                    &mut dbtx,
+                    tx_type,
+                    &tx,
+                    &[],
+                    Some(TxDataForLogging {
+                        tx_type,
+                        operator_idx: Some(self.idx as u32),
+                        verifier_idx: None,
+                        round_idx: Some(kickoff_id.round_idx),
+                        kickoff_idx: Some(kickoff_id.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    }),
+                    &self.config,
+                )
+                .await?;
+        }
+        dbtx.commit().await?;
+        Ok(())
+    }
+
+    fn data(&self) -> OperatorData {
+        OperatorData {
+            xonly_pk: self.signer.xonly_public_key,
+            collateral_funding_outpoint: self.collateral_funding_outpoint,
+            reimburse_addr: self.reimburse_addr.clone(),
+        }
+    }
+}
+
+#[tonic::async_trait]
+impl Owner for Operator {
+    const OWNER_TYPE: &'static str = "operator";
+    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+        match duty {
+            Duty::NewReadyToReimburse {
+                round_idx,
+                operator_idx,
+                used_kickoffs,
+            } => {
+                tracing::info!("Operator {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", self.idx, round_idx, operator_idx, used_kickoffs);
+            }
+            Duty::WatchtowerChallenge {
+                kickoff_id,
+                deposit_data,
+            } => {
+                tracing::info!(
+                    "Operator {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
+                    self.idx, kickoff_id, deposit_data
+                );
+            }
+            Duty::SendOperatorAsserts {
+                kickoff_id,
+                deposit_data,
+                watchtower_challenges,
+                payout_blockhash,
+            } => {
+                tracing::warn!("Operator {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", self.idx, kickoff_id, deposit_data, watchtower_challenges.len());
+                self.send_asserts(
+                    kickoff_id,
+                    deposit_data,
+                    watchtower_challenges,
+                    payout_blockhash,
+                )
+                .await?;
+            }
+            Duty::VerifierDisprove {
+                kickoff_id,
+                deposit_data,
+                operator_asserts,
+                operator_acks,
+                payout_blockhash,
+            } => {
+                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
+                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash);
+            }
+            Duty::CheckIfKickoff {
+                txid,
+                block_height,
+                witness,
+            } => {
+                tracing::info!(
+                    "Operator {} called check if kickoff with txid: {:?}, block_height: {:?}",
+                    self.idx,
+                    txid,
+                    block_height,
+                );
+                let kickoff_data = self
+                    .db
+                    .get_deposit_signatures_with_kickoff_txid(None, txid)
+                    .await?;
+                if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
+                    // add kickoff machine if there is a new kickoff
+                    let mut dbtx = self.db.begin_transaction().await?;
+                    StateManager::<Self>::dispatch_new_kickoff_machine(
+                        self.db.clone(),
+                        &mut dbtx,
+                        kickoff_id,
+                        block_height,
+                        deposit_data,
+                        witness,
+                    )
+                    .await?;
+                    dbtx.commit().await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn create_txhandlers(
+        &self,
+        tx_type: TransactionType,
+        contract_context: ContractContext,
+    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+        let mut db_cache =
+            ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
+        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        Ok(txhandlers)
     }
 }
 

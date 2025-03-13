@@ -8,7 +8,7 @@ use crate::errors::BridgeError;
 use crate::utils::EVMAddress;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{OutPoint, Txid};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
@@ -181,10 +181,15 @@ pub fn parse_deposit_params(
         .parse::<bitcoin::Address<_>>()
         .map_err(|e| Status::internal(e.to_string()))?;
 
+    let nofn_xonly_pk: XOnlyPublicKey =
+        XOnlyPublicKey::from_slice(&deposit_params.nofn_xonly_pk)
+            .map_err(|e| BridgeError::Error(format!("Failed to parse xonly public key: {}", e)))?;
+
     Ok(DepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,
+        nofn_xonly_pk,
     })
 }
 

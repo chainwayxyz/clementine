@@ -33,6 +33,7 @@ pub struct BridgeConfig {
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
     /// Verifiers public keys.
+    /// In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call
     pub verifiers_public_keys: Vec<PublicKey>,
     /// Number of verifiers.
     pub num_verifiers: usize,
@@ -92,6 +93,8 @@ pub struct BridgeConfig {
     /// - `Regtest`
     /// - `Testnet`
     pub protocol_paramset: ProtocolParamsetName,
+    /// Directory containing unix sockets
+    pub socket_path: String,
 }
 
 impl BridgeConfig {
@@ -137,7 +140,7 @@ impl Default for BridgeConfig {
             index: 0,
 
             secret_key: SecretKey::from_str(
-                "3333333333333333333333333333333333333333333333333333333333333333",
+                "1111111111111111111111111111111111111111111111111111111111111111",
             )
             .expect("known valid input"),
 
@@ -173,7 +176,7 @@ impl Default for BridgeConfig {
                 .expect("known valid input"),
             ],
 
-            num_operators: 3,
+            num_operators: 2,
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
                     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
@@ -183,10 +186,10 @@ impl Default for BridgeConfig {
                     "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
                 )
                 .expect("known valid input"),
-                XOnlyPublicKey::from_str(
-                    "3c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
-                )
-                .expect("known valid input"),
+                // XOnlyPublicKey::from_str(
+                //     "3c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
+                // )
+                // .expect("known valid input"),
             ],
 
             operator_wallet_addresses: vec![
@@ -198,10 +201,10 @@ impl Default for BridgeConfig {
                     "bcrt1pvaua4gvvglk27al5trh337xz8l8zzhgzageky0xt0dgv64xee8tqwwvzmf",
                 )
                 .expect("known valid input"),
-                Address::from_str(
-                    "bcrt1pvaua4gvvglk27al5trh337xz8l8zzhgzageky0xt0dgv64xee8tqwwvzmf",
-                )
-                .expect("known valid input"),
+                // Address::from_str(
+                //     "bcrt1pvaua4gvvglk27al5trh337xz8l8zzhgzageky0xt0dgv64xee8tqwwvzmf",
+                // )
+                // .expect("known valid input"),
             ],
             operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
 
@@ -264,10 +267,10 @@ impl Default for BridgeConfig {
                     "2222222222222222222222222222222222222222222222222222222222222222",
                 )
                 .expect("known valid input"),
-                SecretKey::from_str(
-                    "3333333333333333333333333333333333333333333333333333333333333333",
-                )
-                .expect("known valid input"),
+                // SecretKey::from_str(
+                //     "3333333333333333333333333333333333333333333333333333333333333333",
+                // )
+                // .expect("known valid input"),
             ]),
             all_watchtowers_secret_keys: Some(vec![
                 SecretKey::from_str(
@@ -282,10 +285,10 @@ impl Default for BridgeConfig {
                     "3333333333333333333333333333333333333333333333333333333333333333",
                 )
                 .expect("known valid input"),
-                SecretKey::from_str(
-                    "4444444444444444444444444444444444444444444444444444444444444444",
-                )
-                .expect("known valid input"),
+                // SecretKey::from_str(
+                //     "4444444444444444444444444444444444444444444444444444444444444444",
+                // )
+                // .expect("known valid input"),
             ]),
 
             winternitz_secret_key: Some(
@@ -294,6 +297,7 @@ impl Default for BridgeConfig {
                 )
                 .expect("known valid input"),
             ),
+            socket_path: "/".to_string(),
 
             verifier_endpoints: None,
             operator_endpoints: None,

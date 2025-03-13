@@ -1,15 +1,15 @@
 use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
     self, AssertRequest, ChallengeAckDigest, DepositParams, DepositSignSession, Empty,
-    FinalizedPayoutParams, OperatorKeys, OperatorParams, RawSignedTxs, SchnorrSig,
-    SignedTxWithType, SignedTxsWithType, WithdrawParams, WithdrawResponse,
-    WithdrawalFinalizedParams,
+    FinalizedPayoutParams, OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType,
+    SignedTxsWithType, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::create_and_sign_txs;
+use crate::errors::BridgeError;
+use crate::operator::OperatorServer;
 use crate::rpc::parser;
 use crate::rpc::parser::{parse_assert_request, parse_deposit_params, parse_transaction_request};
-use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use tokio::sync::mpsc;
@@ -17,7 +17,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
 
 #[async_trait]
-impl ClementineOperator for Operator {
+impl ClementineOperator for OperatorServer {
     type DepositSignStream = ReceiverStream<Result<SchnorrSig, Status>>;
     type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
 
@@ -26,7 +26,7 @@ impl ClementineOperator for Operator {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
-        let operator = self.clone();
+        let operator = self.operator.clone();
         let (tx, rx) = mpsc::channel(1280);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
@@ -68,7 +68,7 @@ impl ClementineOperator for Operator {
 
         let deposit_data = parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
 
-        let mut deposit_signatures_rx = self.deposit_sign(deposit_data).await?;
+        let mut deposit_signatures_rx = self.operator.deposit_sign(deposit_data).await?;
 
         while let Some(sig) = deposit_signatures_rx.recv().await {
             let operator_burn_sig = SchnorrSig {
@@ -92,6 +92,7 @@ impl ClementineOperator for Operator {
             parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
 
         let withdrawal_txid = self
+            .operator
             .withdraw(
                 withdrawal_id,
                 input_signature,
@@ -120,7 +121,7 @@ impl ClementineOperator for Operator {
             .ok_or(BridgeError::RPCRequiredParam("deposit_outpoint"))?
             .try_into()?;
 
-        // self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
+        // self.operator.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
         //     .await?; // TODO: Reuse this in the new design.
 
         Ok(Response::new(Empty {}))
@@ -130,15 +131,24 @@ impl ClementineOperator for Operator {
     async fn internal_create_assert_commitment_txs(
         &self,
         request: Request<AssertRequest>,
-    ) -> Result<Response<RawSignedTxs>, Status> {
+    ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
         let assert_request = request.into_inner();
         let assert_data = parse_assert_request(assert_request)?;
 
         let raw_txs = self
-            .create_assert_commitment_txs(self.nofn_xonly_pk, assert_data)
+            .operator
+            .create_assert_commitment_txs(assert_data)
             .await?;
 
-        Ok(Response::new(raw_txs))
+        Ok(Response::new(SignedTxsWithType {
+            signed_txs: raw_txs
+                .into_iter()
+                .map(|(tx_type, signed_tx)| SignedTxWithType {
+                    transaction_type: Some(tx_type.into()),
+                    raw_tx: bitcoin::consensus::serialize(&signed_tx),
+                })
+                .collect(),
+        }))
     }
 
     #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -150,10 +160,12 @@ impl ClementineOperator for Operator {
         let deposit_req = request.into_inner();
         let deposit_data = parse_deposit_params(deposit_req)?;
 
-        let winternitz_keys =
-            self.generate_assert_winternitz_pubkeys(deposit_data.deposit_outpoint.txid)?;
-        let hashes =
-            self.generate_challenge_ack_preimages_and_hashes(deposit_data.deposit_outpoint.txid)?;
+        let winternitz_keys = self
+            .operator
+            .generate_assert_winternitz_pubkeys(deposit_data.deposit_outpoint.txid)?;
+        let hashes = self
+            .operator
+            .generate_challenge_ack_preimages_and_hashes(deposit_data.deposit_outpoint.txid)?;
         tracing::info!("Generated deposit keys in {:?}", start.elapsed());
 
         Ok(Response::new(OperatorKeys {
@@ -175,10 +187,9 @@ impl ClementineOperator for Operator {
         let transaction_request = request.into_inner();
         let transaction_data = parse_transaction_request(transaction_request)?;
         let raw_txs = create_and_sign_txs(
-            self.db.clone(),
-            &self.signer,
-            self.config.clone(),
-            self.nofn_xonly_pk,
+            self.operator.db.clone(),
+            &self.operator.signer,
+            self.operator.config.clone(),
             transaction_data,
             Some([0u8; 20]), // dummy blockhash
         )
@@ -215,8 +226,9 @@ impl ClementineOperator for Operator {
             .try_into()
             .expect("Failed to convert deposit outpoint to OutPoint");
 
-        let mut dbtx = self.db.begin_transaction().await?;
+        let mut dbtx = self.operator.db.begin_transaction().await?;
         let kickoff_txid = self
+            .operator
             .handle_finalized_payout(
                 &mut dbtx,
                 deposit_outpoint,
@@ -233,8 +245,8 @@ impl ClementineOperator for Operator {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Empty>, Status> {
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.end_round(&mut dbtx).await?;
+        let mut dbtx = self.operator.db.begin_transaction().await?;
+        self.operator.end_round(&mut dbtx).await?;
         dbtx.commit().await.expect("Failed to commit transaction");
         Ok(Response::new(Empty {}))
     }

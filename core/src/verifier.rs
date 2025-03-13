@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
@@ -8,7 +9,8 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_move_to_vault_txhandler, DepositData, OperatorData, TransactionType, TxHandler,
+    create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, OperatorData,
+    ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::config::protocol::ProtocolParamset;
@@ -17,9 +19,18 @@ use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
-use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature, WatchtowerKeys};
-use crate::tx_sender::{TxDataForLogging, TxSender};
-use crate::{bitcoin_syncer, utils::EVMAddress};
+use crate::rpc;
+use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+use crate::rpc::clementine::{
+    DepositParams, KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature,
+    TransactionRequest, WatchtowerKeys,
+};
+use crate::states::StateManager;
+use crate::states::{Duty, Owner};
+use crate::task::manager::BackgroundTaskManager;
+use crate::task::IntoTask;
+use crate::tx_sender::{TxDataForLogging, TxSender, TxSenderClient};
+use crate::utils::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -28,12 +39,13 @@ use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
+use tonic::async_trait;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -73,18 +85,72 @@ impl NofN {
     }
 }
 
+pub struct VerifierServer {
+    pub verifier: Verifier,
+    background_tasks: BackgroundTaskManager<Verifier>,
+}
+
+impl VerifierServer {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let verifier = Verifier::new(config.clone()).await?;
+        let db = verifier.db.clone();
+        let mut background_tasks = BackgroundTaskManager::default();
+
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
+
+        let tx_sender = TxSender::new(
+            verifier.signer.clone(),
+            rpc.clone(),
+            verifier.db.clone(),
+            format!("verifier_{}", verifier.idx).to_string(),
+            config.protocol_paramset().network,
+        );
+
+        background_tasks.loop_and_monitor(tx_sender.into_task());
+
+        // initialize and run state manager
+        let state_manager =
+            StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
+
+        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+        background_tasks.loop_and_monitor(state_manager.into_task());
+
+        let syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).await?;
+
+        background_tasks.loop_and_monitor(syncer.into_task());
+
+        Ok(VerifierServer {
+            verifier,
+            background_tasks,
+        })
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.background_tasks
+            .graceful_shutdown_with_timeout(Duration::from_secs(10))
+            .await;
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Verifier {
-    _rpc: ExtendedRpc,
+    pub idx: usize,
+
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
+
     pub(crate) nofn_xonly_pk: bitcoin::secp256k1::XOnlyPublicKey,
     pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
-    pub idx: usize,
-    pub tx_sender: TxSender,
+
+    pub tx_sender: TxSenderClient,
 }
 
 impl Verifier {
@@ -95,8 +161,6 @@ impl Verifier {
             config.protocol_paramset().network,
         );
 
-        // let pk: bitcoin::secp256k1:: PublicKey = config.secret_key.public_key(&utils::SECP);
-
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
         let idx = config
             .verifiers_public_keys
@@ -105,24 +169,6 @@ impl Verifier {
             .ok_or(BridgeError::PublicKeyNotFound)?;
 
         let db = Database::new(&config).await?;
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await?;
-
-        let tx_sender = TxSender::new(
-            signer.clone(),
-            rpc.clone(),
-            db.clone(),
-            &format!("verifier_{}", idx).to_string(),
-            config.protocol_paramset().network,
-        );
-        let tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
-
-        // Monitor the tx_sender_handle and abort if it dies unexpectedly
-        crate::utils::monitor_task_with_abort(tx_sender_handle, "tx_sender for verifier");
 
         let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
@@ -139,30 +185,28 @@ impl Verifier {
         let verifiers_pks = db.get_verifiers_public_keys(None).await?;
 
         let nofn = if !verifiers_pks.is_empty() {
-            tracing::debug!("Verifiers public keys found: {:?}", verifiers_pks);
+            tracing::debug!("Verifier public keys found: {:?}", verifiers_pks);
             let nofn = NofN::new(signer.public_key, verifiers_pks)?;
             Some(nofn)
         } else {
             None
         };
 
-        bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc).await?;
-        let _handle =
-            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
-                .await?;
+        let tx_sender = TxSenderClient::new(db.clone(), format!("verifier_{}", idx).to_string());
 
-        Ok(Verifier {
-            _rpc: rpc,
+        let verifier = Verifier {
             signer,
-            db,
-            config,
+            db: db.clone(),
+            config: config.clone(),
             nofn_xonly_pk,
             nofn: Arc::new(tokio::sync::RwLock::new(nofn)),
             _operator_xonly_pks: operator_xonly_pks,
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
             tx_sender,
-        })
+        };
+
+        Ok(verifier)
     }
 
     pub async fn set_verifiers(
@@ -278,10 +322,11 @@ impl Verifier {
         )?;
 
         let operator_winternitz_public_keys = kickoff_wpks.keys;
+        let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
             .set_operator(
-                None,
+                Some(&mut dbtx),
                 operator_index as i32,
                 operator_xonly_pk,
                 wallet_reimburse_address.to_string(),
@@ -291,7 +336,7 @@ impl Verifier {
 
         self.db
             .set_operator_kickoff_winternitz_public_keys(
-                None,
+                Some(&mut dbtx),
                 operator_index,
                 operator_winternitz_public_keys,
             )
@@ -306,9 +351,25 @@ impl Verifier {
 
         for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
             self.db
-                .set_unspent_kickoff_sigs(None, operator_index as usize, round_idx, sigs)
+                .set_unspent_kickoff_sigs(Some(&mut dbtx), operator_index as usize, round_idx, sigs)
                 .await?;
         }
+
+        let operator_data = OperatorData {
+            xonly_pk: operator_xonly_pk,
+            collateral_funding_outpoint,
+            reimburse_addr: wallet_reimburse_address,
+        };
+
+        StateManager::<Self>::dispatch_new_round_machine(
+            self.db.clone(),
+            &mut dbtx,
+            operator_data,
+            operator_index,
+        )
+        .await?;
+
+        dbtx.commit().await?;
 
         Ok(())
     }
@@ -384,8 +445,8 @@ impl Verifier {
                     deposit_outpoint,
                     evm_address,
                     recovery_taproot_address,
+                    nofn_xonly_pk: verifier.nofn_xonly_pk,
                 },
-                verifier.nofn_xonly_pk,
                 false,
             ));
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
@@ -463,8 +524,8 @@ impl Verifier {
                 deposit_outpoint,
                 evm_address,
                 recovery_taproot_address: recovery_taproot_address.clone(),
+                nofn_xonly_pk: self.nofn_xonly_pk,
             },
-            self.nofn_xonly_pk,
             true,
         ));
 
@@ -561,9 +622,7 @@ impl Verifier {
             self.db.get_operators(None).await?;
 
         // get signatures of operators and verify them
-        for (operator_idx, (op_xonly_pk, reimburse_addr, collateral_outpoint)) in
-            operators_data.iter().enumerate()
-        {
+        for (operator_idx, (op_xonly_pk, _, _)) in operators_data.iter().enumerate() {
             let mut op_sig_count = 0;
             // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
             let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
@@ -577,16 +636,13 @@ impl Verifier {
             let mut sighash_stream = pin!(create_operator_sighash_stream(
                 self.db.clone(),
                 operator_idx,
-                *collateral_outpoint,
-                reimburse_addr.clone(),
-                *op_xonly_pk,
                 self.config.clone(),
                 DepositData {
                     deposit_outpoint,
                     evm_address,
                     recovery_taproot_address: recovery_taproot_address.clone(),
+                    nofn_xonly_pk: self.nofn_xonly_pk,
                 },
-                self.nofn_xonly_pk,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
                 let sighash = sighash_stream
@@ -704,6 +760,7 @@ impl Verifier {
                     deposit_outpoint,
                     evm_address,
                     recovery_taproot_address: recovery_taproot_address.clone(),
+                    nofn_xonly_pk: self.nofn_xonly_pk,
                 },
             )
             .await?;
@@ -929,7 +986,6 @@ impl Verifier {
             self.db.clone(),
             &self.signer,
             self.config.clone(),
-            self.nofn_xonly_pk,
             transaction_data,
             None, // No need
         )
@@ -969,5 +1025,153 @@ impl Verifier {
         }
 
         Ok(())
+    }
+
+    async fn send_watchtower_challenge(
+        &self,
+        kickoff_id: KickoffId,
+        deposit_data: DepositData,
+    ) -> Result<(), BridgeError> {
+        let watchtower_path = format!("{}/watchtower_{}.sock", self.config.socket_path, self.idx);
+        let watchtower_client =
+            rpc::get_clients(vec![watchtower_path], ClementineWatchtowerClient::new).await;
+
+        if let Ok(mut watchtower) = watchtower_client {
+            let raw_challenge_tx = watchtower[0]
+                .internal_create_watchtower_challenge(TransactionRequest {
+                    deposit_params: Some(DepositParams {
+                        deposit_outpoint: Some(deposit_data.deposit_outpoint.into()),
+                        evm_address: deposit_data.evm_address.0.to_vec(),
+                        recovery_taproot_address: deposit_data
+                            .recovery_taproot_address
+                            .assume_checked()
+                            .to_string(),
+                        nofn_xonly_pk: deposit_data.nofn_xonly_pk.serialize().to_vec(),
+                    }),
+                    transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
+                    kickoff_id: Some(kickoff_id),
+                })
+                .await?
+                .into_inner()
+                .raw_tx;
+            let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
+            let mut dbtx = self.db.begin_transaction().await?;
+            self.tx_sender
+                .add_tx_to_queue(
+                    &mut dbtx,
+                    TransactionType::WatchtowerChallenge(self.idx),
+                    &challenge_tx,
+                    &[],
+                    Some(TxDataForLogging {
+                        tx_type: TransactionType::WatchtowerChallenge(self.idx),
+                        operator_idx: None,
+                        verifier_idx: Some(self.idx as u32),
+                        round_idx: Some(kickoff_id.round_idx),
+                        kickoff_idx: Some(kickoff_id.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    }),
+                    &self.config,
+                )
+                .await?;
+            dbtx.commit().await?;
+            tracing::warn!("Commited watchtower challenge for watchtower {}", self.idx);
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Owner for Verifier {
+    const OWNER_TYPE: &'static str = "verifier";
+
+    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+        match duty {
+            Duty::NewReadyToReimburse {
+                round_idx,
+                operator_idx,
+                used_kickoffs,
+            } => {
+                tracing::info!(
+                    "Verifier {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",
+                    self.idx, round_idx, operator_idx, used_kickoffs
+                );
+            }
+            Duty::WatchtowerChallenge {
+                kickoff_id,
+                deposit_data,
+            } => {
+                tracing::warn!(
+                    "Verifier {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
+                    self.idx, kickoff_id, deposit_data
+                );
+                self.send_watchtower_challenge(kickoff_id, deposit_data)
+                    .await?;
+            }
+            Duty::SendOperatorAsserts {
+                kickoff_id,
+                deposit_data,
+                watchtower_challenges,
+                ..
+            } => {
+                tracing::info!(
+                    "Verifier {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
+                    self.idx, kickoff_id, deposit_data, watchtower_challenges.len()
+                );
+            }
+            Duty::VerifierDisprove {
+                kickoff_id,
+                deposit_data,
+                operator_asserts,
+                operator_acks,
+                payout_blockhash,
+            } => {
+                tracing::warn!(
+                    "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
+                    payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash);
+            }
+            Duty::CheckIfKickoff {
+                txid,
+                block_height,
+                witness,
+            } => {
+                tracing::info!(
+                    "Verifier {} called check if kickoff with txid: {:?}, block_height: {:?}",
+                    self.idx,
+                    txid,
+                    block_height,
+                );
+                let kickoff_data = self
+                    .db
+                    .get_deposit_signatures_with_kickoff_txid(None, txid)
+                    .await?;
+                if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
+                    // add kickoff machine if there is a new kickoff
+                    let mut dbtx = self.db.begin_transaction().await?;
+                    StateManager::<Self>::dispatch_new_kickoff_machine(
+                        self.db.clone(),
+                        &mut dbtx,
+                        kickoff_id,
+                        block_height,
+                        deposit_data,
+                        witness,
+                    )
+                    .await?;
+                    //self.handle_kickoff(&mut dbtx, txid).await?;
+                    dbtx.commit().await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn create_txhandlers(
+        &self,
+        tx_type: TransactionType,
+        contract_context: ContractContext,
+    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+        let mut db_cache =
+            ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
+        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        Ok(txhandlers)
     }
 }
