@@ -26,6 +26,7 @@ pub mod operator;
 pub mod rpc;
 pub mod servers;
 pub mod states;
+pub mod task;
 pub mod tx_sender;
 pub mod utils;
 pub mod verifier;

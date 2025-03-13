@@ -23,8 +23,10 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
-use crate::states::{Duty, Owner, StateManager};
-use crate::tx_sender::TxSender;
+use crate::states::{block_cache, Duty, Owner, StateManager};
+use crate::task::manager::BackgroundTaskManager;
+use crate::task::IntoTask;
+use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
 use crate::{builder, UTXO};
 use alloy::transports::http::reqwest::Url;
@@ -42,11 +44,15 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
 
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
+
+pub struct OperatorServer {
+    pub operator: Operator,
+    background_tasks: BackgroundTaskManager<Operator>,
+}
 
 #[derive(Debug, Clone)]
 pub struct Operator {
@@ -58,9 +64,37 @@ pub struct Operator {
     pub collateral_funding_outpoint: OutPoint,
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
-    pub tx_sender: TxSender,
-    pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
+    pub tx_sender: TxSenderClient,
     pub citrea_client: Option<CitreaClient>,
+}
+
+impl OperatorServer {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let paramset = config.protocol_paramset();
+        let operator = Operator::new(config).await?;
+        let mut background_tasks = BackgroundTaskManager::default();
+
+        // initialize and run state manager
+        let state_manager =
+            StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
+
+        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+        background_tasks.loop_and_monitor(state_manager.into_task());
+
+        // track the operator's round state
+        operator.track_rounds().await?;
+
+        Ok(Self {
+            operator,
+            background_tasks,
+        })
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.background_tasks
+            .graceful_shutdown_with_timeout(Duration::from_secs(10))
+            .await;
+    }
 }
 
 impl Operator {
@@ -91,13 +125,7 @@ impl Operator {
                 signer.xonly_public_key
             ))))?;
 
-        let tx_sender = TxSender::new(
-            signer.clone(),
-            rpc.clone(),
-            db.clone(),
-            &format!("operator_{}", idx).to_string(),
-            config.protocol_paramset().network,
-        );
+        let tx_sender = TxSenderClient::new(db.clone(), format!("operator_{}", idx).to_string());
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
@@ -158,13 +186,7 @@ impl Operator {
             config.db_name
         );
 
-        let operator_data = OperatorData {
-            xonly_pk: signer.xonly_public_key,
-            collateral_funding_outpoint,
-            reimburse_addr: reimburse_addr.clone(),
-        };
-
-        let mut operator = Operator {
+        Ok(Operator {
             rpc,
             db: db.clone(),
             signer,
@@ -175,49 +197,7 @@ impl Operator {
             tx_sender,
             citrea_client,
             reimburse_addr,
-            // temporarily set to avoid circular reference
-            state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
-        };
-
-        // initialize and run state manager
-        let mut state_manager =
-            StateManager::new(db.clone(), operator.clone(), config.protocol_paramset()).await?;
-
-        state_manager.load_from_db().await?;
-
-        let state_manager_block_syncer = StateManager::<Self>::block_fetcher_task(
-            state_manager.get_last_processed_block_height(),
-            db.clone(),
-            Duration::from_secs(1),
-            config.protocol_paramset(),
-        )
-        .await;
-
-        let (state_manager_run_loop, shutdown_tx) = state_manager
-            .into_msg_consumer_task(Duration::from_secs(1))
-            .await;
-        operator.state_manager_shutdown_tx = shutdown_tx.into(); // save the shutdown tx here
-
-        // add own operator state to state manager
-        let mut dbtx = db.begin_transaction().await?;
-        StateManager::<Self>::dispatch_new_round_machine(
-            db.clone(),
-            &mut dbtx,
-            operator_data,
-            idx as u32,
-        )
-        .await?;
-        dbtx.commit().await?;
-        // Monitor state manager handles
-        crate::utils::monitor_task_with_panic(
-            state_manager_block_syncer,
-            "operator block syncer for state manager",
-        );
-        crate::utils::monitor_task_with_panic(
-            state_manager_run_loop,
-            "operator run loop of state manager",
-        );
-        Ok(operator)
+        })
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -266,7 +246,7 @@ impl Operator {
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 &mut dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::Round,
@@ -337,6 +317,20 @@ impl Operator {
         Ok(sig_rx)
     }
 
+    /// Creates the round state machine by adding a system event to the database
+    pub async fn track_rounds(&self) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+        StateManager::<Operator>::dispatch_new_round_machine(
+            self.db.clone(),
+            &mut dbtx,
+            self.data(),
+            self.idx as u32,
+        )
+        .await?;
+        dbtx.commit().await?;
+        Ok(())
+    }
+
     /// Checks if the withdrawal amount is within the acceptable range.
     fn is_profitable(
         input_amount: Amount,
@@ -356,7 +350,7 @@ impl Operator {
         let net_profit = bridge_amount_sats - withdrawal_amount;
 
         // Net profit must be bigger than withdrawal fee.
-        net_profit > operator_withdrawal_fee_sats
+        net_profit >= operator_withdrawal_fee_sats
     }
 
     /// Prepares a withdrawal by:
@@ -399,17 +393,23 @@ impl Operator {
         };
 
         // Check Citrea for the withdrawal state.
-        if let Some(citrea_contract_client) = &self.citrea_client {
-            let txid = citrea_contract_client
-                .withdrawal_utxos(withdrawal_index.into())
-                .await?
-                .txid;
+        let withdrawal_utxo = self
+            .db
+            .get_withdrawal_utxo_from_citrea_withdrawal(None, withdrawal_index)
+            .await?;
 
-            if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
-                // TODO: Fix this, vout can be different from 0 as well
-                return Err(BridgeError::InvalidInputUTXO(
-                    txid,
-                    input_utxo.outpoint.txid,
+        match withdrawal_utxo {
+            Some(withdrawal_utxo) => {
+                if withdrawal_utxo != input_utxo.outpoint {
+                    return Err(BridgeError::InvalidInputUTXO(
+                        input_utxo.outpoint.txid,
+                        withdrawal_utxo.txid,
+                    ));
+                }
+            }
+            None => {
+                return Err(BridgeError::UsersWithdrawalUtxoNotSetForWithdrawalIndex(
+                    withdrawal_index,
                 ));
             }
         }
@@ -918,7 +918,7 @@ impl Operator {
             .tx_sign_and_fill_sigs(&mut burn_unspent_kickoff_connectors_tx, &[])?;
 
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
@@ -939,7 +939,7 @@ impl Operator {
 
         // send ready to reimburse tx
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::ReadyToReimburse,
@@ -960,7 +960,7 @@ impl Operator {
 
         // send next round tx
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::Round,
@@ -1029,6 +1029,14 @@ impl Operator {
         }
         dbtx.commit().await?;
         Ok(())
+    }
+
+    fn data(&self) -> OperatorData {
+        OperatorData {
+            xonly_pk: self.signer.xonly_public_key,
+            collateral_funding_outpoint: self.collateral_funding_outpoint,
+            reimburse_addr: self.reimburse_addr.clone(),
+        }
     }
 }
 
@@ -1121,6 +1129,17 @@ impl Owner for Operator {
             ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
         let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
         Ok(txhandlers)
+    }
+
+    async fn handle_finalized_block(
+        &self,
+        _dbtx: DatabaseTransaction<'_, '_>,
+        _block_id: u32,
+        _block_height: u32,
+        _block_cache: Arc<block_cache::BlockCache>,
+        _light_client_proof_wait_interval_secs: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        Ok(())
     }
 }
 

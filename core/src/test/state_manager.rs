@@ -1,51 +1,7 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
-use async_trait::async_trait;
 use bitcoin::{consensus, Block};
-use tokio::sync::Mutex;
 
-use super::common::{create_test_config_with_thread_name, initialize_database};
-use crate::states::context::{Duty, Owner};
-use crate::{
-    builder::transaction::{ContractContext, TransactionType, TxHandler},
-    config::BridgeConfig,
-    database::Database,
-    errors::BridgeError,
-    states::StateManager,
-};
-
-// Mock implementation of the Owner trait for testing
-#[derive(Debug, Clone, Default)]
-struct MockOwner {
-    cached_duties: Arc<Mutex<Vec<Duty>>>,
-}
-
-#[allow(unused_variables)]
-impl PartialEq for MockOwner {
-    fn eq(&self, other: &Self) -> bool {
-        true // all mock owners are equal
-    }
-}
-
-// Implement the Owner trait for MockOwner
-#[async_trait]
-impl Owner for MockOwner {
-    const OWNER_TYPE: &'static str = "test_owner";
-
-    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
-        self.cached_duties.lock().await.push(duty);
-        Ok(())
-    }
-
-    async fn create_txhandlers(
-        &self,
-        _tx_type: TransactionType,
-        _contract_context: ContractContext,
-    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        Ok(BTreeMap::new())
-    }
-}
+use super::common::{create_test_config_with_thread_name, initialize_database, MockOwner};
+use crate::{config::BridgeConfig, database::Database, states::StateManager};
 
 // Helper function to create a test state manager
 async fn create_test_state_manager(
@@ -84,10 +40,9 @@ async fn test_process_empty_block_with_no_machines() {
     let block = create_empty_block();
     let block_height = 1;
 
+    state_manager.update_block_cache(&block, block_height);
     // Process an empty block with no state machines
-    let result = state_manager
-        .process_block_parallel(&block, block_height)
-        .await;
+    let result = state_manager.process_block_parallel(block_height).await;
 
     // Should succeed with no state changes
     assert!(
@@ -106,7 +61,8 @@ async fn test_process_block_parallel() {
 
     // Process the block multiple times to test the iteration logic
     for i in 1..=3 {
-        let result = state_manager.process_block_parallel(&block, i).await;
+        state_manager.update_block_cache(&block, i);
+        let result = state_manager.process_block_parallel(i).await;
         assert!(
             result.is_ok(),
             "Failed to process block on iteration {}: {:?}",
@@ -122,7 +78,8 @@ async fn test_save_and_load_state() {
 
     // Process a block to ensure the state is initialized
     let block = create_empty_block();
-    let result = state_manager.process_block_parallel(&block, 1).await;
+    state_manager.update_block_cache(&block, 1);
+    let result = state_manager.process_block_parallel(1).await;
     assert!(result.is_ok(), "Failed to process block: {:?}", result);
 
     // Save state to DB
