@@ -452,7 +452,7 @@ impl Aggregator {
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 &mut dbtx,
                 Some(TxDataForLogging {
                     deposit_outpoint: Some(deposit_data.deposit_outpoint),
