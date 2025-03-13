@@ -184,6 +184,10 @@ impl<T: Owner> RoundStateMachine<T> {
                             .handle_duty(Duty::CheckIfKickoff {
                                 txid,
                                 block_height: context.cache.block_height,
+                                witness: context
+                                    .cache
+                                    .get_witness_of_utxo(kickoff_outpoint)
+                                    .expect("UTXO should be in block"),
                             })
                             .await?;
                         Ok(())

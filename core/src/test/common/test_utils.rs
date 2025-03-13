@@ -2,7 +2,8 @@
 
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::TransactionType;
+use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -13,6 +14,7 @@ use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
     create_watchtower_unix_server,
 };
+use crate::states::{Duty, Owner};
 use crate::utils::initialize_logger;
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
@@ -20,8 +22,11 @@ use crate::{
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
+use std::collections::BTreeMap;
 use std::net::TcpListener;
-use tokio::sync::oneshot;
+use std::sync::Arc;
+use tokio::sync::{oneshot, Mutex};
+use tonic::async_trait;
 use tonic::transport::Channel;
 
 /// TODO: This won't block `let _ =`.
@@ -625,4 +630,47 @@ pub fn get_available_port() -> u16 {
         .local_addr()
         .expect("Could not get local address")
         .port()
+}
+
+// Mock implementation of the Owner trait for testing
+#[derive(Debug, Clone, Default)]
+pub struct MockOwner {
+    cached_duties: Arc<Mutex<Vec<Duty>>>,
+}
+
+#[allow(unused_variables)]
+impl PartialEq for MockOwner {
+    fn eq(&self, other: &Self) -> bool {
+        true // all mock owners are equal
+    }
+}
+
+// Implement the Owner trait for MockOwner
+#[async_trait]
+impl Owner for MockOwner {
+    const OWNER_TYPE: &'static str = "test_owner";
+
+    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+        self.cached_duties.lock().await.push(duty);
+        Ok(())
+    }
+
+    async fn create_txhandlers(
+        &self,
+        _tx_type: TransactionType,
+        _contract_context: ContractContext,
+    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+        Ok(BTreeMap::new())
+    }
+
+    async fn handle_finalized_block(
+        &self,
+        _dbtx: DatabaseTransaction<'_, '_>,
+        _block_id: u32,
+        _block_height: u32,
+        _block: &bitcoin::Block,
+        _light_client_proof_wait_interval_secs: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        Ok(())
+    }
 }

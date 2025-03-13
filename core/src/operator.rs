@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, WinternitzDerivationPath};
@@ -24,7 +23,9 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
 use crate::states::{Duty, Owner, StateManager};
-use crate::tx_sender::TxSender;
+use crate::task::manager::BackgroundTaskManager;
+use crate::task::IntoTask;
+use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
 use crate::{builder, UTXO};
 use alloy::transports::http::reqwest::Url;
@@ -42,11 +43,15 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
 
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
+
+pub struct OperatorServer {
+    pub operator: Operator,
+    background_tasks: BackgroundTaskManager<Operator>,
+}
 
 #[derive(Debug, Clone)]
 pub struct Operator {
@@ -58,9 +63,37 @@ pub struct Operator {
     pub collateral_funding_outpoint: OutPoint,
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
-    pub tx_sender: TxSender,
-    pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
+    pub tx_sender: TxSenderClient,
     pub citrea_client: Option<CitreaClient>,
+}
+
+impl OperatorServer {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let paramset = config.protocol_paramset();
+        let operator = Operator::new(config).await?;
+        let mut background_tasks = BackgroundTaskManager::default();
+
+        // initialize and run state manager
+        let state_manager =
+            StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
+
+        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+        background_tasks.loop_and_monitor(state_manager.into_task());
+
+        // track the operator's round state
+        operator.track_rounds().await?;
+
+        Ok(Self {
+            operator,
+            background_tasks,
+        })
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.background_tasks
+            .graceful_shutdown_with_timeout(Duration::from_secs(10))
+            .await;
+    }
 }
 
 impl Operator {
@@ -91,13 +124,7 @@ impl Operator {
                 signer.xonly_public_key
             ))))?;
 
-        let tx_sender = TxSender::new(
-            signer.clone(),
-            rpc.clone(),
-            db.clone(),
-            &format!("operator_{}", idx).to_string(),
-            config.protocol_paramset().network,
-        );
+        let tx_sender = TxSenderClient::new(db.clone(), format!("operator_{}", idx).to_string());
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
@@ -158,13 +185,7 @@ impl Operator {
             config.db_name
         );
 
-        let operator_data = OperatorData {
-            xonly_pk: signer.xonly_public_key,
-            collateral_funding_outpoint,
-            reimburse_addr: reimburse_addr.clone(),
-        };
-
-        let mut operator = Operator {
+        Ok(Operator {
             rpc,
             db: db.clone(),
             signer,
@@ -175,49 +196,7 @@ impl Operator {
             tx_sender,
             citrea_client,
             reimburse_addr,
-            // temporarily set to avoid circular reference
-            state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
-        };
-
-        // initialize and run state manager
-        let mut state_manager =
-            StateManager::new(db.clone(), operator.clone(), config.protocol_paramset()).await?;
-
-        state_manager.load_from_db().await?;
-
-        let state_manager_block_syncer = StateManager::<Self>::block_fetcher_task(
-            state_manager.get_last_processed_block_height(),
-            db.clone(),
-            Duration::from_secs(1),
-            config.protocol_paramset(),
-        )
-        .await;
-
-        let (state_manager_run_loop, shutdown_tx) = state_manager
-            .into_msg_consumer_task(Duration::from_secs(1))
-            .await;
-        operator.state_manager_shutdown_tx = shutdown_tx.into(); // save the shutdown tx here
-
-        // add own operator state to state manager
-        let mut dbtx = db.begin_transaction().await?;
-        StateManager::<Self>::dispatch_new_round_machine(
-            db.clone(),
-            &mut dbtx,
-            operator_data,
-            idx as u32,
-        )
-        .await?;
-        dbtx.commit().await?;
-        // Monitor state manager handles
-        crate::utils::monitor_task_with_panic(
-            state_manager_block_syncer,
-            "operator block syncer for state manager",
-        );
-        crate::utils::monitor_task_with_panic(
-            state_manager_run_loop,
-            "operator run loop of state manager",
-        );
-        Ok(operator)
+        })
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -266,7 +245,7 @@ impl Operator {
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 &mut dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::Round,
@@ -335,6 +314,20 @@ impl Operator {
         });
 
         Ok(sig_rx)
+    }
+
+    /// Creates the round state machine by adding a system event to the database
+    pub async fn track_rounds(&self) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+        StateManager::<Operator>::dispatch_new_round_machine(
+            self.db.clone(),
+            &mut dbtx,
+            self.data(),
+            self.idx as u32,
+        )
+        .await?;
+        dbtx.commit().await?;
+        Ok(())
     }
 
     /// Checks if the withdrawal amount is within the acceptable range.
@@ -924,7 +917,7 @@ impl Operator {
             .tx_sign_and_fill_sigs(&mut burn_unspent_kickoff_connectors_tx, &[])?;
 
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
@@ -945,7 +938,7 @@ impl Operator {
 
         // send ready to reimburse tx
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::ReadyToReimburse,
@@ -966,7 +959,7 @@ impl Operator {
 
         // send next round tx
         self.tx_sender
-            .try_to_send(
+            .insert_try_to_send(
                 dbtx,
                 Some(TxDataForLogging {
                     tx_type: TransactionType::Round,
@@ -1005,6 +998,7 @@ impl Operator {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
         _watchtower_challenges: HashMap<usize, Witness>,
+        _payout_blockhash: Witness,
     ) -> Result<(), BridgeError> {
         let assert_txs = self
             .create_assert_commitment_txs(AssertRequestData {
@@ -1032,8 +1026,16 @@ impl Operator {
                 )
                 .await?;
         }
-
+        dbtx.commit().await?;
         Ok(())
+    }
+
+    fn data(&self) -> OperatorData {
+        OperatorData {
+            xonly_pk: self.signer.xonly_public_key,
+            collateral_funding_outpoint: self.collateral_funding_outpoint,
+            reimburse_addr: self.reimburse_addr.clone(),
+        }
     }
 }
 
@@ -1062,20 +1064,32 @@ impl Owner for Operator {
                 kickoff_id,
                 deposit_data,
                 watchtower_challenges,
+                payout_blockhash,
             } => {
                 tracing::warn!("Operator {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", self.idx, kickoff_id, deposit_data, watchtower_challenges.len());
-                self.send_asserts(kickoff_id, deposit_data, watchtower_challenges)
-                    .await?;
+                self.send_asserts(
+                    kickoff_id,
+                    deposit_data,
+                    watchtower_challenges,
+                    payout_blockhash,
+                )
+                .await?;
             }
             Duty::VerifierDisprove {
                 kickoff_id,
                 deposit_data,
                 operator_asserts,
                 operator_acks,
+                payout_blockhash,
             } => {
-                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len());
+                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
+                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash);
             }
-            Duty::CheckIfKickoff { txid, block_height } => {
+            Duty::CheckIfKickoff {
+                txid,
+                block_height,
+                witness,
+            } => {
                 tracing::info!(
                     "Operator {} called check if kickoff with txid: {:?}, block_height: {:?}",
                     self.idx,
@@ -1095,6 +1109,7 @@ impl Owner for Operator {
                         kickoff_id,
                         block_height,
                         deposit_data,
+                        witness,
                     )
                     .await?;
                     dbtx.commit().await?;

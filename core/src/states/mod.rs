@@ -101,7 +101,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
     pub async fn new(
         db: Database,
-        handler: T,
+        owner: T,
         paramset: &'static ProtocolParamset,
     ) -> eyre::Result<Self> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
@@ -114,21 +114,24 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             format!("Error creating pqmq queue with name {}", Self::queue_name())
         })?;
 
-        Ok(Self {
+        let mut mgr = Self {
             context: context::StateContext::new(
                 db.clone(),
-                Arc::new(handler.clone()),
+                Arc::new(owner.clone()),
                 Default::default(),
                 paramset,
             ),
             db,
-            owner: handler,
+            owner,
             paramset,
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             queue,
             last_processed_block_height: paramset.start_height,
-        })
+        };
+
+        mgr.load_from_db().await?;
+        Ok(mgr)
     }
 
     /// Loads the state machines from the database.
