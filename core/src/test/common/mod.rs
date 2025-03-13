@@ -1,6 +1,7 @@
 //! # Common Utilities for Integration Tests
 
 use crate::actor::Actor;
+use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientTrait;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
@@ -242,4 +243,52 @@ pub async fn run_single_deposit<C: CitreaClientTrait>(
         deposit_outpoint,
         move_txid,
     ))
+}
+
+#[ignore = "Tested everywhere, no need to run again"]
+#[tokio::test]
+async fn test_deposit() {
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+    let _ = run_single_deposit::<MockCitreaClient>(&mut config, rpc, None)
+        .await
+        .unwrap();
+}
+
+#[ignore = "Tested everywhere, no need to run again"]
+#[tokio::test]
+async fn multiple_deposits_for_operator() {
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+    let _ = run_multiple_deposits::<MockCitreaClient>(&mut config, rpc, 2)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn create_regtest_rpc_macro() {
+    let mut config = create_test_config_with_thread_name(None).await;
+
+    let regtest = create_regtest_rpc(&mut config).await;
+
+    let macro_rpc = regtest.rpc();
+    let rpc = ExtendedRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    )
+    .await
+    .unwrap();
+
+    macro_rpc.mine_blocks(1).await.unwrap();
+    let height = macro_rpc.client.get_block_count().await.unwrap();
+    let new_rpc_height = rpc.client.get_block_count().await.unwrap();
+    assert_eq!(height, new_rpc_height);
+
+    rpc.mine_blocks(1).await.unwrap();
+    let new_rpc_height = rpc.client.get_block_count().await.unwrap();
+    let height = macro_rpc.client.get_block_count().await.unwrap();
+    assert_eq!(height, new_rpc_height);
 }

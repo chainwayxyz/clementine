@@ -1,10 +1,9 @@
+use super::CitreaClientTrait;
 use crate::errors::BridgeError;
 use alloy::{signers::local::PrivateKeySigner, transports::http::reqwest::Url};
 use bitcoin::{OutPoint, Txid};
 use std::marker::PhantomData;
 use tonic::async_trait;
-
-use super::CitreaClientTrait;
 
 #[derive(Clone, Debug)]
 pub struct MockCitreaClient {
