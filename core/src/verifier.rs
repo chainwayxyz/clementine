@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
@@ -12,8 +13,10 @@ use crate::builder::transaction::{
     ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
-use crate::config::protocol::ProtocolParamset;
+use crate::citrea::{CitreaClient, LightClientProverRpcClient};
+use crate::config::protocol::{ProtocolParamset, ProtocolParamsetName};
 use crate::config::BridgeConfig;
+use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -24,10 +27,13 @@ use crate::rpc::clementine::{
     DepositParams, KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature,
     TransactionRequest, WatchtowerKeys,
 };
-use crate::states::StateManager;
+use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
-use crate::tx_sender::{TxDataForLogging, TxSender};
-use crate::{bitcoin_syncer, EVMAddress};
+use crate::task::manager::BackgroundTaskManager;
+use crate::task::IntoTask;
+use crate::tx_sender::{TxDataForLogging, TxSender, TxSenderClient};
+use crate::EVMAddress;
+use alloy::transports::http::reqwest::Url;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -40,7 +46,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tonic::async_trait;
 
@@ -82,19 +88,73 @@ impl NofN {
     }
 }
 
+pub struct VerifierServer {
+    pub verifier: Verifier,
+    background_tasks: BackgroundTaskManager<Verifier>,
+}
+
+impl VerifierServer {
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let verifier = Verifier::new(config.clone()).await?;
+        let db = verifier.db.clone();
+        let mut background_tasks = BackgroundTaskManager::default();
+
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
+
+        let tx_sender = TxSender::new(
+            verifier.signer.clone(),
+            rpc.clone(),
+            verifier.db.clone(),
+            format!("verifier_{}", verifier.idx).to_string(),
+            config.protocol_paramset().network,
+        );
+
+        background_tasks.loop_and_monitor(tx_sender.into_task());
+
+        // initialize and run state manager
+        let state_manager =
+            StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
+
+        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+        background_tasks.loop_and_monitor(state_manager.into_task());
+
+        let syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).await?;
+
+        background_tasks.loop_and_monitor(syncer.into_task());
+
+        Ok(VerifierServer {
+            verifier,
+            background_tasks,
+        })
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.background_tasks
+            .graceful_shutdown_with_timeout(Duration::from_secs(10))
+            .await;
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Verifier {
     rpc: ExtendedRpc,
+    pub idx: usize,
+
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
+
     pub(crate) nofn_xonly_pk: bitcoin::secp256k1::XOnlyPublicKey,
     pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
-    pub idx: usize,
-    pub tx_sender: TxSender,
-    pub state_manager_shutdown_tx: Arc<oneshot::Sender<()>>,
+    pub tx_sender: TxSenderClient,
+    pub citrea_client: Option<CitreaClient>,
 }
 
 impl Verifier {
@@ -104,7 +164,13 @@ impl Verifier {
             config.winternitz_secret_key,
             config.protocol_paramset().network,
         );
-        // let pk: bitcoin::secp256k1:: PublicKey = config.secret_key.public_key(&utils::SECP);
+
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
 
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
         let idx = config
@@ -114,24 +180,28 @@ impl Verifier {
             .ok_or(BridgeError::PublicKeyNotFound)?;
 
         let db = Database::new(&config).await?;
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await?;
 
-        let tx_sender = TxSender::new(
-            signer.clone(),
-            rpc.clone(),
-            db.clone(),
-            &format!("verifier_{}", idx).to_string(),
-            config.protocol_paramset().network,
-        );
-        let tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await?;
-
-        // Monitor the tx_sender_handle and abort if it dies unexpectedly
-        crate::utils::monitor_task_with_panic(tx_sender_handle, "tx_sender for verifier");
+        let citrea_client = if !config.citrea_rpc_url.is_empty()
+            && !config.citrea_light_client_prover_url.is_empty()
+        {
+            Some(CitreaClient::new(
+                Url::parse(&config.citrea_rpc_url).map_err(|e| {
+                    BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
+                })?,
+                Url::parse(&config.citrea_light_client_prover_url).map_err(|e| {
+                    BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e))
+                })?,
+                None,
+            )?)
+        } else if config.protocol_paramset == ProtocolParamsetName::Mainnet // TODO: Remove this and move to config.rs or smth
+        || config.protocol_paramset == ProtocolParamsetName::Testnet4
+        {
+            return Err(BridgeError::ConfigError(
+                "Citrea RPC URL and Citrea light client prover RPC URLs must be set!".to_string(),
+            ));
+        } else {
+            None
+        };
 
         let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
@@ -155,17 +225,9 @@ impl Verifier {
             None
         };
 
-        bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc, config.protocol_paramset())
-            .await?;
-        let _handle = bitcoin_syncer::start_bitcoin_syncer(
-            db.clone(),
-            rpc.clone(),
-            Duration::from_secs(1),
-            config.protocol_paramset(),
-        )
-        .await?;
+        let tx_sender = TxSenderClient::new(db.clone(), format!("verifier_{}", idx).to_string());
 
-        let mut verifier = Verifier {
+        let verifier = Verifier {
             rpc,
             signer,
             db: db.clone(),
@@ -176,34 +238,8 @@ impl Verifier {
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
             tx_sender,
-            state_manager_shutdown_tx: Arc::new(oneshot::channel().0),
+            citrea_client,
         };
-        // initialize and run state manager
-        let mut state_manager =
-            StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
-        state_manager.load_from_db().await?;
-        let state_manager_block_syncer = StateManager::<Self>::block_fetcher_task(
-            state_manager.get_last_processed_block_height(),
-            db.clone(),
-            Duration::from_secs(1),
-            config.protocol_paramset(),
-        )
-        .await;
-
-        let (state_manager_run_loop, shutdown_tx) = state_manager
-            .into_msg_consumer_task(Duration::from_secs(1))
-            .await;
-        verifier.state_manager_shutdown_tx = shutdown_tx.into();
-
-        // Monitor state manager handles
-        crate::utils::monitor_task_with_panic(
-            state_manager_block_syncer,
-            "verifier block syncer for state manager",
-        );
-        crate::utils::monitor_task_with_panic(
-            state_manager_run_loop,
-            "verifier run loop of state manager",
-        );
         Ok(verifier)
     }
 
@@ -1095,6 +1131,149 @@ impl Verifier {
         }
         Ok(())
     }
+
+    /// Get's the l2 height range for the given Bitcoin block height
+    /// It fetches the light client proof for the given block height and the previous block height
+    /// Then it calculates the l2 height range from the light client proof
+    /// Note that this is not the best way to do this, but it's a quick fix for now
+    /// it will attempt to fetch the light client proof max_attempts times with 1 second intervals
+    async fn get_citrea_l2_height_range(
+        citrea_client: &CitreaClient,
+        block_height: u32,
+        max_attempts: u32,
+    ) -> Result<(u64, u64), BridgeError> {
+        let mut attempts = 0;
+
+        let proof_current = loop {
+            if let Some(proof) = citrea_client
+                .light_client_prover_client
+                .get_light_client_proof_by_l1_height(block_height as u64)
+                .await?
+            {
+                break proof;
+            }
+
+            attempts += 1;
+            if attempts >= max_attempts {
+                return Err(BridgeError::Error(format!(
+                    "Light client proof not found for block height {} after {} attempts with 1 second intervals",
+                    block_height,
+                    max_attempts
+                )));
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        };
+
+        let proof_previous = citrea_client
+            .light_client_prover_client
+            .get_light_client_proof_by_l1_height(block_height as u64 - 1)
+            .await?
+            .ok_or(BridgeError::Error(format!(
+                "Light client proof not found for block height: {}",
+                block_height - 1
+            )))?;
+
+        let l2_height_end: u64 = proof_current
+            .light_client_proof_output
+            .last_l2_height
+            .try_into()
+            .expect("Failed to convert last_l2_height to u64");
+
+        let l2_height_start: u64 = proof_previous
+            .light_client_proof_output
+            .last_l2_height
+            .try_into()
+            .expect("Failed to convert last_l2_height to u64");
+
+        Ok((l2_height_start, l2_height_end))
+    }
+
+    async fn update_citrea_withdrawals(
+        &self,
+        dbtx: &mut DatabaseTransaction<'_, '_>,
+        citrea_client: &CitreaClient,
+        l2_height_start: u64,
+        l2_height_end: u64,
+        block_height: u32,
+    ) -> Result<(), BridgeError> {
+        let new_deposits = citrea_client
+            .collect_deposit_move_txids(l2_height_start + 1, l2_height_end)
+            .await?;
+        tracing::info!("New Deposits: {:?}", new_deposits);
+        let new_withdrawals = citrea_client
+            .collect_withdrawal_utxos(l2_height_start + 1, l2_height_end)
+            .await?;
+        tracing::info!("New Withdrawals: {:?}", new_withdrawals);
+        for (idx, move_to_vault_txid) in new_deposits {
+            tracing::info!("Setting move to vault txid: {:?}", move_to_vault_txid);
+            self.db
+                .set_move_to_vault_txid_from_citrea_deposit(
+                    Some(dbtx),
+                    idx as u32 - 1,
+                    &move_to_vault_txid,
+                )
+                .await?;
+        }
+        for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
+            tracing::info!("Setting withdrawal utxo: {:?}", withdrawal_utxo_outpoint);
+            self.db
+                .set_withdrawal_utxo_from_citrea_withdrawal(
+                    Some(dbtx),
+                    idx as u32,
+                    withdrawal_utxo_outpoint,
+                    block_height,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn update_finalized_payouts(
+        &self,
+        dbtx: &mut DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block_cache: &block_cache::BlockCache,
+    ) -> Result<(), BridgeError> {
+        let payout_txids = self
+            .db
+            .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
+            .await?;
+
+        let block = block_cache
+            .block
+            .as_ref()
+            .ok_or(BridgeError::Error("Block not found".to_string()))?;
+
+        let block_hash = block.block_hash();
+
+        let mut payout_txs_and_payer_operator_idx = vec![];
+        for (idx, payout_txid) in payout_txids {
+            let payout_tx_idx = block_cache
+                .txids
+                .get(&payout_txid)
+                .ok_or(BridgeError::Error("Payout tx not found".to_string()))?;
+            let payout_tx = &block.txdata[*payout_tx_idx];
+            let last_output = &payout_tx.output[payout_tx.output.len() - 1]
+                .script_pubkey
+                .to_bytes();
+            tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
+
+            let operator_idx = u32::from_le_bytes(
+                last_output[2..6]
+                    .try_into()
+                    .expect("Failed to convert last_output to u32"),
+            );
+
+            payout_txs_and_payer_operator_idx.push((idx, payout_txid, operator_idx, block_hash));
+        }
+
+        self.db
+            .set_payout_txs_and_payer_operator_idx(Some(dbtx), payout_txs_and_payer_operator_idx)
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1196,5 +1375,47 @@ impl Owner for Verifier {
         )
         .await?;
         Ok(txhandlers)
+    }
+
+    async fn handle_finalized_block(
+        &self,
+        mut dbtx: DatabaseTransaction<'_, '_>,
+        block_id: u32,
+        block_height: u32,
+        block_cache: Arc<block_cache::BlockCache>,
+        light_client_proof_wait_interval_secs: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        if self.citrea_client.is_none() {
+            return Ok(());
+        }
+
+        let citrea_client = self
+            .citrea_client
+            .as_ref()
+            .ok_or_else(|| BridgeError::Error("Citrea client is not available".to_string()))?;
+
+        let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
+
+        let (l2_height_start, l2_height_end) =
+            Self::get_citrea_l2_height_range(citrea_client, block_height, max_attempts).await?;
+
+        tracing::info!("l2_height_end: {:?}", l2_height_end);
+        tracing::info!("l2_height_start: {:?}", l2_height_start);
+
+        tracing::info!("Collecting deposits and withdrawals");
+        self.update_citrea_withdrawals(
+            &mut dbtx,
+            citrea_client,
+            l2_height_start,
+            l2_height_end,
+            block_height,
+        )
+        .await?;
+
+        tracing::info!("Getting payout txids");
+        self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
+            .await?;
+
+        Ok(())
     }
 }

@@ -1,13 +1,13 @@
 //! # Citrea Related Utilities
 
-use crate::{config::BridgeConfig, extended_rpc::ExtendedRpc};
-use bitcoincore_rpc::RpcApi;
+use crate::{config::BridgeConfig, errors::BridgeError};
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
     framework::TestFramework,
     node::{Node, NodeKind},
 };
+use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
 
@@ -48,8 +48,6 @@ pub const EVM_ADDRESSES: [&str; 10] = [
     "a0Ee7A142d267C1f36714E4a8F75612F20a79720",
 ];
 
-pub const DUMMY_LCP_URL: (&str, u16) = ("127.0.0.1", 8080);
-
 /// Starts typical nodes with typical configs for a test that needs Citrea.
 pub async fn start_citrea(
     sequencer_config: SequencerConfig,
@@ -75,15 +73,10 @@ pub async fn start_citrea(
             sequencer.client.send_publish_batch_request().await?;
         }
     }
-    // Wait for blob inscribe tx to be in mempool
-    da.wait_mempool_len(2, None).await?;
-
-    da.generate(citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH)
-        .await?;
-
-    full_node
+    sequencer
         .wait_for_l2_height(min_soft_confirmations_per_commitment, None)
         .await?;
+    println!("Sequencer is ready");
 
     Ok((sequencer, full_node, light_client_prover, batch_prover, da))
 }
@@ -120,28 +113,20 @@ pub fn update_config_with_citrea_e2e_values(
     }
 }
 
-pub async fn sync_citrea_l2(
-    rpc: &ExtendedRpc,
-    sequencer: &citrea_e2e::node::Node<SequencerConfig>,
-    full_node: &citrea_e2e::node::Node<EmptyConfig>,
-) {
-    let l1_height = rpc.client.get_block_count().await.unwrap();
-    let l2_height = sequencer
-        .client
-        .ledger_get_head_soft_confirmation_height()
-        .await
-        .unwrap();
+pub async fn wait_until_lc_contract_updated(
+    client: &HttpClient,
+    block_height: u64,
+) -> Result<(), BridgeError> {
+    let mut attempts = 0;
+    let max_attempts = 600;
 
-    for i in l2_height..l1_height + 1 {
-        println!("Syncing L2 block {}", l2_height + i + 1);
-        sequencer.client.send_publish_batch_request().await.unwrap();
+    while attempts < max_attempts {
+        let block_number = block_number(client).await?;
+        if block_number >= block_height as u32 {
+            break;
+        }
+        attempts += 1;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
-
-    println!("Waiting for L2 to be in sync with L1");
-    full_node
-        .client
-        .wait_for_l2_block(l1_height, None)
-        .await
-        .unwrap();
-    println!("L2 is in sync with L1");
+    Ok(())
 }

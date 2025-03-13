@@ -1,6 +1,5 @@
 use super::common::{create_actors, create_test_config_with_thread_name};
 use crate::actor::Actor;
-use crate::bitvm_client::SECP;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::TransactionType;
 use crate::config::BridgeConfig;
@@ -11,14 +10,13 @@ use crate::rpc::clementine::{
     DepositParams, Empty, FinalizedPayoutParams, KickoffId, TransactionRequest,
 };
 use crate::test::common::*;
-use crate::tx_sender::{FeePayingType, TxDataForLogging, TxSender};
+use crate::tx_sender::{FeePayingType, TxDataForLogging, TxSenderClient};
 use crate::EVMAddress;
 use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use eyre::{bail, Context, Result};
-use secp256k1::rand::rngs::ThreadRng;
 use tonic::Request;
 
 const BLOCKS_PER_DAY: u64 = 144;
@@ -127,8 +125,6 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
         create_actors(config).await;
 
-    let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
-
     let verifier_0_config = {
         let mut config = config.clone();
         config.db_name += "0";
@@ -140,22 +136,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     let tx_sender_db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
-    let tx_sender = {
-        let actor = Actor::new(
-            keypair.secret_key(),
-            None,
-            config.protocol_paramset().network,
-        );
-
-        // This tx sender will be adding txs using verifier 0's tx sender loop
-        TxSender::new(
-            actor.clone(),
-            rpc.clone(),
-            tx_sender_db.clone(),
-            "run_happy_path_1",
-            config.protocol_paramset().network,
-        )
-    };
+    let tx_sender = TxSenderClient::new(tx_sender_db.clone(), "run_happy_path_1".to_string());
 
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address(config, evm_address)?;
@@ -359,7 +340,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
 // Helper function to send a transaction and mine a block
 pub async fn send_tx(
-    tx_sender: &TxSender,
+    tx_sender: &TxSenderClient,
     db: &Database,
     rpc: &ExtendedRpc,
     raw_tx: &[u8],
@@ -370,7 +351,7 @@ pub async fn send_tx(
 
     // Try to send the transaction with CPFP first
     let send_result = tx_sender
-        .try_to_send(
+        .insert_try_to_send(
             &mut dbtx,
             Some(TxDataForLogging {
                 tx_type,
@@ -397,7 +378,7 @@ pub async fn send_tx(
     if let Err(e) = send_result {
         tracing::warn!("Failed to send with CPFP, trying RBF: {}", e);
         tx_sender
-            .try_to_send(&mut dbtx, None, &tx, FeePayingType::RBF, &[], &[], &[], &[])
+            .insert_try_to_send(&mut dbtx, None, &tx, FeePayingType::RBF, &[], &[], &[], &[])
             .await?;
     }
 
@@ -480,8 +461,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     let (_verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
         create_actors(config).await;
 
-    let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
-
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
         let mut config = config.clone();
@@ -492,21 +471,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     let tx_sender_db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
-    let tx_sender = {
-        let actor = Actor::new(
-            keypair.secret_key(),
-            None,
-            config.protocol_paramset().network,
-        );
-
-        TxSender::new(
-            actor.clone(),
-            rpc.clone(),
-            tx_sender_db.clone(),
-            "run_happy_path_2",
-            config.protocol_paramset().network,
-        )
-    };
+    let tx_sender = TxSenderClient::new(tx_sender_db.clone(), "run_happy_path_2".to_string());
 
     // Generate deposit address
     let evm_address = EVMAddress([1u8; 20]);
@@ -854,8 +819,6 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let (_verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
         create_actors(config).await;
 
-    let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
-
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
         let mut config = config.clone();
@@ -866,21 +829,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let tx_sender_db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
-    let tx_sender = {
-        let actor = Actor::new(
-            keypair.secret_key(),
-            None,
-            config.protocol_paramset().network,
-        );
-
-        TxSender::new(
-            actor.clone(),
-            rpc.clone(),
-            tx_sender_db.clone(),
-            "run_bad_path_1",
-            config.protocol_paramset().network,
-        )
-    };
+    let tx_sender = TxSenderClient::new(tx_sender_db.clone(), "run_bad_path_1".to_string());
 
     // Generate deposit address
     let evm_address = EVMAddress([1u8; 20]);
@@ -1091,8 +1040,6 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
         create_actors(config).await;
 
-    let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
-
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
         let mut config = config.clone();
@@ -1103,21 +1050,7 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let tx_sender_db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
-    let tx_sender = {
-        let actor = Actor::new(
-            keypair.secret_key(),
-            None,
-            config.protocol_paramset().network,
-        );
-
-        TxSender::new(
-            actor.clone(),
-            rpc.clone(),
-            tx_sender_db.clone(),
-            "run_bad_path_2",
-            config.protocol_paramset().network,
-        )
-    };
+    let tx_sender = TxSenderClient::new(tx_sender_db.clone(), "run_bad_path_2".to_string());
 
     // Generate deposit address
     let evm_address = EVMAddress([1u8; 20]);
@@ -1302,8 +1235,6 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
         create_actors(config).await;
 
-    let keypair = bitcoin::key::Keypair::new(&SECP, &mut ThreadRng::default());
-
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
         let mut config = config.clone();
@@ -1314,21 +1245,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let tx_sender_db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
-    let tx_sender = {
-        let actor = Actor::new(
-            keypair.secret_key(),
-            None,
-            config.protocol_paramset().network,
-        );
-
-        TxSender::new(
-            actor.clone(),
-            rpc.clone(),
-            tx_sender_db.clone(),
-            "run_bad_path_3",
-            config.protocol_paramset().network,
-        )
-    };
+    let tx_sender = TxSenderClient::new(tx_sender_db.clone(), "run_bad_path_3".to_string());
 
     // Generate deposit address
     let evm_address = EVMAddress([1u8; 20]);

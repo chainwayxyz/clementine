@@ -363,6 +363,9 @@ pub enum BridgeError {
 
     #[error("Transaction is already in block: {0}")]
     TransactionAlreadyInBlock(BlockHash),
+
+    #[error("User's withdrawal UTXO not set for withdrawal index: {0}")]
+    UsersWithdrawalUtxoNotSetForWithdrawalIndex(u32),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

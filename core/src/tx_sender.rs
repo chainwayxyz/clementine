@@ -6,8 +6,9 @@ use bitcoin::{
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
 use serde::{Deserialize, Serialize};
-use tokio::task::JoinHandle;
+use tonic::async_trait;
 
+use crate::task::{IgnoreError, WithDelay};
 use crate::{
     actor::Actor,
     bitcoin_syncer::BitcoinSyncerEvent,
@@ -26,6 +27,13 @@ use crate::{
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
     rpc::clementine::NormalSignatureKind,
+    task::{IntoTask, Task, TaskExt},
+};
+
+const POLL_DELAY: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_secs(1)
 };
 
 #[derive(Clone, Debug)]
@@ -34,7 +42,7 @@ pub struct TxSender {
     pub rpc: ExtendedRpc,
     pub db: Database,
     pub network: bitcoin::Network,
-    pub consumer_handle: String,
+    pub btc_syncer_consumer_id: String,
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, sqlx::Type)]
@@ -66,348 +74,104 @@ pub struct TxDataForLogging {
     pub tx_type: TransactionType,
 }
 
+#[derive(Debug)]
+pub struct TxSenderTask {
+    db: Database,
+    current_tip_height: u32,
+    inner: TxSender,
+}
+
+#[async_trait]
+impl Task for TxSenderTask {
+    type Output = bool;
+
+    async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+
+        let is_block_update = async {
+            let event = self
+                .db
+                .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.btc_syncer_consumer_id)
+                .await?;
+            if event.is_some() {
+                tracing::debug!("TXSENDER: Event: {:?}", event);
+            }
+            Ok::<bool, BridgeError>(match event {
+                Some(event) => match event {
+                    BitcoinSyncerEvent::NewBlock(block_id) => {
+                        self.db.confirm_transactions(&mut dbtx, block_id).await?;
+                        self.current_tip_height = self
+                            .db
+                            .get_block_info_from_id(Some(&mut dbtx), block_id)
+                            .await?
+                            .ok_or(BridgeError::Error("Block not found".to_string()))?
+                            .1;
+
+                        tracing::trace!("TXSENDER: Confirmed transactions for block {}", block_id);
+                        dbtx.commit().await?;
+                        true
+                    }
+                    BitcoinSyncerEvent::ReorgedBlock(block_id) => {
+                        tracing::trace!(
+                            "TXSENDER: Unconfirming transactions for block {}",
+                            block_id
+                        );
+                        self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
+                        dbtx.commit().await?;
+                        true
+                    }
+                },
+                None => false,
+            })
+        }
+        .await?;
+
+        if is_block_update {
+            // Don't wait in new events
+            return Ok(true);
+        }
+
+        tracing::trace!("TXSENDER: Getting fee rate");
+        let fee_rate = self.inner.get_fee_rate().await?;
+        tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
+
+        self.inner
+            .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)
+            .await?;
+
+        Ok(false)
+    }
+}
+
+impl IntoTask for TxSender {
+    type Task = WithDelay<IgnoreError<TxSenderTask>>;
+
+    fn into_task(self) -> Self::Task {
+        TxSenderTask {
+            db: self.db.clone(),
+            current_tip_height: 0,
+            inner: self,
+        }
+        .ignore_error()
+        .with_delay(POLL_DELAY)
+    }
+}
+
 impl TxSender {
     pub fn new(
         signer: Actor,
         rpc: ExtendedRpc,
         db: Database,
-        consumer_handle: &str,
+        btc_syncer_consumer_id: String,
         network: bitcoin::Network,
     ) -> Self {
         Self {
             signer,
             rpc,
             db,
-            consumer_handle: consumer_handle.to_string(),
+            btc_syncer_consumer_id,
             network,
         }
-    }
-
-    /// Runs the tx sender.
-    /// It will start a background task that will listen for new blocks and confirm transactions.
-    /// It will also listen for reorged blocks and unconfirm transactions.
-    /// It will also periodically bump fees of both the package and the fee payer txs.
-    /// consumer_handle is the name of the consumer that will be used to listen for events, it should be unique for each tx sender.
-    pub async fn run(
-        &self,
-        poll_delay: Duration,
-    ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
-        // Clone the required fields for the async task
-        let db = self.db.clone();
-        let consumer_handle = self.consumer_handle.clone();
-        let this = self.clone();
-
-        tracing::trace!(
-            "TXSENDER: Starting tx sender with handle {}",
-            consumer_handle
-        );
-
-        let handle = tokio::spawn(async move {
-            let mut current_tip_height = 0;
-            loop {
-                let result: Result<bool, BridgeError> = async {
-                    let mut dbtx = db.begin_transaction().await?;
-
-                    let is_block_update = async {
-                        let event = db
-                            .fetch_next_bitcoin_syncer_evt(&mut dbtx, &consumer_handle)
-                            .await?;
-                        if event.is_some() {
-                            tracing::debug!("TXSENDER: Event: {:?}", event);
-                        }
-                        Ok::<bool, BridgeError>(match event {
-                            Some(event) => match event {
-                                BitcoinSyncerEvent::NewBlock(block_id) => {
-                                    db.confirm_transactions(&mut dbtx, block_id).await?;
-                                    current_tip_height = db
-                                        .get_block_info_from_id(Some(&mut dbtx), block_id)
-                                        .await?
-                                        .ok_or(BridgeError::Error("Block not found".to_string()))?
-                                        .1;
-
-                                    tracing::trace!(
-                                        "TXSENDER: Confirmed transactions for block {}",
-                                        block_id
-                                    );
-                                    dbtx.commit().await?;
-                                    true
-                                }
-                                BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                                    tracing::trace!(
-                                        "TXSENDER: Unconfirming transactions for block {}",
-                                        block_id
-                                    );
-                                    db.unconfirm_transactions(&mut dbtx, block_id).await?;
-                                    dbtx.commit().await?;
-                                    true
-                                }
-                            },
-                            None => false,
-                        })
-                    }
-                    .await?;
-
-                    if is_block_update {
-                        // Don't wait in new events
-                        return Ok(true);
-                    }
-
-                    tracing::trace!("TXSENDER: Getting fee rate");
-                    let fee_rate = this.get_fee_rate().await?;
-                    tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
-                    this.try_to_send_unconfirmed_txs(fee_rate, current_tip_height)
-                        .await?;
-
-                    Ok(false)
-                }
-                .await;
-
-                match result {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        tokio::time::sleep(poll_delay).await;
-                    }
-                    Err(e) => {
-                        tracing::error!("TXSENDER: Error sending txs: {:?}", e);
-                        tokio::time::sleep(poll_delay).await;
-                    }
-                }
-            }
-        });
-
-        Ok(handle)
-    }
-
-    pub async fn add_tx_to_queue<'a>(
-        &'a self,
-        dbtx: DatabaseTransaction<'a, '_>,
-        tx_type: TransactionType,
-        signed_tx: &Transaction,
-        related_txs: &[(TransactionType, Transaction)],
-        tx_data_for_logging: Option<TxDataForLogging>,
-        config: &BridgeConfig,
-    ) -> Result<u32, BridgeError> {
-        let tx_data_for_logging = tx_data_for_logging.map(|mut data| {
-            data.tx_type = tx_type;
-            data
-        });
-        match tx_type {
-            TransactionType::Kickoff
-            | TransactionType::Dummy
-            | TransactionType::ChallengeTimeout
-            | TransactionType::DisproveTimeout
-            | TransactionType::Reimburse
-            | TransactionType::Round
-            | TransactionType::OperatorChallengeNack(_)
-            | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::UnspentKickoff(_)
-            | TransactionType::Payout
-            | TransactionType::MoveToVault
-            | TransactionType::AssertTimeout(_)
-            | TransactionType::Disprove
-            | TransactionType::BurnUnusedKickoffConnectors
-            | TransactionType::KickoffNotFinalized
-            | TransactionType::MiniAssert(_) => {
-                // no_dependency and cpfp
-                self.try_to_send(
-                    dbtx,
-                    tx_data_for_logging,
-                    signed_tx,
-                    FeePayingType::CPFP,
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                )
-                .await
-            }
-            TransactionType::Challenge => {
-                self.try_to_send(
-                    dbtx,
-                    tx_data_for_logging,
-                    signed_tx,
-                    FeePayingType::RBF,
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                )
-                .await
-            }
-            TransactionType::WatchtowerChallengeTimeout(_watchtower_idx) => {
-                let kickoff_txid = related_txs
-                    .iter()
-                    .find_map(|(tx_type, tx)| {
-                        if let TransactionType::Kickoff = tx_type {
-                            Some(tx.compute_txid())
-                        } else {
-                            None
-                        }
-                    })
-                    .ok_or(BridgeError::Error(
-                        "Couldn't find kickoff tx in related_txs".to_string(),
-                    ))?;
-                self.try_to_send(
-                    dbtx,
-                    tx_data_for_logging,
-                    signed_tx,
-                    FeePayingType::CPFP,
-                    &[OutPoint {
-                        txid: kickoff_txid,
-                        vout: 1, // TODO: Make this a function of smth
-                    }],
-                    &[],
-                    &[],
-                    &[],
-                )
-                .await
-            }
-            TransactionType::OperatorChallengeAck(watchtower_idx) => {
-                let kickoff_txid = related_txs
-                    .iter()
-                    .find_map(|(tx_type, tx)| {
-                        if let TransactionType::Kickoff = tx_type {
-                            Some(tx.compute_txid())
-                        } else {
-                            None
-                        }
-                    })
-                    .ok_or(BridgeError::Error(
-                        "Couldn't find kickoff tx in related_txs".to_string(),
-                    ))?;
-                self.try_to_send(
-                    dbtx,
-                    tx_data_for_logging,
-                    signed_tx,
-                    FeePayingType::CPFP,
-                    &[],
-                    &[],
-                    &[],
-                    &[ActivatedWithOutpoint {
-                        outpoint: OutPoint {
-                            txid: kickoff_txid,
-                            vout: get_watchtower_challenge_utxo_vout(watchtower_idx) as u32,
-                        },
-                        relative_block_height: config.protocol_paramset().finality_depth,
-                    }],
-                )
-                .await
-            }
-            TransactionType::AllNeededForDeposit => unreachable!(),
-            TransactionType::ReadyToReimburse => unimplemented!(),
-            TransactionType::YieldKickoffTxid => unreachable!(),
-        }
-    }
-
-    /// Tries to send a tx. If all conditions are met, it will save the tx to the database.
-    /// It will also save the cancelled outpoints, cancelled txids and activated prerequisite txs to the database.
-    /// It will automatically save inputs as cancelled outpoints.
-    /// It will automatically save inputs as activated outpoints.
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn try_to_send(
-        &self,
-        dbtx: DatabaseTransaction<'_, '_>,
-        tx_data_for_logging: Option<TxDataForLogging>,
-        signed_tx: &Transaction,
-        fee_paying_type: FeePayingType,
-        cancel_outpoints: &[OutPoint],
-        cancel_txids: &[Txid],
-        activate_txids: &[ActivatedWithTxid],
-        activate_outpoints: &[ActivatedWithOutpoint],
-    ) -> Result<u32, BridgeError> {
-        let txid = signed_tx.compute_txid();
-        tracing::info!(
-            "{} added tx {:?} with tx_data_for_logging: {:?}, txid: {:?}",
-            self.consumer_handle,
-            tx_data_for_logging
-                .map(|data| data.tx_type)
-                .unwrap_or(TransactionType::Dummy),
-            tx_data_for_logging,
-            txid
-        );
-        let try_to_send_id = self
-            .db
-            .save_tx(
-                Some(dbtx),
-                tx_data_for_logging,
-                signed_tx,
-                fee_paying_type,
-                txid,
-            )
-            .await?;
-
-        for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
-            self.db
-                .save_cancelled_outpoint(Some(dbtx), try_to_send_id, input_outpoint)
-                .await?;
-        }
-
-        for outpoint in cancel_outpoints {
-            self.db
-                .save_cancelled_outpoint(Some(dbtx), try_to_send_id, *outpoint)
-                .await?;
-        }
-
-        for txid in cancel_txids {
-            self.db
-                .save_cancelled_txid(Some(dbtx), try_to_send_id, *txid)
-                .await?;
-        }
-
-        let mut max_timelock_of_activated_txids = BTreeMap::new();
-
-        for activated_txid in activate_txids {
-            let timelock = max_timelock_of_activated_txids
-                .entry(activated_txid.txid)
-                .or_insert(activated_txid.relative_block_height);
-            if *timelock < activated_txid.relative_block_height {
-                *timelock = activated_txid.relative_block_height;
-            }
-        }
-
-        for input in signed_tx.input.iter() {
-            let relative_block_height = if input.sequence.is_relative_lock_time() {
-                let relative_locktime = input
-                    .sequence
-                    .to_relative_lock_time()
-                    .expect("Invalid relative locktime");
-                match relative_locktime {
-                    bitcoin::relative::LockTime::Blocks(height) => height.value() as u32,
-                    _ => {
-                        return Err(BridgeError::Error("Invalid relative locktime".to_string()));
-                    }
-                }
-            } else {
-                0
-            };
-            let timelock = max_timelock_of_activated_txids
-                .entry(input.previous_output.txid)
-                .or_insert(relative_block_height);
-            if *timelock < relative_block_height {
-                *timelock = relative_block_height;
-            }
-        }
-
-        for (txid, timelock) in max_timelock_of_activated_txids {
-            self.db
-                .save_activated_txid(
-                    Some(dbtx),
-                    try_to_send_id,
-                    &ActivatedWithTxid {
-                        txid,
-                        relative_block_height: timelock,
-                    },
-                )
-                .await?;
-        }
-
-        for activated_outpoint in activate_outpoints {
-            self.db
-                .save_activated_outpoint(Some(dbtx), try_to_send_id, activated_outpoint)
-                .await?;
-        }
-
-        Ok(try_to_send_id)
     }
 
     /// Creates a fee payer UTXO for a CPFP transaction.
@@ -787,13 +551,13 @@ impl TxSender {
             .inspect_err(|e| {
                 tracing::warn!(
                     "{}: failed to submit package with error {:?}",
-                    self.consumer_handle,
+                    self.btc_syncer_consumer_id,
                     e
                 );
             })?;
 
         tracing::info!(
-            self.consumer_handle,
+            self.btc_syncer_consumer_id,
             ?tx_data_for_logging,
             "Submit package result: {submit_package_result:?}"
         );
@@ -881,18 +645,18 @@ impl TxSender {
                     BridgeError::TransactionAlreadyInBlock(block_hash) => {
                         tracing::info!(
                             "{}: Fee payer tx {} is already in block {}, skipping",
-                            self.consumer_handle,
+                            self.btc_syncer_consumer_id,
                             fee_payer_txid,
                             block_hash
                         );
                         continue;
                     }
                     BridgeError::BumpFeeUTXOSpent(outpoint) => {
-                        tracing::info!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping : {:?}", self.consumer_handle, bumped_id, outpoint);
+                        tracing::info!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping : {:?}", self.btc_syncer_consumer_id, bumped_id, outpoint);
                         continue;
                     }
                     e => {
-                        tracing::warn!("{}: failed to bump fee the fee payer tx {} of bumped tx {} with error {e}, skipping", self.consumer_handle, fee_payer_txid, bumped_id);
+                        tracing::warn!("{}: failed to bump fee the fee payer tx {} of bumped tx {} with error {e}, skipping", self.btc_syncer_consumer_id, fee_payer_txid, bumped_id);
                         continue;
                     }
                 },
@@ -916,7 +680,7 @@ impl TxSender {
 
         if !txs.is_empty() {
             tracing::info!(
-                self.consumer_handle,
+                self.btc_syncer_consumer_id,
                 "Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}, txs: {txs:?}"
             );
         }
@@ -930,13 +694,13 @@ impl TxSender {
                     BridgeError::UnconfirmedFeePayerUTXOsLeft => {
                         tracing::info!(
                             "{}: Bumping Tx {} : Unconfirmed fee payer UTXOs left, skipping",
-                            self.consumer_handle,
+                            self.btc_syncer_consumer_id,
                             id
                         );
                         continue;
                     }
                     BridgeError::InsufficientFeePayerAmount => {
-                        tracing::info!("{}: Bumping Tx {} : Insufficient fee payer amount, creating new fee payer UTXO", self.consumer_handle, id);
+                        tracing::info!("{}: Bumping Tx {} : Insufficient fee payer amount, creating new fee payer UTXO", self.btc_syncer_consumer_id, id);
                         let (_, tx, _, _) = self.db.get_tx(None, id).await?;
                         let fee_payer_utxos =
                             self.db.get_confirmed_fee_payer_utxos(None, id).await?;
@@ -959,7 +723,7 @@ impl TxSender {
                     _ => {
                         tracing::error!(
                             "{}: Bumping Tx {} : Error sending tx with CPFP: {:?}",
-                            self.consumer_handle,
+                            self.btc_syncer_consumer_id,
                             id,
                             e
                         );
@@ -971,12 +735,262 @@ impl TxSender {
 
         Ok(())
     }
+
+    pub fn client(&self) -> TxSenderClient {
+        TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TxSenderClient {
+    db: Database,
+    tx_sender_consumer_id: String,
+}
+
+impl TxSenderClient {
+    pub fn new(db: Database, tx_sender_consumer_id: String) -> Self {
+        Self {
+            db,
+            tx_sender_consumer_id,
+        }
+    }
+
+    /// Tries to send a tx. If all conditions are met, it will save the tx to the database.
+    /// It will also save the cancelled outpoints, cancelled txids and activated prerequisite txs to the database.
+    /// It will automatically save inputs as cancelled outpoints.
+    /// It will automatically save inputs as activated outpoints.
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip(signed_tx))]
+    pub async fn insert_try_to_send(
+        &self,
+        dbtx: DatabaseTransaction<'_, '_>,
+        tx_data_for_logging: Option<TxDataForLogging>,
+        signed_tx: &Transaction,
+        fee_paying_type: FeePayingType,
+        cancel_outpoints: &[OutPoint],
+        cancel_txids: &[Txid],
+        activate_txids: &[ActivatedWithTxid],
+        activate_outpoints: &[ActivatedWithOutpoint],
+    ) -> Result<u32, BridgeError> {
+        tracing::info!(
+            "{} added tx {:?} with tx_data_for_logging: {:?}",
+            self.tx_sender_consumer_id,
+            tx_data_for_logging
+                .map(|data| data.tx_type)
+                .unwrap_or(TransactionType::Dummy),
+            tx_data_for_logging
+        );
+        let txid = signed_tx.compute_txid();
+        let try_to_send_id = self
+            .db
+            .save_tx(
+                Some(dbtx),
+                tx_data_for_logging,
+                signed_tx,
+                fee_paying_type,
+                txid,
+            )
+            .await?;
+
+        for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
+            self.db
+                .save_cancelled_outpoint(Some(dbtx), try_to_send_id, input_outpoint)
+                .await?;
+        }
+
+        for outpoint in cancel_outpoints {
+            self.db
+                .save_cancelled_outpoint(Some(dbtx), try_to_send_id, *outpoint)
+                .await?;
+        }
+
+        for txid in cancel_txids {
+            self.db
+                .save_cancelled_txid(Some(dbtx), try_to_send_id, *txid)
+                .await?;
+        }
+
+        let mut max_timelock_of_activated_txids = BTreeMap::new();
+
+        for activated_txid in activate_txids {
+            let timelock = max_timelock_of_activated_txids
+                .entry(activated_txid.txid)
+                .or_insert(activated_txid.relative_block_height);
+            if *timelock < activated_txid.relative_block_height {
+                *timelock = activated_txid.relative_block_height;
+            }
+        }
+
+        for input in signed_tx.input.iter() {
+            let relative_block_height = if input.sequence.is_relative_lock_time() {
+                let relative_locktime = input
+                    .sequence
+                    .to_relative_lock_time()
+                    .expect("Invalid relative locktime");
+                match relative_locktime {
+                    bitcoin::relative::LockTime::Blocks(height) => height.value() as u32,
+                    _ => {
+                        return Err(BridgeError::Error("Invalid relative locktime".to_string()));
+                    }
+                }
+            } else {
+                0
+            };
+            let timelock = max_timelock_of_activated_txids
+                .entry(input.previous_output.txid)
+                .or_insert(relative_block_height);
+            if *timelock < relative_block_height {
+                *timelock = relative_block_height;
+            }
+        }
+
+        for (txid, timelock) in max_timelock_of_activated_txids {
+            self.db
+                .save_activated_txid(
+                    Some(dbtx),
+                    try_to_send_id,
+                    &ActivatedWithTxid {
+                        txid,
+                        relative_block_height: timelock,
+                    },
+                )
+                .await?;
+        }
+
+        for activated_outpoint in activate_outpoints {
+            self.db
+                .save_activated_outpoint(Some(dbtx), try_to_send_id, activated_outpoint)
+                .await?;
+        }
+
+        Ok(try_to_send_id)
+    }
+
+    pub async fn add_tx_to_queue<'a>(
+        &'a self,
+        dbtx: DatabaseTransaction<'a, '_>,
+        tx_type: TransactionType,
+        signed_tx: &Transaction,
+        related_txs: &[(TransactionType, Transaction)],
+        tx_data_for_logging: Option<TxDataForLogging>,
+        config: &BridgeConfig,
+    ) -> Result<u32, BridgeError> {
+        let tx_data_for_logging = tx_data_for_logging.map(|mut data| {
+            data.tx_type = tx_type;
+            data
+        });
+        match tx_type {
+            TransactionType::Kickoff
+            | TransactionType::Dummy
+            | TransactionType::ChallengeTimeout
+            | TransactionType::DisproveTimeout
+            | TransactionType::Reimburse
+            | TransactionType::Round
+            | TransactionType::OperatorChallengeNack(_)
+            | TransactionType::WatchtowerChallenge(_)
+            | TransactionType::UnspentKickoff(_)
+            | TransactionType::Payout
+            | TransactionType::MoveToVault
+            | TransactionType::AssertTimeout(_)
+            | TransactionType::Disprove
+            | TransactionType::BurnUnusedKickoffConnectors
+            | TransactionType::KickoffNotFinalized
+            | TransactionType::MiniAssert(_) => {
+                // no_dependency and cpfp
+                self.insert_try_to_send(
+                    dbtx,
+                    tx_data_for_logging,
+                    signed_tx,
+                    FeePayingType::CPFP,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+            }
+            TransactionType::Challenge => {
+                self.insert_try_to_send(
+                    dbtx,
+                    tx_data_for_logging,
+                    signed_tx,
+                    FeePayingType::RBF,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+            }
+            TransactionType::WatchtowerChallengeTimeout(_watchtower_idx) => {
+                let kickoff_txid = related_txs
+                    .iter()
+                    .find_map(|(tx_type, tx)| {
+                        if let TransactionType::Kickoff = tx_type {
+                            Some(tx.compute_txid())
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or(BridgeError::Error(
+                        "Couldn't find kickoff tx in related_txs".to_string(),
+                    ))?;
+                self.insert_try_to_send(
+                    dbtx,
+                    tx_data_for_logging,
+                    signed_tx,
+                    FeePayingType::CPFP,
+                    &[OutPoint {
+                        txid: kickoff_txid,
+                        vout: 1, // TODO: Make this a function of smth
+                    }],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+            }
+            TransactionType::OperatorChallengeAck(watchtower_idx) => {
+                let kickoff_txid = related_txs
+                    .iter()
+                    .find_map(|(tx_type, tx)| {
+                        if let TransactionType::Kickoff = tx_type {
+                            Some(tx.compute_txid())
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or(BridgeError::Error(
+                        "Couldn't find kickoff tx in related_txs".to_string(),
+                    ))?;
+                self.insert_try_to_send(
+                    dbtx,
+                    tx_data_for_logging,
+                    signed_tx,
+                    FeePayingType::CPFP,
+                    &[],
+                    &[],
+                    &[],
+                    &[ActivatedWithOutpoint {
+                        outpoint: OutPoint {
+                            txid: kickoff_txid,
+                            vout: get_watchtower_challenge_utxo_vout(watchtower_idx) as u32,
+                        },
+                        relative_block_height: config.protocol_paramset().finality_depth,
+                    }],
+                )
+                .await
+            }
+            TransactionType::AllNeededForDeposit => unreachable!(),
+            TransactionType::ReadyToReimburse => unimplemented!(),
+            TransactionType::YieldKickoffTxid => unreachable!(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bitcoin_syncer;
+    use crate::bitcoin_syncer::BitcoinSyncer;
     use crate::bitvm_client::SECP;
     use crate::builder::script::{CheckSig, SpendableScript};
     use crate::builder::transaction::TransactionType;
@@ -997,7 +1011,13 @@ mod tests {
 
         let db = Database::new(&config).await.unwrap();
 
-        let tx_sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), "tx_sender", network);
+        let tx_sender = TxSender::new(
+            actor.clone(),
+            rpc.clone(),
+            db.clone(),
+            "tx_sender".into(),
+            network,
+        );
 
         (tx_sender, rpc, db, actor, network)
     }
@@ -1074,24 +1094,24 @@ mod tests {
 
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender(rpc).await;
 
-        let _bitcoin_syncer_handle = bitcoin_syncer::start_bitcoin_syncer(
-            db.clone(),
-            rpc.clone(),
-            Duration::from_secs(1),
-            config.protocol_paramset(),
-        )
-        .await
-        .unwrap();
+        let btc_syncer = BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+            .await
+            .unwrap()
+            .into_task()
+            .cancelable_loop();
+        btc_syncer.0.into_bg();
 
-        let _tx_sender_handle = tx_sender.run(Duration::from_secs(1)).await.unwrap();
+        let client = tx_sender.client();
+        let tx_sender = tx_sender.into_task().cancelable_loop();
+        tx_sender.0.into_bg();
 
         let tx = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::CPFP)
             .await
             .unwrap();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
-        let tx_id1 = tx_sender
-            .try_to_send(
+        let tx_id1 = client
+            .insert_try_to_send(
                 &mut dbtx,
                 None,
                 &tx,
@@ -1103,8 +1123,8 @@ mod tests {
             )
             .await
             .unwrap();
-        let tx_id2 = tx_sender
-            .try_to_send(
+        let tx_id2 = client
+            .insert_try_to_send(
                 &mut dbtx,
                 None,
                 &tx,
@@ -1148,8 +1168,8 @@ mod tests {
             .unwrap();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
-        tx_sender
-            .try_to_send(
+        client
+            .insert_try_to_send(
                 &mut dbtx,
                 None,
                 &tx2,
@@ -1199,7 +1219,7 @@ mod tests {
             signer.clone(),
             rpc.clone(),
             db,
-            "tx_sender",
+            "tx_sender".into(),
             config.protocol_paramset().network,
         );
 
