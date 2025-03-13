@@ -114,6 +114,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                         )))?;
 
                     let event = SystemEvent::NewBlock {
+                        block_id,
                         block,
                         height: next_height,
                     };
@@ -219,7 +220,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, sync::Arc};
 
     use tokio::{sync::oneshot, task::JoinHandle, time::timeout};
     use tonic::async_trait;
@@ -227,7 +228,8 @@ mod tests {
     use crate::{
         builder::transaction::{ContractContext, TransactionType, TxHandler},
         config::{protocol::ProtocolParamsetName, BridgeConfig},
-        states::Duty,
+        database::DatabaseTransaction,
+        states::{block_cache, Duty},
         test::common::create_test_config_with_thread_name,
     };
 
@@ -250,6 +252,17 @@ mod tests {
             _: ContractContext,
         ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
             Ok(BTreeMap::new())
+        }
+
+        async fn handle_finalized_block(
+            &self,
+            _dbtx: DatabaseTransaction<'_, '_>,
+            _block_id: u32,
+            _block_height: u32,
+            _block_cache: Arc<block_cache::BlockCache>,
+            _light_client_proof_wait_interval_secs: Option<u32>,
+        ) -> Result<(), BridgeError> {
+            Ok(())
         }
     }
 

@@ -180,7 +180,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
     time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
     finality_depth: 1,
-    start_height: 101,
+    start_height: 201,
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {

@@ -9,7 +9,7 @@ use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 
-pub async fn block_number(client: HttpClient) -> Result<u32, BridgeError> {
+pub async fn block_number(client: &HttpClient) -> Result<u32, BridgeError> {
     let params = rpc_params![
         json!({
             "to": LIGHT_CLIENT_ADDRESS,

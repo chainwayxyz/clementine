@@ -40,10 +40,9 @@ async fn test_process_empty_block_with_no_machines() {
     let block = create_empty_block();
     let block_height = 1;
 
+    state_manager.update_block_cache(&block, block_height);
     // Process an empty block with no state machines
-    let result = state_manager
-        .process_block_parallel(&block, block_height)
-        .await;
+    let result = state_manager.process_block_parallel(block_height).await;
 
     // Should succeed with no state changes
     assert!(
@@ -62,7 +61,8 @@ async fn test_process_block_parallel() {
 
     // Process the block multiple times to test the iteration logic
     for i in 1..=3 {
-        let result = state_manager.process_block_parallel(&block, i).await;
+        state_manager.update_block_cache(&block, i);
+        let result = state_manager.process_block_parallel(i).await;
         assert!(
             result.is_ok(),
             "Failed to process block on iteration {}: {:?}",
@@ -78,7 +78,8 @@ async fn test_save_and_load_state() {
 
     // Process a block to ensure the state is initialized
     let block = create_empty_block();
-    let result = state_manager.process_block_parallel(&block, 1).await;
+    state_manager.update_block_cache(&block, 1);
+    let result = state_manager.process_block_parallel(1).await;
     assert!(result.is_ok(), "Failed to process block: {:?}", result);
 
     // Save state to DB

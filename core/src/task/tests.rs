@@ -7,9 +7,10 @@ use tokio::time::sleep;
 use tonic::async_trait;
 
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::states::context::Duty;
-use crate::states::Owner;
+use crate::states::{block_cache, Owner};
 
 use super::manager::BackgroundTaskManager;
 use super::{CancelableResult, Task, TaskExt};
@@ -108,6 +109,17 @@ impl Owner for TestOwner {
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
         // Return empty BTreeMap for testing
         Ok(BTreeMap::new())
+    }
+
+    async fn handle_finalized_block(
+        &self,
+        _dbtx: DatabaseTransaction<'_, '_>,
+        _block_id: u32,
+        _block_height: u32,
+        _block_cache: Arc<block_cache::BlockCache>,
+        _light_client_proof_wait_interval_secs: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        Ok(())
     }
 }
 

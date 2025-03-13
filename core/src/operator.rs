@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, WinternitzDerivationPath};
@@ -22,7 +23,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
-use crate::states::{Duty, Owner, StateManager};
+use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 use crate::tx_sender::TxSenderClient;
@@ -349,7 +350,7 @@ impl Operator {
         let net_profit = bridge_amount_sats - withdrawal_amount;
 
         // Net profit must be bigger than withdrawal fee.
-        net_profit > operator_withdrawal_fee_sats
+        net_profit >= operator_withdrawal_fee_sats
     }
 
     /// Prepares a withdrawal by:
@@ -392,17 +393,23 @@ impl Operator {
         };
 
         // Check Citrea for the withdrawal state.
-        if let Some(citrea_contract_client) = &self.citrea_client {
-            let txid = citrea_contract_client
-                .withdrawal_utxos(withdrawal_index.into())
-                .await?
-                .txid;
+        let withdrawal_utxo = self
+            .db
+            .get_withdrawal_utxo_from_citrea_withdrawal(None, withdrawal_index)
+            .await?;
 
-            if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
-                // TODO: Fix this, vout can be different from 0 as well
-                return Err(BridgeError::InvalidInputUTXO(
-                    txid,
-                    input_utxo.outpoint.txid,
+        match withdrawal_utxo {
+            Some(withdrawal_utxo) => {
+                if withdrawal_utxo != input_utxo.outpoint {
+                    return Err(BridgeError::InvalidInputUTXO(
+                        input_utxo.outpoint.txid,
+                        withdrawal_utxo.txid,
+                    ));
+                }
+            }
+            None => {
+                return Err(BridgeError::UsersWithdrawalUtxoNotSetForWithdrawalIndex(
+                    withdrawal_index,
                 ));
             }
         }
@@ -1122,6 +1129,17 @@ impl Owner for Operator {
             ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
         let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
         Ok(txhandlers)
+    }
+
+    async fn handle_finalized_block(
+        &self,
+        _dbtx: DatabaseTransaction<'_, '_>,
+        _block_id: u32,
+        _block_height: u32,
+        _block_cache: Arc<block_cache::BlockCache>,
+        _light_client_proof_wait_interval_secs: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        Ok(())
     }
 }
 
