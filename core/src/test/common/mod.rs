@@ -29,7 +29,7 @@ mod test_utils;
 /// - `txid`: The txid to wait for.
 /// - `tx_name`: The name of the transaction to wait for.
 /// - `timeout`: The timeout in seconds.
-pub async fn wait_tx_to_be_in_mempool_and_mine_block(
+pub async fn mine_once_after_in_mempool(
     rpc: &ExtendedRpc,
     txid: Txid,
     tx_name: Option<&str>,
@@ -54,7 +54,7 @@ pub async fn wait_tx_to_be_in_mempool_and_mine_block(
 
     rpc.mine_blocks(1).await?;
 
-    let tx = rpc
+    let tx: bitcoincore_rpc::json::GetRawTransactionResult = rpc
         .client
         .get_raw_transaction_info(&txid, None)
         .await
@@ -206,13 +206,7 @@ pub async fn run_single_deposit(
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
 
-    wait_tx_to_be_in_mempool_and_mine_block(
-        &rpc,
-        deposit_outpoint.txid,
-        Some("Deposit outpoint"),
-        None,
-    )
-    .await?;
+    mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None).await?;
 
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
@@ -234,7 +228,7 @@ pub async fn run_single_deposit(
     // mine 1 block
     rpc.mine_blocks(1).await?;
 
-    wait_tx_to_be_in_mempool_and_mine_block(&rpc, move_txid, Some("Move tx"), None).await?;
+    mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 
     Ok((
         verifiers,
