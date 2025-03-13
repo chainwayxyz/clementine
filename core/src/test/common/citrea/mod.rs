@@ -1,8 +1,7 @@
 //! # Citrea Related Utilities
 
 use crate::musig2::AggregateFromPublicKeys;
-use crate::{config::BridgeConfig, errors::BridgeError, extended_rpc::ExtendedRpc};
-use bitcoincore_rpc::RpcApi;
+use crate::{config::BridgeConfig, errors::BridgeError};
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
