@@ -7,6 +7,7 @@ use tokio::time::sleep;
 use tonic::async_trait;
 
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::states::context::Duty;
 use crate::states::Owner;
