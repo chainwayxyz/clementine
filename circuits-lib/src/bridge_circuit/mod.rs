@@ -59,7 +59,7 @@ pub const IS_TEST: bool = {
 /// # Panics
 ///
 /// - If the method ID in `hcp` does not match `HEADER_CHAIN_METHOD_ID`.
-/// - If `total_work` is greater than `hcp.chain_state.total_work`.
+/// - If `max_total_work` given by watchtowers is greater than `hcp.chain_state.total_work`.
 /// - If the SPV proof is invalid.
 /// - If the storage proof verification fails.
 /// - If the withdrawal transaction ID does not match the referenced input in `payout_spv`.
@@ -70,17 +70,17 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);
 
-    let (total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+    let (max_total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
         &input.winternitz_details,
         input.num_watchtowers,
         &work_only_image_id,
     );
 
     // If total work is less than the max total work of watchtowers, panic
-    if input.hcp.chain_state.total_work < total_work {
+    if input.hcp.chain_state.total_work < max_total_work {
         panic!(
             "Invalid total work: Total Work {:?} - Max Total Work: {:?}",
-            input.hcp.chain_state.total_work, total_work
+            input.hcp.chain_state.total_work, max_total_work
         );
     }
 
