@@ -21,7 +21,7 @@ use alloy::{
 use bitcoin::{hashes::Hash, OutPoint, Txid};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
-use std::fmt::Debug;
+use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 use BRIDGE_CONTRACT::{Deposit, Withdrawal};
 
@@ -106,6 +106,29 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         l1_height: u64,
     ) -> Result<Option<(u64, Vec<u8>)>, BridgeError>;
+
+    /// Returns the L2 block height range for the given L1 block height.
+    ///
+    /// TODO: This is not the best way to do this, but it's a quick fix for now
+    /// it will attempt to fetch the light client proof max_attempts times with
+    /// 1 second intervals.
+    ///
+    /// # Parameters
+    ///
+    /// - `block_height`: L1 block height.
+    /// - `timeout`: Timeout duration.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of:
+    ///
+    /// - [`u64`]: Start of the L2 block height (inclusive)
+    /// - [`u64`]: End of the L2 block height (inclusive)
+    async fn get_citrea_l2_height_range(
+        &self,
+        block_height: u64,
+        timeout: Duration,
+    ) -> Result<(u64, u64), BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -288,6 +311,38 @@ impl CitreaClientT for CitreaClient {
         };
 
         Ok(proof_result)
+    }
+
+    async fn get_citrea_l2_height_range(
+        &self,
+        block_height: u64,
+        timeout: Duration,
+    ) -> Result<(u64, u64), BridgeError> {
+        let previous_proof =
+            self.get_light_client_proof(block_height - 1)
+                .await?
+                .ok_or(BridgeError::Error(format!(
+                    "Light client proof not found for block height: {}",
+                    block_height - 1
+                )))?;
+
+        let start = std::time::Instant::now();
+        let current_proof = loop {
+            if start.elapsed() > timeout {
+                return Err(BridgeError::Error(format!(
+                    "Timeout while fetching light client proof for block height: {}",
+                    block_height
+                )));
+            }
+
+            if let Some(proof) = self.get_light_client_proof(block_height).await? {
+                break proof;
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        };
+
+        Ok((previous_proof.0 + 1, current_proof.0))
     }
 }
 

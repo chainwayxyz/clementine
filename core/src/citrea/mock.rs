@@ -2,6 +2,7 @@ use super::CitreaClientT;
 use crate::errors::BridgeError;
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{hashes::Hash, OutPoint, Txid};
+use std::time::Duration;
 use tonic::async_trait;
 
 /// A mock implementation of the CitreaClientTrait. This implementation is used
@@ -70,5 +71,13 @@ impl CitreaClientT for MockCitreaClient {
         _l1_height: u64,
     ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
         Ok(None)
+    }
+
+    async fn get_citrea_l2_height_range(
+        &self,
+        block_height: u64,
+        _timeout: Duration,
+    ) -> Result<(u64, u64), BridgeError> {
+        Ok((block_height, block_height))
     }
 }

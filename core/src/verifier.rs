@@ -1092,54 +1092,6 @@ where
         Ok(())
     }
 
-    /// Get's the l2 height range for the given Bitcoin block height
-    /// It fetches the light client proof for the given block height and the previous block height
-    /// Then it calculates the l2 height range from the light client proof
-    /// Note that this is not the best way to do this, but it's a quick fix for now
-    /// it will attempt to fetch the light client proof max_attempts times with 1 second intervals
-    async fn get_citrea_l2_height_range(
-        &self,
-        block_height: u32,
-        max_attempts: u32,
-    ) -> Result<(u64, u64), BridgeError> {
-        let mut attempts = 0;
-
-        let proof_current = loop {
-            if let Some(proof) = self
-                .citrea_client
-                .get_light_client_proof(block_height as u64)
-                .await?
-            {
-                break proof;
-            }
-
-            attempts += 1;
-            if attempts >= max_attempts {
-                return Err(BridgeError::Error(format!(
-                    "Light client proof not found for block height {} after {} attempts with 1 second intervals",
-                    block_height,
-                    max_attempts
-                )));
-            }
-
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        };
-
-        let proof_previous = self
-            .citrea_client
-            .get_light_client_proof(block_height as u64 - 1)
-            .await?
-            .ok_or(BridgeError::Error(format!(
-                "Light client proof not found for block height: {}",
-                block_height - 1
-            )))?;
-
-        let l2_height_start = proof_previous.0;
-        let l2_height_end = proof_current.0;
-
-        Ok((l2_height_start, l2_height_end))
-    }
-
     async fn update_citrea_withdrawals(
         &self,
         dbtx: &mut DatabaseTransaction<'_, '_>,
@@ -1149,12 +1101,12 @@ where
     ) -> Result<(), BridgeError> {
         let new_deposits = self
             .citrea_client
-            .collect_deposit_move_txids(l2_height_start + 1, l2_height_end)
+            .collect_deposit_move_txids(l2_height_start, l2_height_end)
             .await?;
         tracing::info!("New Deposits: {:?}", new_deposits);
         let new_withdrawals = self
             .citrea_client
-            .collect_withdrawal_utxos(l2_height_start + 1, l2_height_end)
+            .collect_withdrawal_utxos(l2_height_start, l2_height_end)
             .await?;
         tracing::info!("New Withdrawals: {:?}", new_withdrawals);
         for (idx, move_to_vault_txid) in new_deposits {
@@ -1335,9 +1287,11 @@ where
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
+        let timeout = Duration::from_secs(max_attempts as u64);
 
         let (l2_height_start, l2_height_end) = self
-            .get_citrea_l2_height_range(block_height, max_attempts)
+            .citrea_client
+            .get_citrea_l2_height_range(block_height.into(), timeout)
             .await?;
 
         tracing::info!("l2_height_end: {:?}", l2_height_end);
