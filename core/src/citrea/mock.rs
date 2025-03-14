@@ -66,6 +66,13 @@ impl CitreaClientT for MockCitreaClient {
         Ok(ret)
     }
 
+    async fn get_light_client_proof(
+        &self,
+        _l1_height: u64,
+    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
+        Ok(None)
+    }
+
     async fn get_citrea_l2_height_range(
         &self,
         block_height: u64,
