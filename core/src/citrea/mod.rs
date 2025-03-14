@@ -92,21 +92,6 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError>;
 
-    /// Returns the light client proof for the given L1 block height.
-    ///
-    /// # Returns
-    ///
-    /// A tuple, wrapped around an [`Some`] if present:
-    ///
-    /// - [`u64`]: Last L2 block height.
-    /// - [`Vec<u8>`]: Light client proof.
-    ///
-    /// If not present, [`None`] is returned.
-    async fn get_light_client_proof(
-        &self,
-        l1_height: u64,
-    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError>;
-
     /// Returns the L2 block height range for the given L1 block height.
     ///
     /// TODO: This is not the best way to do this, but it's a quick fix for now
@@ -122,7 +107,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     ///
     /// A tuple of:
     ///
-    /// - [`u64`]: Start of the L2 block height (inclusive)
+    /// - [`u64`]: Start of the L2 block height (not inclusive)
     /// - [`u64`]: End of the L2 block height (inclusive)
     async fn get_citrea_l2_height_range(
         &self,
@@ -170,6 +155,41 @@ impl CitreaClient {
         }
 
         Ok(logs)
+    }
+
+    /// Returns the light client proof L2 height for the given L1 block height.
+    ///
+    /// # Returns
+    ///
+    /// A tuple, wrapped around an [`Some`] if present:
+    ///
+    /// - [`u64`]: Last L2 block height.
+    ///
+    /// If not present, [`None`] is returned.
+    async fn get_light_client_proof_height(
+        &self,
+        l1_height: u64,
+    ) -> Result<Option<u64>, BridgeError> {
+        let proof_result = self
+            .light_client_prover_client
+            .get_light_client_proof_by_l1_height(l1_height)
+            .await?;
+
+        let ret = if let Some(proof_result) = proof_result {
+            Some(
+                proof_result
+                    .light_client_proof_output
+                    .last_l2_height
+                    .try_into()
+                    .map_err(|e| {
+                        BridgeError::Error(format!("Can't convert last_l2_height to u64: {}", e))
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        Ok(ret)
     }
 }
 
@@ -286,48 +306,21 @@ impl CitreaClientT for CitreaClient {
         Ok(utxos)
     }
 
-    async fn get_light_client_proof(
-        &self,
-        l1_height: u64,
-    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
-        let proof_result = self
-            .light_client_prover_client
-            .get_light_client_proof_by_l1_height(l1_height)
-            .await?;
-
-        let proof_result = if let Some(proof_result) = proof_result {
-            Some((
-                proof_result
-                    .light_client_proof_output
-                    .last_l2_height
-                    .try_into()
-                    .map_err(|e| {
-                        BridgeError::Error(format!("Can't convert last_l2_height to u64: {}", e))
-                    })?,
-                proof_result.proof,
-            ))
-        } else {
-            None
-        };
-
-        Ok(proof_result)
-    }
-
     async fn get_citrea_l2_height_range(
         &self,
         block_height: u64,
         timeout: Duration,
     ) -> Result<(u64, u64), BridgeError> {
-        let previous_proof =
-            self.get_light_client_proof(block_height - 1)
-                .await?
-                .ok_or(BridgeError::Error(format!(
-                    "Light client proof not found for block height: {}",
-                    block_height - 1
-                )))?;
+        let previous_proof_height = self
+            .get_light_client_proof_height(block_height - 1)
+            .await?
+            .ok_or(BridgeError::Error(format!(
+                "Light client proof not found for block height: {}",
+                block_height - 1
+            )))?;
 
         let start = std::time::Instant::now();
-        let current_proof = loop {
+        let current_proof_height = loop {
             if start.elapsed() > timeout {
                 return Err(BridgeError::Error(format!(
                     "Timeout while fetching light client proof for block height: {}",
@@ -335,14 +328,14 @@ impl CitreaClientT for CitreaClient {
                 )));
             }
 
-            if let Some(proof) = self.get_light_client_proof(block_height).await? {
-                break proof;
+            if let Some(height) = self.get_light_client_proof_height(block_height).await? {
+                break height;
             }
 
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
-        Ok((previous_proof.0 + 1, current_proof.0))
+        Ok((previous_proof_height, current_proof_height))
     }
 }
 

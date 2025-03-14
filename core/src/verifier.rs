@@ -1101,12 +1101,12 @@ where
     ) -> Result<(), BridgeError> {
         let new_deposits = self
             .citrea_client
-            .collect_deposit_move_txids(l2_height_start, l2_height_end)
+            .collect_deposit_move_txids(l2_height_start + 1, l2_height_end)
             .await?;
         tracing::info!("New Deposits: {:?}", new_deposits);
         let new_withdrawals = self
             .citrea_client
-            .collect_withdrawal_utxos(l2_height_start, l2_height_end)
+            .collect_withdrawal_utxos(l2_height_start + 1, l2_height_end)
             .await?;
         tracing::info!("New Withdrawals: {:?}", new_withdrawals);
         for (idx, move_to_vault_txid) in new_deposits {
