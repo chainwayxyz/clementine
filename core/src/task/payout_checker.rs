@@ -5,7 +5,11 @@ use crate::{database::Database, errors::BridgeError};
 
 use super::Task;
 
-pub const PAYOUT_CHECKER_POLL_DELAY: Duration = Duration::from_secs(1);
+pub const PAYOUT_CHECKER_POLL_DELAY: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_secs(1)
+};
 
 #[derive(Debug, Clone)]
 pub struct PayoutCheckerTask {
@@ -24,13 +28,6 @@ impl Task for PayoutCheckerTask {
     type Output = bool;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        let unhandled_payout = self
-            .db
-            .get_first_unhandled_payout_by_operator_id(None, self.operator.idx as u32)
-            .await?;
-        if unhandled_payout.is_none() {
-            return Ok(false);
-        }
         let mut dbtx = self.db.begin_transaction().await?;
         let unhandled_payout = self
             .db
