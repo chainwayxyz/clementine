@@ -377,7 +377,8 @@ impl Database {
                 ON CONFLICT (deposit_outpoint) DO UPDATE
                 SET recovery_taproot_address = EXCLUDED.recovery_taproot_address,
                     evm_address = EXCLUDED.evm_address,
-                    nofn_xonly_pk = EXCLUDED.nofn_xonly_pk
+                    nofn_xonly_pk = EXCLUDED.nofn_xonly_pk,
+                    move_to_vault_txid = EXCLUDED.move_to_vault_txid
                 RETURNING deposit_id;
             ",
         )
