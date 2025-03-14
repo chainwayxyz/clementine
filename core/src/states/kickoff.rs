@@ -255,7 +255,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .await;
     }
 
-    #[state(entry_action = "on_challenged_entry")]
+    #[state(superstate = "kickoff", entry_action = "on_challenged_entry")]
     pub(crate) async fn challenged(
         &mut self,
         event: &KickoffEvent,
