@@ -151,7 +151,7 @@ pub fn parse_deposit_sign_session(
         .deposit_params
         .ok_or(Status::invalid_argument("No deposit params received"))?;
 
-    let deposit_data = parse_deposit_params(deposit_params)?;
+    let deposit_data: DepositData = deposit_params.try_into()?;
 
     let session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;
 

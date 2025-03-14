@@ -183,6 +183,14 @@ impl From<DepositData> for DepositParams {
     }
 }
 
+impl TryFrom<DepositParams> for DepositData {
+    type Error = Status;
+
+    fn try_from(value: DepositParams) -> Result<Self, Self::Error> {
+        parse_deposit_params(value)
+    }
+}
+
 impl From<Txid> for clementine::Txid {
     fn from(value: Txid) -> Self {
         {
@@ -255,9 +263,7 @@ fn parse_recovery_deposit_data(data: ReplacementDeposit) -> Result<DepositData, 
     }))
 }
 
-pub fn parse_deposit_params(
-    deposit_params: clementine::DepositParams,
-) -> Result<DepositData, Status> {
+fn parse_deposit_params(deposit_params: clementine::DepositParams) -> Result<DepositData, Status> {
     let Some(deposit_data) = deposit_params.deposit_data else {
         return Err(Status::invalid_argument("No deposit data received"));
     };

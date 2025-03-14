@@ -6,7 +6,7 @@ use crate::builder::script::WinternitzCommit;
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
-    OperatorData, OriginalDepositData, TransactionType, TxHandler,
+    OperatorData, TransactionType, TxHandler,
 };
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
@@ -762,12 +762,11 @@ mod tests {
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-    use crate::rpc::parse_deposit_params;
     use crate::test::common::*;
     use bitcoin::XOnlyPublicKey;
     use futures::future::try_join_all;
 
-    use crate::builder::transaction::TransactionType;
+    use crate::builder::transaction::{DepositData, TransactionType};
     use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
 
     #[tokio::test(flavor = "multi_thread")]
@@ -827,8 +826,8 @@ mod tests {
             })
             .collect();
         let mut utxo_idxs: Vec<Vec<usize>> = Vec::with_capacity(operator_xonly_pks.len());
-        let deposit_data = parse_deposit_params(deposit_params.clone()).unwrap();
-        let deposit_outpoint: bitcoin::OutPoint = deposit_data.get_deposit_outpoint();
+        let deposit_data: DepositData = deposit_params.clone().try_into().unwrap();
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
 
         for op_xonly_pk in operator_xonly_pks {
             utxo_idxs.push(get_kickoff_utxos_to_sign(

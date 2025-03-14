@@ -16,13 +16,11 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
-    EVMAddress,
 };
 use bitcoin::hashes::Hash;
 use bitcoin::{
-    address::NetworkUnchecked,
     secp256k1::{schnorr, Message},
-    Address, OutPoint, XOnlyPublicKey,
+    XOnlyPublicKey,
 };
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
@@ -41,7 +39,7 @@ pub struct Aggregator {
     pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    pub(crate) nofn_xonly_pk: XOnlyPublicKey,
+    pub(crate) _nofn_xonly_pk: XOnlyPublicKey,
     pub(crate) tx_sender: TxSenderClient,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
@@ -99,7 +97,7 @@ impl Aggregator {
             rpc,
             db,
             config,
-            nofn_xonly_pk,
+            _nofn_xonly_pk: nofn_xonly_pk,
             tx_sender,
             verifier_clients,
             operator_clients,

@@ -415,7 +415,7 @@ impl Aggregator {
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -> Result<TxHandler<Signed>, Status> {
-        let deposit_data = parser::parse_deposit_params(deposit_params)?;
+        let deposit_data: crate::builder::transaction::DepositData = deposit_params.try_into()?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
@@ -746,7 +746,8 @@ impl ClementineAggregator for Aggregator {
                 })?;
         }
 
-        let deposit_data = parser::parse_deposit_params(deposit_params.clone())?;
+        let deposit_data: crate::builder::transaction::DepositData =
+            deposit_params.clone().try_into()?;
 
         let deposit_blockhash = self
             .rpc

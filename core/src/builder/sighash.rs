@@ -9,8 +9,7 @@ use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    create_txhandlers, ContractContext, OriginalDepositData, ReimburseDbCache, TransactionType,
-    TxHandlerCache,
+    create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandlerCache,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;

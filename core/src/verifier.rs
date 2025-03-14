@@ -10,7 +10,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, OperatorData,
-    OriginalDepositData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::{CitreaClient, LightClientProverRpcClient};
@@ -24,17 +24,15 @@ use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::{
-    DepositParams, KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature,
-    TransactionRequest, WatchtowerKeys,
+    KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature, TransactionRequest,
+    WatchtowerKeys,
 };
 use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 use crate::tx_sender::{TxDataForLogging, TxSender, TxSenderClient};
-use crate::EVMAddress;
 use alloy::transports::http::reqwest::Url;
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;

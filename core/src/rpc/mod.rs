@@ -1,7 +1,6 @@
 use crate::errors::BridgeError;
 use clementine::*;
 use hyper_util::rt::TokioIo;
-pub use parser::parse_deposit_params;
 use std::path::PathBuf;
 use tagged_signature::SignatureId;
 use tonic::transport::{Channel, Uri};

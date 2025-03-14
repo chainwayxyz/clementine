@@ -63,9 +63,7 @@ create table if not exists deposits (
     deposit_outpoint text unique not null check (
         deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     ),
-    recovery_taproot_address text,
-    evm_address text check (evm_address ~ '^[a-fA-F0-9]{40}'),
-    nofn_xonly_pk text
+    deposit_params bytea
 );
 -- Deposit signatures
 create table if not exists deposit_signatures (
@@ -205,7 +203,6 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     created_at timestamp not null default now(),
     primary key (activated_id, txid, vout)
 );
-
 -------- FINALIZED BLOCK SYNCER , CITREA DEPOSITS AND WITHDRAWALS --------
 create table if not exists withdrawals (
     idx int primary key,
@@ -219,7 +216,6 @@ create table if not exists withdrawals (
     is_payout_handled boolean not null default false,
     created_at timestamp not null default now()
 );
-
 -- Add state machine tables at the end of the file:
 -- State machines table to store serialized machines
 CREATE TABLE IF NOT EXISTS state_machines (
