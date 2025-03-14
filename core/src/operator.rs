@@ -60,12 +60,12 @@ pub struct Operator<C: CitreaClientT> {
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSenderClient,
-    pub citrea_client: <C as CitreaClientT>::Client,
+    pub citrea_client: C,
 }
 
-impl<CitreaClient> OperatorServer<CitreaClient>
+impl<C> OperatorServer<C>
 where
-    CitreaClient: CitreaClientT,
+    C: CitreaClientT,
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let paramset = config.protocol_paramset();

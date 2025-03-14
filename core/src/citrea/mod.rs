@@ -44,8 +44,6 @@ sol!(
 
 #[async_trait]
 pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
-    type Client: Debug + Clone + Sync + Send;
-
     /// # Parameters
     ///
     /// - `citrea_rpc_url`: URL of the Citrea RPC.
@@ -57,7 +55,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         citrea_rpc_url: String,
         light_client_prover_url: String,
         secret_key: Option<PrivateKeySigner>,
-    ) -> Result<Self::Client, BridgeError>;
+    ) -> Result<Self, BridgeError>;
 
     /// Fetches an UTXO from Citrea for the given withdrawal index.
     ///
@@ -154,7 +152,6 @@ impl CitreaClient {
 
 #[async_trait]
 impl CitreaClientT for CitreaClient {
-    type Client = CitreaClient;
     fn new(
         citrea_rpc_url: String,
         light_client_prover_url: String,

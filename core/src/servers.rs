@@ -135,7 +135,7 @@ where
     Ok((addr, shutdown_tx))
 }
 
-pub async fn create_verifier_grpc_server(
+pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     let _rpc = ExtendedRpc::connect(
@@ -146,7 +146,7 @@ pub async fn create_verifier_grpc_server(
     .await?;
 
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let verifier = VerifierServer::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Verifier").await?;
@@ -210,7 +210,7 @@ pub async fn create_watchtower_grpc_server(
 
 // Functions for creating servers with Unix sockets (useful for tests)
 #[cfg(unix)]
-pub async fn create_verifier_unix_server(
+pub async fn create_verifier_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
@@ -221,7 +221,7 @@ pub async fn create_verifier_unix_server(
     )
     .await?;
 
-    let verifier = VerifierServer::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) =

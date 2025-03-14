@@ -12,13 +12,11 @@ pub struct MockCitreaClient;
 
 #[async_trait]
 impl CitreaClientT for MockCitreaClient {
-    type Client = MockCitreaClient;
-
     fn new(
         _citrea_rpc_url: String,
         _light_client_prover_url: String,
         _secret_key: Option<PrivateKeySigner>,
-    ) -> Result<Self::Client, BridgeError> {
+    ) -> Result<Self, BridgeError> {
         tracing::warn!(
             "Using the mock Citrea client, beware that data returned from this client is not real"
         );

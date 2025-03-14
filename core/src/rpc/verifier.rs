@@ -6,6 +6,7 @@ use super::clementine::{
 };
 use super::error;
 use crate::builder::transaction::sign::create_and_sign_txs;
+use crate::citrea::CitreaClientT;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::parser::parse_transaction_request;
 use crate::verifier::VerifierServer;
@@ -22,7 +23,10 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
 #[async_trait]
-impl ClementineVerifier for VerifierServer {
+impl<C> ClementineVerifier for VerifierServer<C>
+where
+    C: CitreaClientT,
+{
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 

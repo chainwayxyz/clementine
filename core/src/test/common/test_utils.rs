@@ -350,7 +350,7 @@ pub async fn create_actors<C: CitreaClientT>(
                 config_with_new_db.db_name += &i;
                 initialize_database(&config_with_new_db).await;
 
-                let (socket_path, shutdown_tx) = create_verifier_unix_server(
+                let (socket_path, shutdown_tx) = create_verifier_unix_server::<C>(
                     BridgeConfig {
                         secret_key: *sk,
                         ..config_with_new_db.clone()
