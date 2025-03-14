@@ -34,7 +34,7 @@ pub async fn mine_once_after_in_mempool(
     txid: Txid,
     tx_name: Option<&str>,
     timeout: Option<u64>,
-) -> Result<(), BridgeError> {
+) -> Result<usize, BridgeError> {
     let timeout = timeout.unwrap_or(60);
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
@@ -78,7 +78,9 @@ pub async fn mine_once_after_in_mempool(
         )));
     }
 
-    Ok(())
+    let tx_block_height = rpc.client.get_block_info(&tx.blockhash.unwrap()).await?;
+
+    Ok(tx_block_height.height)
 }
 
 pub async fn run_multiple_deposits(

@@ -7,7 +7,7 @@ use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
-use crate::test::full_flow::ensure_outpoint_spent;
+use crate::test::full_flow::ensure_outpoint_spent_while_waiting_for_light_client_sync;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -339,12 +339,24 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         rpc.mine_blocks(1).await.unwrap();
 
         // Wait for the kickoff tx to be onchain
-        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
+        let kickoff_block_height =
+            mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
+
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
+
+        // wait until the light client prover is synced to the same height
+        lc_prover
+            .wait_for_l1_height(kickoff_block_height as u64, None)
+            .await?;
 
         // Ensure the reimburse connector is spent
-        ensure_outpoint_spent(&rpc, reimburse_connector)
-            .await
-            .unwrap();
+        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            reimburse_connector,
+        )
+        .await
+        .unwrap();
         Ok(())
     }
 }

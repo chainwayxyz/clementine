@@ -15,6 +15,9 @@ use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
+use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use citrea_e2e::config::LightClientProverConfig;
+use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
 use tonic::Request;
 
@@ -417,6 +420,43 @@ pub async fn ensure_outpoint_spent(
         // Mine more blocks and wait longer between checks
         rpc.mine_blocks(2).await?;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        timeout_counter -= 1;
+
+        if timeout_counter == 0 {
+            bail!(
+                "timeout while waiting for outpoint {:?} to be spent",
+                outpoint
+            );
+        }
+    }
+    rpc.client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await?;
+    Ok(())
+}
+
+pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
+    rpc: &ExtendedRpc,
+    lc_prover: &Node<LightClientProverConfig>,
+    outpoint: OutPoint,
+) -> Result<(), eyre::Error> {
+    let mut timeout_counter = 1000;
+    while rpc
+        .client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await
+        .unwrap()
+        .is_some()
+    {
+        // Mine more blocks and wait longer between checks
+        let block_count = rpc.client.get_blockchain_info().await?.blocks;
+        lc_prover
+            .wait_for_l1_height(block_count as u64 - DEFAULT_FINALITY_DEPTH, None)
+            .await
+            .unwrap();
+        rpc.mine_blocks(1).await?;
+
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         timeout_counter -= 1;
 
         if timeout_counter == 0 {

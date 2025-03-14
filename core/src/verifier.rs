@@ -1324,7 +1324,7 @@ impl Owner for Verifier {
                         witness,
                     )
                     .await?;
-                    //self.handle_kickoff(&mut dbtx, txid).await?;
+                    self.handle_kickoff(&mut dbtx, txid).await?;
                     dbtx.commit().await?;
                 }
             }
