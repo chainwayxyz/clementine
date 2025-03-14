@@ -463,10 +463,7 @@ impl Verifier {
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
 
-        let deposit_blockhash = self
-            .rpc
-            .get_blockhash_of_deposit(&deposit_outpoint.txid)
-            .await?;
+        let deposit_blockhash = self.rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
         tokio::spawn(async move {
             let mut session_map = verifier.nonces.lock().await;
@@ -556,10 +553,7 @@ impl Verifier {
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
     ) -> Result<MusigPartialSignature, BridgeError> {
-        let deposit_blockhash = self
-            .rpc
-            .get_blockhash_of_deposit(&deposit_outpoint.txid)
-            .await?;
+        let deposit_blockhash = self.rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),

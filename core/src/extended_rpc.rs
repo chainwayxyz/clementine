@@ -57,13 +57,13 @@ impl ExtendedRpc {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_blockhash_of_deposit(
+    pub async fn get_blockhash_of_tx(
         &self,
         txid: &bitcoin::Txid,
     ) -> Result<bitcoin::BlockHash, BridgeError> {
         let raw_transaction_results = self.client.get_raw_transaction_info(txid, None).await?;
         let Some(blockhash) = raw_transaction_results.blockhash else {
-            return Err(BridgeError::DepositNotConfirmed);
+            return Err(BridgeError::TransactionNotConfirmed(*txid));
         };
         Ok(blockhash)
     }

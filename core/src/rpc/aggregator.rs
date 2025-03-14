@@ -753,7 +753,7 @@ impl ClementineAggregator for Aggregator {
 
         let deposit_blockhash = self
             .rpc
-            .get_blockhash_of_deposit(&deposit_data.deposit_outpoint.txid)
+            .get_blockhash_of_tx(&deposit_data.deposit_outpoint.txid)
             .await?;
 
         // Create sighash stream for transaction signing

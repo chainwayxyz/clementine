@@ -371,7 +371,7 @@ impl TxHandlerCache {
     ) -> Result<(), BridgeError> {
         // can possibly cache next round tx too, as next round has the needed reimburse utxos
         // but need to implement a new TransactionType for that
-        for x in [
+        for tx_type in [
             TransactionType::MoveToVault,
             TransactionType::Round,
             TransactionType::ReadyToReimburse,
@@ -379,9 +379,9 @@ impl TxHandlerCache {
         .iter()
         {
             let txhandler = txhandlers
-                .remove(x)
-                .ok_or(BridgeError::TxHandlerNotFound(*x))?;
-            self.saved_txs.insert(*x, txhandler);
+                .remove(tx_type)
+                .ok_or(BridgeError::TxHandlerNotFound(*tx_type))?;
+            self.saved_txs.insert(*tx_type, txhandler);
         }
         Ok(())
     }
