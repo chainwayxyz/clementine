@@ -162,10 +162,10 @@ impl ClementineOperator for OperatorServer {
 
         let winternitz_keys = self
             .operator
-            .generate_assert_winternitz_pubkeys(deposit_data.deposit_outpoint.txid)?;
-        let hashes = self
-            .operator
-            .generate_challenge_ack_preimages_and_hashes(deposit_data.deposit_outpoint.txid)?;
+            .generate_assert_winternitz_pubkeys(deposit_data.get_deposit_outpoint().txid)?;
+        let hashes = self.operator.generate_challenge_ack_preimages_and_hashes(
+            deposit_data.get_deposit_outpoint().txid,
+        )?;
         tracing::info!("Generated deposit keys in {:?}", start.elapsed());
 
         Ok(Response::new(OperatorKeys {

@@ -14,7 +14,7 @@ use bitcoin::{
     script::Builder,
     ScriptBuf, XOnlyPublicKey,
 };
-use bitcoin::{taproot, Amount, Witness};
+use bitcoin::{taproot, Amount, Txid, Witness};
 use bitvm::signatures::winternitz::{self, SecretKey};
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
@@ -298,15 +298,15 @@ impl PreimageRevealScript {
 
 /// Struct for deposit script that commits Citrea address to be deposited into onchain.
 #[derive(Debug, Clone)]
-pub struct DepositScript(pub(crate) XOnlyPublicKey, EVMAddress, Amount);
+pub struct OriginalDepositScript(pub(crate) XOnlyPublicKey, EVMAddress, Amount);
 
-impl SpendableScript for DepositScript {
+impl SpendableScript for OriginalDepositScript {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn kind(&self) -> ScriptKind {
-        ScriptKind::DepositScript(self)
+        ScriptKind::OriginalDepositScript(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -325,13 +325,51 @@ impl SpendableScript for DepositScript {
     }
 }
 
-impl DepositScript {
+impl OriginalDepositScript {
     pub fn generate_script_inputs(&self, signature: &taproot::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
 
     pub fn new(nofn_xonly_pk: XOnlyPublicKey, evm_address: EVMAddress, amount: Amount) -> Self {
         Self(nofn_xonly_pk, evm_address, amount)
+    }
+}
+
+/// Struct for deposit script that commits Citrea address to be deposited into onchain.
+#[derive(Debug, Clone)]
+pub struct ReplacementDepositScript(pub(crate) XOnlyPublicKey, Txid, Amount);
+
+impl SpendableScript for ReplacementDepositScript {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::ReplacementDepositScript(self)
+    }
+
+    fn to_script_buf(&self) -> ScriptBuf {
+        let citrea: [u8; 6] = "citreaReplace".as_bytes().try_into().expect("length == 6");
+
+        Builder::new()
+            .push_x_only_key(&self.0)
+            .push_opcode(OP_CHECKSIG)
+            .push_opcode(OP_FALSE)
+            .push_opcode(OP_IF)
+            .push_slice(citrea)
+            .push_slice(self.1.as_byte_array())
+            .push_opcode(OP_ENDIF)
+            .into_script()
+    }
+}
+
+impl ReplacementDepositScript {
+    pub fn generate_script_inputs(&self, signature: &taproot::Signature) -> Witness {
+        Witness::from_slice(&[signature.serialize()])
+    }
+
+    pub fn new(nofn_xonly_pk: XOnlyPublicKey, old_move_txid: Txid, amount: Amount) -> Self {
+        Self(nofn_xonly_pk, old_move_txid, amount)
     }
 }
 
@@ -372,7 +410,8 @@ pub enum ScriptKind<'a> {
     WinternitzCommit(&'a WinternitzCommit),
     TimelockScript(&'a TimelockScript),
     PreimageRevealScript(&'a PreimageRevealScript),
-    DepositScript(&'a DepositScript),
+    OriginalDepositScript(&'a OriginalDepositScript),
+    ReplacementDepositScript(&'a ReplacementDepositScript),
     WithdrawalScript(&'a WithdrawalScript),
     Other(&'a OtherSpendable),
 }
@@ -436,7 +475,7 @@ mod tests {
             )),
             Box::new(TimelockScript::new(Some(dummy_xonly()), 10)),
             Box::new(PreimageRevealScript::new(dummy_xonly(), [0; 20])),
-            Box::new(DepositScript::new(
+            Box::new(OriginalDepositScript::new(
                 dummy_xonly(),
                 dummy_evm_address(),
                 Amount::from_sat(100),
@@ -448,7 +487,7 @@ mod tests {
         let winternitz = get_script_from_arr::<WinternitzCommit>(&scripts);
         let timelock = get_script_from_arr::<TimelockScript>(&scripts);
         let preimage = get_script_from_arr::<PreimageRevealScript>(&scripts);
-        let deposit = get_script_from_arr::<DepositScript>(&scripts);
+        let deposit = get_script_from_arr::<OriginalDepositScript>(&scripts);
         let others = get_script_from_arr::<OtherSpendable>(&scripts);
 
         assert!(checksig.is_some(), "CheckSig not found");
@@ -509,7 +548,7 @@ mod tests {
             ),
             (
                 "DepositScript",
-                Arc::new(DepositScript::new(
+                Arc::new(OriginalDepositScript::new(
                     dummy_xonly(),
                     dummy_evm_address(),
                     Amount::from_sat(50),
@@ -525,7 +564,7 @@ mod tests {
                 ("WinternitzCommit", ScriptKind::WinternitzCommit(_)) => (),
                 ("TimelockScript", ScriptKind::TimelockScript(_)) => (),
                 ("PreimageRevealScript", ScriptKind::PreimageRevealScript(_)) => (),
-                ("DepositScript", ScriptKind::DepositScript(_)) => (),
+                ("DepositScript", ScriptKind::OriginalDepositScript(_)) => (),
                 ("Other", ScriptKind::Other(_)) => (),
                 (s, _) => panic!("ScriptKind conversion not comprehensive for variant: {}", s),
             }
@@ -794,7 +833,7 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let script: Arc<dyn SpendableScript> = Arc::new(DepositScript::new(
+        let script: Arc<dyn SpendableScript> = Arc::new(OriginalDepositScript::new(
             xonly_pk,
             EVMAddress([2; 20]),
             Amount::from_sat(50),

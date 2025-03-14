@@ -1,3 +1,4 @@
+use crate::builder::transaction::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit, WatchtowerKeysWithDeposit};
 use crate::tx_sender::TxSenderClient;
@@ -337,17 +338,12 @@ impl Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     fn aggregate_move_partial_sigs(
         &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
+        deposit_data: DepositData,
         agg_nonce: &MusigAggNonce,
         partial_sigs: Vec<MusigPartialSignature>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let tx = builder::transaction::create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-            self.nofn_xonly_pk,
+            deposit_data,
             self.config.protocol_paramset().user_takes_after,
             self.config.protocol_paramset().bridge_amount,
             self.config.protocol_paramset().network,

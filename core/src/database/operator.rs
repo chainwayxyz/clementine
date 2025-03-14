@@ -10,7 +10,7 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{
-    builder::transaction::{DepositData, OperatorData},
+    builder::transaction::{DepositData, OperatorData, OriginalDepositData},
     rpc::clementine::KickoffId,
 };
 use crate::{
@@ -411,7 +411,7 @@ impl Database {
                 nofn_xonly_pk,
             )) => Ok(Some((
                 u32::try_from(deposit_id)?,
-                DepositData {
+                OriginalDepositData {
                     deposit_outpoint: deposit_outpoint.0,
                     recovery_taproot_address: recovery_taproot_address.0,
                     evm_address: evm_address.0,
@@ -534,7 +534,7 @@ impl Database {
                 kickoff_idx,
                 signatures,
             )) => Ok(Some((
-                DepositData {
+                OriginalDepositData {
                     deposit_outpoint: deposit_outpoint.0,
                     recovery_taproot_address: recovery_taproot_address.0,
                     evm_address: evm_address.0,

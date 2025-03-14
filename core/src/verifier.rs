@@ -10,7 +10,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, OperatorData,
-    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    OriginalDepositData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::{CitreaClient, LightClientProverRpcClient};
@@ -454,9 +454,7 @@ impl Verifier {
 
     pub async fn deposit_sign(
         &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: Address<NetworkUnchecked>,
+        deposit_data: DepositData,
         session_id: u32,
         mut agg_nonce_rx: mpsc::Receiver<MusigAggNonce>,
     ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
@@ -465,7 +463,7 @@ impl Verifier {
 
         let deposit_blockhash = self
             .rpc
-            .get_blockhash_of_deposit(&deposit_outpoint.txid)
+            .get_blockhash_of_deposit(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
         tokio::spawn(async move {
@@ -480,12 +478,7 @@ impl Verifier {
             let mut sighash_stream = Box::pin(create_nofn_sighash_stream(
                 verifier.db.clone(),
                 verifier.config.clone(),
-                DepositData {
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
-                    nofn_xonly_pk: verifier.nofn_xonly_pk,
-                },
+                deposit_data,
                 deposit_blockhash,
                 false,
             ));
@@ -548,9 +541,7 @@ impl Verifier {
 
     pub async fn deposit_finalize(
         &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: Address<NetworkUnchecked>,
+        deposit_data: DepositData,
         session_id: u32,
         mut sig_receiver: mpsc::Receiver<Signature>,
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
@@ -558,18 +549,13 @@ impl Verifier {
     ) -> Result<MusigPartialSignature, BridgeError> {
         let deposit_blockhash = self
             .rpc
-            .get_blockhash_of_deposit(&deposit_outpoint.txid)
+            .get_blockhash_of_deposit(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
-            DepositData {
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address: recovery_taproot_address.clone(),
-                nofn_xonly_pk: self.nofn_xonly_pk,
-            },
+            deposit_data.clone(),
             deposit_blockhash,
             true,
         ));
@@ -681,12 +667,7 @@ impl Verifier {
                 self.db.clone(),
                 operator_idx,
                 self.config.clone(),
-                DepositData {
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address: recovery_taproot_address.clone(),
-                    nofn_xonly_pk: self.nofn_xonly_pk,
-                },
+                deposit_data.clone(),
                 deposit_blockhash,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
@@ -748,10 +729,7 @@ impl Verifier {
 
         // Generate partial signature for move transaction
         let move_txhandler = create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            self.nofn_xonly_pk,
+            deposit_data.clone(),
             self.config.protocol_paramset().user_takes_after,
             self.config.protocol_paramset().bridge_amount,
             self.config.protocol_paramset().network,
@@ -799,15 +777,7 @@ impl Verifier {
         // Save signatures to db
         let mut dbtx = self.db.begin_transaction().await?;
         self.db
-            .set_deposit_data(
-                Some(&mut dbtx),
-                DepositData {
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address: recovery_taproot_address.clone(),
-                    nofn_xonly_pk: self.nofn_xonly_pk,
-                },
-            )
+            .set_deposit_data(Some(&mut dbtx), deposit_data.clone())
             .await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
@@ -832,7 +802,7 @@ impl Verifier {
                     self.db
                         .set_deposit_signatures(
                             Some(&mut dbtx),
-                            deposit_outpoint,
+                            deposit_data.get_deposit_outpoint(),
                             operator_idx,
                             round_idx,
                             *kickoff_idx,
@@ -850,7 +820,7 @@ impl Verifier {
 
     pub async fn set_operator_keys(
         &self,
-        deposit_id: DepositData,
+        deposit_data: DepositData,
         keys: OperatorKeys,
         operator_idx: u32,
     ) -> Result<(), BridgeError> {
@@ -885,7 +855,7 @@ impl Verifier {
             .set_operator_challenge_ack_hashes(
                 None,
                 operator_idx as i32,
-                deposit_id.deposit_outpoint,
+                deposit_data.get_deposit_outpoint(),
                 &hashes,
             )
             .await?;
@@ -936,7 +906,7 @@ impl Verifier {
             .set_bitvm_setup(
                 None,
                 operator_idx as i32,
-                deposit_id.deposit_outpoint,
+                deposit_data.get_deposit_outpoint(),
                 &assert_tx_addrs,
                 &root_hash_bytes,
             )
@@ -968,7 +938,7 @@ impl Verifier {
                     None,
                     watchtower_idx,
                     operator_id as u32,
-                    deposit_id.deposit_outpoint,
+                    deposit_id.get_deposit_outpoint(),
                     &winternitz_key,
                 )
                 .await?;
@@ -998,7 +968,7 @@ impl Verifier {
                     watchtower_idx,
                     operator_id as u32,
                     root_hash_bytes,
-                    deposit_id.deposit_outpoint,
+                    deposit_id.get_deposit_outpoint(),
                 )
                 .await?;
         }
@@ -1050,7 +1020,7 @@ impl Verifier {
             verifier_idx: Some(self.idx as u32),
             round_idx: Some(kickoff_id.round_idx),
             kickoff_idx: Some(kickoff_id.kickoff_idx),
-            deposit_outpoint: Some(deposit_data.deposit_outpoint),
+            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
         });
 
         // self._rpc.client.import_descriptors(vec!["tr("])
@@ -1092,15 +1062,7 @@ impl Verifier {
         if let Ok(mut watchtower) = watchtower_client {
             let raw_challenge_tx = watchtower[0]
                 .internal_create_watchtower_challenge(TransactionRequest {
-                    deposit_params: Some(DepositParams {
-                        deposit_outpoint: Some(deposit_data.deposit_outpoint.into()),
-                        evm_address: deposit_data.evm_address.0.to_vec(),
-                        recovery_taproot_address: deposit_data
-                            .recovery_taproot_address
-                            .assume_checked()
-                            .to_string(),
-                        nofn_xonly_pk: deposit_data.nofn_xonly_pk.serialize().to_vec(),
-                    }),
+                    deposit_params: Some(deposit_data.clone().into()),
                     transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
                     kickoff_id: Some(kickoff_id),
                 })
@@ -1121,7 +1083,7 @@ impl Verifier {
                         verifier_idx: Some(self.idx as u32),
                         round_idx: Some(kickoff_id.round_idx),
                         kickoff_idx: Some(kickoff_id.kickoff_idx),
-                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     &self.config,
                 )

@@ -328,7 +328,8 @@ impl Actor {
                         Kind::WinternitzCommit(_)
                         | Kind::CheckSig(_)
                         | Kind::Other(_)
-                        | Kind::DepositScript(_)
+                        | Kind::OriginalDepositScript(_)
+                        | Kind::ReplacementDepositScript(_)
                         | Kind::TimelockScript(_)
                         | Kind::WithdrawalScript(_) => return Ok(None),
                     };
@@ -408,7 +409,8 @@ impl Actor {
                         Kind::PreimageRevealScript(_)
                         | Kind::CheckSig(_)
                         | Kind::Other(_)
-                        | Kind::DepositScript(_)
+                        | Kind::OriginalDepositScript(_)
+                        | Kind::ReplacementDepositScript(_)
                         | Kind::TimelockScript(_)
                         | Kind::WithdrawalScript(_) => return Ok(None),
                     };
@@ -474,7 +476,21 @@ impl Actor {
 
                     // Set the script inputs of the witness
                     let mut witness: Witness = match script.kind() {
-                        Kind::DepositScript(script) => {
+                        Kind::OriginalDepositScript(script) => {
+                            match (sig, script.0 == self.xonly_public_key) {
+                                (Some(sig), _) => script.generate_script_inputs(&sig),
+                                (None, true) => {
+                                    script.generate_script_inputs(&taproot::Signature {
+                                        signature: self.sign(calc_sighash(sighash_type)?),
+                                        sighash_type,
+                                    })
+                                }
+                                (None, false) => {
+                                    return Err(BridgeError::SignatureNotFound(tx_type))
+                                }
+                            }
+                        }
+                        Kind::ReplacementDepositScript(script) => {
                             match (sig, script.0 == self.xonly_public_key) {
                                 (Some(sig), _) => script.generate_script_inputs(&sig),
                                 (None, true) => {

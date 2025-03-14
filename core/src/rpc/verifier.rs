@@ -156,8 +156,7 @@ impl ClementineVerifier for VerifierServer {
         // Send incoming data to deposit sign job.
         tokio::spawn(async move {
             let params = fetch_next_message_from_stream!(in_stream, params)?;
-            let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params
-            {
+            let (deposit_data, session_id) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
                 ) => parser::verifier::parse_deposit_sign_session(
@@ -167,12 +166,7 @@ impl ClementineVerifier for VerifierServer {
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
             param_tx
-                .send((
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
-                    session_id,
-                ))
+                .send((deposit_data, session_id))
                 .await
                 .map_err(error::output_stream_ended_prematurely)?;
 
@@ -198,19 +192,13 @@ impl ClementineVerifier for VerifierServer {
 
         // Start partial sig job and return partial sig responses.
         tokio::spawn(async move {
-            let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = param_rx
+            let (deposit_data, session_id) = param_rx
                 .recv()
                 .await
                 .ok_or(error::expected_msg_got_none("parameters")())?;
 
             let mut partial_sig_receiver = verifier
-                .deposit_sign(
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
-                    session_id,
-                    agg_nonce_rx,
-                )
+                .deposit_sign(deposit_data, session_id, agg_nonce_rx)
                 .await?;
 
             let mut nonce_idx = 0;
@@ -260,7 +248,7 @@ impl ClementineVerifier for VerifierServer {
         let (operator_sig_tx, operator_sig_rx) = mpsc::channel(1280);
 
         let params = fetch_next_message_from_stream!(in_stream, params)?;
-        let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params {
+        let (deposit_data, session_id) = match params {
             Params::DepositSignFirstParam(deposit_sign_session) => {
                 parser::verifier::parse_deposit_sign_session(
                     deposit_sign_session,
@@ -279,9 +267,7 @@ impl ClementineVerifier for VerifierServer {
         let deposit_finalize_handle = tokio::spawn(async move {
             verifier
                 .deposit_finalize(
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
+                    deposit_data,
                     session_id,
                     sig_rx,
                     agg_nonce_rx,

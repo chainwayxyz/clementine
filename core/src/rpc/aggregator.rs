@@ -420,10 +420,7 @@ impl Aggregator {
 
         // create move tx and calculate sighash
         let mut move_txhandler = create_move_to_vault_txhandler(
-            deposit_data.deposit_outpoint,
-            deposit_data.evm_address,
-            &deposit_data.recovery_taproot_address,
-            self.nofn_xonly_pk,
+            deposit_data.clone(),
             self.config.protocol_paramset().user_takes_after,
             self.config.protocol_paramset().bridge_amount,
             self.config.protocol_paramset().network,
@@ -455,7 +452,7 @@ impl Aggregator {
             .insert_try_to_send(
                 &mut dbtx,
                 Some(TxDataForLogging {
-                    deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     operator_idx: None,
                     verifier_idx: None,
                     round_idx: None,
@@ -753,7 +750,7 @@ impl ClementineAggregator for Aggregator {
 
         let deposit_blockhash = self
             .rpc
-            .get_blockhash_of_deposit(&deposit_data.deposit_outpoint.txid)
+            .get_blockhash_of_deposit(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
         // Create sighash stream for transaction signing
@@ -894,7 +891,6 @@ mod tests {
     use crate::{rpc::clementine::DepositParams, test::common::*};
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
-    use std::str::FromStr;
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -914,50 +910,6 @@ mod tests {
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .is_err());
-    }
-
-    #[tokio::test]
-    #[ignore = "This test is also done during the deposit phase of test_deposit_and_sign_txs test"]
-    async fn aggregator_setup_and_deposit() {
-        let config = create_test_config_with_thread_name(None).await;
-
-        let (_, _, mut aggregator, _, _cleanup) = create_actors(&config).await;
-
-        tracing::info!("Setting up aggregator");
-        let start = std::time::Instant::now();
-
-        aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .unwrap();
-
-        let nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-                .unwrap();
-
-        tracing::info!("Setup completed in {:?}", start.elapsed());
-        tracing::info!("Depositing");
-        let deposit_start = std::time::Instant::now();
-        aggregator
-            .new_deposit(DepositParams {
-                deposit_outpoint: Some(
-                    bitcoin::OutPoint {
-                        txid: Txid::from_str(
-                            "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
-                        )
-                        .unwrap(),
-                        vout: 0,
-                    }
-                    .into(),
-                ),
-                evm_address: [1u8; 20].to_vec(),
-                recovery_taproot_address:
-                    "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
-                nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-            })
-            .await
-            .unwrap();
-        tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1004,10 +956,14 @@ mod tests {
 
         let movetx_txid: Txid = aggregator
             .new_deposit(DepositParams {
-                deposit_outpoint: Some(deposit_outpoint.into()),
-                evm_address: evm_address.0.to_vec(),
-                recovery_taproot_address: signer.address.to_string(),
-                nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
+                deposit_data: Some(clementine::deposit_params::DepositData::OriginalDeposit(
+                    clementine::OriginalDeposit {
+                        deposit_outpoint: Some(deposit_outpoint.into()),
+                        evm_address: evm_address.0.to_vec(),
+                        recovery_taproot_address: signer.address.to_string(),
+                        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
+                    },
+                )),
             })
             .await
             .unwrap()

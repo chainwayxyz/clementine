@@ -83,8 +83,24 @@ message WinternitzPubkey {
   repeated bytes digit_pubkey = 3;
 }
 
-// A deposit request's details.
 message DepositParams {
+  oneof deposit_data {
+    OriginalDeposit original_deposit = 1;
+    ReplacementDeposit replacement_deposit = 2;
+  }
+}
+
+message ReplacementDeposit {
+  // Deposit UTXO.
+  Outpoint deposit_outpoint = 1;
+  // Move to vault txid that is being replaced.
+  Txid move_txid = 2;
+  // nofn public key used to sign the deposit
+  bytes nofn_xonly_pk = 3;
+}
+
+// A new original deposit request's details.
+message OriginalDeposit {
   // User's deposit UTXO.
   Outpoint deposit_outpoint = 1;
   // User's EVM address.

@@ -6,7 +6,7 @@ use crate::builder::script::WinternitzCommit;
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
-    DepositData, OperatorData, TransactionType, TxHandler,
+    OperatorData, OriginalDepositData, TransactionType, TxHandler,
 };
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
@@ -16,7 +16,7 @@ use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use super::{remove_txhandler_from_map, RoundTxInput};
+use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
 
 // helper function to get a txhandler from a hashmap
 fn get_txhandler(
@@ -62,7 +62,7 @@ impl KickoffWinternitzKeys {
 pub struct ReimburseDbCache {
     pub db: Database,
     pub operator_idx: u32,
-    pub deposit_data: Option<DepositData>,
+    pub deposit_outpoint: Option<bitcoin::OutPoint>,
     pub paramset: &'static ProtocolParamset,
     /// watchtower challenge addresses
     watchtower_challenge_hashes: Option<Vec<[u8; 32]>>,
@@ -83,13 +83,13 @@ impl ReimburseDbCache {
     pub fn new_for_deposit(
         db: Database,
         operator_idx: u32,
-        deposit_data: DepositData,
+        deposit_outpoint: bitcoin::OutPoint,
         paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
             db,
             operator_idx,
-            deposit_data: Some(deposit_data),
+            deposit_outpoint: Some(deposit_outpoint),
             paramset,
             watchtower_challenge_hashes: None,
             kickoff_winternitz_keys: None,
@@ -109,7 +109,7 @@ impl ReimburseDbCache {
         Self {
             db,
             operator_idx,
-            deposit_data: None,
+            deposit_outpoint: None,
             paramset,
             watchtower_challenge_hashes: None,
             kickoff_winternitz_keys: None,
@@ -125,7 +125,10 @@ impl ReimburseDbCache {
             Self::new_for_deposit(
                 db,
                 context.operator_idx,
-                context.deposit_data.expect("checked in if statement"),
+                context
+                    .deposit_data
+                    .expect("checked in if statement")
+                    .get_deposit_outpoint(),
                 context.paramset,
             )
         } else {
@@ -149,7 +152,7 @@ impl ReimburseDbCache {
     }
 
     pub async fn watchtower_challenge_root_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
-        if let Some(deposit_data) = &self.deposit_data {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
             match self.watchtower_challenge_hashes {
                 Some(ref addr) => Ok(addr),
                 None => {
@@ -160,7 +163,7 @@ impl ReimburseDbCache {
                                 None,
                                 i as u32,
                                 self.operator_idx,
-                                deposit_data.deposit_outpoint,
+                                *deposit_outpoint,
                             )
                         })
                         .collect::<Vec<_>>();
@@ -198,21 +201,17 @@ impl ReimburseDbCache {
     }
 
     pub async fn get_bitvm_assert_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
-        if let Some(deposit_data) = &self.deposit_data {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
             match self.bitvm_assert_addr {
                 Some(ref addr) => Ok(addr),
                 None => {
                     let (assert_addr, bitvm_hash) = self
                         .db
-                        .get_bitvm_setup(
-                            None,
-                            self.operator_idx as i32,
-                            deposit_data.deposit_outpoint,
-                        )
+                        .get_bitvm_setup(None, self.operator_idx as i32, *deposit_outpoint)
                         .await?
                         .ok_or(BridgeError::BitvmSetupNotFound(
                             self.operator_idx as i32,
-                            deposit_data.deposit_outpoint.txid,
+                            deposit_outpoint.txid,
                         ))?;
                     self.bitvm_assert_addr = Some(assert_addr);
                     self.bitvm_disprove_root_hash = Some(bitvm_hash);
@@ -225,7 +224,7 @@ impl ReimburseDbCache {
     }
 
     pub async fn get_challenge_ack_hashes(&mut self) -> Result<&[PublicHash], BridgeError> {
-        if let Some(deposit_data) = &self.deposit_data {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
             match self.challenge_ack_hashes {
                 Some(ref hashes) => Ok(hashes),
                 None => {
@@ -234,12 +233,12 @@ impl ReimburseDbCache {
                             .get_operators_challenge_ack_hashes(
                                 None,
                                 self.operator_idx as i32,
-                                deposit_data.deposit_outpoint,
+                                *deposit_outpoint,
                             )
                             .await?
                             .ok_or(BridgeError::WatchtowerPublicHashesNotFound(
                                 self.operator_idx as i32,
-                                deposit_data.deposit_outpoint.txid,
+                                deposit_outpoint.txid,
                             ))?,
                     );
                     Ok(self.challenge_ack_hashes.as_ref().expect("Inserted before"))
@@ -251,21 +250,17 @@ impl ReimburseDbCache {
     }
 
     pub async fn get_bitvm_disprove_root_hash(&mut self) -> Result<&[u8; 32], BridgeError> {
-        if let Some(deposit_data) = &self.deposit_data {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
             match self.bitvm_disprove_root_hash {
                 Some(ref hash) => Ok(hash),
                 None => {
                     let bitvm_hash = self
                         .db
-                        .get_bitvm_root_hash(
-                            None,
-                            self.operator_idx as i32,
-                            deposit_data.deposit_outpoint,
-                        )
+                        .get_bitvm_root_hash(None, self.operator_idx as i32, *deposit_outpoint)
                         .await?
                         .ok_or(BridgeError::BitvmSetupNotFound(
                             self.operator_idx as i32,
-                            deposit_data.deposit_outpoint.txid,
+                            deposit_outpoint.txid,
                         ))?;
                     self.bitvm_disprove_root_hash = Some(bitvm_hash);
                     Ok(self
@@ -406,7 +401,7 @@ impl TxHandlerCache {
     }
 }
 
-#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_data, txtype = ?transaction_type, ?context))]
+#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_outpoint, txtype = ?transaction_type, ?context))]
 pub async fn create_txhandlers(
     transaction_type: TransactionType,
     context: ContractContext,
@@ -476,10 +471,7 @@ pub async fn create_txhandlers(
     if !txhandlers.contains_key(&TransactionType::MoveToVault) {
         // if not cached create move_txhandler
         let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
-            deposit_data.deposit_outpoint,
-            deposit_data.evm_address,
-            &deposit_data.recovery_taproot_address,
-            deposit_data.nofn_xonly_pk,
+            deposit_data.clone(),
             paramset.user_takes_after,
             paramset.bridge_amount,
             paramset.network,
@@ -502,8 +494,8 @@ pub async fn create_txhandlers(
 
         // deposit_data.deposit_outpoint.txid
 
-        let bitvm_pks =
-            actor.generate_bitvm_pks_for_deposit(deposit_data.deposit_outpoint.txid, paramset)?;
+        let bitvm_pks = actor
+            .generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint().txid, paramset)?;
 
         let assert_scripts = bitvm_pks.get_assert_scripts(operator_data.xonly_pk);
 
@@ -511,7 +503,7 @@ pub async fn create_txhandlers(
             kickoff_id,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-            deposit_data.nofn_xonly_pk,
+            deposit_data.get_nofn_xonly_pk(),
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
@@ -535,7 +527,7 @@ pub async fn create_txhandlers(
             kickoff_id,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-            deposit_data.nofn_xonly_pk,
+            deposit_data.get_nofn_xonly_pk(),
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
@@ -623,7 +615,7 @@ pub async fn create_txhandlers(
         // generate with actual scripts if we want to specifically create a watchtower challenge tx
         let path = WatchtowerChallenge(
             kickoff_id.operator_idx,
-            deposit_data.deposit_outpoint.txid,
+            deposit_data.get_deposit_outpoint().txid,
             paramset,
         );
 
@@ -634,7 +626,7 @@ pub async fn create_txhandlers(
             builder::transaction::create_watchtower_challenge_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 watchtower_idx,
-                deposit_data.nofn_xonly_pk,
+                deposit_data.get_nofn_xonly_pk(),
                 Arc::new(WinternitzCommit::new(
                     vec![(
                         public_key,
@@ -770,6 +762,7 @@ mod tests {
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
+    use crate::rpc::parse_deposit_params;
     use crate::test::common::*;
     use bitcoin::XOnlyPublicKey;
     use futures::future::try_join_all;
@@ -834,12 +827,8 @@ mod tests {
             })
             .collect();
         let mut utxo_idxs: Vec<Vec<usize>> = Vec::with_capacity(operator_xonly_pks.len());
-        let deposit_outpoint: bitcoin::OutPoint = deposit_params
-            .clone()
-            .deposit_outpoint
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let deposit_data = parse_deposit_params(deposit_params.clone()).unwrap();
+        let deposit_outpoint: bitcoin::OutPoint = deposit_data.get_deposit_outpoint();
 
         for op_xonly_pk in operator_xonly_pks {
             utxo_idxs.push(get_kickoff_utxos_to_sign(

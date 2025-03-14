@@ -1,6 +1,7 @@
 //! # Common Utilities for Integration Tests
 
 use crate::actor::Actor;
+use crate::builder::transaction::{DepositData, OriginalDepositData};
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -122,13 +123,17 @@ pub async fn run_multiple_deposits(
             .await?;
         rpc.mine_blocks(18).await?;
 
+        let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address: actor.address.as_unchecked().to_owned(),
+            nofn_xonly_pk,
+        });
+
+        let deposit_params: DepositParams = deposit_data.into();
+
         let move_txid: Txid = aggregator
-            .new_deposit(DepositParams {
-                deposit_outpoint: Some(deposit_outpoint.into()),
-                evm_address: evm_address.0.to_vec(),
-                recovery_taproot_address: actor.address.to_string(),
-                nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-            })
+            .new_deposit(deposit_params)
             .await?
             .into_inner()
             .try_into()?;
@@ -214,12 +219,14 @@ pub async fn run_single_deposit(
         bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
             .unwrap();
 
-    let deposit_params = DepositParams {
-        deposit_outpoint: Some(deposit_outpoint.into()),
-        evm_address: evm_address.0.to_vec(),
-        recovery_taproot_address: actor.address.to_string(),
-        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-    };
+    let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address: actor.address.as_unchecked().to_owned(),
+        nofn_xonly_pk,
+    });
+
+    let deposit_params: DepositParams = deposit_data.into();
 
     let move_txid: Txid = aggregator
         .new_deposit(deposit_params.clone())

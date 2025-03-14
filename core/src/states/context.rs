@@ -1,4 +1,5 @@
 use crate::builder::transaction::DepositData;
+use crate::builder::transaction::OriginalDepositData;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::KickoffId;

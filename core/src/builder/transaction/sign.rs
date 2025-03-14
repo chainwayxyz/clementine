@@ -81,7 +81,7 @@ pub async fn create_and_sign_txs(
         &mut ReimburseDbCache::new_for_deposit(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
-            transaction_data.deposit_data.clone(),
+            transaction_data.deposit_data.get_deposit_outpoint(),
             config.protocol_paramset(),
         ),
     )
@@ -91,7 +91,7 @@ pub async fn create_and_sign_txs(
     let deposit_sigs_query = db
         .get_deposit_signatures(
             None,
-            transaction_data.deposit_data.deposit_outpoint,
+            transaction_data.deposit_data.get_deposit_outpoint(),
             transaction_data.kickoff_id.operator_idx as usize,
             transaction_data.kickoff_id.round_idx as usize,
             transaction_data.kickoff_id.kickoff_idx as usize,
@@ -118,7 +118,7 @@ pub async fn create_and_sign_txs(
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 watchtower_idx as u32,
-                transaction_data.deposit_data.deposit_outpoint.txid,
+                transaction_data.deposit_data.get_deposit_outpoint().txid,
                 config.protocol_paramset(),
             );
             let preimage = signer.generate_preimage_from_path(path)?;
@@ -188,7 +188,7 @@ impl Watchtower {
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
-                transaction_data.deposit_data.clone(),
+                transaction_data.deposit_data.get_deposit_outpoint(),
                 self.config.protocol_paramset(),
             ),
         )
@@ -202,7 +202,7 @@ impl Watchtower {
 
         let path = WinternitzDerivationPath::WatchtowerChallenge(
             transaction_data.kickoff_id.operator_idx,
-            transaction_data.deposit_data.deposit_outpoint.txid,
+            transaction_data.deposit_data.get_deposit_outpoint().txid,
             self.config.protocol_paramset(),
         );
         self.signer
@@ -236,7 +236,7 @@ impl Operator {
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,
-                assert_data.deposit_data.clone(),
+                assert_data.deposit_data.get_deposit_outpoint(),
                 self.config.protocol_paramset(),
             ),
         )

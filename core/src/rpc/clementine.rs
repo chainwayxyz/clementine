@@ -60,9 +60,36 @@ pub struct WinternitzPubkey {
     #[prost(bytes = "vec", repeated, tag = "3")]
     pub digit_pubkey: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
-/// A deposit request's details.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositParams {
+    #[prost(oneof = "deposit_params::DepositData", tags = "1, 2")]
+    pub deposit_data: ::core::option::Option<deposit_params::DepositData>,
+}
+/// Nested message and enum types in `DepositParams`.
+pub mod deposit_params {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum DepositData {
+        #[prost(message, tag = "1")]
+        OriginalDeposit(super::OriginalDeposit),
+        #[prost(message, tag = "2")]
+        ReplacementDeposit(super::ReplacementDeposit),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReplacementDeposit {
+    /// Deposit UTXO.
+    #[prost(message, optional, tag = "1")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+    /// Move to vault txid that is being replaced.
+    #[prost(message, optional, tag = "2")]
+    pub move_txid: ::core::option::Option<Txid>,
+    /// nofn public key used to sign the deposit
+    #[prost(bytes = "vec", tag = "3")]
+    pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
+}
+/// A new original deposit request's details.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OriginalDeposit {
     /// User's deposit UTXO.
     #[prost(message, optional, tag = "1")]
     pub deposit_outpoint: ::core::option::Option<Outpoint>,

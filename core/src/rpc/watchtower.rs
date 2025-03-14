@@ -79,7 +79,7 @@ impl ClementineWatchtower for Watchtower {
         let deposit_data = parse_deposit_params(deposit_req)?;
 
         let winternitz_keys =
-            self.get_watchtower_winternitz_public_keys(deposit_data.deposit_outpoint.txid)?;
+            self.get_watchtower_winternitz_public_keys(deposit_data.get_deposit_outpoint().txid)?;
 
         Ok(Response::new(WatchtowerKeys {
             winternitz_pubkeys: winternitz_keys
