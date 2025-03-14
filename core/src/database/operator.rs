@@ -373,7 +373,7 @@ impl Database {
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_as(
             "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk, move_to_vault_txid)
-                VALUES ($1, $2, $3, $4)
+                VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (deposit_outpoint) DO UPDATE
                 SET recovery_taproot_address = EXCLUDED.recovery_taproot_address,
                     evm_address = EXCLUDED.evm_address,
@@ -386,6 +386,7 @@ impl Database {
         .bind(EVMAddressDB(deposit_data.evm_address))
         .bind(XOnlyPublicKeyDB(deposit_data.nofn_xonly_pk))
         .bind(TxidDB(move_to_vault_txid));
+
         let deposit_id: Result<(i32,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
