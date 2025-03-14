@@ -2,15 +2,13 @@ use super::CitreaClientTrait;
 use crate::errors::BridgeError;
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{hashes::Hash, OutPoint, Txid};
-use std::marker::PhantomData;
 use tonic::async_trait;
 
 /// A mock implementation of the CitreaClientTrait. This implementation is used
-/// for testing purposes and will generate dummy values.
+/// for testing purposes and will generate dummy values. Don't use this in
+/// citrea-e2e tests, use the real client.
 #[derive(Clone, Debug)]
-pub struct MockCitreaClient {
-    data: PhantomData<()>,
-}
+pub struct MockCitreaClient;
 
 #[async_trait]
 impl CitreaClientTrait for MockCitreaClient {
@@ -21,7 +19,11 @@ impl CitreaClientTrait for MockCitreaClient {
         _light_client_prover_url: String,
         _secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self::Client, BridgeError> {
-        Ok(MockCitreaClient { data: PhantomData })
+        tracing::warn!(
+            "Using the mock Citrea client, beware that data returned from this client is not real"
+        );
+
+        Ok(MockCitreaClient)
     }
 
     async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
@@ -63,5 +65,12 @@ impl CitreaClientTrait for MockCitreaClient {
         }
 
         Ok(ret)
+    }
+
+    async fn get_light_client_proof(
+        &self,
+        _l1_height: u64,
+    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
+        Ok(None)
     }
 }

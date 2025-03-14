@@ -13,7 +13,7 @@ use crate::builder::transaction::{
     ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
-use crate::citrea::{CitreaClient, CitreaClientTrait, LightClientProverRpcClient};
+use crate::citrea::{CitreaClient, CitreaClientTrait};
 use crate::config::protocol::{ProtocolParamset, ProtocolParamsetName};
 use crate::config::BridgeConfig;
 use crate::constants::TEN_MINUTES_IN_SECS;
@@ -1112,8 +1112,7 @@ impl Verifier {
 
         let proof_current = loop {
             if let Some(proof) = citrea_client
-                .light_client_prover_client
-                .get_light_client_proof_by_l1_height(block_height as u64)
+                .get_light_client_proof(block_height as u64)
                 .await?
             {
                 break proof;
@@ -1132,25 +1131,15 @@ impl Verifier {
         };
 
         let proof_previous = citrea_client
-            .light_client_prover_client
-            .get_light_client_proof_by_l1_height(block_height as u64 - 1)
+            .get_light_client_proof(block_height as u64 - 1)
             .await?
             .ok_or(BridgeError::Error(format!(
                 "Light client proof not found for block height: {}",
                 block_height - 1
             )))?;
 
-        let l2_height_end: u64 = proof_current
-            .light_client_proof_output
-            .last_l2_height
-            .try_into()
-            .expect("Failed to convert last_l2_height to u64");
-
-        let l2_height_start: u64 = proof_previous
-            .light_client_proof_output
-            .last_l2_height
-            .try_into()
-            .expect("Failed to convert last_l2_height to u64");
+        let l2_height_start = proof_previous.0;
+        let l2_height_end = proof_current.0;
 
         Ok((l2_height_start, l2_height_end))
     }

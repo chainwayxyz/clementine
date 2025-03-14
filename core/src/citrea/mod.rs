@@ -93,6 +93,12 @@ pub trait CitreaClientTrait: Send + Sync + Debug + Clone + 'static {
         from_height: u64,
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError>;
+
+    /// Returns the light client proof for the given L1 block height.
+    async fn get_light_client_proof(
+        &self,
+        l1_height: u64,
+    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -250,10 +256,37 @@ impl CitreaClientTrait for CitreaClient {
 
         Ok(utxos)
     }
+
+    async fn get_light_client_proof(
+        &self,
+        l1_height: u64,
+    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
+        let proof_result = self
+            .light_client_prover_client
+            .get_light_client_proof_by_l1_height(l1_height)
+            .await?;
+
+        let proof_result = if let Some(proof_result) = proof_result {
+            Some((
+                proof_result
+                    .light_client_proof_output
+                    .last_l2_height
+                    .try_into()
+                    .map_err(|e| {
+                        BridgeError::Error(format!("Can't convert last_l2_height to u64: {}", e))
+                    })?,
+                proof_result.proof,
+            ))
+        } else {
+            None
+        };
+
+        Ok(proof_result)
+    }
 }
 
 #[rpc(client, namespace = "lightClientProver")]
-pub trait LightClientProverRpc {
+trait LightClientProverRpc {
     /// Generate state transition data for the given L1 block height, and return the data as a borsh serialized hex string.
     #[method(name = "getLightClientProofByL1Height")]
     async fn get_light_client_proof_by_l1_height(
