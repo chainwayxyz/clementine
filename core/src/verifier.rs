@@ -10,7 +10,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, OperatorData,
-    ReimburseDbCache, TransactionType, TxHandler,
+    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::{CitreaClient, LightClientProverRpcClient};
@@ -142,6 +142,7 @@ impl VerifierServer {
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
+    rpc: ExtendedRpc,
     pub idx: usize,
 
     pub(crate) signer: Actor,
@@ -163,6 +164,13 @@ impl Verifier {
             config.winternitz_secret_key,
             config.protocol_paramset().network,
         );
+
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
 
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
         let idx = config
@@ -220,6 +228,7 @@ impl Verifier {
         let tx_sender = TxSenderClient::new(db.clone(), format!("verifier_{}", idx).to_string());
 
         let verifier = Verifier {
+            rpc,
             signer,
             db: db.clone(),
             config: config.clone(),
@@ -280,7 +289,7 @@ impl Verifier {
                 idx,
                 &operator_data,
                 kickoff_wpks,
-                prev_ready_to_reimburse.clone(),
+                prev_ready_to_reimburse.as_ref(),
             )?;
             for txhandler in txhandlers {
                 if let TransactionType::UnspentKickoff(kickoff_idx) =
@@ -454,6 +463,8 @@ impl Verifier {
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
 
+        let deposit_blockhash = self.rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+
         tokio::spawn(async move {
             let mut session_map = verifier.nonces.lock().await;
             let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
@@ -472,6 +483,7 @@ impl Verifier {
                     recovery_taproot_address,
                     nofn_xonly_pk: verifier.nofn_xonly_pk,
                 },
+                deposit_blockhash,
                 false,
             ));
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
@@ -541,6 +553,8 @@ impl Verifier {
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
     ) -> Result<MusigPartialSignature, BridgeError> {
+        let deposit_blockhash = self.rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
@@ -550,6 +564,7 @@ impl Verifier {
                 recovery_taproot_address: recovery_taproot_address.clone(),
                 nofn_xonly_pk: self.nofn_xonly_pk,
             },
+            deposit_blockhash,
             true,
         ));
 
@@ -580,8 +595,7 @@ impl Verifier {
             num_operators
         ];
 
-        let mut kickoff_txids =
-            vec![vec![vec![None; num_kickoffs_per_round]; num_round_txs]; num_operators];
+        let mut kickoff_txids = vec![vec![vec![]; num_round_txs]; num_operators];
 
         // ------ N-of-N SIGNATURES VERIFICATION ------
 
@@ -599,7 +613,7 @@ impl Verifier {
             } = &sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx][kickoff_utxo_idx] = kickoff_txid;
+                kickoff_txids[operator_idx][round_idx].push((kickoff_txid, kickoff_utxo_idx));
                 continue;
             }
 
@@ -667,6 +681,7 @@ impl Verifier {
                     recovery_taproot_address: recovery_taproot_address.clone(),
                     nofn_xonly_pk: self.nofn_xonly_pk,
                 },
+                deposit_blockhash,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
                 let sighash = sighash_stream
@@ -791,24 +806,32 @@ impl Verifier {
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (operator_idx, operator_sigs) in verified_sigs.into_iter().enumerate() {
-            for (seq_idx, op_sequential_sigs) in operator_sigs.into_iter().enumerate() {
-                for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
-                    let kickoff_txid = kickoff_txids[operator_idx][seq_idx][kickoff_idx];
+            for (round_idx, mut op_round_sigs) in operator_sigs.into_iter().enumerate() {
+                if kickoff_txids[operator_idx][round_idx].len()
+                    != self.config.protocol_paramset().num_signed_kickoffs
+                {
+                    return Err(BridgeError::Error(format!(
+                        "Number of signed kickoff utxos for operator: {}, round: {} is wrong. Expected: {}, got: {}",
+                        operator_idx, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
+                    )));
+                }
+                for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
                     if kickoff_txid.is_none() {
                         return Err(BridgeError::Error(format!(
                             "Kickoff txid not found for {}, {}, {}",
-                            operator_idx, seq_idx, kickoff_idx
+                            operator_idx, round_idx, kickoff_idx
                         )));
                     }
+
                     self.db
                         .set_deposit_signatures(
                             Some(&mut dbtx),
                             deposit_outpoint,
                             operator_idx,
-                            seq_idx,
-                            kickoff_idx,
+                            round_idx,
+                            *kickoff_idx,
                             kickoff_txid.expect("Kickoff txid must be Some"),
-                            kickoff_sigs,
+                            std::mem::take(&mut op_round_sigs[*kickoff_idx]),
                         )
                         .await?;
                 }
@@ -1338,7 +1361,13 @@ impl Owner for Verifier {
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
         let mut db_cache =
             ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
-        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        let txhandlers = create_txhandlers(
+            tx_type,
+            contract_context,
+            &mut TxHandlerCache::new(),
+            &mut db_cache,
+        )
+        .await?;
         Ok(txhandlers)
     }
 

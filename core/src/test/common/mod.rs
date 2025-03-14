@@ -11,7 +11,7 @@ use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::{DepositParams, Empty};
 use crate::EVMAddress;
-use bitcoin::{OutPoint, Txid};
+use bitcoin::{BlockHash, OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 pub use test_utils::*;
 use tonic::transport::Channel;
@@ -182,8 +182,9 @@ pub async fn run_single_deposit(
         ClementineAggregatorClient<Channel>,
         Vec<ClementineWatchtowerClient<Channel>>,
         ActorsCleanup,
-        OutPoint,
+        DepositParams,
         Txid,
+        BlockHash,
     ),
     BridgeError,
 > {
@@ -207,18 +208,21 @@ pub async fn run_single_deposit(
         .await?;
 
     mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None).await?;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
             .unwrap();
 
+    let deposit_params = DepositParams {
+        deposit_outpoint: Some(deposit_outpoint.into()),
+        evm_address: evm_address.0.to_vec(),
+        recovery_taproot_address: actor.address.to_string(),
+        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
+    };
+
     let move_txid: Txid = aggregator
-        .new_deposit(DepositParams {
-            deposit_outpoint: Some(deposit_outpoint.into()),
-            evm_address: evm_address.0.to_vec(),
-            recovery_taproot_address: actor.address.to_string(),
-            nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-        })
+        .new_deposit(deposit_params.clone())
         .await?
         .into_inner()
         .try_into()?;
@@ -236,7 +240,8 @@ pub async fn run_single_deposit(
         aggregator,
         watchtowers,
         cleanup,
-        deposit_outpoint,
+        deposit_params,
         move_txid,
+        deposit_blockhash,
     ))
 }

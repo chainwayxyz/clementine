@@ -117,8 +117,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _aggregator,
             _watchtowers,
             _cleanup,
-            _deposit_outpoint,
+            _deposit_params,
             move_txid,
+            _deposit_blockhash,
         ) = run_single_deposit(&mut config, rpc.clone(), None).await?;
 
         tracing::info!(

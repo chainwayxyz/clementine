@@ -1,16 +1,21 @@
-use super::ContractContext;
+use super::{ContractContext, TxHandlerCache};
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::Operator;
 use crate::rpc::clementine::KickoffId;
 use crate::watchtower::Watchtower;
-use bitcoin::Transaction;
+use bitcoin::hashes::Hash;
+use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
+use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaCha12Rng;
+use secp256k1::rand::seq::SliceRandom;
 
 #[derive(Debug, Clone)]
 pub struct TransactionRequestData {
@@ -23,6 +28,34 @@ pub struct TransactionRequestData {
 pub struct AssertRequestData {
     pub deposit_data: DepositData,
     pub kickoff_id: KickoffId,
+}
+
+/// Get hash of operator xonly pubkey, deposit blockhash and deposit outpoint, and retrieve num_kickoffs_to_sign
+/// number of unique indexes to sign
+pub fn get_kickoff_utxos_to_sign(
+    paramset: &'static ProtocolParamset,
+    op_xonly_pk: XOnlyPublicKey,
+    deposit_blockhash: BlockHash,
+    deposit_outpoint: bitcoin::OutPoint,
+) -> Vec<usize> {
+    let deposit_data = [
+        op_xonly_pk.serialize().to_vec(),
+        deposit_blockhash.to_byte_array().to_vec(),
+        deposit_outpoint.txid.to_byte_array().to_vec(),
+        deposit_outpoint.vout.to_le_bytes().to_vec(),
+    ]
+    .concat();
+
+    let seed = bitcoin::hashes::sha256d::Hash::hash(&deposit_data).to_byte_array();
+    let mut rng = ChaCha12Rng::from_seed(seed);
+
+    let mut numbers: Vec<usize> = (0..paramset.num_kickoffs_per_round).collect();
+    numbers.shuffle(&mut rng);
+
+    numbers
+        .into_iter()
+        .take(paramset.num_signed_kickoffs)
+        .collect()
 }
 
 /// Signs all txes that are created and possible to be signed for the entity and returns them.
@@ -44,7 +77,7 @@ pub async fn create_and_sign_txs(
     let txhandlers = builder::transaction::create_txhandlers(
         transaction_data.transaction_type,
         context,
-        None,
+        &mut TxHandlerCache::new(),
         &mut ReimburseDbCache::new_for_deposit(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
@@ -151,7 +184,7 @@ impl Watchtower {
         let mut txhandlers = builder::transaction::create_txhandlers(
             TransactionType::WatchtowerChallenge(self.config.index as usize),
             context,
-            None,
+            &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
@@ -199,7 +232,7 @@ impl Operator {
         let mut txhandlers = builder::transaction::create_txhandlers(
             TransactionType::MiniAssert(0),
             context,
-            None,
+            &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,
