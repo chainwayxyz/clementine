@@ -49,6 +49,7 @@ statig = { workspace = true, features = ["async", "serde"] }
 pgmq = { workspace = true }
 serde_with = { workspace = true }
 sov-rollup-interface = { workspace = true, features = ["native"] }
+rand_chacha = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

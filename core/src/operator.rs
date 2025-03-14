@@ -13,6 +13,7 @@ use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
+    TxHandlerCache,
 };
 use crate::citrea::CitreaClient;
 use crate::config::protocol::ProtocolParamsetName;
@@ -296,15 +297,21 @@ impl Operator {
 
     pub async fn deposit_sign(
         &self,
-        deposit_id: DepositData,
+        deposit_data: DepositData,
     ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
         let (sig_tx, sig_rx) = mpsc::channel(1280);
+
+        let deposit_blockhash = self
+            .rpc
+            .get_blockhash_of_tx(&deposit_data.deposit_outpoint.txid)
+            .await?;
 
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
             self.db.clone(),
             self.idx,
             self.config.clone(),
-            deposit_id,
+            deposit_data,
+            deposit_blockhash,
         ));
 
         let operator = self.clone();
@@ -657,7 +664,7 @@ impl Operator {
                 idx,
                 &operator_data,
                 kickoff_wpks,
-                prev_ready_to_reimburse.clone(),
+                prev_ready_to_reimburse.as_ref(),
             )?;
             for txhandler in txhandlers {
                 if let TransactionType::UnspentKickoff(kickoff_idx) =
@@ -887,7 +894,7 @@ impl Operator {
                             txid: kickoff_txid,
                             vout: 1, // Kickoff finalizer output index
                         },
-                        relative_block_height: self.config.confirmation_threshold,
+                        relative_block_height: self.config.protocol_paramset().finality_depth,
                     });
                 }
                 None => {
@@ -906,7 +913,7 @@ impl Operator {
                         .await?;
                     activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: unspent_kickoff_connector,
-                        relative_block_height: self.config.confirmation_threshold,
+                        relative_block_height: self.config.protocol_paramset().finality_depth,
                     });
                 }
             }
@@ -1134,7 +1141,13 @@ impl Owner for Operator {
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
         let mut db_cache =
             ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
-        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        let txhandlers = create_txhandlers(
+            tx_type,
+            contract_context,
+            &mut TxHandlerCache::new(),
+            &mut db_cache,
+        )
+        .await?;
         Ok(txhandlers)
     }
 

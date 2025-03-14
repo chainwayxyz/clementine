@@ -33,7 +33,7 @@ use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 pub use crate::builder::transaction::txhandler::*;
 pub use creator::{
     create_round_txhandlers, create_txhandlers, ContractContext, KickoffWinternitzKeys,
-    ReimburseDbCache,
+    ReimburseDbCache, TxHandlerCache,
 };
 pub use operator_collateral::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,

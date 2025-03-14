@@ -975,7 +975,7 @@ impl TxSenderClient {
                             txid: kickoff_txid,
                             vout: get_watchtower_challenge_utxo_vout(watchtower_idx) as u32,
                         },
-                        relative_block_height: config.confirmation_threshold,
+                        relative_block_height: config.protocol_paramset().finality_depth,
                     }],
                 )
                 .await

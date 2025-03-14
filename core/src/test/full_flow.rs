@@ -1,5 +1,6 @@
 use super::common::{create_actors, create_test_config_with_thread_name};
 use crate::actor::Actor;
+use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::TransactionType;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -188,12 +189,27 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };
@@ -557,13 +573,28 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };
@@ -892,13 +923,28 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };
@@ -1098,13 +1144,28 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };
@@ -1277,13 +1338,28 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };
