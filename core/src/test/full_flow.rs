@@ -380,7 +380,7 @@ pub async fn send_tx(
     Ok(())
 }
 
-async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
+pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
     let mut timeout_counter = 50;
     while rpc
         .client
@@ -426,6 +426,9 @@ pub async fn ensure_outpoint_spent(
             );
         }
     }
+    rpc.client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await?;
     Ok(())
 }
 

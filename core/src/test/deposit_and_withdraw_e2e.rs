@@ -7,7 +7,7 @@ use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
-use crate::test::full_flow::ensure_outpoint_spent;
+use crate::test::full_flow::{ensure_outpoint_spent, ensure_tx_onchain};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -332,6 +332,11 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             txid: kickoff_txid,
             vout: 2,
         };
+
+        // Wait for the kickoff tx to be onchain
+        ensure_tx_onchain(&rpc, kickoff_txid).await.unwrap();
+
+        // Ensure the reimburse connector is spent
         ensure_outpoint_spent(&rpc, reimburse_connector)
             .await
             .unwrap();
