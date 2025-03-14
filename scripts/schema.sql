@@ -205,6 +205,21 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     created_at timestamp not null default now(),
     primary key (activated_id, txid, vout)
 );
+
+-------- FINALIZED BLOCK SYNCER , CITREA DEPOSITS AND WITHDRAWALS --------
+create table if not exists withdrawals (
+    idx int primary key,
+    move_to_vault_txid text not null check (move_to_vault_txid ~ '^[a-fA-F0-9]{64}'),
+    withdrawal_utxo_txid text check (withdrawal_utxo_txid ~ '^[a-fA-F0-9]{64}'),
+    withdrawal_utxo_vout int,
+    withdrawal_batch_proof_bitcoin_block_height int,
+    payout_txid text check (payout_txid ~ '^[a-fA-F0-9]{64}'),
+    payout_payer_operator_idx int,
+    payout_tx_blockhash text check (payout_tx_blockhash ~ '^[a-fA-F0-9]{64}'),
+    is_payout_handled boolean not null default false,
+    created_at timestamp not null default now()
+);
+
 -- Add state machine tables at the end of the file:
 -- State machines table to store serialized machines
 CREATE TABLE IF NOT EXISTS state_machines (

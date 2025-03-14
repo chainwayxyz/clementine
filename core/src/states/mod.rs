@@ -1,7 +1,6 @@
 use crate::config::protocol::ProtocolParamset;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
-use bitcoin::Block;
 use eyre::Context;
 use futures::future::{join, join_all};
 use kickoff::KickoffEvent;
@@ -14,7 +13,7 @@ use std::cmp::max;
 use std::future::Future;
 use std::sync::Arc;
 
-mod block_cache;
+pub mod block_cache;
 pub mod context;
 mod event;
 pub mod kickoff;
@@ -415,7 +414,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         for block_height in start_height..self.last_processed_block_height + 1 {
             let block = self.db.get_full_block(None, block_height).await?;
             if let Some(block) = block {
-                self.process_block_parallel(&block, block_height).await?;
+                self.update_block_cache(&block, block_height);
+                self.process_block_parallel(block_height).await?;
             } else {
                 return Err(eyre::eyre!("Block at height {} not found", block_height));
             }
@@ -428,21 +428,18 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(())
     }
 
-    /// Processes the block and moves all state machines forward in parallel.
+    /// It requires that the block cache is updated before calling this function.
+    /// Moves all state machines forward in parallel.
     /// The state machines are updated until all of them stabilize in their state (ie.
     /// the block does not generate any new events)
     ///
     /// # Errors
     /// If the state machines do not stabilize after 50 iterations, we return an error.
-    pub async fn process_block_parallel(
-        &mut self,
-        block: &Block,
-        block_height: u32,
-    ) -> Result<(), eyre::Report> {
-        let mut cache: block_cache::BlockCache = Default::default();
-        cache.update_with_block(block, block_height);
-        self.context.cache = Arc::new(cache);
-
+    pub async fn process_block_parallel(&mut self, block_height: u32) -> Result<(), eyre::Report> {
+        eyre::ensure!(
+            self.context.cache.block_height == block_height,
+            "Block cache is not updated"
+        );
         // Process all machines, for those unaffected collect them them, otherwise return
         // a future that processes the new events.
         let (mut final_kickoff_machines, mut kickoff_futures) =

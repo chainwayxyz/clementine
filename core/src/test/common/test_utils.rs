@@ -3,6 +3,7 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -13,7 +14,7 @@ use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
     create_watchtower_unix_server,
 };
-use crate::states::{Duty, Owner};
+use crate::states::{block_cache, Duty, Owner};
 use crate::utils::{initialize_logger, EVMAddress, UTXO};
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
@@ -201,7 +202,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         .expect("Failed to get new address");
     client
         .client
-        .generate_to_address(101, address.assume_checked_ref())
+        .generate_to_address(201, address.assume_checked_ref())
         .await
         .expect("Failed to generate blocks");
 
@@ -599,6 +600,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     let txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
+        .with_version(bitcoin::transaction::Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,
@@ -658,5 +660,16 @@ impl Owner for MockOwner {
         _contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
         Ok(BTreeMap::new())
+    }
+
+    async fn handle_finalized_block(
+        &self,
+        _dbtx: DatabaseTransaction<'_, '_>,
+        _block_id: u32,
+        _block_height: u32,
+        _block_cache: Arc<block_cache::BlockCache>,
+        _light_client_proof_wait_interval_secs: Option<u32>,
+    ) -> Result<(), BridgeError> {
+        Ok(())
     }
 }
