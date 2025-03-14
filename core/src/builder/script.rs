@@ -349,14 +349,14 @@ impl SpendableScript for ReplacementDepositScript {
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
-        let citrea: [u8; 6] = "citreaReplace".as_bytes().try_into().expect("length == 6");
+        let citrea_replace: [u8; 13] = "citreaReplace".as_bytes().try_into().expect("length == 13");
 
         Builder::new()
             .push_x_only_key(&self.0)
             .push_opcode(OP_CHECKSIG)
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF)
-            .push_slice(citrea)
+            .push_slice(citrea_replace)
             .push_slice(self.1.as_byte_array())
             .push_opcode(OP_ENDIF)
             .into_script()
