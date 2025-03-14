@@ -7,7 +7,7 @@ use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
-use crate::test::full_flow::{ensure_outpoint_spent, ensure_tx_onchain};
+use crate::test::full_flow::ensure_outpoint_spent;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -333,8 +333,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             vout: 2,
         };
 
+        // wait 3 seconds so fee payer txs are sent to mempool
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // mine 1 block to make sure the fee payer txs are in the next block
+        rpc.mine_blocks(1).await.unwrap();
+
         // Wait for the kickoff tx to be onchain
-        ensure_tx_onchain(&rpc, kickoff_txid).await.unwrap();
+        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
 
         // Ensure the reimburse connector is spent
         ensure_outpoint_spent(&rpc, reimburse_connector)
