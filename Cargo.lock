@@ -1723,7 +1723,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=8508328#8508328d1823ea0c6675af6cb0168de1d1f0cdbc"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=d1cd5a7#d1cd5a73355bbcfb5271951b0fd35b7bdba6a948"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-crypto-primitives 0.5.0 (git+https://github.com/arkworks-rs/crypto-primitives?branch=release-0.5.0)",
@@ -2997,7 +2997,7 @@ dependencies = [
 [[package]]
 name = "final-spv"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=8508328#8508328d1823ea0c6675af6cb0168de1d1f0cdbc"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=d1cd5a7#d1cd5a73355bbcfb5271951b0fd35b7bdba6a948"
 dependencies = [
  "bitcoin",
  "blake3",
@@ -3371,7 +3371,7 @@ dependencies = [
 [[package]]
 name = "header-chain"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=8508328#8508328d1823ea0c6675af6cb0168de1d1f0cdbc"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=d1cd5a7#d1cd5a73355bbcfb5271951b0fd35b7bdba6a948"
 dependencies = [
  "bitcoin",
  "borsh",

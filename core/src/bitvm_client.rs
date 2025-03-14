@@ -10,7 +10,7 @@ use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 
 use bitvm::chunk::api::{
-    api_generate_full_tapscripts, api_generate_partial_script, NUM_PUBS, NUM_U160, NUM_U256,
+    api_generate_full_tapscripts, api_generate_partial_script, NUM_HASH, NUM_PUBS, NUM_U256,
 };
 use bitvm::signatures::wots_api::wots160;
 
@@ -245,7 +245,7 @@ pub struct ClementineBitVMReplacementData {
     pub bitvm_pks: (
         [[Vec<(usize, usize)>; 68]; NUM_PUBS],
         [[Vec<(usize, usize)>; 68]; NUM_U256],
-        [[Vec<(usize, usize)>; 44]; NUM_U160],
+        [[Vec<(usize, usize)>; 44]; NUM_HASH],
     ),
 }
 
@@ -320,7 +320,7 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub fn get_number_of_160_bytes_wpks() -> usize {
-        NUM_U160 + 2
+        NUM_HASH + 2
     }
 
     pub fn from_flattened_vec(flattened_wpks: &[Vec<[u8; 20]>]) -> Self {
@@ -345,8 +345,8 @@ impl ClementineBitVMPublicKeys {
             &flattened_wpks[3 + NUM_PUBS..3 + NUM_PUBS + NUM_U256],
         );
 
-        let bitvm_pks_3 = Self::vec_slice_to_nested_array::<44, NUM_U160>(
-            &flattened_wpks[3 + NUM_PUBS + NUM_U256..3 + NUM_PUBS + NUM_U256 + NUM_U160],
+        let bitvm_pks_3 = Self::vec_slice_to_nested_array::<36, NUM_HASH>(
+            &flattened_wpks[3 + NUM_PUBS + NUM_U256..3 + NUM_PUBS + NUM_U256 + NUM_HASH],
         );
 
         Self {
@@ -443,9 +443,9 @@ impl ClementineBitVMPublicKeys {
             ));
             scripts.push(script);
         }
-        // iterate NUM_U160 9 by 9
-        for i in (0..NUM_U160).step_by(9) {
-            let last_idx = std::cmp::min(i + 9, NUM_U160);
+        // iterate NUM_HASH 9 by 9
+        for i in (0..NUM_HASH).step_by(9) {
+            let last_idx = std::cmp::min(i + 9, NUM_HASH);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.2[i..last_idx]
                     .iter()
@@ -493,7 +493,7 @@ impl ClementineBitVMPublicKeys {
             let derivations: u32 = (mini_assert_idx as u32 - 4) * 9;
             let mut derivations_vec = vec![];
             for i in 0..9 {
-                if derivations + i < NUM_U160 as u32 {
+                if derivations + i < NUM_HASH as u32 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         20 * 2,
                         4,
