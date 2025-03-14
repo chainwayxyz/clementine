@@ -41,17 +41,9 @@ impl Task for PayoutCheckerTask {
             return Ok(false);
         }
 
-        tracing::error!("Payout checker task");
-
         let (citrea_idx, move_to_vault_txid, payout_tx_blockhash) =
             unhandled_payout.expect("Must be Some");
 
-        tracing::error!(
-            "Payout checker task 2: {:?}, {:?}, {:?}",
-            citrea_idx,
-            move_to_vault_txid,
-            payout_tx_blockhash
-        );
         let deposit_data = self
             .db
             .get_deposit_data_with_move_tx(Some(&mut dbtx), move_to_vault_txid)
@@ -61,7 +53,6 @@ impl Task for PayoutCheckerTask {
         }
 
         let deposit_data = deposit_data.expect("Must be Some");
-        tracing::error!("Deposit data: {:?}", deposit_data);
 
         let kickoff_txid = self
             .operator
@@ -72,18 +63,12 @@ impl Task for PayoutCheckerTask {
             )
             .await?;
 
-        tracing::error!("Payout checker task 4: {:?}", kickoff_txid);
-
         // TODO: Remove this, for now, we can end round after handling a single payout
         self.operator.end_round(&mut dbtx).await?;
-
-        tracing::error!("Payout checker task 5");
 
         self.db
             .set_payout_handled(Some(&mut dbtx), citrea_idx, kickoff_txid)
             .await?;
-
-        tracing::error!("Payout checker task 6");
 
         dbtx.commit().await?;
 
