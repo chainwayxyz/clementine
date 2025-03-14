@@ -159,7 +159,8 @@ impl Database {
         let mut query_builder = QueryBuilder::new(
             "UPDATE withdrawals AS w SET 
                 payout_txid = c.payout_txid,
-                payout_payer_operator_idx = c.payout_payer_operator_idx
+                payout_payer_operator_idx = c.payout_payer_operator_idx,
+                payout_tx_blockhash = c.payout_tx_blockhash
                 FROM (",
         );
 
@@ -186,7 +187,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         operator_id: u32,
-    ) -> Result<Option<(u32, Option<Txid>, Option<BlockHash>)>, BridgeError> {
+    ) -> Result<Option<(u32, Txid, BlockHash)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, Option<TxidDB>, Option<BlockHashDB>)>(
             "SELECT w.idx, w.move_to_vault_txid, w.payout_tx_blockhash
              FROM withdrawals w
@@ -204,8 +205,12 @@ impl Database {
             .map(|(citrea_idx, move_to_vault_txid, payout_tx_blockhash)| {
                 Ok((
                     u32::try_from(citrea_idx)?,
-                    move_to_vault_txid.map(|txid| txid.0),
-                    payout_tx_blockhash.map(|blockhash| blockhash.0),
+                    move_to_vault_txid
+                        .expect("move_to_vault_txid Must be Some")
+                        .0,
+                    payout_tx_blockhash
+                        .expect("payout_tx_blockhash Must be Some")
+                        .0,
                 ))
             })
             .transpose()
