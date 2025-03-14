@@ -218,6 +218,7 @@ create table if not exists withdrawals (
     payout_payer_operator_idx int,
     payout_tx_blockhash text check (payout_tx_blockhash ~ '^[a-fA-F0-9]{64}'),
     is_payout_handled boolean not null default false,
+    kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now()
 );
 

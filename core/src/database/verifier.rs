@@ -220,12 +220,33 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         citrea_idx: u32,
+        kickoff_txid: Txid,
     ) -> Result<(), BridgeError> {
-        let query = sqlx::query("UPDATE withdrawals SET is_payout_handled = TRUE WHERE idx = $1")
-            .bind(i32::try_from(citrea_idx)?);
+        let query = sqlx::query(
+            "UPDATE withdrawals SET is_payout_handled = TRUE, kickoff_txid = $2 WHERE idx = $1",
+        )
+        .bind(i32::try_from(citrea_idx)?)
+        .bind(TxidDB(kickoff_txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
+    }
+
+    pub async fn get_handled_payout_kickoff_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        payout_txid: Txid,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (Option<TxidDB>,)>(
+            "SELECT kickoff_txid FROM withdrawals WHERE payout_txid = $1 AND is_payout_handled = TRUE",
+        )
+        .bind(TxidDB(payout_txid));
+
+        let result: Option<(Option<TxidDB>,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(result
+            .map(|(kickoff_txid,)| kickoff_txid.expect("If handled, kickoff_txid must exist").0))
     }
 }
 

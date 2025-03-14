@@ -25,7 +25,8 @@ use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::IntoTask;
+use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
+use crate::task::{IntoTask, TaskExt};
 use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
 use crate::{builder, UTXO};
@@ -80,6 +81,12 @@ impl OperatorServer {
 
         background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
         background_tasks.loop_and_monitor(state_manager.into_task());
+
+        // run payout checker task
+        background_tasks.loop_and_monitor(
+            PayoutCheckerTask::new(operator.db.clone(), operator.clone())
+                .with_delay(PAYOUT_CHECKER_POLL_DELAY),
+        );
 
         // track the operator's round state
         operator.track_rounds().await?;

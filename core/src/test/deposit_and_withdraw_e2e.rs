@@ -7,6 +7,7 @@ use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::{
     generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
+use crate::test::full_flow::ensure_outpoint_spent;
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -19,8 +20,8 @@ use alloy::primitives::U256;
 use alloy::transports::http::reqwest::Url;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
-use bitcoin::Txid;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
+use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
@@ -311,6 +312,29 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
+        tracing::info!("Waiting until payout is handled");
+        // wait until payout is handled
+        while db
+            .get_first_unhandled_payout_by_operator_id(None, 0)
+            .await?
+            .is_some()
+        {
+            tracing::info!("Payout is not handled yet");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        let kickoff_txid = db
+            .get_handled_payout_kickoff_txid(None, payout_txid)
+            .await?
+            .expect("Payout must be handled");
+
+        let reimburse_connector = OutPoint {
+            txid: kickoff_txid,
+            vout: 2,
+        };
+        ensure_outpoint_spent(&rpc, reimburse_connector)
+            .await
+            .unwrap();
         Ok(())
     }
 }
