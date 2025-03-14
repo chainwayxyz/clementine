@@ -2,7 +2,7 @@
 //!
 //! Utilities for operator and verifier servers.
 use crate::aggregator::Aggregator;
-use crate::citrea::CitreaClientTrait;
+use crate::citrea::CitreaClientT;
 use crate::extended_rpc::ExtendedRpc;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
@@ -157,7 +157,7 @@ pub async fn create_verifier_grpc_server(
     }
 }
 
-pub async fn create_operator_grpc_server<C: CitreaClientTrait>(
+pub async fn create_operator_grpc_server<C: CitreaClientT>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     tracing::info!(
@@ -244,7 +244,7 @@ pub async fn create_verifier_unix_server(
 }
 
 #[cfg(unix)]
-pub async fn create_operator_unix_server<C: CitreaClientTrait>(
+pub async fn create_operator_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {

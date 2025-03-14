@@ -43,7 +43,7 @@ sol!(
 );
 
 #[async_trait]
-pub trait CitreaClientTrait: Send + Sync + Debug + Clone + 'static {
+pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     type Client: Debug + Clone + Sync + Send;
 
     /// # Parameters
@@ -95,6 +95,15 @@ pub trait CitreaClientTrait: Send + Sync + Debug + Clone + 'static {
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError>;
 
     /// Returns the light client proof for the given L1 block height.
+    ///
+    /// # Returns
+    ///
+    /// A tuple, wrapped around an [`Some`] if present:
+    ///
+    /// - [`u64`]: Last L2 block height.
+    /// - [`Vec<u8>`]: Light client proof.
+    ///
+    /// If not present, [`None`] is returned.
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
@@ -144,7 +153,7 @@ impl CitreaClient {
 }
 
 #[async_trait]
-impl CitreaClientTrait for CitreaClient {
+impl CitreaClientT for CitreaClient {
     type Client = CitreaClient;
     fn new(
         citrea_rpc_url: String,
@@ -312,7 +321,7 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
 
 #[cfg(test)]
 mod tests {
-    use crate::citrea::CitreaClientTrait;
+    use crate::citrea::CitreaClientT;
     use crate::citrea::BRIDGE_CONTRACT::Withdrawal;
     use crate::test::common::citrea::BRIDGE_PARAMS;
     use crate::{

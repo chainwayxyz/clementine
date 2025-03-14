@@ -13,7 +13,7 @@ use crate::builder::transaction::{
     ReimburseDbCache, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
-use crate::citrea::{CitreaClient, CitreaClientTrait};
+use crate::citrea::{CitreaClient, CitreaClientT};
 use crate::config::protocol::{ProtocolParamset, ProtocolParamsetName};
 use crate::config::BridgeConfig;
 use crate::constants::TEN_MINUTES_IN_SECS;

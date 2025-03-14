@@ -1,4 +1,4 @@
-use super::CitreaClientTrait;
+use super::CitreaClientT;
 use crate::errors::BridgeError;
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{hashes::Hash, OutPoint, Txid};
@@ -11,7 +11,7 @@ use tonic::async_trait;
 pub struct MockCitreaClient;
 
 #[async_trait]
-impl CitreaClientTrait for MockCitreaClient {
+impl CitreaClientT for MockCitreaClient {
     type Client = MockCitreaClient;
 
     fn new(

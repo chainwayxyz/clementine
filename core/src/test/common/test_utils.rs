@@ -3,7 +3,7 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
-use crate::citrea::CitreaClientTrait;
+use crate::citrea::CitreaClientT;
 use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -311,7 +311,7 @@ pub async fn initialize_database(config: &BridgeConfig) {
 ///
 /// Returns a tuple of vectors of clients, handles, and socket paths for the
 /// verifiers, operators, aggregator and watchtowers, along with shutdown channels.
-pub async fn create_actors<C: CitreaClientTrait>(
+pub async fn create_actors<C: CitreaClientT>(
     config: &BridgeConfig,
 ) -> (
     Vec<ClementineVerifierClient<Channel>>,

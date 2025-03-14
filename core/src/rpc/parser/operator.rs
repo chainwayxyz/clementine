@@ -1,5 +1,5 @@
 use crate::{
-    citrea::CitreaClientTrait,
+    citrea::CitreaClientT,
     fetch_next_message_from_stream,
     operator::Operator,
     rpc::{
@@ -20,7 +20,7 @@ use tonic::Status;
 
 impl<C> From<Operator<C>> for OperatorParams
 where
-    C: CitreaClientTrait,
+    C: CitreaClientT,
 {
     fn from(operator: Operator<C>) -> Self {
         let operator_config = OperatorConfig {

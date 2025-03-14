@@ -4,7 +4,7 @@ use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
-use crate::citrea::CitreaClientTrait;
+use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
@@ -187,7 +187,7 @@ impl Watchtower {
 
 impl<C> Operator<C>
 where
-    C: CitreaClientTrait,
+    C: CitreaClientT,
 {
     pub async fn create_assert_commitment_txs(
         &self,

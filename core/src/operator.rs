@@ -14,7 +14,7 @@ use crate::builder::transaction::{
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
 };
-use crate::citrea::CitreaClientTrait;
+use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
@@ -44,13 +44,13 @@ use tokio_stream::StreamExt;
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
 
-pub struct OperatorServer<C: CitreaClientTrait> {
+pub struct OperatorServer<C: CitreaClientT> {
     pub operator: Operator<C>,
     background_tasks: BackgroundTaskManager<Operator<C>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Operator<C: CitreaClientTrait> {
+pub struct Operator<C: CitreaClientT> {
     pub rpc: ExtendedRpc,
     pub db: Database,
     pub signer: Actor,
@@ -60,12 +60,12 @@ pub struct Operator<C: CitreaClientTrait> {
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSenderClient,
-    pub citrea_client: <C as CitreaClientTrait>::Client,
+    pub citrea_client: <C as CitreaClientT>::Client,
 }
 
 impl<CitreaClient> OperatorServer<CitreaClient>
 where
-    CitreaClient: CitreaClientTrait,
+    CitreaClient: CitreaClientT,
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let paramset = config.protocol_paramset();
@@ -97,7 +97,7 @@ where
 
 impl<C> Operator<C>
 where
-    C: CitreaClientTrait,
+    C: CitreaClientT,
 {
     /// Creates a new `Operator`.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
@@ -158,14 +158,6 @@ where
             }
         };
         dbtx.commit().await?;
-
-        // let mut config = config.clone();
-        // if !config.citrea_rpc_url.is_empty()
-        //     && !config.citrea_light_client_prover_url.is_empty()
-        // {
-        //     config.citrea_rpc_url = "http://127.0.0.1:8545".to_string();
-        //     config.citrea_light_client_prover_url =  "http://127.0.0.1:8545".to_string();
-        // }
 
         let citrea_client = C::new(
             config.citrea_rpc_url.clone(),
@@ -943,7 +935,7 @@ where
 #[tonic::async_trait]
 impl<C> Owner for Operator<C>
 where
-    C: CitreaClientTrait,
+    C: CitreaClientT,
 {
     const OWNER_TYPE: &'static str = "operator";
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {

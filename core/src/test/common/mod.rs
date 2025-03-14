@@ -2,7 +2,7 @@
 
 use crate::actor::Actor;
 use crate::citrea::mock::MockCitreaClient;
-use crate::citrea::CitreaClientTrait;
+use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -83,7 +83,7 @@ pub async fn mine_once_after_in_mempool(
     Ok(())
 }
 
-pub async fn run_multiple_deposits<C: CitreaClientTrait>(
+pub async fn run_multiple_deposits<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     count: usize,
@@ -174,7 +174,7 @@ pub async fn run_multiple_deposits<C: CitreaClientTrait>(
     ))
 }
 
-pub async fn run_single_deposit<C: CitreaClientTrait>(
+pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     evm_address: Option<EVMAddress>,
