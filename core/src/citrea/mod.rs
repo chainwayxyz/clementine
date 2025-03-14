@@ -156,41 +156,6 @@ impl CitreaClient {
 
         Ok(logs)
     }
-
-    /// Returns the light client proof L2 height for the given L1 block height.
-    ///
-    /// # Returns
-    ///
-    /// A tuple, wrapped around an [`Some`] if present:
-    ///
-    /// - [`u64`]: Last L2 block height.
-    ///
-    /// If not present, [`None`] is returned.
-    async fn get_light_client_proof_height(
-        &self,
-        l1_height: u64,
-    ) -> Result<Option<u64>, BridgeError> {
-        let proof_result = self
-            .light_client_prover_client
-            .get_light_client_proof_by_l1_height(l1_height)
-            .await?;
-
-        let ret = if let Some(proof_result) = proof_result {
-            Some(
-                proof_result
-                    .light_client_proof_output
-                    .last_l2_height
-                    .try_into()
-                    .map_err(|e| {
-                        BridgeError::Error(format!("Can't convert last_l2_height to u64: {}", e))
-                    })?,
-            )
-        } else {
-            None
-        };
-
-        Ok(ret)
-    }
 }
 
 #[async_trait]
@@ -311,31 +276,49 @@ impl CitreaClientT for CitreaClient {
         block_height: u64,
         timeout: Duration,
     ) -> Result<(u64, u64), BridgeError> {
-        let previous_proof_height = self
-            .get_light_client_proof_height(block_height - 1)
+        let start = std::time::Instant::now();
+        let proof_current = loop {
+            if let Some(proof) = self
+                .light_client_prover_client
+                .get_light_client_proof_by_l1_height(block_height)
+                .await?
+            {
+                break proof;
+            }
+
+            if start.elapsed() > timeout {
+                return Err(BridgeError::Error(format!(
+                    "Light client proof not found for block height {} after {} seconds",
+                    block_height,
+                    timeout.as_secs()
+                )));
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        };
+
+        let proof_previous = self
+            .light_client_prover_client
+            .get_light_client_proof_by_l1_height(block_height - 1)
             .await?
             .ok_or(BridgeError::Error(format!(
                 "Light client proof not found for block height: {}",
                 block_height - 1
             )))?;
 
-        let start = std::time::Instant::now();
-        let current_proof_height = loop {
-            if start.elapsed() > timeout {
-                return Err(BridgeError::Error(format!(
-                    "Timeout while fetching light client proof for block height: {}",
-                    block_height
-                )));
-            }
+        let l2_height_end: u64 = proof_current
+            .light_client_proof_output
+            .last_l2_height
+            .try_into()
+            .expect("Failed to convert last_l2_height to u64");
 
-            if let Some(height) = self.get_light_client_proof_height(block_height).await? {
-                break height;
-            }
+        let l2_height_start: u64 = proof_previous
+            .light_client_proof_output
+            .last_l2_height
+            .try_into()
+            .expect("Failed to convert last_l2_height to u64");
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        };
-
-        Ok((previous_proof_height, current_proof_height))
+        Ok((l2_height_start, l2_height_end))
     }
 }
 
