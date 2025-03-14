@@ -88,7 +88,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         citrea_idx: u32,
     ) -> Result<Option<OutPoint>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB, i32)>(
+        let query = sqlx::query_as::<_, (Option<TxidDB>, Option<i32>)>(
             "SELECT w.withdrawal_utxo_txid, w.withdrawal_utxo_vout
              FROM withdrawals w
              WHERE w.idx = $1",
@@ -98,11 +98,12 @@ impl Database {
         let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         results
-            .map(|(txid, vout)| {
-                Ok(OutPoint {
+            .map(|(txid, vout)| match (txid, vout) {
+                (Some(txid), Some(vout)) => Ok(OutPoint {
                     txid: txid.0,
                     vout: u32::try_from(vout)?,
-                })
+                }),
+                _ => Err(BridgeError::Error("Unexpected null value".to_string())),
             })
             .transpose()
     }
@@ -185,8 +186,8 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         operator_id: u32,
-    ) -> Result<Option<(u32, Txid, BlockHash)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, TxidDB, BlockHashDB)>(
+    ) -> Result<Option<(u32, Option<Txid>, Option<BlockHash>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, Option<TxidDB>, Option<BlockHashDB>)>(
             "SELECT w.idx, w.move_to_vault_txid, w.payout_tx_blockhash
              FROM withdrawals w
              WHERE w.payout_txid IS NOT NULL
@@ -203,8 +204,8 @@ impl Database {
             .map(|(citrea_idx, move_to_vault_txid, payout_tx_blockhash)| {
                 Ok((
                     u32::try_from(citrea_idx)?,
-                    move_to_vault_txid.0,
-                    payout_tx_blockhash.0,
+                    move_to_vault_txid.map(|txid| txid.0),
+                    payout_tx_blockhash.map(|blockhash| blockhash.0),
                 ))
             })
             .transpose()

@@ -1,9 +1,12 @@
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
+use crate::database::Database;
 use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::SECRET_KEYS;
-use crate::test::common::{generate_withdrawal_transaction_and_signature, run_single_deposit};
+use crate::test::common::{
+    generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
+};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -16,6 +19,7 @@ use alloy::primitives::U256;
 use alloy::transports::http::reqwest::Url;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
+use bitcoin::Txid;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
@@ -252,7 +256,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
-        loop {
+        let payout_txid = loop {
             let withdrawal_response = operators[0]
                 .withdraw(WithdrawParams {
                     withdrawal_id: 0,
@@ -268,7 +272,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             match withdrawal_response {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-                    break;
+                    break Txid::from_byte_array(
+                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                    );
                 }
                 Err(e) => {
                     tracing::info!("Withdrawal error: {:?}", e);
@@ -277,6 +283,32 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
             // wait 1000ms
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        };
+
+        tracing::info!("Payout txid: {:?}", payout_txid);
+
+        mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None).await?;
+
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
+
+        // Setup tx_sender for sending transactions
+        let verifier_0_config = {
+            let mut config = config.clone();
+            config.db_name += "0";
+            config
+        };
+
+        let db = Database::new(&verifier_0_config)
+            .await
+            .expect("failed to create database");
+
+        // wait until payout part is not null
+        while db
+            .get_first_unhandled_payout_by_operator_id(None, 0)
+            .await?
+            .is_none()
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
         Ok(())

@@ -36,7 +36,10 @@ impl Task for PayoutCheckerTask {
 
         let deposit_data = self
             .db
-            .get_deposit_data_with_move_tx(Some(&mut dbtx), move_to_vault_txid)
+            .get_deposit_data_with_move_tx(
+                Some(&mut dbtx),
+                move_to_vault_txid.expect("move_to_vault_txid Must be Some"),
+            )
             .await?;
         if deposit_data.is_none() {
             return Err(BridgeError::Error("Deposit data not found".to_string()));
@@ -47,7 +50,7 @@ impl Task for PayoutCheckerTask {
             .handle_finalized_payout(
                 &mut dbtx,
                 deposit_data.deposit_outpoint,
-                payout_tx_blockhash,
+                payout_tx_blockhash.expect("payout_tx_blockhash Must be Some"),
             )
             .await?;
 

@@ -1231,11 +1231,11 @@ impl Verifier {
                 .to_bytes();
             tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
 
-            let operator_idx = u32::from_le_bytes(
-                last_output[2..6]
-                    .try_into()
-                    .expect("Failed to convert last_output to u32"),
-            );
+            // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
+            let mut operator_idx_bytes = [0u8; 4]; // Create a 4-byte array initialized with zeros
+            operator_idx_bytes[..last_output.len() - 3]
+                .copy_from_slice(&last_output[2..last_output.len() - 1]);
+            let operator_idx = u32::from_le_bytes(operator_idx_bytes);
 
             payout_txs_and_payer_operator_idx.push((idx, payout_txid, operator_idx, block_hash));
         }
