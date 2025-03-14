@@ -46,20 +46,48 @@ sol!(
 pub trait CitreaClientTrait: Send + Sync + Debug + Clone + 'static {
     type Client: Debug + Clone + Sync + Send;
 
+    /// # Parameters
+    ///
+    /// - `citrea_rpc_url`: URL of the Citrea RPC.
+    /// - `light_client_prover_url`: URL of the Citrea light client prover RPC.
+    /// - `secret_key`: EVM secret key of the EVM user. If not given, random
+    ///   secret key is used (wallet is not required). This is given mostly for
+    ///   testing purposes.
     fn new(
-        citrea_rpc_url: Url,
-        light_client_prover_url: Url,
+        citrea_rpc_url: String,
+        light_client_prover_url: String,
         secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self::Client, BridgeError>;
 
+    /// Fetches an UTXO from Citrea for the given withdrawal index.
+    ///
+    /// # Parameters
+    ///
+    /// - `withdrawal_index`: Index of the withdrawal.
+    ///
+    /// # Returns
+    ///
+    /// - [`OutPoint`]: UTXO for the given withdrawal.
     async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError>;
 
+    /// Returns deposit move txids with index for a given range of blocks.
+    ///
+    /// # Parameters
+    ///
+    /// - `from_height`: Start block height (inclusive)
+    /// - `to_height`: End block height (inclusive)
     async fn collect_deposit_move_txids(
         &self,
         from_height: u64,
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError>;
 
+    /// Returns withdrawal utxos with index for given range of blocks.
+    ///
+    /// # Parameters
+    ///
+    /// - `from_height`: Start block height (inclusive)
+    /// - `to_height`: End block height (inclusive)
     async fn collect_withdrawal_utxos(
         &self,
         from_height: u64,
@@ -112,19 +140,15 @@ impl CitreaClient {
 #[async_trait]
 impl CitreaClientTrait for CitreaClient {
     type Client = CitreaClient;
-
-    /// # Parameters
-    ///
-    /// - `citrea_rpc_url`: URL of the Citrea RPC.
-    /// - `light_client_prover_url`: URL of the Citrea light client prover RPC.
-    /// - `secret_key`: EVM secret key of the EVM user. If not given, random
-    ///   secret key is used (wallet is not required). This is given mostly for
-    ///   testing purposes.
     fn new(
-        citrea_rpc_url: Url,
-        light_client_prover_url: Url,
+        citrea_rpc_url: String,
+        light_client_prover_url: String,
         secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError> {
+        let citrea_rpc_url = Url::parse(&citrea_rpc_url)
+            .map_err(|e| BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e)))?;
+        let light_client_prover_url = Url::parse(&light_client_prover_url)
+            .map_err(|e| BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e)))?;
         let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
 
         let key = secret_key.with_chain_id(Some(CITREA_CHAIN_ID));
@@ -153,15 +177,6 @@ impl CitreaClientTrait for CitreaClient {
         })
     }
 
-    /// Fetches an UTXO from Citrea for the given withdrawal index.
-    ///
-    /// # Parameters
-    ///
-    /// - `withdrawal_index`: Index of the withdrawal.
-    ///
-    /// # Returns
-    ///
-    /// - [`OutPoint`]: UTXO for the given withdrawal.
     async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
         let withdrawal_utxo = self
             .contract
@@ -178,12 +193,6 @@ impl CitreaClientTrait for CitreaClient {
         Ok(OutPoint { txid, vout })
     }
 
-    /// Returns deposit move txids with index for a given range of blocks.
-    ///
-    /// # Parameters
-    ///
-    /// - `from_height`: Start block height (inclusive)
-    /// - `to_height`: End block height (inclusive)
     async fn collect_deposit_move_txids(
         &self,
         from_height: u64,
@@ -210,12 +219,6 @@ impl CitreaClientTrait for CitreaClient {
         Ok(move_txids)
     }
 
-    /// Returns withdrawal utxos with index for given range of blocks.
-    ///
-    /// # Parameters
-    ///
-    /// - `from_height`: Start block height (inclusive)
-    /// - `to_height`: End block height (inclusive)
     async fn collect_withdrawal_utxos(
         &self,
         from_height: u64,
@@ -287,7 +290,6 @@ mod tests {
         },
     };
     use alloy::providers::Provider;
-    use alloy::transports::http::reqwest::Url;
     use citrea_e2e::{
         config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
         framework::TestFramework,
@@ -339,8 +341,8 @@ mod tests {
             citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, None);
 
             let citrea_client = CitreaClient::new(
-                Url::parse(&config.citrea_rpc_url).unwrap(),
-                Url::parse(&config.citrea_light_client_prover_url).unwrap(),
+                config.citrea_rpc_url,
+                config.citrea_light_client_prover_url,
                 Some(SECRET_KEYS[0].to_string().parse().unwrap()),
             )
             .unwrap();

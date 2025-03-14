@@ -33,7 +33,6 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 use crate::tx_sender::{TxDataForLogging, TxSender, TxSenderClient};
 use crate::EVMAddress;
-use alloy::transports::http::reqwest::Url;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -177,12 +176,8 @@ impl Verifier {
             && !config.citrea_light_client_prover_url.is_empty()
         {
             Some(CitreaClient::new(
-                Url::parse(&config.citrea_rpc_url).map_err(|e| {
-                    BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
-                })?,
-                Url::parse(&config.citrea_light_client_prover_url).map_err(|e| {
-                    BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e))
-                })?,
+                config.citrea_rpc_url.clone(),
+                config.citrea_light_client_prover_url.clone(),
                 None,
             )?)
         } else if config.protocol_paramset == ProtocolParamsetName::Mainnet // TODO: Remove this and move to config.rs or smth

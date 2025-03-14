@@ -28,7 +28,6 @@ use crate::task::IntoTask;
 use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
 use crate::{builder, UTXO};
-use alloy::transports::http::reqwest::Url;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -160,23 +159,19 @@ where
         };
         dbtx.commit().await?;
 
-        let citrea_client = if !config.citrea_rpc_url.is_empty()
-            && !config.citrea_light_client_prover_url.is_empty()
-        {
-            C::new(
-                Url::parse(&config.citrea_rpc_url).map_err(|e| {
-                    BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
-                })?,
-                Url::parse(&config.citrea_light_client_prover_url).map_err(|e| {
-                    BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e))
-                })?,
-                None,
-            )?
-        } else {
-            return Err(BridgeError::ConfigError(
-                "Citrea RPC URL and Citrea light client prover RPC URLs must be set!".to_string(),
-            ));
-        };
+        // let mut config = config.clone();
+        // if !config.citrea_rpc_url.is_empty()
+        //     && !config.citrea_light_client_prover_url.is_empty()
+        // {
+        //     config.citrea_rpc_url = "http://127.0.0.1:8545".to_string();
+        //     config.citrea_light_client_prover_url =  "http://127.0.0.1:8545".to_string();
+        // }
+
+        let citrea_client = C::new(
+            config.citrea_rpc_url.clone(),
+            config.citrea_light_client_prover_url.clone(),
+            None,
+        )?;
 
         tracing::debug!(
             "Operator idx: {:?}, db created with name: {:?}",
@@ -188,7 +183,7 @@ where
             rpc,
             db: db.clone(),
             signer,
-            config: config.clone(),
+            config,
             nofn_xonly_pk,
             idx,
             collateral_funding_outpoint,
