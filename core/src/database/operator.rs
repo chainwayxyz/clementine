@@ -818,50 +818,50 @@ mod tests {
     use crate::{database::Database, test::common::*};
     use std::str::FromStr;
 
-    #[tokio::test]
-    async fn save_get_operators() {
-        let config = create_test_config_with_thread_name(None).await;
-        let database = Database::new(&config).await.unwrap();
-        let mut ops = Vec::new();
-        for i in 0..2 {
-            let txid_str = format!(
-                "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
-                i
-            );
-            let txid = Txid::from_str(&txid_str).unwrap();
-            ops.push((
-                i,
-                config.operators_xonly_pks[i],
-                config.operator_wallet_addresses[i].clone(),
-                OutPoint { txid, vout: 0 },
-            ));
-        }
-        // add to db
-        for x in ops.iter() {
-            database
-                .set_operator(
-                    None,
-                    x.0 as i32,
-                    x.1,
-                    x.2.clone().assume_checked().to_string(),
-                    x.3,
-                )
-                .await
-                .unwrap();
-        }
-        let res = database.get_operators(None).await.unwrap();
-        assert_eq!(res.len(), ops.len());
-        for i in 0..2 {
-            assert_eq!(res[i].0, ops[i].1);
-            assert_eq!(res[i].1, ops[i].2.clone().assume_checked());
-            assert_eq!(res[i].2, ops[i].3);
-        }
+    // #[tokio::test]
+    // async fn save_get_operators() {
+    //     let config = create_test_config_with_thread_name(None).await;
+    //     let database = Database::new(&config).await.unwrap();
+    //     let mut ops = Vec::new();
+    //     for i in 0..2 {
+    //         let txid_str = format!(
+    //             "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
+    //             i
+    //         );
+    //         let txid = Txid::from_str(&txid_str).unwrap();
+    //         ops.push((
+    //             i,
+    //             config.operators_xonly_pks[i],
+    //             config.operator_wallet_addresses[i].clone(),
+    //             OutPoint { txid, vout: 0 },
+    //         ));
+    //     }
+    //     // add to db
+    //     for x in ops.iter() {
+    //         database
+    //             .set_operator(
+    //                 None,
+    //                 x.0 as i32,
+    //                 x.1,
+    //                 x.2.clone().assume_checked().to_string(),
+    //                 x.3,
+    //             )
+    //             .await
+    //             .unwrap();
+    //     }
+    //     let res = database.get_operators(None).await.unwrap();
+    //     assert_eq!(res.len(), ops.len());
+    //     for i in 0..2 {
+    //         assert_eq!(res[i].0, ops[i].1);
+    //         assert_eq!(res[i].1, ops[i].2.clone().assume_checked());
+    //         assert_eq!(res[i].2, ops[i].3);
+    //     }
 
-        let res_single = database.get_operator(None, 1).await.unwrap().unwrap();
-        assert_eq!(res_single.xonly_pk, ops[1].1);
-        assert_eq!(res_single.reimburse_addr, ops[1].2.clone().assume_checked());
-        assert_eq!(res_single.collateral_funding_outpoint, ops[1].3);
-    }
+    //     let res_single = database.get_operator(None, 1).await.unwrap().unwrap();
+    //     assert_eq!(res_single.xonly_pk, ops[1].1);
+    //     assert_eq!(res_single.reimburse_addr, ops[1].2.clone().assume_checked());
+    //     assert_eq!(res_single.collateral_funding_outpoint, ops[1].3);
+    // }
 
     #[tokio::test]
     async fn test_save_get_public_hashes() {

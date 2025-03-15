@@ -227,6 +227,8 @@ impl Verifier {
 
         let tx_sender = TxSenderClient::new(db.clone(), format!("verifier_{}", idx).to_string());
 
+        tracing::info!("Verifier {} created with nofn_xonly_pk: {}", idx, nofn_xonly_pk);
+
         let verifier = Verifier {
             rpc,
             signer,
@@ -1080,50 +1082,55 @@ impl Verifier {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let watchtower_path = format!("{}/watchtower_{}.sock", self.config.socket_path, self.idx);
-        let watchtower_client =
-            rpc::get_clients(vec![watchtower_path], ClementineWatchtowerClient::new).await;
-
-        if let Ok(mut watchtower) = watchtower_client {
-            let raw_challenge_tx = watchtower[0]
-                .internal_create_watchtower_challenge(TransactionRequest {
-                    deposit_params: Some(DepositParams {
-                        deposit_outpoint: Some(deposit_data.deposit_outpoint.into()),
-                        evm_address: deposit_data.evm_address.0.to_vec(),
-                        recovery_taproot_address: deposit_data
-                            .recovery_taproot_address
-                            .assume_checked()
-                            .to_string(),
-                        nofn_xonly_pk: deposit_data.nofn_xonly_pk.serialize().to_vec(),
-                    }),
-                    transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
-                    kickoff_id: Some(kickoff_id),
-                })
-                .await?
-                .into_inner()
-                .raw_tx;
-            let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
-            let mut dbtx = self.db.begin_transaction().await?;
-            self.tx_sender
-                .add_tx_to_queue(
-                    &mut dbtx,
-                    TransactionType::WatchtowerChallenge(self.idx),
-                    &challenge_tx,
-                    &[],
-                    Some(TxDataForLogging {
-                        tx_type: TransactionType::WatchtowerChallenge(self.idx),
-                        operator_idx: None,
-                        verifier_idx: Some(self.idx as u32),
-                        round_idx: Some(kickoff_id.round_idx),
-                        kickoff_idx: Some(kickoff_id.kickoff_idx),
-                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
-                    }),
-                    &self.config,
-                )
-                .await?;
-            dbtx.commit().await?;
-            tracing::warn!("Commited watchtower challenge for watchtower {}", self.idx);
+        let watchtower_endpoint = self.config.trusted_watchtower_endpoint.clone();
+        if watchtower_endpoint.is_none() {
+            tracing::error!("No watchtower endpoint provided, cannot send challenge");
+            return Ok(());
         }
+        let watchtower_endpoint =
+            watchtower_endpoint.expect("Watchtower endpoint must be provided");
+        let mut watchtower =
+            rpc::get_clients(vec![watchtower_endpoint], ClementineWatchtowerClient::new).await?[0]
+                .clone();
+
+        let raw_challenge_tx = watchtower
+            .internal_create_watchtower_challenge(TransactionRequest {
+                deposit_params: Some(DepositParams {
+                    deposit_outpoint: Some(deposit_data.deposit_outpoint.into()),
+                    evm_address: deposit_data.evm_address.0.to_vec(),
+                    recovery_taproot_address: deposit_data
+                        .recovery_taproot_address
+                        .assume_checked()
+                        .to_string(),
+                    nofn_xonly_pk: deposit_data.nofn_xonly_pk.serialize().to_vec(),
+                }),
+                transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
+                kickoff_id: Some(kickoff_id),
+            })
+            .await?
+            .into_inner()
+            .raw_tx;
+        let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .add_tx_to_queue(
+                &mut dbtx,
+                TransactionType::WatchtowerChallenge(self.idx),
+                &challenge_tx,
+                &[],
+                Some(TxDataForLogging {
+                    tx_type: TransactionType::WatchtowerChallenge(self.idx),
+                    operator_idx: None,
+                    verifier_idx: Some(self.idx as u32),
+                    round_idx: Some(kickoff_id.round_idx),
+                    kickoff_idx: Some(kickoff_id.kickoff_idx),
+                    deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                }),
+                &self.config,
+            )
+            .await?;
+        dbtx.commit().await?;
+        tracing::warn!("Commited watchtower challenge for watchtower {}", self.idx);
         Ok(())
     }
 

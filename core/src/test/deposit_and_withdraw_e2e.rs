@@ -5,7 +5,8 @@ use crate::database::Database;
 use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::{
-    generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
+    generate_withdrawal_transaction_and_signature, get_deposit_address, mine_once_after_in_mempool,
+    run_single_deposit,
 };
 use crate::test::full_flow::ensure_outpoint_spent_while_waiting_for_light_client_sync;
 use crate::{
@@ -370,4 +371,19 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
         "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
     );
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
+}
+
+#[tokio::test]
+async fn test_get_deposit_address() -> Result<()> {
+    let config = create_test_config_with_thread_name(None).await;
+    let rpc = ExtendedRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    )
+    .await?;
+
+    let deposit_address = get_deposit_address(&config, crate::EVMAddress([1u8; 20])).unwrap();
+    println!("Deposit address: {:?}", deposit_address);
+    Ok(())
 }

@@ -24,6 +24,13 @@ pub mod protocol;
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
+    /// Protocol paramset name
+    /// One of:
+    /// - `Mainnet`
+    /// - `Regtest`
+    /// - `Testnet`
+    /// - `Signet`
+    pub protocol_paramset: ProtocolParamsetName,
     /// Host of the operator or the verifier
     pub host: String,
     /// Port of the operator or the verifier
@@ -32,6 +39,8 @@ pub struct BridgeConfig {
     pub index: u32,
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
+    /// Additional secret key that will be used for creating Winternitz one time signature.
+    pub winternitz_secret_key: Option<SecretKey>,
     /// Verifiers public keys.
     /// In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call
     pub verifiers_public_keys: Vec<PublicKey>,
@@ -39,32 +48,16 @@ pub struct BridgeConfig {
     pub num_verifiers: usize,
     /// Operators x-only public keys.
     pub operators_xonly_pks: Vec<XOnlyPublicKey>,
-    /// Operators wallet addresses.
-    pub operator_wallet_addresses: Vec<bitcoin::Address<NetworkUnchecked>>,
     /// Number of operators.
     pub num_operators: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
-    /// Threshold for confirmation.
-    pub confirmation_threshold: u32,
     /// Bitcoin remote procedure call URL.
     pub bitcoin_rpc_url: String,
     /// Bitcoin RPC user.
     pub bitcoin_rpc_user: String,
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: String,
-    /// All Secret keys. Just for testing purposes.
-    pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
-    /// All Secret keys. Just for testing purposes.
-    pub all_operators_secret_keys: Option<Vec<SecretKey>>,
-    /// All Secret keys. Just for testing purposes.
-    pub all_watchtowers_secret_keys: Option<Vec<SecretKey>>,
-    /// Verifier endpoints. For the aggregator only
-    pub verifier_endpoints: Option<Vec<String>>,
-    /// Operator endpoint. For the aggregator only
-    pub operator_endpoints: Option<Vec<String>>,
-    /// Watchtower endpoint. For the aggregator only
-    pub watchtower_endpoints: Option<Vec<String>>,
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
@@ -83,18 +76,25 @@ pub struct BridgeConfig {
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
-    /// Additional secret key that will be used for creating Winternitz one time signature.
-    pub winternitz_secret_key: Option<SecretKey>,
-    /// Collateral funding amount for operators.
-    pub collateral_funding_amount: Amount,
-    /// Protocol paramset name
-    /// One of:
-    /// - `Mainnet`
-    /// - `Regtest`
-    /// - `Testnet`
-    pub protocol_paramset: ProtocolParamsetName,
-    /// Directory containing unix sockets
-    pub socket_path: String,
+
+    // Trusted Watchtower endpoint
+    pub trusted_watchtower_endpoint: Option<String>,
+
+    /// Verifier endpoints. For the aggregator only
+    pub verifier_endpoints: Option<Vec<String>>,
+    /// Operator endpoint. For the aggregator only
+    pub operator_endpoints: Option<Vec<String>>,
+    /// Watchtower endpoint. For the aggregator only
+    pub watchtower_endpoints: Option<Vec<String>>,
+
+    // /// Directory containing unix sockets
+    // pub socket_path: String,
+    /// All Secret keys. Just for testing purposes.
+    pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
+    /// All Secret keys. Just for testing purposes.
+    pub all_operators_secret_keys: Option<Vec<SecretKey>>,
+    /// All Secret keys. Just for testing purposes.
+    pub all_watchtowers_secret_keys: Option<Vec<SecretKey>>,
 }
 
 impl BridgeConfig {
@@ -183,16 +183,6 @@ impl Default for BridgeConfig {
                 .expect("known valid input"),
             ],
 
-            operator_wallet_addresses: vec![
-                Address::from_str(
-                    "bcrt1pvaua4gvvglk27al5trh337xz8l8zzhgzageky0xt0dgv64xee8tqwwvzmf",
-                )
-                .expect("known valid input"),
-                Address::from_str(
-                    "bcrt1pvaua4gvvglk27al5trh337xz8l8zzhgzageky0xt0dgv64xee8tqwwvzmf",
-                )
-                .expect("known valid input"),
-            ],
             operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
 
             bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
@@ -205,8 +195,6 @@ impl Default for BridgeConfig {
             db_password: "clementine".to_string(),
             db_name: "clementine".to_string(),
 
-            confirmation_threshold: 1,
-
             citrea_rpc_url: "".to_string(),
             citrea_light_client_prover_url: "".to_string(),
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
@@ -214,6 +202,8 @@ impl Default for BridgeConfig {
             header_chain_proof_path: Some(
                 PathBuf::from_str("../core/tests/data/first_1.bin").expect("known valid input"),
             ),
+
+            trusted_watchtower_endpoint: None,
 
             all_verifiers_secret_keys: Some(vec![
                 SecretKey::from_str(
@@ -264,12 +254,11 @@ impl Default for BridgeConfig {
                 )
                 .expect("known valid input"),
             ),
-            socket_path: "/".to_string(),
+            // socket_path: "/".to_string(),
 
             verifier_endpoints: None,
             operator_endpoints: None,
             watchtower_endpoints: None,
-            collateral_funding_amount: Amount::from_sat(200_000_000),
         }
     }
 }

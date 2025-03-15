@@ -40,6 +40,7 @@ use bitcoin::{
     Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, Witness,
     XOnlyPublicKey,
 };
+use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
@@ -140,8 +141,10 @@ impl Operator {
         }
 
         // TODO: Fix this where the config will only have one address. also check??
-        let reimburse_addr = config.operator_wallet_addresses[idx]
-            .clone()
+        let reimburse_addr = rpc
+            .client
+            .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
+            .await?
             .assume_checked();
 
         // check if we store our collateral outpoint already in db
@@ -151,7 +154,10 @@ impl Operator {
             Some(op_data) => op_data.collateral_funding_outpoint,
             None => {
                 let outpoint = rpc
-                    .send_to_address(&signer.address, config.collateral_funding_amount)
+                    .send_to_address(
+                        &signer.address,
+                        config.protocol_paramset().collateral_funding_amount,
+                    )
                     .await?;
                 db.set_operator(
                     Some(&mut dbtx),
@@ -243,7 +249,7 @@ impl Operator {
         let (mut first_round_tx, _) = create_round_nth_txhandler(
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
-            self.config.collateral_funding_amount,
+            self.config.protocol_paramset().collateral_funding_amount,
             0, // index 0 for the first round
             &kickoff_wpks,
             self.config.protocol_paramset(),
