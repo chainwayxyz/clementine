@@ -1,7 +1,9 @@
 use super::common::citrea::BRIDGE_PARAMS;
+use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
+use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::{
@@ -9,6 +11,7 @@ use crate::test::common::{
     run_single_deposit,
 };
 use crate::test::full_flow::ensure_outpoint_spent_while_waiting_for_light_client_sync;
+use crate::{builder, EVMAddress};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -372,10 +375,10 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     );
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
-
 #[tokio::test]
 async fn test_get_deposit_address() -> Result<()> {
     let config = create_test_config_with_thread_name(None).await;
+
     let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -383,7 +386,48 @@ async fn test_get_deposit_address() -> Result<()> {
     )
     .await?;
 
-    let deposit_address = get_deposit_address(&config, crate::EVMAddress([1u8; 20])).unwrap();
+    let signer = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    );
+
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+            .expect("Failed to create xonly pk");
+
+    let evm_address = EVMAddress([1u8; 20]);
+
+    let deposit_address = builder::address::generate_deposit_address(
+        nofn_xonly_pk,
+        signer.address.as_unchecked(),
+        evm_address,
+        config.protocol_paramset().bridge_amount,
+        config.protocol_paramset().network,
+        config.protocol_paramset().user_takes_after,
+    )
+    .unwrap();
+
+    // send a deposit tx
+    let deposit_outpoint = rpc
+        .send_to_address(&deposit_address.0, config.protocol_paramset().bridge_amount)
+        .await?;
+
+    // wait until the deposit tx is in a block
+    rpc.mine_blocks(1).await.unwrap();
+
     println!("Deposit address: {:?}", deposit_address);
+
+    // gRPC request:
+    println!("grpcurl -plaintext -proto core/src/rpc/clementine.proto -d '{{");
+    println!("  \"deposit_outpoint\": {{");
+    println!("    \"txid\": \"{}\",", base64::encode(deposit_outpoint.txid.to_byte_array()));
+    println!("    \"vout\": {}",  deposit_outpoint.vout);
+    println!("  }},");
+    println!("  \"evm_address\": \"{}\",", base64::encode(evm_address.0));
+    println!("  \"recovery_taproot_address\": \"{}\",", signer.address.to_string());
+    println!("  \"nofn_xonly_pk\": \"{}\"", base64::encode(nofn_xonly_pk.serialize()));
+    println!("}}' 127.0.0.1:17000 clementine.ClementineAggregator.NewDeposit");
+
     Ok(())
 }

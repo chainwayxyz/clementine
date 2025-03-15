@@ -816,7 +816,6 @@ mod tests {
     };
     use crate::UTXO;
     use crate::{database::Database, test::common::*};
-    use std::str::FromStr;
 
     // #[tokio::test]
     // async fn save_get_operators() {
