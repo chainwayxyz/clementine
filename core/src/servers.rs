@@ -71,13 +71,17 @@ where
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     // Create reflection service using the descriptor file
-    let descriptor_bytes = fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("rpc")
-            .join("descriptor.bin"),
-    )
-    .map_err(|e| {
+    let descriptor_path = std::env::var("DESCRIPTOR_PATH").map_or_else(
+        |_| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join("rpc")
+                .join("descriptor.bin")
+        },
+        |path| Path::new(&path).to_path_buf(),
+    );
+
+    let descriptor_bytes = fs::read(&descriptor_path).map_err(|e| {
         BridgeError::ServerError(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("Failed to read descriptor file: {}", e),
