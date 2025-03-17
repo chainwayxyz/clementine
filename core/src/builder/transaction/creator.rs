@@ -469,12 +469,8 @@ pub async fn create_txhandlers(
 
     if !txhandlers.contains_key(&TransactionType::MoveToVault) {
         // if not cached create move_txhandler
-        let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
-            deposit_data.clone(),
-            paramset.user_takes_after,
-            paramset.bridge_amount,
-            paramset.network,
-        )?;
+        let move_txhandler =
+            builder::transaction::create_move_to_vault_txhandler(deposit_data.clone(), paramset)?;
         txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
     }
 
@@ -758,34 +754,29 @@ pub fn create_round_txhandlers(
 #[cfg(test)]
 mod tests {
 
+    use super::*;
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
+    use crate::config::BridgeConfig;
+    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+    use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
     use crate::test::common::*;
-    use bitcoin::XOnlyPublicKey;
+    use bitcoin::{BlockHash, XOnlyPublicKey};
     use futures::future::try_join_all;
 
     use crate::builder::transaction::{DepositData, TransactionType, TxHandlerBuilder};
-    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
+    use crate::rpc::clementine::{AssertRequest, DepositParams, KickoffId, TransactionRequest};
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_deposit_and_sign_txs() {
-        let mut config = create_test_config_with_thread_name(None).await;
-        let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
-
-        let (
-            mut verifiers,
-            mut operators,
-            _,
-            mut watchtowers,
-            _cleanup,
-            deposit_params,
-            _,
-            deposit_blockhash,
-        ) = run_single_deposit(&mut config, rpc.clone(), None)
-            .await
-            .unwrap();
-
+    async fn check_if_signable(
+        mut verifiers: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+        mut operators: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+        mut watchtowers: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
+        deposit_params: DepositParams,
+        deposit_blockhash: BlockHash,
+        config: BridgeConfig,
+    ) {
         let paramset = config.protocol_paramset();
 
         let mut txs_operator_can_sign = vec![
@@ -1019,7 +1010,47 @@ mod tests {
         try_join_all(verifier_task_handles).await.unwrap();
     }
 
-    use super::*;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_deposit_and_sign_txs() {
+        let mut config = create_test_config_with_thread_name(None).await;
+        let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
+
+        let (verifiers, operators, _, watchtowers, _cleanup, deposit_params, _, deposit_blockhash) =
+            run_single_deposit(&mut config, rpc.clone(), None)
+                .await
+                .unwrap();
+
+        check_if_signable(
+            verifiers,
+            operators,
+            watchtowers,
+            deposit_params,
+            deposit_blockhash,
+            config.clone(),
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_replacement_deposit_and_sign_txs() {
+        let mut config = create_test_config_with_thread_name(None).await;
+        let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
+
+        let (verifiers, operators, _, watchtowers, _cleanup, deposit_params, _, deposit_blockhash) =
+            run_replacement_deposit(&mut config, rpc.clone(), None)
+                .await
+                .unwrap();
+
+        check_if_signable(
+            verifiers,
+            operators,
+            watchtowers,
+            deposit_params,
+            deposit_blockhash,
+            config.clone(),
+        )
+        .await;
+    }
 
     #[test]
     fn test_txhandler_cache_store_for_next_kickoff() {

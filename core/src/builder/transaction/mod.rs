@@ -15,6 +15,7 @@ use crate::builder::transaction::operator_assert::*;
 use crate::builder::transaction::operator_collateral::*;
 use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
+use crate::config::protocol::ProtocolParamset;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::grpc_transaction_id;
@@ -71,6 +72,12 @@ impl DepositData {
             DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk,
         }
     }
+    pub fn get_bridge_amount(&self, paramset: &'static ProtocolParamset) -> Amount {
+        match self {
+            DepositData::BaseDeposit(_) => paramset.bridge_amount,
+            DepositData::ReplacementDeposit(data) => data.bridge_amount,
+        }
+    }
 }
 
 /// Type to uniquely identify a deposit.
@@ -94,6 +101,8 @@ pub struct ReplacementDepositData {
     pub move_txid: Txid,
     /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
+    /// Amount of sats in bridge deposit
+    pub bridge_amount: Amount,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
@@ -335,18 +344,17 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
 /// collection operations are done.
 pub fn create_move_to_vault_txhandler(
     deposit_data: DepositData,
-    user_takes_after: u16,
-    bridge_amount_sats: Amount,
-    network: bitcoin::Network,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()));
+    let bridge_amount = deposit_data.get_bridge_amount(paramset);
 
     let builder = match deposit_data {
         DepositData::BaseDeposit(original_deposit_data) => {
             let deposit_script = Arc::new(BaseDepositScript::new(
                 original_deposit_data.nofn_xonly_pk,
                 original_deposit_data.evm_address,
-                bridge_amount_sats,
+                bridge_amount,
             ));
 
             let recovery_script_pubkey = original_deposit_data
@@ -360,7 +368,7 @@ pub fn create_move_to_vault_txhandler(
 
             let script_timelock = Arc::new(TimelockScript::new(
                 Some(recovery_extracted_xonly_pk),
-                user_takes_after,
+                paramset.user_takes_after,
             ));
 
             TxHandlerBuilder::new(TransactionType::MoveToVault)
@@ -369,10 +377,10 @@ pub fn create_move_to_vault_txhandler(
                     NormalSignatureKind::NotStored,
                     SpendableTxIn::from_scripts(
                         original_deposit_data.deposit_outpoint,
-                        bridge_amount_sats,
+                        bridge_amount,
                         vec![deposit_script, script_timelock],
                         None,
-                        network,
+                        paramset.network,
                     ),
                     SpendPath::ScriptSpend(0),
                     DEFAULT_SEQUENCE,
@@ -382,7 +390,7 @@ pub fn create_move_to_vault_txhandler(
             let deposit_script = Arc::new(ReplacementDepositScript::new(
                 replacement_deposit_data.nofn_xonly_pk,
                 replacement_deposit_data.move_txid,
-                bridge_amount_sats,
+                bridge_amount,
             ));
 
             TxHandlerBuilder::new(TransactionType::MoveToVault)
@@ -391,10 +399,10 @@ pub fn create_move_to_vault_txhandler(
                     NormalSignatureKind::NotStored,
                     SpendableTxIn::from_scripts(
                         replacement_deposit_data.deposit_outpoint,
-                        bridge_amount_sats,
+                        bridge_amount,
                         vec![deposit_script],
                         None,
-                        network,
+                        paramset.network,
                     ),
                     SpendPath::ScriptSpend(0),
                     DEFAULT_SEQUENCE,
@@ -404,10 +412,10 @@ pub fn create_move_to_vault_txhandler(
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
-            bridge_amount_sats - ANCHOR_AMOUNT,
+            bridge_amount - ANCHOR_AMOUNT,
             vec![nofn_script],
             None,
-            network,
+            paramset.network,
         ))
         .add_output(UnspentTxOut::from_partial(anchor_output()))
         .finalize())

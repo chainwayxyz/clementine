@@ -86,6 +86,9 @@ pub struct ReplacementDeposit {
     /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "3")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
+    /// Amount of the bridge UTXO.
+    #[prost(uint64, tag = "4")]
+    pub bridge_amount: u64,
 }
 /// A new original deposit request's details.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1727,6 +1730,30 @@ pub mod clementine_aggregator_client {
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new("clementine.ClementineAggregator", "NewDeposit"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// send a pre-signed tx
+        pub async fn internal_send_tx(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RawSignedTx>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/InternalSendTx",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineAggregator", "InternalSendTx"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -3490,6 +3517,11 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
+        /// send a pre-signed tx
+        async fn internal_send_tx(
+            &self,
+            request: tonic::Request<super::RawSignedTx>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ClementineAggregatorServer<T> {
@@ -3643,6 +3675,55 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = NewDepositSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/InternalSendTx" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalSendTxSvc<T: ClementineAggregator>(pub Arc<T>);
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::RawSignedTx>
+                    for InternalSendTxSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RawSignedTx>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::internal_send_tx(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalSendTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

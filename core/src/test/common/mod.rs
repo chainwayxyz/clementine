@@ -1,18 +1,34 @@
 //! # Common Utilities for Integration Tests
 
+use std::sync::Arc;
+
 use crate::actor::Actor;
-use crate::builder::transaction::{BaseDepositData, DepositData};
+use crate::bitvm_client::SECP;
+use crate::builder::script::{CheckSig, ReplacementDepositScript, SpendableScript};
+use crate::builder::transaction::input::SpendableTxIn;
+use crate::builder::transaction::output::UnspentTxOut;
+use crate::builder::transaction::{
+    anchor_output, BaseDepositData, DepositData, ReplacementDepositData, TransactionType,
+    TxHandler, TxHandlerBuilder, DEFAULT_SEQUENCE,
+};
 use crate::config::BridgeConfig;
+use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::AggregateFromPublicKeys;
+use crate::musig2::{
+    aggregate_nonces, aggregate_partial_signatures, nonce_pair, partial_sign,
+    AggregateFromPublicKeys,
+};
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-use crate::rpc::clementine::{DepositParams, Empty};
+use crate::rpc::clementine::{DepositParams, Empty, NormalSignatureKind, RawSignedTx};
 use crate::EVMAddress;
-use bitcoin::{BlockHash, OutPoint, Txid};
+use bitcoin::hashes::Hash;
+use bitcoin::key::Keypair;
+use bitcoin::secp256k1::Message;
+use bitcoin::{BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 pub use test_utils::*;
 use tonic::transport::Channel;
@@ -240,6 +256,187 @@ pub async fn run_single_deposit(
     rpc.mine_blocks(1).await?;
 
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
+
+    Ok((
+        verifiers,
+        operators,
+        aggregator,
+        watchtowers,
+        cleanup,
+        deposit_params,
+        move_txid,
+        deposit_blockhash,
+    ))
+}
+
+fn sign_nofn_deposit_tx(deposit_tx: &TxHandler, config: &BridgeConfig) -> Transaction {
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+            .unwrap();
+    let msg = Message::from_digest(
+        deposit_tx
+            .calculate_script_spend_sighash(
+                0,
+                &CheckSig::new(nofn_xonly_pk).to_script_buf(),
+                bitcoin::TapSighashType::Default,
+            )
+            .unwrap()
+            .to_byte_array(),
+    );
+
+    let kps = config
+        .all_verifiers_secret_keys
+        .clone()
+        .unwrap()
+        .iter()
+        .map(|sk| Keypair::from_secret_key(&SECP, sk))
+        .collect::<Vec<_>>();
+
+    let nonce_pairs = kps
+        .iter()
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()).unwrap())
+        .collect::<Vec<_>>();
+
+    let agg_nonce = aggregate_nonces(
+        nonce_pairs
+            .iter()
+            .map(|(_, musig_pub_nonces)| musig_pub_nonces)
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
+
+    let partial_sigs = kps
+        .into_iter()
+        .zip(nonce_pairs)
+        .map(|(kp, nonce_pair)| {
+            partial_sign(
+                config.verifiers_public_keys.clone(),
+                None,
+                nonce_pair.0,
+                agg_nonce,
+                kp,
+                msg,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+
+    let final_signature = aggregate_partial_signatures(
+        &config.verifiers_public_keys.clone(),
+        None,
+        agg_nonce,
+        &partial_sigs,
+        msg,
+    )
+    .unwrap();
+
+    let witness = Witness::from_slice(&[final_signature.serialize()]);
+    let mut tx = deposit_tx.get_cached_tx().clone();
+    tx.input[0].witness = witness;
+    tx
+}
+
+pub async fn run_replacement_deposit(
+    config: &mut BridgeConfig,
+    rpc: ExtendedRpc,
+    evm_address: Option<EVMAddress>,
+) -> Result<
+    (
+        Vec<ClementineVerifierClient<Channel>>,
+        Vec<ClementineOperatorClient<Channel>>,
+        ClementineAggregatorClient<Channel>,
+        Vec<ClementineWatchtowerClient<Channel>>,
+        ActorsCleanup,
+        DepositParams,
+        Txid,
+        BlockHash,
+    ),
+    BridgeError,
+> {
+    let (verifiers, operators, mut aggregator, watchtowers, cleanup, dep_params, move_txid, _) =
+        run_single_deposit(config, rpc.clone(), evm_address).await?;
+
+    tracing::warn!(
+        "First deposit {} completed, starting replacement deposit",
+        DepositData::try_from(dep_params)?
+            .get_deposit_outpoint()
+            .txid
+    );
+    tracing::warn!("First deposit move txid: {}", move_txid);
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+            .unwrap();
+
+    // generate replacement deposit tx
+    let new_deposit_tx = TxHandlerBuilder::new(TransactionType::Dummy)
+        .add_input(
+            NormalSignatureKind::NotStored,
+            SpendableTxIn::from_scripts(
+                bitcoin::OutPoint {
+                    txid: move_txid,
+                    vout: 0,
+                },
+                config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT,
+                vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
+                None,
+                config.protocol_paramset().network,
+            ),
+            crate::builder::script::SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_scripts(
+            config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT * 3,
+            vec![Arc::new(ReplacementDepositScript::new(
+                nofn_xonly_pk,
+                move_txid,
+                config.protocol_paramset().bridge_amount,
+            ))],
+            None,
+            config.protocol_paramset().network,
+        ))
+        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        .finalize();
+
+    let replacement_deposit_tx = sign_nofn_deposit_tx(&new_deposit_tx, config);
+    let replacement_deposit_txid = replacement_deposit_tx.compute_txid();
+    tracing::warn!("Replacement deposit txid: {}", replacement_deposit_txid);
+
+    aggregator
+        .internal_send_tx(RawSignedTx::from(&replacement_deposit_tx))
+        .await?;
+
+    // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    // mine 1 block
+    rpc.mine_blocks(1).await?;
+
+    mine_once_after_in_mempool(
+        &rpc,
+        replacement_deposit_txid,
+        Some("Replacement deposit tx"),
+        None,
+    )
+    .await?;
+
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&replacement_deposit_txid).await?;
+
+    let deposit_data = DepositData::ReplacementDeposit(ReplacementDepositData {
+        deposit_outpoint: bitcoin::OutPoint {
+            txid: replacement_deposit_tx.compute_txid(),
+            vout: 0,
+        },
+        nofn_xonly_pk,
+        move_txid,
+        bridge_amount: config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT * 3,
+    });
+
+    let deposit_params: DepositParams = deposit_data.into();
+
+    let move_txid: Txid = aggregator
+        .new_deposit(deposit_params.clone())
+        .await?
+        .into_inner()
+        .try_into()?;
 
     Ok((
         verifiers,

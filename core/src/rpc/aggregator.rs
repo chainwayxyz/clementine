@@ -419,12 +419,8 @@ impl Aggregator {
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
-        let mut move_txhandler = create_move_to_vault_txhandler(
-            deposit_data.clone(),
-            self.config.protocol_paramset().user_takes_after,
-            self.config.protocol_paramset().bridge_amount,
-            self.config.protocol_paramset().network,
-        )?;
+        let mut move_txhandler =
+            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?;
 
         let sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
@@ -478,6 +474,29 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for Aggregator {
+    async fn internal_send_tx(
+        &self,
+        request: Request<clementine::RawSignedTx>,
+    ) -> Result<Response<Empty>, Status> {
+        let signed_tx: bitcoin::Transaction = request.into_inner().try_into()?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &signed_tx,
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+        Ok(Response::new(Empty {}))
+    }
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
         tracing::info!("Collecting verifier public keys...");

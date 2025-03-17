@@ -726,12 +726,8 @@ impl Verifier {
         // ----- MOVE TX SIGNING
 
         // Generate partial signature for move transaction
-        let move_txhandler = create_move_to_vault_txhandler(
-            deposit_data.clone(),
-            self.config.protocol_paramset().user_takes_after,
-            self.config.protocol_paramset().bridge_amount,
-            self.config.protocol_paramset().network,
-        )?;
+        let move_txhandler =
+            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?;
 
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,

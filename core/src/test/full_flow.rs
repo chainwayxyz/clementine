@@ -1,7 +1,7 @@
 use super::common::{create_actors, create_test_config_with_thread_name};
 use crate::actor::Actor;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::{DepositData, BaseDepositData, TransactionType};
+use crate::builder::transaction::{BaseDepositData, DepositData, TransactionType};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;

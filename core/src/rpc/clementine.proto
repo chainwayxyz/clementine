@@ -97,6 +97,8 @@ message ReplacementDeposit {
   Txid move_txid = 2;
   // nofn public key used to sign the deposit
   bytes nofn_xonly_pk = 3;
+  // Amount of the bridge UTXO.
+  uint64 bridge_amount = 4;
 }
 
 // A new original deposit request's details.
@@ -492,4 +494,6 @@ service ClementineAggregator {
   // DepositFinalize then it will collect the partial sigs and create the move
   // tx.
   rpc NewDeposit(DepositParams) returns (Txid) {}
+  // send a pre-signed tx
+  rpc InternalSendTx(RawSignedTx) returns (Empty) {}
 }

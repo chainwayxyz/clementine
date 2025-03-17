@@ -1,6 +1,6 @@
 use super::clementine::{
-    self, AssertRequest, BaseDeposit, DepositParams, Outpoint, ReplacementDeposit, SchnorrSig,
-    TransactionRequest, WinternitzPubkey,
+    self, AssertRequest, BaseDeposit, DepositParams, Outpoint, RawSignedTx, ReplacementDeposit,
+    SchnorrSig, TransactionRequest, WinternitzPubkey,
 };
 use super::error;
 use crate::builder::transaction::sign::{AssertRequestData, TransactionRequestData};
@@ -11,7 +11,7 @@ use crate::errors::BridgeError;
 use crate::EVMAddress;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{Amount, OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
@@ -162,6 +162,7 @@ impl From<ReplacementDepositData> for ReplacementDeposit {
             deposit_outpoint: Some(data.deposit_outpoint.into()),
             move_txid: Some(data.move_txid.into()),
             nofn_xonly_pk: data.nofn_xonly_pk.serialize().to_vec(),
+            bridge_amount: data.bridge_amount.to_sat(),
         }
     }
 }
@@ -179,6 +180,23 @@ impl From<DepositData> for DepositParams {
                     data.into(),
                 )),
             },
+        }
+    }
+}
+
+impl TryFrom<RawSignedTx> for bitcoin::Transaction {
+    type Error = Status;
+
+    fn try_from(value: RawSignedTx) -> Result<Self, Self::Error> {
+        bitcoin::consensus::encode::deserialize(&value.raw_tx)
+            .map_err(|e| Status::invalid_argument(format!("Failed to parse raw signed tx: {}", e)))
+    }
+}
+
+impl From<&bitcoin::Transaction> for RawSignedTx {
+    fn from(value: &bitcoin::Transaction) -> Self {
+        RawSignedTx {
+            raw_tx: bitcoin::consensus::encode::serialize(value),
         }
     }
 }
@@ -238,7 +256,7 @@ fn parse_base_deposit_data(data: BaseDeposit) -> Result<DepositData, Status> {
     }))
 }
 
-fn parse_recovery_deposit_data(data: ReplacementDeposit) -> Result<DepositData, Status> {
+fn parse_replacement_deposit_data(data: ReplacementDeposit) -> Result<DepositData, Status> {
     let deposit_outpoint: bitcoin::OutPoint = data
         .deposit_outpoint
         .ok_or(Status::invalid_argument("No deposit outpoint received"))?
@@ -256,10 +274,13 @@ fn parse_recovery_deposit_data(data: ReplacementDeposit) -> Result<DepositData, 
 
     let nofn_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_slice(&data.nofn_xonly_pk)
         .map_err(|e| BridgeError::Error(format!("Failed to parse xonly public key: {}", e)))?;
+
+    let bridge_amount = Amount::from_sat(data.bridge_amount);
     Ok(DepositData::ReplacementDeposit(ReplacementDepositData {
         deposit_outpoint,
         move_txid,
         nofn_xonly_pk,
+        bridge_amount,
     }))
 }
 
@@ -270,7 +291,7 @@ fn parse_deposit_params(deposit_params: clementine::DepositParams) -> Result<Dep
     match deposit_data {
         clementine::deposit_params::DepositData::BaseDeposit(data) => parse_base_deposit_data(data),
         clementine::deposit_params::DepositData::ReplacementDeposit(data) => {
-            parse_recovery_deposit_data(data)
+            parse_replacement_deposit_data(data)
         }
     }
 }

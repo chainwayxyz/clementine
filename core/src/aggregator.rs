@@ -342,9 +342,7 @@ impl Aggregator {
     ) -> Result<schnorr::Signature, BridgeError> {
         let tx = builder::transaction::create_move_to_vault_txhandler(
             deposit_data,
-            self.config.protocol_paramset().user_takes_after,
-            self.config.protocol_paramset().bridge_amount,
-            self.config.protocol_paramset().network,
+            self.config.protocol_paramset(),
         )?;
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
