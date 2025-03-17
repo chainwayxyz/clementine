@@ -213,7 +213,7 @@ pub async fn run_single_deposit(
         .await?;
 
     mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None).await?;
-    let deposit_blockhash = rpc.get_blockhash_of_deposit(&deposit_outpoint.txid).await?;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)

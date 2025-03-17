@@ -260,7 +260,6 @@ pub fn create_operator_sighash_stream(
             deposit_data.get_deposit_outpoint(),
         );
 
-
         let paramset = config.protocol_paramset();
         let mut txhandler_cache = TxHandlerCache::new();
 

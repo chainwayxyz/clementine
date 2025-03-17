@@ -1,6 +1,6 @@
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
-use circuits_lib::bridge_circuit_common::{
+use circuits_lib::bridge_circuit::{
     structs::{LightClientProof, StorageProof},
     winternitz::WinternitzHandler,
 };
@@ -128,7 +128,6 @@ impl BridgeCircuitBitvmInputs {
         hasher.update(&x_bytes);
         let y = hasher.finalize();
         let y_bytes: [u8; 32] = y.into();
-        println!("Y bytes (Journal): {:#?}", y_bytes);
 
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.combined_method_id);
@@ -136,10 +135,8 @@ impl BridgeCircuitBitvmInputs {
         let public_output = hasher.finalize();
 
         let public_output_bytes: [u8; 32] = public_output.into();
-        println!("Public output bytes: {:#?}", public_output_bytes);
         let public_input_scalar =
             ark_bn254::Fr::from_be_bytes_mod_order(&public_output_bytes[0..31]);
-        println!("Public input scalar: {:#?}", public_input_scalar);
 
         let ark_vk = get_ark_verifying_key();
         let ark_pvk = ark_groth16::prepare_verifying_key(&ark_vk);

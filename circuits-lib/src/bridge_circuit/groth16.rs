@@ -1,94 +1,155 @@
-use crate::bridge_circuit_common::groth16::CircuitGroth16Proof;
-use crate::bridge_circuit_common::utils::to_decimal;
-use ark_bn254::{Bn254, Fr};
-use ark_groth16::PreparedVerifyingKey;
+use ark_bn254::Bn254;
+use ark_ff::{Field, PrimeField};
 use ark_groth16::Proof;
-use ark_serialize::CanonicalDeserialize;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
+type G1 = ark_bn254::G1Affine;
+type G2 = ark_bn254::G2Affine;
 
-use super::constants::{
-    A0_ARK, A1_ARK, ASSUMPTIONS, BN_254_CONTROL_ID_ARK, CLAIM_TAG, INPUT, OUTPUT_TAG, POST_STATE,
-    PREPARED_VK,
-};
-use hex::ToHex;
-use sha2::{Digest, Sha256};
-use std::str::FromStr;
-
-pub fn create_output_digest(total_work: &[u8; 16]) -> [u8; 32] {
-    let total_work_digest: [u8; 32] = Sha256::digest(total_work).into();
-    let len_output: [u8; 2] = hex::decode("0200").unwrap().try_into().unwrap();
-
-    let output_pre_digest: [u8; 98] = [
-        &OUTPUT_TAG,
-        &total_work_digest[..],
-        &ASSUMPTIONS[..],
-        &len_output[..],
-    ]
-    .concat()
-    .try_into()
-    .expect("slice has correct length");
-
-    Sha256::digest(output_pre_digest).into()
+#[derive(Copy, Clone, Debug)]
+pub struct CircuitGroth16Proof {
+    a: G1,
+    b: G2,
+    c: G1,
 }
 
-pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u8; 32] {
-    let data: [u8; 8] = [0; 8];
+impl CircuitGroth16Proof {
+    pub fn new(a: G1, b: G2, c: G1) -> CircuitGroth16Proof {
+        CircuitGroth16Proof { a, b, c }
+    }
 
-    let claim_len: [u8; 2] = [4, 0];
+    pub fn from_seal(seal: &[u8; 256]) -> CircuitGroth16Proof {
+        let a = G1::new(
+            ark_bn254::Fq::from_be_bytes_mod_order(&seal[0..32]),
+            ark_bn254::Fq::from_be_bytes_mod_order(&seal[32..64]),
+        );
 
-    let concatenated = [
-        &CLAIM_TAG,
-        &INPUT,
-        pre_state,
-        &POST_STATE,
-        output_digest,
-        &data[..],
-        &claim_len,
-    ]
-    .concat();
+        let b = G2::new(
+            ark_bn254::Fq2::from_base_prime_field_elems([
+                ark_bn254::Fq::from_be_bytes_mod_order(&seal[96..128]),
+                ark_bn254::Fq::from_be_bytes_mod_order(&seal[64..96]),
+            ])
+            .unwrap(),
+            ark_bn254::Fq2::from_base_prime_field_elems([
+                ark_bn254::Fq::from_be_bytes_mod_order(&seal[160..192]),
+                ark_bn254::Fq::from_be_bytes_mod_order(&seal[128..160]),
+            ])
+            .unwrap(),
+        );
 
-    let mut claim_digest = Sha256::digest(concatenated);
-    claim_digest.reverse();
+        let c = G1::new(
+            ark_bn254::Fq::from_be_bytes_mod_order(&seal[192..224]),
+            ark_bn254::Fq::from_be_bytes_mod_order(&seal[224..256]),
+        );
 
-    claim_digest.into()
+        CircuitGroth16Proof::new(a, b, c)
+    }
+
+    pub fn from_compressed(
+        compressed: &[u8; 128],
+    ) -> Result<CircuitGroth16Proof, SerializationError> {
+        let a_compressed = &compressed[0..32];
+        let b_compressed = &compressed[32..96];
+        let c_compressed = &compressed[96..128];
+        let a = ark_bn254::G1Affine::deserialize_compressed(a_compressed)?;
+        let b = ark_bn254::G2Affine::deserialize_compressed(b_compressed)?;
+        let c = ark_bn254::G1Affine::deserialize_compressed(c_compressed)?;
+
+        Ok(CircuitGroth16Proof::new(a, b, c))
+    }
+
+    pub fn to_compressed(&self) -> Result<[u8; 128], SerializationError> {
+        let mut a_compressed = [0u8; 32];
+        let mut b_compressed = [0u8; 64];
+        let mut c_compressed = [0u8; 32];
+
+        ark_bn254::G1Affine::serialize_with_mode(&self.a, &mut a_compressed[..], Compress::Yes)
+            .expect("Serialization should not fail for valid curve points");
+        ark_bn254::G2Affine::serialize_with_mode(&self.b, &mut b_compressed[..], Compress::Yes)
+            .expect("Serialization should not fail for valid curve points");
+        ark_bn254::G1Affine::serialize_with_mode(&self.c, &mut c_compressed[..], Compress::Yes)
+            .expect("Serialization should not fail for valid curve points");
+
+        let mut compressed = [0u8; 128];
+        compressed[0..32].copy_from_slice(&a_compressed);
+        compressed[32..96].copy_from_slice(&b_compressed);
+        compressed[96..128].copy_from_slice(&c_compressed);
+
+        Ok(compressed)
+    }
+
+    pub fn a(&self) -> &G1 {
+        &self.a
+    }
+
+    pub fn b(&self) -> &G2 {
+        &self.b
+    }
+
+    pub fn c(&self) -> &G1 {
+        &self.c
+    }
 }
-pub struct CircuitGroth16WithTotalWork {
-    groth16_seal: CircuitGroth16Proof,
-    total_work: [u8; 16],
+
+impl From<CircuitGroth16Proof> for Proof<Bn254> {
+    fn from(g16_seal: CircuitGroth16Proof) -> Self {
+        Proof::<Bn254> {
+            a: g16_seal.a,
+            b: g16_seal.b,
+            c: g16_seal.c,
+        }
+    }
 }
 
-impl CircuitGroth16WithTotalWork {
-    pub fn new(
-        groth16_seal: CircuitGroth16Proof,
-        total_work: [u8; 16],
-    ) -> CircuitGroth16WithTotalWork {
-        CircuitGroth16WithTotalWork {
-            groth16_seal,
-            total_work,
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_ff::UniformRand;
+    use ark_std::test_rng;
+
+    fn random_g1() -> G1 {
+        let mut rng = test_rng();
+        G1::rand(&mut rng)
+    }
+
+    fn random_g2() -> G2 {
+        let mut rng = test_rng();
+        G2::rand(&mut rng)
+    }
+
+    #[test]
+    fn test_new_and_accessors() {
+        let a = random_g1();
+        let b = random_g2();
+        let c = random_g1();
+
+        let proof = CircuitGroth16Proof::new(a, b, c);
+        assert_eq!(proof.a(), &a);
+        assert_eq!(proof.b(), &b);
+        assert_eq!(proof.c(), &c);
+    }
+
+    #[test]
+    fn test_to_compressed_and_from_compressed() {
+        for _ in 0..16 {
+            let proof = CircuitGroth16Proof::new(random_g1(), random_g2(), random_g1());
+
+            let compressed = proof.to_compressed().expect("Compression failed");
+            let decompressed_proof =
+                CircuitGroth16Proof::from_compressed(&compressed).expect("Decompression failed");
+
+            assert_eq!(proof.a(), decompressed_proof.a());
+            assert_eq!(proof.b(), decompressed_proof.b());
+            assert_eq!(proof.c(), decompressed_proof.c());
         }
     }
 
-    pub fn verify(&self, pre_state: &[u8; 32]) -> bool {
-        let ark_proof: Proof<Bn254> = self.groth16_seal.into();
-        let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
-            CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();
+    #[test]
+    fn test_conversion_to_proof_bn254() {
+        let proof = CircuitGroth16Proof::new(random_g1(), random_g2(), random_g1());
+        let groth16_proof: Proof<Bn254> = proof.into();
 
-        let output_digest = create_output_digest(&self.total_work);
-
-        let claim_digest: [u8; 32] = create_claim_digest(&output_digest, pre_state);
-
-        let claim_digest_hex: String = claim_digest.encode_hex();
-        let c0_str = &claim_digest_hex[32..64];
-        let c1_str = &claim_digest_hex[0..32];
-
-        let c0_dec = to_decimal(c0_str).unwrap();
-        let c1_dec = to_decimal(c1_str).unwrap();
-
-        let c0 = Fr::from_str(&c0_dec).unwrap();
-        let c1 = Fr::from_str(&c1_dec).unwrap();
-
-        let public_inputs = vec![A0_ARK, A1_ARK, c0, c1, BN_254_CONTROL_ID_ARK];
-
-        ark_groth16::Groth16::<Bn254>::verify_proof(&prepared_vk, &ark_proof, &public_inputs)
-            .unwrap()
+        assert_eq!(proof.a(), &groth16_proof.a);
+        assert_eq!(proof.b(), &groth16_proof.b);
+        assert_eq!(proof.c(), &groth16_proof.c);
     }
 }

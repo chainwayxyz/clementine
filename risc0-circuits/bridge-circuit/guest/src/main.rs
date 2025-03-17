@@ -1,7 +1,7 @@
 use circuits_lib::{common, bridge_circuit::bridge_circuit};
 
 pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
-    hex_literal::hex!("fbb1477c9c59ab063a7ac59dc5e7432b279f100f3952b607abda00f9346ad736");
+    hex_literal::hex!("1ff9f5b6d77bbd4296e1749049d4a841088fb72f7a324da71e31fa1576d4bc0b");
 
 fn main() {
     let zkvm_guest = common::zkvm::Risc0Guest::new();

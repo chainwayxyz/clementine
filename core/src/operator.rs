@@ -296,7 +296,7 @@ impl Operator {
 
         let deposit_blockhash = self
             .rpc
-            .get_blockhash_of_deposit(&deposit_data.get_deposit_outpoint().txid)
+            .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(

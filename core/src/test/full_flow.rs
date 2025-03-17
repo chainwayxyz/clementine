@@ -197,7 +197,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         config.protocol_paramset().network,
     )
     .xonly_public_key;
-    let deposit_blockhash = rpc.get_blockhash_of_deposit(&deposit_outpoint.txid).await?;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
     let kickoff_idx = get_kickoff_utxos_to_sign(
         config.protocol_paramset(),
         op0_xonly_pk,
@@ -540,7 +540,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         config.protocol_paramset().network,
     )
     .xonly_public_key;
-    let deposit_blockhash = rpc.get_blockhash_of_deposit(&deposit_outpoint.txid).await?;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
     let kickoff_idx = get_kickoff_utxos_to_sign(
         config.protocol_paramset(),
         op0_xonly_pk,
@@ -892,7 +892,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         config.protocol_paramset().network,
     )
     .xonly_public_key;
-    let deposit_blockhash = rpc.get_blockhash_of_deposit(&deposit_outpoint.txid).await?;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
     let kickoff_idx = get_kickoff_utxos_to_sign(
         config.protocol_paramset(),
         op0_xonly_pk,
@@ -1115,7 +1115,7 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         config.protocol_paramset().network,
     )
     .xonly_public_key;
-    let deposit_blockhash = rpc.get_blockhash_of_deposit(&deposit_outpoint.txid).await?;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
     let kickoff_idx = get_kickoff_utxos_to_sign(
         config.protocol_paramset(),
         op0_xonly_pk,
@@ -1312,7 +1312,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         config.protocol_paramset().network,
     )
     .xonly_public_key;
-    let deposit_blockhash = rpc.get_blockhash_of_deposit(&deposit_outpoint.txid).await?;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
     let kickoff_idx = get_kickoff_utxos_to_sign(
         config.protocol_paramset(),
         op0_xonly_pk,

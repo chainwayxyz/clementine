@@ -366,7 +366,7 @@ impl TxHandlerCache {
     ) -> Result<(), BridgeError> {
         // can possibly cache next round tx too, as next round has the needed reimburse utxos
         // but need to implement a new TransactionType for that
-        for x in [
+        for tx_type in [
             TransactionType::MoveToVault,
             TransactionType::Round,
             TransactionType::ReadyToReimburse,
@@ -374,9 +374,9 @@ impl TxHandlerCache {
         .iter()
         {
             let txhandler = txhandlers
-                .remove(x)
-                .ok_or(BridgeError::TxHandlerNotFound(*x))?;
-            self.saved_txs.insert(*x, txhandler);
+                .remove(tx_type)
+                .ok_or(BridgeError::TxHandlerNotFound(*tx_type))?;
+            self.saved_txs.insert(*tx_type, txhandler);
         }
         Ok(())
     }
@@ -401,7 +401,6 @@ impl TxHandlerCache {
     }
 }
 
-#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_outpoint, txtype = ?transaction_type, ?context))]
 pub async fn create_txhandlers(
     transaction_type: TransactionType,
     context: ContractContext,
@@ -766,7 +765,7 @@ mod tests {
     use bitcoin::XOnlyPublicKey;
     use futures::future::try_join_all;
 
-    use crate::builder::transaction::{DepositData, TransactionType};
+    use crate::builder::transaction::{DepositData, TransactionType, TxHandlerBuilder};
     use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1018,5 +1017,86 @@ mod tests {
         try_join_all(operator_task_handles).await.unwrap();
         try_join_all(watchtower_task_handles).await.unwrap();
         try_join_all(verifier_task_handles).await.unwrap();
+    }
+
+    use super::*;
+
+    #[test]
+    fn test_txhandler_cache_store_for_next_kickoff() {
+        let mut cache = TxHandlerCache::new();
+        let mut txhandlers = BTreeMap::new();
+        txhandlers.insert(
+            TransactionType::MoveToVault,
+            TxHandlerBuilder::new(TransactionType::MoveToVault).finalize(),
+        );
+        txhandlers.insert(
+            TransactionType::Round,
+            TxHandlerBuilder::new(TransactionType::Round).finalize(),
+        );
+        txhandlers.insert(
+            TransactionType::ReadyToReimburse,
+            TxHandlerBuilder::new(TransactionType::ReadyToReimburse).finalize(),
+        );
+        txhandlers.insert(
+            TransactionType::Kickoff,
+            TxHandlerBuilder::new(TransactionType::Kickoff).finalize(),
+        );
+
+        // should store the first 3 txhandlers, and not insert kickoff
+        assert!(cache.store_for_next_kickoff(&mut txhandlers).is_ok());
+        assert!(txhandlers.len() == 1);
+        assert!(cache.saved_txs.len() == 3);
+        assert!(cache.saved_txs.contains_key(&TransactionType::MoveToVault));
+        assert!(cache.saved_txs.contains_key(&TransactionType::Round));
+        assert!(cache
+            .saved_txs
+            .contains_key(&TransactionType::ReadyToReimburse));
+        // prev_ready_to_reimburse should be None as it is the first iteration
+        assert!(cache.prev_ready_to_reimburse.is_none());
+
+        // txhandlers should contain all cached tx's
+        txhandlers = cache.get_cached_txs();
+        assert!(txhandlers.len() == 3);
+        assert!(txhandlers.contains_key(&TransactionType::MoveToVault));
+        assert!(txhandlers.contains_key(&TransactionType::Round));
+        assert!(txhandlers.contains_key(&TransactionType::ReadyToReimburse));
+        assert!(cache.store_for_next_kickoff(&mut txhandlers).is_ok());
+        // prev ready to reimburse still none as we didnt go to next round
+        assert!(cache.prev_ready_to_reimburse.is_none());
+
+        // should delete saved txs and store prev ready to reimburse, but it should keep movetovault
+        assert!(cache.store_for_next_round().is_ok());
+        assert!(cache.saved_txs.len() == 1);
+        assert!(cache.prev_ready_to_reimburse.is_some());
+        assert!(cache.saved_txs.contains_key(&TransactionType::MoveToVault));
+
+        // retrieve cached movetovault
+        txhandlers = cache.get_cached_txs();
+
+        // create new round txs
+        txhandlers.insert(
+            TransactionType::ReadyToReimburse,
+            TxHandlerBuilder::new(TransactionType::ReadyToReimburse).finalize(),
+        );
+        txhandlers.insert(
+            TransactionType::Round,
+            TxHandlerBuilder::new(TransactionType::Round).finalize(),
+        );
+        // add not relevant tx
+        txhandlers.insert(
+            TransactionType::WatchtowerChallenge(0),
+            TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(0)).finalize(),
+        );
+
+        // should add all 3 tx's to cache again
+        assert!(cache.store_for_next_kickoff(&mut txhandlers).is_ok());
+        assert!(cache.saved_txs.len() == 3);
+        assert!(cache.saved_txs.contains_key(&TransactionType::MoveToVault));
+        assert!(cache.saved_txs.contains_key(&TransactionType::Round));
+        assert!(cache
+            .saved_txs
+            .contains_key(&TransactionType::ReadyToReimburse));
+        // prev ready to reimburse is still stored
+        assert!(cache.prev_ready_to_reimburse.is_some());
     }
 }

@@ -4,11 +4,18 @@ use crate::structs::{
 };
 use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
-use borsh;
+use bitcoin::Transaction;
+use bitcoin::{consensus::Decodable, hashes::Hash};
+use borsh::{self, BorshDeserialize};
+use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
+use circuits_lib::bridge_circuit::winternitz::verify_winternitz_signature;
 use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
-use circuits_lib::bridge_circuit_common::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit_common::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
-use circuits_lib::bridge_circuit_common::winternitz::verify_winternitz_signature;
+use final_spv::merkle_tree::BitcoinMerkleTree;
+use final_spv::spv::SPV;
+use header_chain::header_chain::CircuitBlockHeader;
+use header_chain::mmr_native::MMRNative;
+
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
 
@@ -16,6 +23,34 @@ const _BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/prod-testnet4-bridge-circuit-guest");
 const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
 
+/// Generates a Groth16 proof for the Bridge Circuit after performing sanity checks.
+///
+/// This function first validates various conditions such as header chain output,
+/// light client proof, and SPV verification. It then constructs a succinct proof
+/// for the Bridge Circuit. Finally, it converts the succinct proof
+/// into a Groth16 proof using a Circom circuit.
+///
+/// # Arguments
+///
+/// * `bridge_circuit_host_params` - The host parameters containing circuit-related inputs.
+/// * `bridge_circuit_elf` - The compiled ELF binary representing the Bridge Circuit.
+///
+/// # Returns
+///
+/// Returns a tuple consisting of:
+/// - `ark_groth16::Proof<Bn254>`: The final Groth16 proof.
+/// - `[u8; 31]`: The Groth16 output.
+/// - `BridgeCircuitBitvmInputs`: The structured inputs for the Bridge Circuit BitVM.
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - The number of watchtowers does not match expectations.
+/// - The header chain proof output differs from the expected value.
+/// - Light client proof verification fails.
+/// - SPV verification fails.
+/// - The journal hash does not match the expected hash.
+///
 pub fn prove_bridge_circuit(
     bridge_circuit_host_params: BridgeCircuitHostParams,
     bridge_circuit_elf: &[u8],
@@ -80,7 +115,7 @@ pub fn prove_bridge_circuit(
     }
 
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
-        public_inputs(bridge_circuit_input.clone());
+        generate_succinct_bridge_circuit_public_inputs(bridge_circuit_input.clone());
     let journal_hash = public_inputs.journal_hash();
 
     let mut binding = ExecutorEnv::builder();
@@ -127,11 +162,100 @@ pub fn prove_bridge_circuit(
     )
 }
 
-pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receipt {
-    let mut binding = ExecutorEnv::builder();
-    binding.add_assumption(receipt);
-    let env = binding.write_slice(&borsh::to_vec(&input).unwrap());
-    let env = env.build().unwrap();
+/// Constructs an SPV (Simplified Payment Verification) proof.
+///
+/// This function decodes a Bitcoin transaction, processes block headers,
+/// constructs an MMR (Merkle Mountain Range) for block header commitment,
+/// and generates a Merkle proof for the payout transaction's inclusion in
+/// the block.
+///
+/// # Arguments
+///
+/// * `payout_tx` - A mutable reference to a byte slice representing the payout transaction.
+/// * `headers` - A byte slice containing block headers, each 80 bytes long.
+/// * `payment_block` - A byte slice representing the full payment block.
+/// * `payment_block_height` - The height of the payment block in the blockchain.
+/// * `payment_tx_index` - The index of the payout transaction in the block's transaction list.
+///
+/// # Returns
+///
+/// Returns an `SPV` struct containing:
+/// - The decoded payout transaction.
+/// - A Merkle proof of the transaction's inclusion in the block.
+/// - The block header.
+/// - An MMR proof of the block header's inclusion in the MMR.
+///
+/// # Panics
+///
+/// This function will panic if:
+/// - Decoding `payout_tx` or `payment_block` fails.
+/// - Any block header chunk is not 80 bytes long.
+/// - Generating the Merkle or MMR proof fails.
+///
+pub fn create_spv(
+    payout_tx: &mut &[u8],
+    headers: &[u8],
+    payment_block: bitcoin::Block,
+    payment_block_height: u32,
+    payment_tx_index: u32,
+) -> SPV {
+    let payout_tx: Transaction = Transaction::consensus_decode::<&[u8]>(payout_tx).unwrap();
+
+    let headers = headers
+        .chunks(80)
+        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+        .collect::<Vec<CircuitBlockHeader>>();
+
+    let mut mmr_native = MMRNative::new();
+    for header in headers {
+        mmr_native.append(header.compute_block_hash());
+    }
+
+    let block_txids: Vec<[u8; 32]> = payment_block
+        .txdata
+        .iter()
+        .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
+        .collect();
+
+    let mmr_inclusion_proof = mmr_native.generate_proof(payment_block_height);
+
+    let block_mt = BitcoinMerkleTree::new(block_txids);
+
+    let payout_tx_proof = block_mt.generate_proof(payment_tx_index);
+
+    SPV {
+        transaction: payout_tx.into(),
+        block_inclusion_proof: payout_tx_proof,
+        block_header: payment_block.header.into(),
+        mmr_inclusion_proof: mmr_inclusion_proof.1,
+    }
+}
+
+/// Generates a Groth16 proof of a bitcoin header chain proof where it only outputs the total work.
+///
+/// This function constructs an execution environment, serializes the provided
+/// input using Borsh, and utilizes a default prover to generate a proof using
+/// the Groth16 proving system.
+///
+/// # Arguments
+///
+/// * `receipt` - A header-chain `Receipt` that serves as an assumption for the proof.
+/// * `input` - A reference to `WorkOnlyCircuitInput` containing the necessary
+///   header chain output data.
+///
+/// # Returns
+///
+/// Returns a new `Receipt` containing the Groth16 proof result.
+///
+pub fn prove_work_only_header_chain_proof(
+    receipt: Receipt,
+    input: &WorkOnlyCircuitInput,
+) -> Receipt {
+    let env = ExecutorEnv::builder()
+        .add_assumption(receipt)
+        .write_slice(&borsh::to_vec(&input).unwrap())
+        .build()
+        .unwrap();
     let prover = default_prover();
     prover
         .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
@@ -139,21 +263,37 @@ pub fn prove_work_only(receipt: Receipt, input: &WorkOnlyCircuitInput) -> Receip
         .receipt
 }
 
-fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs {
-    // OPTIMIZATION IS POSSIBLE HERE
+/// Prepares the public inputs for the bridge circuit.
+///
+/// This function constructs the necessary public input values used in the
+/// succinct bridge circuit by processing watchtower signatures, computing
+/// block hashes, concatenating public keys, and extracting operator IDs.
+///
+/// # Arguments
+///
+/// * `input` - A `BridgeCircuitInput` containing all the necessary transaction
+///   and chain state details.
+///
+/// # Returns
+///
+/// Returns a `SuccinctBridgeCircuitPublicInputs` struct containing:
+/// - A compressed bitmask of watchtower challenges.
+/// - The payout transaction block hash.
+/// - The latest block hash.
+/// - The move-to-vault transaction ID.
+/// - A digest of watchtower challenge public keys.
+/// - The extracted operator ID.
+///
+fn generate_succinct_bridge_circuit_public_inputs(
+    input: BridgeCircuitInput,
+) -> SuccinctBridgeCircuitPublicInputs {
     // challenge_sending_watchtowers
-    let mut watchtower_flags: Vec<bool> = vec![];
-    for winternitz_handler in input.winternitz_details.iter() {
-        if winternitz_handler.signature.is_none() || winternitz_handler.message.is_none() {
-            watchtower_flags.push(false);
-            continue;
-        }
-        let flag = verify_winternitz_signature(winternitz_handler);
-        watchtower_flags.push(flag);
-    }
-    let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
-    for (i, &flag) in watchtower_flags.iter().enumerate() {
-        if flag {
+    let mut challenge_sending_watchtowers = [0u8; 20];
+    for (i, winternitz_handler) in input.winternitz_details.iter().enumerate() {
+        if winternitz_handler.signature.is_some()
+            && winternitz_handler.message.is_some()
+            && verify_winternitz_signature(winternitz_handler)
+        {
             challenge_sending_watchtowers[i / 8] |= 1 << (i % 8);
         }
     }
@@ -169,16 +309,16 @@ fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs
         .unwrap();
 
     // watcthower_challenge_wpks_hash
-    let num_wts = input.winternitz_details.len();
-    let pk_size = input.winternitz_details[0].pub_key.len();
-
-    let mut pub_key_concat: Vec<u8> = vec![0; num_wts * pk_size * 20];
-    for (i, wots_handler) in input.winternitz_details.iter().enumerate() {
-        for (j, pubkey) in wots_handler.pub_key.iter().enumerate() {
-            pub_key_concat[(pk_size * i * 20 + j * 20)..(pk_size * i * 20 + (j + 1) * 20)]
-                .copy_from_slice(pubkey);
-        }
-    }
+    let pub_key_concat: Vec<u8> = input
+        .winternitz_details
+        .iter()
+        .flat_map(|wots_handler| {
+            wots_handler
+                .pub_key
+                .iter()
+                .flat_map(|pubkey| pubkey.to_vec())
+        })
+        .collect();
 
     let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).into();
 
@@ -186,13 +326,13 @@ fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs
     let last_output = input.payout_spv.transaction.output.last().unwrap();
     let last_output_script = last_output.script_pubkey.to_bytes();
 
-    let len: u8 = last_output_script[1];
-    let mut operator_id: [u8; 32] = [0u8; 32];
+    let len: usize = last_output_script[1] as usize;
     if len > 32 {
         panic!("Invalid operator id length");
-    } else {
-        operator_id[..len as usize].copy_from_slice(&last_output_script[2..(2 + len) as usize]);
     }
+
+    let mut operator_id = [0u8; 32];
+    operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
 
     SuccinctBridgeCircuitPublicInputs {
         challenge_sending_watchtowers,
@@ -207,22 +347,12 @@ fn public_inputs(input: BridgeCircuitInput) -> SuccinctBridgeCircuitPublicInputs
 #[cfg(test)]
 mod tests {
     use crate::config::BCHostParameters;
-    use crate::{fetch_light_client_proof, fetch_storage_proof};
-    use alloy_rpc_client::ClientBuilder;
-    use bitcoin::consensus::Decodable;
-    use bitcoin::hashes::Hash;
-    use bitcoin::Transaction;
     use borsh::BorshDeserialize;
-    use circuits_lib::bridge_circuit::convert_to_groth16_and_verify;
-    use circuits_lib::bridge_circuit_common::groth16::CircuitGroth16Proof;
-    use circuits_lib::bridge_circuit_common::structs::WorkOnlyCircuitInput;
-    use circuits_lib::bridge_circuit_common::winternitz::{
+
+    use circuits_lib::bridge_circuit::winternitz::{
         generate_public_key, sign_digits, Parameters, WinternitzHandler,
     };
-    use final_spv::merkle_tree::BitcoinMerkleTree;
-    use final_spv::spv::SPV;
-    use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
-    use header_chain::mmr_native::MMRNative;
+    use header_chain::header_chain::BlockHeaderCircuitOutput;
     use hex_literal::hex;
     use rand::rngs::SmallRng;
     use rand::{Rng, SeedableRng};
@@ -235,14 +365,16 @@ mod tests {
     const WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
     pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
-        hex_literal::hex!("fbb1477c9c59ab063a7ac59dc5e7432b279f100f3952b607abda00f9346ad736");
-    const LIGHT_CLIENT_PROVER_URL: &str = "https://light-client-prover.testnet.citrea.xyz/";
-    const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
+        hex_literal::hex!("1ff9f5b6d77bbd4296e1749049d4a841088fb72f7a324da71e31fa1576d4bc0b");
 
-    const HEADERS: &[u8] = include_bytes!("bin-files/testnet4_headers.bin");
-    const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("bin-files/testnet4_first_72075.bin");
-    const PAYOUT_TX: &[u8; 303] = include_bytes!("bin-files/payout_tx.bin");
-    const TESTNET_BLOCK_72041: &[u8] = include_bytes!("bin-files/testnet4_block_72041.bin");
+    const HEADERS: &[u8] = include_bytes!("../bin-files/testnet4_headers.bin");
+    const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");
+    const PAYOUT_TX: &[u8; 303] = include_bytes!("../bin-files/payout_tx.bin");
+    const TESTNET_BLOCK_72041: &[u8] = include_bytes!("../bin-files/testnet4_block_72041.bin");
+
+    const LCP_RECEIPT: &[u8] = include_bytes!("../bin-files/lcp_receipt.bin");
+    const LIGHT_CLIENT_PROOF: &[u8] = include_bytes!("../bin-files/light_client_proof.bin");
+    const STORAGE_PROOF: &[u8] = include_bytes!("../bin-files/storage_proof.bin");
 
     pub const TEST_PARAMETERS: BCHostParameters = BCHostParameters {
         l1_block_height: 72075,
@@ -254,61 +386,19 @@ mod tests {
         deposit_index: 37,
     };
 
-    fn create_spv() -> SPV {
-        let payout_tx = Transaction::consensus_decode(&mut PAYOUT_TX.as_ref()).unwrap();
-        let headers = HEADERS
-            .chunks(80)
-            .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-            .collect::<Vec<CircuitBlockHeader>>();
-        let mut mmr_native = MMRNative::new();
-        for i in 0..=TEST_PARAMETERS.l1_block_height {
-            mmr_native.append(headers[i as usize].compute_block_hash());
-        }
-        let block_vec = TESTNET_BLOCK_72041.to_vec();
-        let block_72041 =
-            bitcoin::block::Block::consensus_decode(&mut block_vec.as_slice()).unwrap();
-
-        let block_72041_txids: Vec<[u8; 32]> = block_72041
-            .txdata
-            .iter()
-            .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
-            .collect();
-        let mmr_inclusion_proof = mmr_native.generate_proof(TEST_PARAMETERS.payment_block_height);
-        let block_72041_mt = BitcoinMerkleTree::new(block_72041_txids);
-        let payout_tx_proof = block_72041_mt.generate_proof(TEST_PARAMETERS.payout_tx_index);
-
-        SPV {
-            transaction: payout_tx.into(),
-            block_inclusion_proof: payout_tx_proof,
-            block_header: block_72041.header.into(),
-            mmr_inclusion_proof: mmr_inclusion_proof.1,
-        }
-    }
-
-    fn generate_winternitz(
-        compressed_proof: &[u8; 128],
-        committed_total_work: &[u8],
+    pub fn sign_winternitz(
+        message: Vec<u8>,
+        secret_key: Vec<u8>,
+        params: Parameters,
     ) -> WinternitzHandler {
-        let compressed_proof_and_total_work: Vec<u8> =
-            [compressed_proof, committed_total_work].concat();
-        println!(
-            "Compressed proof and total work: {:?}",
-            compressed_proof_and_total_work
-        );
-        let n0 = compressed_proof_and_total_work.len();
-        let log_d = 8;
-        let params = Parameters::new(n0.try_into().unwrap(), log_d);
-        let input: u64 = 1;
-        let mut rng = SmallRng::seed_from_u64(input);
-        let secret_key: Vec<u8> = (0..n0).map(|_| rng.gen()).collect();
         let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
-        let signature = sign_digits(&params, &secret_key, &compressed_proof_and_total_work);
+        let signature = sign_digits(&params, &secret_key, &message);
 
         WinternitzHandler {
             pub_key,
             params,
             signature: Some(signature),
-            message: Some(compressed_proof_and_total_work),
+            message: Some(message),
         }
     }
 
@@ -316,18 +406,31 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn bridge_circuit_test() {
+        use circuits_lib::bridge_circuit::{
+            structs::{LightClientProof, StorageProof},
+            total_work_and_watchtower_flags,
+        };
+
         let work_only_method_id_from_elf = compute_image_id(WORK_ONLY_ELF).unwrap();
         assert_eq!(
             work_only_method_id_from_elf.as_bytes(),
             WORK_ONLY_IMAGE_ID,
             "Method ID mismatch, make sure to build the guest programs with new hardcoded values."
         );
-        let citrea_rpc_client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
-        let light_client_rpc_client =
-            ClientBuilder::default().http(LIGHT_CLIENT_PROVER_URL.parse().unwrap());
+
         let headerchain_receipt: Receipt =
             Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
-        let spv = create_spv();
+
+        let payment_block: bitcoin::Block =
+            bitcoin::block::Block::consensus_decode(&mut &TESTNET_BLOCK_72041[..]).unwrap();
+
+        let spv = create_spv(
+            &mut PAYOUT_TX.as_ref(),
+            HEADERS,
+            payment_block,
+            TEST_PARAMETERS.payment_block_height,
+            TEST_PARAMETERS.payout_tx_index,
+        );
 
         let block_header_circuit_output: BlockHeaderCircuitOutput =
             borsh::BorshDeserialize::try_from_slice(&headerchain_receipt.journal.bytes[..])
@@ -337,8 +440,10 @@ mod tests {
             header_chain_circuit_output: block_header_circuit_output.clone(),
         };
 
-        let work_only_groth16_proof_receipt: Receipt =
-            prove_work_only(headerchain_receipt.clone(), &work_only_circuit_input);
+        let work_only_groth16_proof_receipt: Receipt = prove_work_only_header_chain_proof(
+            headerchain_receipt.clone(),
+            &work_only_circuit_input,
+        );
 
         let g16_proof_receipt: &risc0_zkvm::Groth16Receipt<risc0_zkvm::ReceiptClaim> =
             work_only_groth16_proof_receipt.inner.groth16().unwrap();
@@ -354,20 +459,25 @@ mod tests {
             .try_into()
             .unwrap();
 
-        let winternitz_details = generate_winternitz(&compressed_proof, &commited_total_work);
+        let input: u64 = 1;
 
-        let (light_client_proof, lcp_receipt) =
-            fetch_light_client_proof(72471, light_client_rpc_client)
-                .await
-                .unwrap();
+        let compressed_proof_and_total_work: Vec<u8> =
+            [compressed_proof.as_ref(), commited_total_work.as_ref()].concat();
 
-        let storage_proof = fetch_storage_proof(
-            &light_client_proof.l2_height,
-            TEST_PARAMETERS.deposit_index,
-            TEST_PARAMETERS.move_to_vault_txid,
-            citrea_rpc_client,
-        )
-        .await;
+        let len = compressed_proof_and_total_work.len();
+        let n0 = u32::try_from(len).expect("Length exceeds u32 max value");
+        let params = Parameters::new(n0, 8);
+
+        let mut rng = SmallRng::seed_from_u64(input);
+        let secret_key: Vec<u8> = (0..n0).map(|_| rng.gen()).collect();
+
+        let winternitz_details =
+            sign_winternitz(compressed_proof_and_total_work, secret_key, params);
+
+        let light_client_proof: LightClientProof = borsh::from_slice(LIGHT_CLIENT_PROOF).unwrap();
+        let lcp_receipt: Receipt = borsh::from_slice(LCP_RECEIPT).unwrap();
+
+        let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
         let num_of_watchtowers: u32 = 1;
 
@@ -382,40 +492,11 @@ mod tests {
             num_of_watchtowers,
         };
         // Do what a normal bridge circuit guest is supposed to do
-        let mut wt_messages_with_idxs: Vec<(usize, Vec<u8>)> = vec![];
-        let mut watchtower_flags: Vec<bool> = vec![];
-        for (wt_idx, winternitz_handler) in bridge_circuit_host_params
-            .winternitz_details
-            .iter()
-            .enumerate()
-        {
-            if winternitz_handler.signature.is_none() || winternitz_handler.message.is_none() {
-                watchtower_flags.push(false);
-                continue;
-            }
-
-            let flag = verify_winternitz_signature(winternitz_handler);
-            watchtower_flags.push(flag);
-
-            if flag {
-                wt_messages_with_idxs.push((wt_idx, winternitz_handler.message.clone().unwrap()));
-            }
-        }
-        wt_messages_with_idxs.sort_by(|a, b| b.1.cmp(&a.1));
-        let mut total_work = [0u8; 32];
-        for pair in wt_messages_with_idxs.iter() {
-            // Grooth16 verification of work only circuit
-            if convert_to_groth16_and_verify(&pair.1, &WORK_ONLY_IMAGE_ID) {
-                total_work[16..32].copy_from_slice(
-                    &pair.1[128..144]
-                        .chunks_exact(4)
-                        .flat_map(|c| c.iter().rev())
-                        .copied()
-                        .collect::<Vec<_>>(),
-                );
-                break;
-            }
-        }
+        (_, _) = total_work_and_watchtower_flags(
+            &bridge_circuit_host_params.winternitz_details,
+            bridge_circuit_host_params.num_of_watchtowers,
+            &WORK_ONLY_IMAGE_ID,
+        );
 
         let (ark_groth16_proof, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
