@@ -93,21 +93,34 @@ mod tests {
         let latest_block_hash_params = Parameters::new(20, 8);
         let challenge_sending_watchtowers_params = Parameters::new(20, 8);
 
-        let g16_public_input_pk =
-            generate_public_key(&groth16_public_input_params, &g16_public_input_wsk);
-        let payout_tx_block_hash_pk =
-            generate_public_key(&payout_tx_block_hash_params, &payout_tx_block_hash_wsk);
+        let g16_public_input_pk = generate_public_key(
+            &groth16_public_input_params,
+            &g16_public_input_wsk.secret_key,
+        );
+        let payout_tx_block_hash_pk = generate_public_key(
+            &payout_tx_block_hash_params,
+            &payout_tx_block_hash_wsk.secret_key,
+        );
         let latest_block_hash_pk =
-            generate_public_key(&latest_block_hash_params, &latest_block_hash_wsk);
+            generate_public_key(&latest_block_hash_params, &latest_block_hash_wsk.secret_key);
         let challenge_sending_watchtowers_pk = generate_public_key(
             &challenge_sending_watchtowers_params,
-            &challenge_sending_watchtowers_wsk,
+            &challenge_sending_watchtowers_wsk.secret_key,
         );
 
-        let a = create_additional_replacable_disprove_script(
-            combined_method_id,
-            deposit_constant,
-            /*Put wpk here*/ payout_tx_block_hash,
+        let dummy_challenge_hashes = [[0u8; 20]; 160];
+
+        let (script, index) = create_additional_replacable_disprove_script(
+            BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.combined_method_id,
+            BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.deposit_constant,
+            g16_public_input_pk,
+            payout_tx_block_hash_pk,
+            latest_block_hash_pk,
+            challenge_sending_watchtowers_pk,
+            dummy_challenge_hashes,
         );
+
+        println!("DISPROVE SCRIPT: {:?}", script);
+        println!("DISPROVE SCRIPT INDEX: {:?}", index);
     }
 }
