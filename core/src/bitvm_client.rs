@@ -412,7 +412,7 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub const fn number_of_flattened_wpks() -> usize {
-        396
+        381
     }
 
     pub fn get_assert_scripts(
@@ -449,7 +449,7 @@ impl ClementineBitVMPublicKeys {
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.2[i..last_idx]
                     .iter()
-                    .map(|x| (x.to_vec(), 40))
+                    .map(|x| (x.to_vec(), 32))
                     .collect::<Vec<_>>(),
                 xonly_public_key,
                 4,
