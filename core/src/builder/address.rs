@@ -3,7 +3,7 @@
 //! Address builder provides useful functions for building typical Bitcoin
 //! addresses.
 
-use super::script::{CheckSig, OriginalDepositScript, SpendableScript, TimelockScript};
+use super::script::{BaseDepositScript, CheckSig, SpendableScript, TimelockScript};
 use crate::bitvm_client::SECP;
 use crate::errors::BridgeError;
 use crate::{bitvm_client, EVMAddress};
@@ -126,7 +126,7 @@ pub fn generate_deposit_address(
     user_takes_after: u16,
 ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
     let deposit_script =
-        OriginalDepositScript::new(nofn_xonly_pk, user_evm_address, amount).to_script_buf();
+        BaseDepositScript::new(nofn_xonly_pk, user_evm_address, amount).to_script_buf();
 
     let recovery_script_pubkey = recovery_taproot_address
         .clone()

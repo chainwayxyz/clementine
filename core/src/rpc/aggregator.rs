@@ -886,6 +886,7 @@ impl ClementineAggregator for Aggregator {
 #[cfg(test)]
 mod tests {
     use crate::actor::Actor;
+    use crate::builder::transaction::{BaseDepositData, DepositData};
     use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{self};
     use crate::{builder, EVMAddress};
@@ -955,17 +956,15 @@ mod tests {
             .unwrap();
         sleep(Duration::from_secs(3)).await;
 
+        let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address: signer.address.as_unchecked().clone(),
+            nofn_xonly_pk,
+        });
+
         let movetx_txid: Txid = aggregator
-            .new_deposit(DepositParams {
-                deposit_data: Some(clementine::deposit_params::DepositData::OriginalDeposit(
-                    clementine::OriginalDeposit {
-                        deposit_outpoint: Some(deposit_outpoint.into()),
-                        evm_address: evm_address.0.to_vec(),
-                        recovery_taproot_address: signer.address.to_string(),
-                        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-                    },
-                )),
-            })
+            .new_deposit(DepositParams::from(deposit_data))
             .await
             .unwrap()
             .into_inner()

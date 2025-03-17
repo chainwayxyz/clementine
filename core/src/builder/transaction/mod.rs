@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use super::script::{CheckSig, OriginalDepositScript, TimelockScript};
+use super::script::{BaseDepositScript, CheckSig, TimelockScript};
 use super::script::{ReplacementDepositScript, SpendPath};
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -54,20 +54,20 @@ mod txhandler;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum DepositData {
-    OriginalDeposit(OriginalDepositData),
+    BaseDeposit(BaseDepositData),
     ReplacementDeposit(ReplacementDepositData),
 }
 
 impl DepositData {
     pub fn get_deposit_outpoint(&self) -> OutPoint {
         match self {
-            DepositData::OriginalDeposit(data) => data.deposit_outpoint,
+            DepositData::BaseDeposit(data) => data.deposit_outpoint,
             DepositData::ReplacementDeposit(data) => data.deposit_outpoint,
         }
     }
     pub fn get_nofn_xonly_pk(&self) -> XOnlyPublicKey {
         match self {
-            DepositData::OriginalDeposit(data) => data.nofn_xonly_pk,
+            DepositData::BaseDeposit(data) => data.nofn_xonly_pk,
             DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk,
         }
     }
@@ -75,7 +75,7 @@ impl DepositData {
 
 /// Type to uniquely identify a deposit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct OriginalDepositData {
+pub struct BaseDepositData {
     /// User's deposit UTXO.
     pub deposit_outpoint: bitcoin::OutPoint,
     /// User's EVM address.
@@ -342,8 +342,8 @@ pub fn create_move_to_vault_txhandler(
     let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()));
 
     let builder = match deposit_data {
-        DepositData::OriginalDeposit(original_deposit_data) => {
-            let deposit_script = Arc::new(OriginalDepositScript::new(
+        DepositData::BaseDeposit(original_deposit_data) => {
+            let deposit_script = Arc::new(BaseDepositScript::new(
                 original_deposit_data.nofn_xonly_pk,
                 original_deposit_data.evm_address,
                 bridge_amount_sats,

@@ -1,7 +1,7 @@
 //! # Common Utilities for Integration Tests
 
 use crate::actor::Actor;
-use crate::builder::transaction::{DepositData, OriginalDepositData};
+use crate::builder::transaction::{BaseDepositData, DepositData};
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -123,7 +123,7 @@ pub async fn run_multiple_deposits(
             .await?;
         rpc.mine_blocks(18).await?;
 
-        let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+        let deposit_data = DepositData::BaseDeposit(BaseDepositData {
             deposit_outpoint,
             evm_address,
             recovery_taproot_address: actor.address.as_unchecked().to_owned(),
@@ -219,7 +219,7 @@ pub async fn run_single_deposit(
         bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
             .unwrap();
 
-    let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: actor.address.as_unchecked().to_owned(),

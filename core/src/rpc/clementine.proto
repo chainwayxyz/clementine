@@ -85,7 +85,7 @@ message WinternitzPubkey {
 
 message DepositParams {
   oneof deposit_data {
-    OriginalDeposit original_deposit = 1;
+    BaseDeposit base_deposit = 1;
     ReplacementDeposit replacement_deposit = 2;
   }
 }
@@ -100,7 +100,7 @@ message ReplacementDeposit {
 }
 
 // A new original deposit request's details.
-message OriginalDeposit {
+message BaseDeposit {
   // User's deposit UTXO.
   Outpoint deposit_outpoint = 1;
   // User's EVM address.

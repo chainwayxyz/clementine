@@ -298,15 +298,15 @@ impl PreimageRevealScript {
 
 /// Struct for deposit script that commits Citrea address to be deposited into onchain.
 #[derive(Debug, Clone)]
-pub struct OriginalDepositScript(pub(crate) XOnlyPublicKey, EVMAddress, Amount);
+pub struct BaseDepositScript(pub(crate) XOnlyPublicKey, EVMAddress, Amount);
 
-impl SpendableScript for OriginalDepositScript {
+impl SpendableScript for BaseDepositScript {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn kind(&self) -> ScriptKind {
-        ScriptKind::OriginalDepositScript(self)
+        ScriptKind::BaseDepositScript(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -325,7 +325,7 @@ impl SpendableScript for OriginalDepositScript {
     }
 }
 
-impl OriginalDepositScript {
+impl BaseDepositScript {
     pub fn generate_script_inputs(&self, signature: &taproot::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
@@ -335,7 +335,8 @@ impl OriginalDepositScript {
     }
 }
 
-/// Struct for deposit script that commits Citrea address to be deposited into onchain.
+/// Struct for deposit script that replaces an old move tx with a replacement deposit (to update bridge design on chain)
+/// It commits to the old move txid inside the script.
 #[derive(Debug, Clone)]
 pub struct ReplacementDepositScript(pub(crate) XOnlyPublicKey, Txid, Amount);
 
@@ -410,7 +411,7 @@ pub enum ScriptKind<'a> {
     WinternitzCommit(&'a WinternitzCommit),
     TimelockScript(&'a TimelockScript),
     PreimageRevealScript(&'a PreimageRevealScript),
-    OriginalDepositScript(&'a OriginalDepositScript),
+    BaseDepositScript(&'a BaseDepositScript),
     ReplacementDepositScript(&'a ReplacementDepositScript),
     WithdrawalScript(&'a WithdrawalScript),
     Other(&'a OtherSpendable),
@@ -475,7 +476,7 @@ mod tests {
             )),
             Box::new(TimelockScript::new(Some(dummy_xonly()), 10)),
             Box::new(PreimageRevealScript::new(dummy_xonly(), [0; 20])),
-            Box::new(OriginalDepositScript::new(
+            Box::new(BaseDepositScript::new(
                 dummy_xonly(),
                 dummy_evm_address(),
                 Amount::from_sat(100),
@@ -487,7 +488,7 @@ mod tests {
         let winternitz = get_script_from_arr::<WinternitzCommit>(&scripts);
         let timelock = get_script_from_arr::<TimelockScript>(&scripts);
         let preimage = get_script_from_arr::<PreimageRevealScript>(&scripts);
-        let deposit = get_script_from_arr::<OriginalDepositScript>(&scripts);
+        let deposit = get_script_from_arr::<BaseDepositScript>(&scripts);
         let others = get_script_from_arr::<OtherSpendable>(&scripts);
 
         assert!(checksig.is_some(), "CheckSig not found");
@@ -547,10 +548,18 @@ mod tests {
                 Arc::new(PreimageRevealScript::new(dummy_xonly(), [1; 20])),
             ),
             (
-                "DepositScript",
-                Arc::new(OriginalDepositScript::new(
+                "BaseDepositScript",
+                Arc::new(BaseDepositScript::new(
                     dummy_xonly(),
                     dummy_evm_address(),
+                    Amount::from_sat(50),
+                )),
+            ),
+            (
+                "ReplacementDepositScript",
+                Arc::new(ReplacementDepositScript::new(
+                    dummy_xonly(),
+                    Txid::all_zeros(),
                     Amount::from_sat(50),
                 )),
             ),
@@ -564,7 +573,8 @@ mod tests {
                 ("WinternitzCommit", ScriptKind::WinternitzCommit(_)) => (),
                 ("TimelockScript", ScriptKind::TimelockScript(_)) => (),
                 ("PreimageRevealScript", ScriptKind::PreimageRevealScript(_)) => (),
-                ("DepositScript", ScriptKind::OriginalDepositScript(_)) => (),
+                ("BaseDepositScript", ScriptKind::BaseDepositScript(_)) => (),
+                ("ReplacementDepositScript", ScriptKind::ReplacementDepositScript(_)) => (),
                 ("Other", ScriptKind::Other(_)) => (),
                 (s, _) => panic!("ScriptKind conversion not comprehensive for variant: {}", s),
             }
@@ -781,7 +791,6 @@ mod tests {
     }
 
     #[tokio::test]
-
     async fn test_preimage_reveal_script_spendable() {
         let mut config = create_test_config_with_thread_name(None).await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -824,8 +833,7 @@ mod tests {
     }
 
     #[tokio::test]
-
-    async fn test_deposit_script_spendable() {
+    async fn test_base_deposit_script_spendable() {
         let mut config = create_test_config_with_thread_name(None).await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
@@ -833,7 +841,7 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let script: Arc<dyn SpendableScript> = Arc::new(OriginalDepositScript::new(
+        let script: Arc<dyn SpendableScript> = Arc::new(BaseDepositScript::new(
             xonly_pk,
             EVMAddress([2; 20]),
             Amount::from_sat(50),
@@ -856,7 +864,47 @@ mod tests {
 
         signer
             .tx_sign_and_fill_sigs(&mut tx, &[])
-            .expect("should be able to sign deposit");
+            .expect("should be able to sign base deposit");
+
+        rpc.client
+            .send_raw_transaction(tx.get_cached_tx())
+            .await
+            .expect("bitcoin RPC did not accept transaction");
+    }
+
+    #[tokio::test]
+    async fn test_replacement_deposit_script_spendable() {
+        let mut config = create_test_config_with_thread_name(None).await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
+        let xonly_pk = kp.public_key().x_only_public_key().0;
+
+        let script: Arc<dyn SpendableScript> = Arc::new(ReplacementDepositScript::new(
+            xonly_pk,
+            Txid::all_zeros(),
+            Amount::from_sat(50),
+        ));
+        let scripts = vec![script];
+        let (builder, _) = create_taproot_test_tx(
+            &rpc,
+            scripts,
+            SpendPath::ScriptSpend(0),
+            Amount::from_sat(10_000),
+        )
+        .await;
+        let mut tx = builder.finalize();
+
+        let signer = Actor::new(
+            kp.secret_key(),
+            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
+            bitcoin::Network::Regtest,
+        );
+
+        signer
+            .tx_sign_and_fill_sigs(&mut tx, &[])
+            .expect("should be able to sign replacement deposit");
 
         rpc.client
             .send_raw_transaction(tx.get_cached_tx())

@@ -1,7 +1,7 @@
 use super::common::{create_actors, create_test_config_with_thread_name};
 use crate::actor::Actor;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::{DepositData, OriginalDepositData, TransactionType};
+use crate::builder::transaction::{DepositData, BaseDepositData, TransactionType};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
@@ -56,7 +56,7 @@ pub async fn run_operator_end_round(
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
-    let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
@@ -173,7 +173,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
-    let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
@@ -511,7 +511,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
-    let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
@@ -864,7 +864,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
-    let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
@@ -1087,7 +1087,7 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
-    let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
@@ -1284,7 +1284,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
-    let deposit_data = DepositData::OriginalDeposit(OriginalDepositData {
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),

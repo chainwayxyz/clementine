@@ -1,4 +1,4 @@
-use super::{convert_int_to_another, parse_deposit_params};
+use super::convert_int_to_another;
 use crate::builder::transaction::DepositData;
 use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
@@ -182,7 +182,7 @@ pub fn parse_op_keys_with_deposit(
         .deposit_params
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
 
-    let deposit_data = parse_deposit_params(deposit_params)?;
+    let deposit_data: DepositData = deposit_params.try_into()?;
 
     let op_keys = data
         .operator_keys
@@ -245,7 +245,7 @@ pub fn parse_wt_keys_with_deposit(
         .deposit_params
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
 
-    let deposit_data = parse_deposit_params(deposit_params)?;
+    let deposit_data: DepositData = deposit_params.try_into()?;
 
     let watchtower_keys = data
         .watchtower_keys

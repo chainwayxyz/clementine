@@ -70,7 +70,7 @@ pub mod deposit_params {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum DepositData {
         #[prost(message, tag = "1")]
-        OriginalDeposit(super::OriginalDeposit),
+        BaseDeposit(super::BaseDeposit),
         #[prost(message, tag = "2")]
         ReplacementDeposit(super::ReplacementDeposit),
     }
@@ -89,7 +89,7 @@ pub struct ReplacementDeposit {
 }
 /// A new original deposit request's details.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OriginalDeposit {
+pub struct BaseDeposit {
     /// User's deposit UTXO.
     #[prost(message, optional, tag = "1")]
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
