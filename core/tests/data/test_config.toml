@@ -20,8 +20,8 @@ num_verifiers = 4
 
 # All of the operators x-only public keys.
 operators_xonly_pks = [
-    "029ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
-    "035ab4689e400a4a160cf01cd44730845a54768df8547dcdf073d964f109f18c30",
+    "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+    "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
 ]
 num_operators = 2
 
