@@ -177,7 +177,8 @@ where
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
             None,
-        )?;
+        )
+        .await?;
 
         tracing::debug!(
             "Operator idx: {:?}, db created with name: {:?}",

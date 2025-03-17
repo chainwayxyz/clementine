@@ -190,7 +190,8 @@ where
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
             None,
-        )?;
+        )
+        .await?;
 
         let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),

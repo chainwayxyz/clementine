@@ -95,6 +95,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             config.citrea_light_client_prover_url.clone(),
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
         )
+        .await
         .unwrap();
 
         let balance = citrea_client

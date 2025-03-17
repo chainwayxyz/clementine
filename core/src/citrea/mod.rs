@@ -51,7 +51,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     /// - `secret_key`: EVM secret key of the EVM user. If not given, random
     ///   secret key is used (wallet is not required). This is given mostly for
     ///   testing purposes.
-    fn new(
+    async fn new(
         citrea_rpc_url: String,
         light_client_prover_url: String,
         secret_key: Option<PrivateKeySigner>,
@@ -175,7 +175,7 @@ impl CitreaClient {
 
 #[async_trait]
 impl CitreaClientT for CitreaClient {
-    fn new(
+    async fn new(
         citrea_rpc_url: String,
         light_client_prover_url: String,
         secret_key: Option<PrivateKeySigner>,
@@ -443,6 +443,7 @@ mod tests {
                 config.citrea_light_client_prover_url,
                 Some(SECRET_KEYS[0].to_string().parse().unwrap()),
             )
+            .await
             .unwrap();
 
             let filter = citrea_client.contract.event_filter::<Withdrawal>().filter;
