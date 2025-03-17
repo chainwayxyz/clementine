@@ -69,6 +69,7 @@ impl SuccinctBridgeCircuitPublicInputs {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct BridgeCircuitBitvmInputs {
     pub payout_tx_block_hash: [u8; 20],
     pub latest_block_hash: [u8; 20],
