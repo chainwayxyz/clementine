@@ -12,8 +12,7 @@
 
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::{address::NetworkUnchecked, Amount};
-use bitcoin::{Address, XOnlyPublicKey};
+use bitcoin::{Amount, XOnlyPublicKey};
 use protocol::{ProtocolParamset, ProtocolParamsetName};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -255,7 +254,6 @@ impl Default for BridgeConfig {
                 .expect("known valid input"),
             ),
             // socket_path: "/".to_string(),
-
             verifier_endpoints: None,
             operator_endpoints: None,
             watchtower_endpoints: None,
