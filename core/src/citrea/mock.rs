@@ -1,6 +1,6 @@
 use super::CitreaClientT;
 use crate::{
-    database::{DatabaseTransaction, TxidDB},
+    database::{DatabaseTransaction, OutPointDB, TxidDB},
     errors::BridgeError,
     execute_query_with_tx,
 };
@@ -55,9 +55,8 @@ impl CitreaClientT for MockCitreaClient {
 
         for i in from_height..to_height + 1 {
             let query = sqlx::query_as(
-                "SELECT
-                    move_txid
-                FROM mockcitrea_deposits
+                "SELECT move_txid
+                FROM deposits
                 WHERE height = $1",
             )
             .bind(i64::try_from(i).unwrap());
@@ -85,10 +84,21 @@ impl CitreaClientT for MockCitreaClient {
         let mut ret = vec![];
 
         for i in from_height..to_height + 1 {
-            if let Some(utxos) = self.withdrawal_utxos.get(&i) {
-                for utxo in utxos {
-                    ret.push((i, utxo.1));
-                }
+            let query = sqlx::query_as(
+                "SELECT utxo
+                FROM withdrawals
+                WHERE height = $1",
+            )
+            .bind(i64::try_from(i).unwrap());
+
+            let results: Vec<(OutPointDB,)> = execute_query_with_tx!(
+                self.connection,
+                None::<DatabaseTransaction>,
+                query,
+                fetch_all
+            )?;
+            for utxo in results {
+                ret.push((i, utxo.0 .0));
             }
         }
 
@@ -114,25 +124,24 @@ impl CitreaClientT for MockCitreaClient {
 impl MockCitreaClient {
     /// Pushes a deposit move txid to the given height.
     pub async fn insert_deposit_move_txid(&mut self, height: u64, txid: Txid) {
-        let query =
-            sqlx::query("INSERT INTO mockcitrea_deposits (height, move_txid) VALUES ($1, $2)")
-                .bind(i64::try_from(height).unwrap())
-                .bind(TxidDB(txid));
+        let query = sqlx::query("INSERT INTO deposits (height, move_txid) VALUES ($1, $2)")
+            .bind(i64::try_from(height).unwrap())
+            .bind(TxidDB(txid));
 
         execute_query_with_tx!(self.connection, None::<DatabaseTransaction>, query, execute)
             .unwrap();
     }
 
     /// Pushes a withdrawal utxo and its ondex to the given height.
-    pub fn push_withdrawal_utxo(&mut self, height: u64, index: u64, utxo: OutPoint) {
-        let mut utxos = self
-            .withdrawal_utxos
-            .get(&height)
-            .unwrap_or(&Vec::<(u64, OutPoint)>::new())
-            .clone();
-        utxos.push((index, utxo));
+    pub async fn push_withdrawal_utxo(&mut self, height: u64, index: u64, utxo: OutPoint) {
+        let query =
+            sqlx::query("INSERT INTO withdrawals (height, index, utxo) VALUES ($1, $2, $3)")
+                .bind(i64::try_from(height).unwrap())
+                .bind(i64::try_from(index).unwrap())
+                .bind(OutPointDB(utxo));
 
-        self.withdrawal_utxos.insert(height, utxos);
+        execute_query_with_tx!(self.connection, None::<DatabaseTransaction>, query, execute)
+            .unwrap();
     }
 }
 
@@ -178,7 +187,9 @@ mod tests {
 
     #[tokio::test]
     async fn withdrawal_utxos() {
-        let mut client = super::MockCitreaClient::new("".to_string(), "".to_string(), None)
+        let mut config = create_test_config_with_thread_name(None).await;
+        citrea::create_mock_citrea_database(&mut config).await;
+        let mut client = super::MockCitreaClient::new(config.citrea_rpc_url, "".to_string(), None)
             .await
             .unwrap();
 
@@ -188,21 +199,27 @@ mod tests {
             .unwrap()
             .is_empty());
 
-        client.push_withdrawal_utxo(
-            1,
-            0,
-            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[1; 32]).unwrap(), 0),
-        );
-        client.push_withdrawal_utxo(
-            1,
-            1,
-            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1),
-        );
-        client.push_withdrawal_utxo(
-            2,
-            2,
-            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2),
-        );
+        client
+            .push_withdrawal_utxo(
+                1,
+                0,
+                bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[1; 32]).unwrap(), 0),
+            )
+            .await;
+        client
+            .push_withdrawal_utxo(
+                1,
+                1,
+                bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1),
+            )
+            .await;
+        client
+            .push_withdrawal_utxo(
+                2,
+                2,
+                bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2),
+            )
+            .await;
 
         let utxos = client.collect_withdrawal_utxos(1, 2).await.unwrap();
 

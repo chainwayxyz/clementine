@@ -172,11 +172,23 @@ pub async fn create_mock_citrea_database(config: &mut BridgeConfig) {
 
     sqlx::query(
         "
-            CREATE TABLE mockcitrea_deposits (
+            CREATE TABLE deposits (
                 height INT NOT NULL,
                 move_txid TEXT PRIMARY KEY NOT NULL
             );
         ",
+    )
+    .execute(&conn)
+    .await
+    .unwrap();
+    sqlx::query(
+        "
+        CREATE TABLE withdrawals (
+            height INT NOT NULL,
+            index INT NOT NULL,
+            utxo TEXT PRIMARY KEY NOT NULL
+        );
+    ",
     )
     .execute(&conn)
     .await
