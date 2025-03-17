@@ -57,6 +57,18 @@ impl ExtendedRpc {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_blockhash_of_tx(
+        &self,
+        txid: &bitcoin::Txid,
+    ) -> Result<bitcoin::BlockHash, BridgeError> {
+        let raw_transaction_results = self.client.get_raw_transaction_info(txid, None).await?;
+        let Some(blockhash) = raw_transaction_results.blockhash else {
+            return Err(BridgeError::TransactionNotConfirmed(*txid));
+        };
+        Ok(blockhash)
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn check_utxo_address_and_amount(
         &self,
         outpoint: &OutPoint,
@@ -82,7 +94,7 @@ impl ExtendedRpc {
     pub async fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
         let res = self
             .client
-            .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))
+            .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
             .await?;
 
         Ok(res.is_none())

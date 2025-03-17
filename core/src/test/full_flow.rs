@@ -1,5 +1,6 @@
 use super::common::{create_actors, create_test_config_with_thread_name};
 use crate::actor::Actor;
+use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::mock::MockCitreaClient;
 use crate::config::BridgeConfig;
@@ -16,6 +17,9 @@ use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
+use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use citrea_e2e::config::LightClientProverConfig;
+use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
 use tonic::Request;
 
@@ -186,12 +190,27 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };
@@ -381,7 +400,7 @@ pub async fn send_tx(
     Ok(())
 }
 
-async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
+pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
     let mut timeout_counter = 50;
     while rpc
         .client
@@ -403,7 +422,10 @@ async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Erro
     Ok(())
 }
 
-async fn ensure_outpoint_spent(rpc: &ExtendedRpc, outpoint: OutPoint) -> Result<(), eyre::Error> {
+pub async fn ensure_outpoint_spent(
+    rpc: &ExtendedRpc,
+    outpoint: OutPoint,
+) -> Result<(), eyre::Error> {
     let mut timeout_counter = 1000;
     while rpc
         .client
@@ -424,6 +446,46 @@ async fn ensure_outpoint_spent(rpc: &ExtendedRpc, outpoint: OutPoint) -> Result<
             );
         }
     }
+    rpc.client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await?;
+    Ok(())
+}
+
+pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
+    rpc: &ExtendedRpc,
+    lc_prover: &Node<LightClientProverConfig>,
+    outpoint: OutPoint,
+) -> Result<(), eyre::Error> {
+    let mut timeout_counter = 1000;
+    while rpc
+        .client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await
+        .unwrap()
+        .is_some()
+    {
+        // Mine more blocks and wait longer between checks
+        let block_count = rpc.client.get_blockchain_info().await?.blocks;
+        lc_prover
+            .wait_for_l1_height(block_count as u64 - DEFAULT_FINALITY_DEPTH, None)
+            .await
+            .unwrap();
+        rpc.mine_blocks(1).await?;
+
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        timeout_counter -= 1;
+
+        if timeout_counter == 0 {
+            bail!(
+                "timeout while waiting for outpoint {:?} to be spent",
+                outpoint
+            );
+        }
+    }
+    rpc.client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await?;
     Ok(())
 }
 
@@ -512,13 +574,28 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };
@@ -847,13 +924,28 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };
@@ -1053,13 +1145,28 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };
@@ -1232,13 +1339,28 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
 
+    // get a kickoff idx that operator 0 signed
+    let op0_xonly_pk = Actor::new(
+        config.all_operators_secret_keys.clone().unwrap()[0],
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    )
+    .xonly_public_key;
+    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+    let kickoff_idx = get_kickoff_utxos_to_sign(
+        config.protocol_paramset(),
+        op0_xonly_pk,
+        deposit_blockhash,
+        deposit_outpoint,
+    )[0] as u32;
+
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
-            kickoff_idx: 0,
+            kickoff_idx,
         }),
         deposit_params: Some(dep_params.clone()),
     };

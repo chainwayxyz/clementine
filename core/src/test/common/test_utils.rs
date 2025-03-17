@@ -336,8 +336,6 @@ pub async fn create_actors<C: CitreaClientT>(
 
     // Create temporary directory for Unix sockets
     let socket_dir = tempfile::tempdir().expect("Failed to create temporary directory for sockets");
-    let mut config = config.clone();
-    config.socket_path = format!("unix://{}", socket_dir.path().display()).to_string();
 
     let verifier_futures = all_verifiers_secret_keys
         .iter()

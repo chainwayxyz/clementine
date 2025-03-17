@@ -13,9 +13,13 @@ use crate::verifier::VerifierServer;
 use crate::watchtower::Watchtower;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
+use std::env;
+use std::fs;
+use std::path::Path;
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
+use tonic_reflection::server::Builder;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
 
@@ -67,7 +71,37 @@ where
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
-    let server_builder = tonic::transport::Server::builder().add_service(service);
+    // Create reflection service using the descriptor file
+    let descriptor_path = std::env::var("DESCRIPTOR_PATH").map_or_else(
+        |_| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join("rpc")
+                .join("descriptor.bin")
+        },
+        |path| Path::new(&path).to_path_buf(),
+    );
+
+    let descriptor_bytes = fs::read(&descriptor_path).map_err(|e| {
+        BridgeError::ServerError(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to read descriptor file: {}", e),
+        ))
+    })?;
+
+    let reflection_service = Builder::configure()
+        .register_encoded_file_descriptor_set(&descriptor_bytes)
+        .build_v1()
+        .map_err(|e| {
+            BridgeError::ServerError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to build reflection service: {}", e),
+            ))
+        })?;
+
+    let server_builder = tonic::transport::Server::builder()
+        .add_service(reflection_service)
+        .add_service(service);
 
     match addr {
         ServerAddr::Tcp(socket_addr) => {

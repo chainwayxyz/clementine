@@ -1,9 +1,17 @@
 use super::common::citrea::BRIDGE_PARAMS;
+use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
+use crate::database::Database;
+use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::SECRET_KEYS;
-use crate::test::common::{generate_withdrawal_transaction_and_signature, run_single_deposit};
+use crate::test::common::{
+    create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
+    run_single_deposit,
+};
+use crate::test::full_flow::ensure_outpoint_spent_while_waiting_for_light_client_sync;
+use crate::{builder, EVMAddress};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -14,8 +22,10 @@ use crate::{
 use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;
 use async_trait::async_trait;
+use base64::Engine;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
+use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
@@ -116,8 +126,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _aggregator,
             _watchtowers,
             _cleanup,
-            _deposit_outpoint,
+            _deposit_params,
             move_txid,
+            _deposit_blockhash,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
 
         tracing::info!(
@@ -251,7 +262,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
-        loop {
+        let payout_txid = loop {
             let withdrawal_response = operators[0]
                 .withdraw(WithdrawParams {
                     withdrawal_id: 0,
@@ -267,7 +278,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             match withdrawal_response {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-                    break;
+                    break Txid::from_byte_array(
+                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                    );
                 }
                 Err(e) => {
                     tracing::info!("Withdrawal error: {:?}", e);
@@ -276,8 +289,79 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
             // wait 1000ms
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        };
+
+        tracing::info!("Payout txid: {:?}", payout_txid);
+
+        mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None).await?;
+
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
+
+        // Setup tx_sender for sending transactions
+        let verifier_0_config = {
+            let mut config = config.clone();
+            config.db_name += "0";
+            config
+        };
+
+        let db = Database::new(&verifier_0_config)
+            .await
+            .expect("failed to create database");
+
+        // wait until payout part is not null
+        while db
+            .get_first_unhandled_payout_by_operator_id(None, 0)
+            .await?
+            .is_none()
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
+        tracing::info!("Waiting until payout is handled");
+        // wait until payout is handled
+        while db
+            .get_first_unhandled_payout_by_operator_id(None, 0)
+            .await?
+            .is_some()
+        {
+            tracing::info!("Payout is not handled yet");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        let kickoff_txid = db
+            .get_handled_payout_kickoff_txid(None, payout_txid)
+            .await?
+            .expect("Payout must be handled");
+
+        let reimburse_connector = OutPoint {
+            txid: kickoff_txid,
+            vout: 2,
+        };
+
+        // wait 3 seconds so fee payer txs are sent to mempool
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // mine 1 block to make sure the fee payer txs are in the next block
+        rpc.mine_blocks(1).await.unwrap();
+
+        // Wait for the kickoff tx to be onchain
+        let kickoff_block_height =
+            mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
+
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
+
+        // wait until the light client prover is synced to the same height
+        lc_prover
+            .wait_for_l1_height(kickoff_block_height as u64, None)
+            .await?;
+
+        // Ensure the reimburse connector is spent
+        ensure_outpoint_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            reimburse_connector,
+        )
+        .await
+        .unwrap();
         Ok(())
     }
 }
@@ -290,4 +374,73 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
         "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
     );
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
+}
+
+#[tokio::test]
+#[ignore = "Manual testing utility"]
+async fn get_deposit_address_for_manual_tests() {
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc();
+
+    let signer = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    );
+
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+            .expect("Failed to create xonly pk");
+
+    let evm_address = EVMAddress([1u8; 20]);
+
+    let deposit_address = builder::address::generate_deposit_address(
+        nofn_xonly_pk,
+        signer.address.as_unchecked(),
+        evm_address,
+        config.protocol_paramset().bridge_amount,
+        config.protocol_paramset().network,
+        config.protocol_paramset().user_takes_after,
+    )
+    .unwrap();
+
+    // send a deposit tx
+    let deposit_outpoint = rpc
+        .send_to_address(&deposit_address.0, config.protocol_paramset().bridge_amount)
+        .await
+        .unwrap();
+
+    // wait until the deposit tx is in a block
+    rpc.mine_blocks(1).await.unwrap();
+
+    println!("Deposit address: {:?}", deposit_address);
+
+    let engine = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::Alphabet::new(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+        )
+        .unwrap(),
+        base64::engine::general_purpose::PAD,
+    );
+
+    // gRPC request:
+    println!("grpcurl -plaintext -proto core/src/rpc/clementine.proto -d '{{");
+    println!("  \"deposit_outpoint\": {{");
+    println!(
+        "    \"txid\": \"{}\",",
+        engine.encode(deposit_outpoint.txid.to_byte_array())
+    );
+    println!("    \"vout\": {}", deposit_outpoint.vout);
+    println!("  }},");
+    println!("  \"evm_address\": \"{}\",", engine.encode(evm_address.0));
+    println!("  \"recovery_taproot_address\": \"{}\",", signer.address);
+    println!(
+        "  \"nofn_xonly_pk\": \"{}\"",
+        engine.encode(nofn_xonly_pk.serialize())
+    );
+    println!(
+        "}}' 127.0.0.1:{} clementine.ClementineAggregator.NewDeposit",
+        config.port
+    );
 }

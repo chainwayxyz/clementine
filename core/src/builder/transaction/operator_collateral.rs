@@ -190,7 +190,7 @@ pub fn create_round_nth_txhandler(
     )?;
     let mut ready_to_reimburse_txhandler =
         create_ready_to_reimburse_txhandler(&round_txhandler, operator_xonly_pk, paramset)?;
-    for idx in 1..index + 1 {
+    for idx in 1..=index {
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
             RoundTxInput::Prevout(ready_to_reimburse_txhandler.get_spendable_output(0)?),

@@ -1,3 +1,4 @@
+use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit, WatchtowerKeysWithDeposit};
 use crate::tx_sender::TxSenderClient;
 use crate::{
@@ -36,6 +37,7 @@ use tonic::Status;
 /// For now, we do not have the last bit.
 #[derive(Debug, Clone)]
 pub struct Aggregator {
+    pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nofn_xonly_pk: XOnlyPublicKey,
@@ -51,6 +53,13 @@ impl Aggregator {
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
 
         let verifier_endpoints =
             config
@@ -85,7 +94,15 @@ impl Aggregator {
 
         let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
 
+        tracing::info!(
+            "Aggregator created with {} verifiers, {} operators, and {} watchtowers",
+            verifier_clients.len(),
+            operator_clients.len(),
+            watchtower_clients.len()
+        );
+
         Ok(Aggregator {
+            rpc,
             db,
             config,
             nofn_xonly_pk,

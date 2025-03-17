@@ -13,6 +13,7 @@ use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
+    TxHandlerCache,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -24,7 +25,8 @@ use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
-use crate::task::IntoTask;
+use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
+use crate::task::{IntoTask, TaskExt};
 use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
 use crate::{builder, UTXO};
@@ -36,6 +38,7 @@ use bitcoin::{
     Address, Amount, BlockHash, OutPoint, ScriptBuf, Transaction, TxOut, Txid, Witness,
     XOnlyPublicKey,
 };
+use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use tokio::sync::mpsc;
@@ -78,6 +81,12 @@ where
 
         background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
         background_tasks.loop_and_monitor(state_manager.into_task());
+
+        // run payout checker task
+        background_tasks.loop_and_monitor(
+            PayoutCheckerTask::new(operator.db.clone(), operator.clone())
+                .with_delay(PAYOUT_CHECKER_POLL_DELAY),
+        );
 
         // track the operator's round state
         operator.track_rounds().await?;
@@ -133,8 +142,10 @@ where
         }
 
         // TODO: Fix this where the config will only have one address. also check??
-        let reimburse_addr = config.operator_wallet_addresses[idx]
-            .clone()
+        let reimburse_addr = rpc
+            .client
+            .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
+            .await?
             .assume_checked();
 
         // check if we store our collateral outpoint already in db
@@ -144,7 +155,10 @@ where
             Some(op_data) => op_data.collateral_funding_outpoint,
             None => {
                 let outpoint = rpc
-                    .send_to_address(&signer.address, config.collateral_funding_amount)
+                    .send_to_address(
+                        &signer.address,
+                        config.protocol_paramset().collateral_funding_amount,
+                    )
                     .await?;
                 db.set_operator(
                     Some(&mut dbtx),
@@ -220,7 +234,7 @@ where
         let (mut first_round_tx, _) = create_round_nth_txhandler(
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
-            self.config.collateral_funding_amount,
+            self.config.protocol_paramset().collateral_funding_amount,
             0, // index 0 for the first round
             &kickoff_wpks,
             self.config.protocol_paramset(),
@@ -274,15 +288,21 @@ where
 
     pub async fn deposit_sign(
         &self,
-        deposit_id: DepositData,
+        deposit_data: DepositData,
     ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
         let (sig_tx, sig_rx) = mpsc::channel(1280);
+
+        let deposit_blockhash = self
+            .rpc
+            .get_blockhash_of_tx(&deposit_data.deposit_outpoint.txid)
+            .await?;
 
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
             self.db.clone(),
             self.idx,
             self.config.clone(),
-            deposit_id,
+            deposit_data,
+            deposit_blockhash,
         ));
 
         let operator = self.clone();
@@ -542,7 +562,7 @@ where
                 idx,
                 &operator_data,
                 kickoff_wpks,
-                prev_ready_to_reimburse.clone(),
+                prev_ready_to_reimburse.as_ref(),
             )?;
             for txhandler in txhandlers {
                 if let TransactionType::UnspentKickoff(kickoff_idx) =
@@ -772,7 +792,7 @@ where
                             txid: kickoff_txid,
                             vout: 1, // Kickoff finalizer output index
                         },
-                        relative_block_height: self.config.confirmation_threshold,
+                        relative_block_height: self.config.protocol_paramset().finality_depth,
                     });
                 }
                 None => {
@@ -791,7 +811,7 @@ where
                         .await?;
                     activation_prerequisites.push(ActivatedWithOutpoint {
                         outpoint: unspent_kickoff_connector,
-                        relative_block_height: self.config.confirmation_threshold,
+                        relative_block_height: self.config.protocol_paramset().finality_depth,
                     });
                 }
             }
@@ -1022,7 +1042,13 @@ where
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
         let mut db_cache =
             ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
-        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        let txhandlers = create_txhandlers(
+            tx_type,
+            contract_context,
+            &mut TxHandlerCache::new(),
+            &mut db_cache,
+        )
+        .await?;
         Ok(txhandlers)
     }
 

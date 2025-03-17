@@ -10,7 +10,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, OperatorData,
-    ReimburseDbCache, TransactionType, TxHandler,
+    ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
@@ -144,6 +144,7 @@ where
 
 #[derive(Debug, Clone)]
 pub struct Verifier<C: CitreaClientT> {
+    rpc: ExtendedRpc,
     pub idx: usize,
 
     pub(crate) signer: Actor,
@@ -168,6 +169,13 @@ where
             config.winternitz_secret_key,
             config.protocol_paramset().network,
         );
+
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
 
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
         let idx = config
@@ -208,7 +216,14 @@ where
 
         let tx_sender = TxSenderClient::new(db.clone(), format!("verifier_{}", idx).to_string());
 
+        tracing::info!(
+            "Verifier {} created with nofn_xonly_pk: {}",
+            idx,
+            nofn_xonly_pk
+        );
+
         let verifier = Verifier {
+            rpc,
             signer,
             db: db.clone(),
             config: config.clone(),
@@ -269,7 +284,7 @@ where
                 idx,
                 &operator_data,
                 kickoff_wpks,
-                prev_ready_to_reimburse.clone(),
+                prev_ready_to_reimburse.as_ref(),
             )?;
             for txhandler in txhandlers {
                 if let TransactionType::UnspentKickoff(kickoff_idx) =
@@ -443,6 +458,8 @@ where
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
 
+        let deposit_blockhash = self.rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+
         tokio::spawn(async move {
             let mut session_map = verifier.nonces.lock().await;
             let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
@@ -461,6 +478,7 @@ where
                     recovery_taproot_address,
                     nofn_xonly_pk: verifier.nofn_xonly_pk,
                 },
+                deposit_blockhash,
                 false,
             ));
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
@@ -530,6 +548,8 @@ where
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
     ) -> Result<MusigPartialSignature, BridgeError> {
+        let deposit_blockhash = self.rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
@@ -539,6 +559,7 @@ where
                 recovery_taproot_address: recovery_taproot_address.clone(),
                 nofn_xonly_pk: self.nofn_xonly_pk,
             },
+            deposit_blockhash,
             true,
         ));
 
@@ -569,8 +590,7 @@ where
             num_operators
         ];
 
-        let mut kickoff_txids =
-            vec![vec![vec![None; num_kickoffs_per_round]; num_round_txs]; num_operators];
+        let mut kickoff_txids = vec![vec![vec![]; num_round_txs]; num_operators];
 
         // ------ N-of-N SIGNATURES VERIFICATION ------
 
@@ -588,7 +608,7 @@ where
             } = &sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
-                kickoff_txids[operator_idx][round_idx][kickoff_utxo_idx] = kickoff_txid;
+                kickoff_txids[operator_idx][round_idx].push((kickoff_txid, kickoff_utxo_idx));
                 continue;
             }
 
@@ -656,6 +676,7 @@ where
                     recovery_taproot_address: recovery_taproot_address.clone(),
                     nofn_xonly_pk: self.nofn_xonly_pk,
                 },
+                deposit_blockhash,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
                 let sighash = sighash_stream
@@ -775,29 +796,38 @@ where
                     recovery_taproot_address: recovery_taproot_address.clone(),
                     nofn_xonly_pk: self.nofn_xonly_pk,
                 },
+                *move_txhandler.get_txid(),
             )
             .await?;
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (operator_idx, operator_sigs) in verified_sigs.into_iter().enumerate() {
-            for (seq_idx, op_sequential_sigs) in operator_sigs.into_iter().enumerate() {
-                for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
-                    let kickoff_txid = kickoff_txids[operator_idx][seq_idx][kickoff_idx];
+            for (round_idx, mut op_round_sigs) in operator_sigs.into_iter().enumerate() {
+                if kickoff_txids[operator_idx][round_idx].len()
+                    != self.config.protocol_paramset().num_signed_kickoffs
+                {
+                    return Err(BridgeError::Error(format!(
+                        "Number of signed kickoff utxos for operator: {}, round: {} is wrong. Expected: {}, got: {}",
+                        operator_idx, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
+                    )));
+                }
+                for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
                     if kickoff_txid.is_none() {
                         return Err(BridgeError::Error(format!(
                             "Kickoff txid not found for {}, {}, {}",
-                            operator_idx, seq_idx, kickoff_idx
+                            operator_idx, round_idx, kickoff_idx
                         )));
                     }
+
                     self.db
                         .set_deposit_signatures(
                             Some(&mut dbtx),
                             deposit_outpoint,
                             operator_idx,
-                            seq_idx,
-                            kickoff_idx,
+                            round_idx,
+                            *kickoff_idx,
                             kickoff_txid.expect("Kickoff txid must be Some"),
-                            kickoff_sigs,
+                            std::mem::take(&mut op_round_sigs[*kickoff_idx]),
                         )
                         .await?;
                 }
@@ -1045,50 +1075,55 @@ where
         kickoff_id: KickoffId,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let watchtower_path = format!("{}/watchtower_{}.sock", self.config.socket_path, self.idx);
-        let watchtower_client =
-            rpc::get_clients(vec![watchtower_path], ClementineWatchtowerClient::new).await;
-
-        if let Ok(mut watchtower) = watchtower_client {
-            let raw_challenge_tx = watchtower[0]
-                .internal_create_watchtower_challenge(TransactionRequest {
-                    deposit_params: Some(DepositParams {
-                        deposit_outpoint: Some(deposit_data.deposit_outpoint.into()),
-                        evm_address: deposit_data.evm_address.0.to_vec(),
-                        recovery_taproot_address: deposit_data
-                            .recovery_taproot_address
-                            .assume_checked()
-                            .to_string(),
-                        nofn_xonly_pk: deposit_data.nofn_xonly_pk.serialize().to_vec(),
-                    }),
-                    transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
-                    kickoff_id: Some(kickoff_id),
-                })
-                .await?
-                .into_inner()
-                .raw_tx;
-            let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
-            let mut dbtx = self.db.begin_transaction().await?;
-            self.tx_sender
-                .add_tx_to_queue(
-                    &mut dbtx,
-                    TransactionType::WatchtowerChallenge(self.idx),
-                    &challenge_tx,
-                    &[],
-                    Some(TxDataForLogging {
-                        tx_type: TransactionType::WatchtowerChallenge(self.idx),
-                        operator_idx: None,
-                        verifier_idx: Some(self.idx as u32),
-                        round_idx: Some(kickoff_id.round_idx),
-                        kickoff_idx: Some(kickoff_id.kickoff_idx),
-                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
-                    }),
-                    &self.config,
-                )
-                .await?;
-            dbtx.commit().await?;
-            tracing::warn!("Commited watchtower challenge for watchtower {}", self.idx);
+        let watchtower_endpoint = self.config.trusted_watchtower_endpoint.clone();
+        if watchtower_endpoint.is_none() {
+            tracing::error!("No watchtower endpoint provided, cannot send challenge");
+            return Ok(());
         }
+        let watchtower_endpoint =
+            watchtower_endpoint.expect("Watchtower endpoint must be provided");
+        let mut watchtower =
+            rpc::get_clients(vec![watchtower_endpoint], ClementineWatchtowerClient::new).await?[0]
+                .clone();
+
+        let raw_challenge_tx = watchtower
+            .internal_create_watchtower_challenge(TransactionRequest {
+                deposit_params: Some(DepositParams {
+                    deposit_outpoint: Some(deposit_data.deposit_outpoint.into()),
+                    evm_address: deposit_data.evm_address.0.to_vec(),
+                    recovery_taproot_address: deposit_data
+                        .recovery_taproot_address
+                        .assume_checked()
+                        .to_string(),
+                    nofn_xonly_pk: deposit_data.nofn_xonly_pk.serialize().to_vec(),
+                }),
+                transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
+                kickoff_id: Some(kickoff_id),
+            })
+            .await?
+            .into_inner()
+            .raw_tx;
+        let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .add_tx_to_queue(
+                &mut dbtx,
+                TransactionType::WatchtowerChallenge(self.idx),
+                &challenge_tx,
+                &[],
+                Some(TxDataForLogging {
+                    tx_type: TransactionType::WatchtowerChallenge(self.idx),
+                    operator_idx: None,
+                    verifier_idx: Some(self.idx as u32),
+                    round_idx: Some(kickoff_id.round_idx),
+                    kickoff_idx: Some(kickoff_id.kickoff_idx),
+                    deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                }),
+                &self.config,
+            )
+            .await?;
+        dbtx.commit().await?;
+        tracing::warn!("Commited watchtower challenge for watchtower {}", self.idx);
         Ok(())
     }
 
@@ -1163,11 +1198,11 @@ where
                 .to_bytes();
             tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
 
-            let operator_idx = u32::from_le_bytes(
-                last_output[2..6]
-                    .try_into()
-                    .expect("Failed to convert last_output to u32"),
-            );
+            // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
+            let mut operator_idx_bytes = [0u8; 4]; // Create a 4-byte array initialized with zeros
+            operator_idx_bytes[..last_output.len() - 3]
+                .copy_from_slice(&last_output[2..last_output.len() - 1]);
+            let operator_idx = u32::from_le_bytes(operator_idx_bytes);
 
             payout_txs_and_payer_operator_idx.push((idx, payout_txid, operator_idx, block_hash));
         }
@@ -1259,7 +1294,7 @@ where
                         witness,
                     )
                     .await?;
-                    //self.handle_kickoff(&mut dbtx, txid).await?;
+                    self.handle_kickoff(&mut dbtx, txid).await?;
                     dbtx.commit().await?;
                 }
             }
@@ -1274,7 +1309,13 @@ where
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
         let mut db_cache =
             ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
-        let txhandlers = create_txhandlers(tx_type, contract_context, None, &mut db_cache).await?;
+        let txhandlers = create_txhandlers(
+            tx_type,
+            contract_context,
+            &mut TxHandlerCache::new(),
+            &mut db_cache,
+        )
+        .await?;
         Ok(txhandlers)
     }
 
