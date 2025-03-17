@@ -143,7 +143,8 @@ impl MockCitreaClient {
     }
 
     /// Pushes a withdrawal utxo and its ondex to the given height.
-    pub async fn push_withdrawal_utxo(&mut self, height: u64, index: u64, utxo: OutPoint) {
+    /// TODO: Make it calc index auto
+    pub async fn insert_withdrawal_utxo(&mut self, height: u64, index: u64, utxo: OutPoint) {
         let query =
             sqlx::query("INSERT INTO withdrawals (height, index, utxo) VALUES ($1, $2, $3)")
                 .bind(i64::try_from(height).unwrap())
@@ -210,21 +211,21 @@ mod tests {
             .is_empty());
 
         client
-            .push_withdrawal_utxo(
+            .insert_withdrawal_utxo(
                 1,
                 0,
                 bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[1; 32]).unwrap(), 0),
             )
             .await;
         client
-            .push_withdrawal_utxo(
+            .insert_withdrawal_utxo(
                 1,
                 1,
                 bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1),
             )
             .await;
         client
-            .push_withdrawal_utxo(
+            .insert_withdrawal_utxo(
                 2,
                 2,
                 bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2),
