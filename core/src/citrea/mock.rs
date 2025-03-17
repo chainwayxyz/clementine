@@ -5,9 +5,9 @@ use crate::{
     execute_query_with_tx,
 };
 use alloy::signers::local::PrivateKeySigner;
-use bitcoin::{hashes::Hash, OutPoint, Txid};
+use bitcoin::{OutPoint, Txid};
 use sqlx::{Pool, Postgres};
-use std::{collections::hash_map, time::Duration};
+use std::time::Duration;
 use tonic::async_trait;
 
 /// A mock implementation of the CitreaClientTrait. This implementation is used
@@ -16,12 +16,12 @@ use tonic::async_trait;
 #[derive(Clone, Debug)]
 pub struct MockCitreaClient {
     connection: Pool<Postgres>,
-    /// Withdrawal utxos and its indexes for each height
-    pub withdrawal_utxos: hash_map::HashMap<u64, Vec<(u64, OutPoint)>>,
 }
 
 #[async_trait]
 impl CitreaClientT for MockCitreaClient {
+    /// Connects a database with the given URL which is stored in
+    /// `citrea_rpc_url`. Other paramaters are dumped.
     async fn new(
         citrea_rpc_url: String,
         _light_client_prover_url: String,
@@ -35,15 +35,25 @@ impl CitreaClientT for MockCitreaClient {
 
         Ok(MockCitreaClient {
             connection: sqlx::PgPool::connect(&citrea_rpc_url).await.unwrap(),
-            withdrawal_utxos: hash_map::HashMap::new(),
         })
     }
 
     async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
-        Ok(OutPoint {
-            txid: Txid::all_zeros(),
-            vout: withdrawal_index as u32,
-        })
+        let query = sqlx::query_as(
+            "SELECT utxo
+            FROM withdrawals
+            WHERE index = $1",
+        )
+        .bind(i64::try_from(withdrawal_index).unwrap());
+
+        let utxo: (OutPointDB,) = execute_query_with_tx!(
+            self.connection,
+            None::<DatabaseTransaction>,
+            query,
+            fetch_one
+        )?;
+
+        Ok(utxo.0 .0)
     }
 
     async fn collect_deposit_move_txids(
@@ -51,7 +61,7 @@ impl CitreaClientT for MockCitreaClient {
         from_height: u64,
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
-        let mut ret = vec![];
+        let mut ret: Vec<(u64, Txid)> = vec![];
 
         for i in from_height..to_height + 1 {
             let query = sqlx::query_as(
@@ -235,6 +245,12 @@ mod tests {
         assert_eq!(
             utxos[2].1,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2)
+        );
+
+        let utxo_from_index = client.withdrawal_utxos(1).await.unwrap();
+        assert_eq!(
+            utxo_from_index,
+            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
         );
     }
 }
