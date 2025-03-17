@@ -10,7 +10,10 @@ use tonic::async_trait;
 /// citrea-e2e tests, use the real client.
 #[derive(Clone, Debug, Default)]
 pub struct MockCitreaClient {
+    /// Deposit move txids for each height
     pub deposit_move_txids: hash_map::HashMap<u64, Vec<Txid>>,
+    /// Withdrawal utxos and its indexes for each height
+    pub withdrawal_utxos: hash_map::HashMap<u64, Vec<(u64, OutPoint)>>,
 }
 
 #[async_trait]
@@ -41,7 +44,7 @@ impl CitreaClientT for MockCitreaClient {
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
         let mut ret = vec![];
 
-        for i in from_height..to_height {
+        for i in from_height..to_height + 1 {
             if let Some(txids) = self.deposit_move_txids.get(&i) {
                 for txid in txids {
                     ret.push((i, *txid));
@@ -59,13 +62,12 @@ impl CitreaClientT for MockCitreaClient {
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
         let mut ret = vec![];
 
-        for i in from_height..to_height {
-            let txid = Txid::from_slice(&[i as u8; 32]).unwrap();
-            let outpoint = OutPoint {
-                txid,
-                vout: i as u32,
-            };
-            ret.push((i, outpoint));
+        for i in from_height..to_height + 1 {
+            if let Some(utxos) = self.withdrawal_utxos.get(&i) {
+                for utxo in utxos {
+                    ret.push((i, utxo.1));
+                }
+            }
         }
 
         Ok(ret)
@@ -100,7 +102,17 @@ impl MockCitreaClient {
         self.deposit_move_txids.insert(height, txids);
     }
 
-    pub fn make_withdrawal(&mut self) {}
+    /// Pushes a withdrawal utxo and its ondex to the given height.
+    pub fn push_withdrawal_utxo(&mut self, height: u64, index: u64, utxo: OutPoint) {
+        let mut utxos = self
+            .withdrawal_utxos
+            .get(&height)
+            .unwrap_or(&Vec::<(u64, OutPoint)>::new())
+            .clone();
+        utxos.push((index, utxo));
+
+        self.withdrawal_utxos.insert(height, utxos);
+    }
 }
 
 #[cfg(test)]
@@ -113,7 +125,7 @@ mod tests {
         let mut client = super::MockCitreaClient::default();
 
         assert!(client
-            .collect_deposit_move_txids(1, 3)
+            .collect_deposit_move_txids(1, 2)
             .await
             .unwrap()
             .is_empty());
@@ -122,11 +134,54 @@ mod tests {
         client.push_deposit_move_txid(1, bitcoin::Txid::from_slice(&[2; 32]).unwrap());
         client.push_deposit_move_txid(2, bitcoin::Txid::from_slice(&[3; 32]).unwrap());
 
-        let txids = client.collect_deposit_move_txids(1, 3).await.unwrap();
+        let txids = client.collect_deposit_move_txids(1, 2).await.unwrap();
 
         assert_eq!(txids.len(), 3);
         assert_eq!(txids[0].1, bitcoin::Txid::from_slice(&[1; 32]).unwrap());
         assert_eq!(txids[1].1, bitcoin::Txid::from_slice(&[2; 32]).unwrap());
         assert_eq!(txids[2].1, bitcoin::Txid::from_slice(&[3; 32]).unwrap());
+    }
+
+    #[tokio::test]
+    async fn withdrawal_utxos() {
+        let mut client = super::MockCitreaClient::default();
+
+        assert!(client
+            .collect_withdrawal_utxos(1, 2)
+            .await
+            .unwrap()
+            .is_empty());
+
+        client.push_withdrawal_utxo(
+            1,
+            0,
+            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[1; 32]).unwrap(), 0),
+        );
+        client.push_withdrawal_utxo(
+            1,
+            1,
+            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1),
+        );
+        client.push_withdrawal_utxo(
+            2,
+            2,
+            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2),
+        );
+
+        let utxos = client.collect_withdrawal_utxos(1, 2).await.unwrap();
+
+        assert_eq!(utxos.len(), 3);
+        assert_eq!(
+            utxos[0].1,
+            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[1; 32]).unwrap(), 0)
+        );
+        assert_eq!(
+            utxos[1].1,
+            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
+        );
+        assert_eq!(
+            utxos[2].1,
+            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2)
+        );
     }
 }
