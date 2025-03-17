@@ -379,7 +379,7 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
 
 #[tokio::test]
 #[ignore = "Manual testing utility"]
-async fn test_get_deposit_address() -> Result<()> {
+async fn get_deposit_address_for_manual_tests() {
     let mut config = create_test_config_with_thread_name(None).await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc();
@@ -409,7 +409,8 @@ async fn test_get_deposit_address() -> Result<()> {
     // send a deposit tx
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address.0, config.protocol_paramset().bridge_amount)
-        .await?;
+        .await
+        .unwrap();
 
     // wait until the deposit tx is in a block
     rpc.mine_blocks(1).await.unwrap();
@@ -439,7 +440,8 @@ async fn test_get_deposit_address() -> Result<()> {
         "  \"nofn_xonly_pk\": \"{}\"",
         engine.encode(nofn_xonly_pk.serialize())
     );
-    println!("}}' 127.0.0.1:17000 clementine.ClementineAggregator.NewDeposit");
-
-    Ok(())
+    println!(
+        "}}' 127.0.0.1:{} clementine.ClementineAggregator.NewDeposit",
+        config.port
+    );
 }
