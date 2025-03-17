@@ -1,18 +1,17 @@
 mod tests {
-    use ark_bn254::{g1, Fq, Fq2, Fr, G1Affine, G2Affine};
+    use ark_bn254::{Fq, Fq2, G1Affine, G2Affine};
     use ark_groth16::Proof;
     use bitvm::{
-        clementine::additional_disprove::create_additional_replacable_disprove_script,
-        groth16,
+        clementine::additional_disprove::{
+            create_additional_replacable_disprove_script, validate_assertions_for_additional_script,
+        },
         signatures::{
-            signing_winternitz::WinternitzSecret,
             winternitz::{generate_public_key, Parameters},
+            winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER,
         },
     };
     use bridge_circuit_host::structs::BridgeCircuitBitvmInputs;
     use std::str::FromStr;
-
-    use crate::actor::WinternitzDerivationPath;
 
     pub const BRIDGE_CIRCUIT_BITVM_TEST_INPUTS: BridgeCircuitBitvmInputs =
         BridgeCircuitBitvmInputs {
@@ -82,33 +81,31 @@ mod tests {
         let b = G2Affine::new(b_x, b_y);
         let c = G1Affine::new(c_x, c_y);
 
+        let _proof = Proof::<ark_bn254::Bn254> { a, b, c };
+
         // Prepare winternitz public keys for g16_public_input, payout_tx_block_hash, latest_block_hash, challenge_sending_watchtowers
-        let g16_public_input_wsk = WinternitzSecret::new(32);
-        let payout_tx_block_hash_wsk = WinternitzSecret::new(20);
-        let latest_block_hash_wsk = WinternitzSecret::new(20);
-        let challenge_sending_watchtowers_wsk = WinternitzSecret::new(20);
+        let g16_public_input_wsk = vec![0u8; 20];
+        let payout_tx_block_hash_wsk = vec![0u8; 20];
+        let latest_block_hash_wsk = vec![0u8; 20];
+        let challenge_sending_watchtowers_wsk = vec![0u8; 20];
 
-        let groth16_public_input_params = Parameters::new(32, 8);
-        let payout_tx_block_hash_params = Parameters::new(20, 8);
-        let latest_block_hash_params = Parameters::new(20, 8);
-        let challenge_sending_watchtowers_params = Parameters::new(20, 8);
+        let groth16_public_input_params = Parameters::new(64, 4);
+        let payout_tx_block_hash_params = Parameters::new(40, 4);
+        let latest_block_hash_params = Parameters::new(40, 4);
+        let challenge_sending_watchtowers_params = Parameters::new(40, 4);
 
-        let g16_public_input_pk = generate_public_key(
-            &groth16_public_input_params,
-            &g16_public_input_wsk.secret_key,
-        );
-        let payout_tx_block_hash_pk = generate_public_key(
-            &payout_tx_block_hash_params,
-            &payout_tx_block_hash_wsk.secret_key,
-        );
+        let g16_public_input_pk =
+            generate_public_key(&groth16_public_input_params, &g16_public_input_wsk);
+        let payout_tx_block_hash_pk =
+            generate_public_key(&payout_tx_block_hash_params, &payout_tx_block_hash_wsk);
         let latest_block_hash_pk =
-            generate_public_key(&latest_block_hash_params, &latest_block_hash_wsk.secret_key);
+            generate_public_key(&latest_block_hash_params, &latest_block_hash_wsk);
         let challenge_sending_watchtowers_pk = generate_public_key(
             &challenge_sending_watchtowers_params,
-            &challenge_sending_watchtowers_wsk.secret_key,
+            &challenge_sending_watchtowers_wsk,
         );
 
-        let dummy_challenge_hashes = [[0u8; 20]; 160];
+        let dummy_challenge_hashes = [[31u8; 20]; 160];
 
         let (script, index) = create_additional_replacable_disprove_script(
             BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.combined_method_id,
@@ -122,5 +119,53 @@ mod tests {
 
         println!("DISPROVE SCRIPT: {:?}", script);
         println!("DISPROVE SCRIPT INDEX: {:?}", index);
+
+        // Sign the winternitz messages
+        let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &groth16_public_input_params,
+            &g16_public_input_wsk,
+            &TEST_GROTH16_PUBLIC_INPUT.to_vec(),
+        );
+
+        println!(
+            "GROTH16_PUBLIC_INPUT_WITNESS: {:?}",
+            groth16_public_input_witness
+        );
+
+        let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &payout_tx_block_hash_params,
+            &payout_tx_block_hash_wsk,
+            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
+                .payout_tx_block_hash
+                .to_vec(),
+        );
+
+        let latest_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &latest_block_hash_params,
+            &latest_block_hash_wsk,
+            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.latest_block_hash.to_vec(),
+        );
+
+        let challenge_sending_watchtowers_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &challenge_sending_watchtowers_params,
+            &challenge_sending_watchtowers_wsk,
+            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
+                .challenge_sending_watchtowers
+                .to_vec(),
+        );
+
+        let mut dummy_challenge_hashes_final: [Option<[u8; 20]>; 160] = [None; 160];
+        dummy_challenge_hashes_final[0] = Some([31u8; 20]);
+
+        let resulting_witness = validate_assertions_for_additional_script(
+            script,
+            groth16_public_input_witness,
+            payout_tx_block_hash_witness,
+            latest_block_hash_witness,
+            challenge_sending_watchtowers_witness,
+            dummy_challenge_hashes_final,
+        );
+
+        println!("RESULTING WITNESS: {:?}", resulting_witness);
     }
 }
