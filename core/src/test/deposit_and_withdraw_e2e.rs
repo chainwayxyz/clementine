@@ -505,7 +505,7 @@ async fn mock_citrea_run() {
         .get_block(&tx_info.blockhash.unwrap())
         .await
         .unwrap();
-    let block_height = rpc
+    let _block_height = rpc
         .client
         .get_block_info(&block.block_hash())
         .await
@@ -666,7 +666,7 @@ async fn mock_citrea_run() {
     rpc.mine_blocks(1).await.unwrap();
 
     // Wait for the kickoff tx to be onchain
-    let kickoff_block_height =
+    let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
             .unwrap();

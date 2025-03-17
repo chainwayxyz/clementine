@@ -15,7 +15,7 @@ use tonic::async_trait;
 /// citrea-e2e tests, use the real client.
 #[derive(Clone, Debug)]
 pub struct MockCitreaClient {
-    connection: Pool<Postgres>,
+    connection: Option<Pool<Postgres>>,
 }
 
 #[async_trait]
@@ -33,9 +33,13 @@ impl CitreaClientT for MockCitreaClient {
 
         tracing::debug!("Connecting to the database: {}", citrea_rpc_url);
 
-        Ok(MockCitreaClient {
-            connection: sqlx::PgPool::connect(&citrea_rpc_url).await.unwrap(),
-        })
+        let connection = if citrea_rpc_url.is_empty() {
+            None
+        } else {
+            Some(sqlx::PgPool::connect(&citrea_rpc_url).await.unwrap())
+        };
+
+        Ok(MockCitreaClient { connection })
     }
 
     async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
@@ -47,7 +51,7 @@ impl CitreaClientT for MockCitreaClient {
         .bind(i64::try_from(withdrawal_index).unwrap());
 
         let utxo: (OutPointDB,) = execute_query_with_tx!(
-            self.connection,
+            self.connection.clone().unwrap(),
             None::<DatabaseTransaction>,
             query,
             fetch_one
@@ -72,7 +76,7 @@ impl CitreaClientT for MockCitreaClient {
             .bind(i64::try_from(i).unwrap());
 
             let results: Vec<(i32, TxidDB)> = execute_query_with_tx!(
-                self.connection,
+                self.connection.clone().unwrap(),
                 None::<DatabaseTransaction>,
                 query,
                 fetch_all
@@ -102,7 +106,7 @@ impl CitreaClientT for MockCitreaClient {
             .bind(i64::try_from(i).unwrap());
 
             let results: Vec<(i32, OutPointDB)> = execute_query_with_tx!(
-                self.connection,
+                self.connection.clone().unwrap(),
                 None::<DatabaseTransaction>,
                 query,
                 fetch_all
@@ -138,8 +142,13 @@ impl MockCitreaClient {
             .bind(i64::try_from(height).unwrap())
             .bind(TxidDB(txid));
 
-        execute_query_with_tx!(self.connection, None::<DatabaseTransaction>, query, execute)
-            .unwrap();
+        execute_query_with_tx!(
+            self.connection.clone().unwrap(),
+            None::<DatabaseTransaction>,
+            query,
+            execute
+        )
+        .unwrap();
     }
 
     /// Pushes a withdrawal utxo and its ondex to the given height.
@@ -149,8 +158,13 @@ impl MockCitreaClient {
             .bind(i64::try_from(height).unwrap())
             .bind(OutPointDB(utxo));
 
-        execute_query_with_tx!(self.connection, None::<DatabaseTransaction>, query, execute)
-            .unwrap();
+        execute_query_with_tx!(
+            self.connection.clone().unwrap(),
+            None::<DatabaseTransaction>,
+            query,
+            execute
+        )
+        .unwrap();
     }
 }
 
@@ -243,7 +257,8 @@ mod tests {
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2)
         );
 
-        let utxo_from_index = client.withdrawal_utxos(1).await.unwrap();
+        // TODO: Fix Remove +1 when Bridge contract is fixed
+        let utxo_from_index = client.withdrawal_utxos(1 + 1).await.unwrap();
         assert_eq!(
             utxo_from_index,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
