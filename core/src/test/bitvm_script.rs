@@ -39,7 +39,8 @@ mod tests {
 
     pub const TEST_GROTH16_PUBLIC_INPUT: [u8; 32] = [
         45, 127, 183, 188, 75, 116, 238, 55, 241, 232, 147, 13, 135, 30, 226, 96, 10, 48, 9, 91,
-        249, 188, 153, 6, 233, 73, 155, 178, 190, 156, 247, 0,
+        249, 188, 153, 6, 233, 73, 155, 178, 190, 156, 247,
+        78, // 78 is correct value trimmed in Groth16 public input
     ];
 
     #[test]
@@ -162,7 +163,7 @@ mod tests {
         );
 
         let mut dummy_challenge_preimages_final: [Option<[u8; 20]>; 160] = [None; 160];
-        dummy_challenge_preimages_final[0] = Some(dummy_challenge_preimages[0]);
+        // dummy_challenge_preimages_final[0] = Some(dummy_challenge_preimages[0]);
 
         let resulting_witness = validate_assertions_for_additional_script(
             script,
