@@ -451,7 +451,6 @@ async fn get_deposit_address_for_manual_tests() {
 }
 
 #[tokio::test]
-#[ignore = "temp"]
 async fn mock_citrea_run() {
     let mut config = create_test_config_with_thread_name(None).await;
     let regtest = create_regtest_rpc(&mut config).await;
@@ -481,11 +480,14 @@ async fn mock_citrea_run() {
         .await
         .unwrap();
 
+    // sleep for 1 second
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
     tracing::info!(
         "Deposit ending block_height: {:?}",
         rpc.client.get_block_count().await.unwrap()
     );
-    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+    // rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
     // Send deposit to Citrea
     let tx = rpc
@@ -511,9 +513,15 @@ async fn mock_citrea_run() {
         .height as u64;
 
     tracing::info!("Depositing to Citrea");
+    let current_block_height = rpc.client.get_block_count().await.unwrap();
     citrea_client
-        .insert_deposit_move_txid(block_height, tx.compute_txid())
+        .insert_deposit_move_txid(current_block_height + 1, tx.compute_txid())
         .await;
+    rpc.mine_blocks(5).await.unwrap();
+
+    // rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
+    //     .await
+    //     .unwrap();
 
     // Make a withdrawal
     let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
@@ -553,9 +561,21 @@ async fn mock_citrea_run() {
 
     tracing::info!("Collecting deposits and withdrawals");
 
+    // mine 1 block to make sure the withdrawal is in the next block
+    // rpc.mine_blocks(1).await.unwrap();
+
+    let current_block_height = rpc.client.get_block_count().await.unwrap();
+
     citrea_client
-        .insert_withdrawal_utxo(block_height, 0, withdrawal_utxo)
+        .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
+    rpc.mine_blocks(5).await.unwrap();
+
+    // Mine some blocks so that block syncer counts it as finalzied
+    // rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
+    //     .await
+    //     .unwrap();
+
     tracing::info!("Withdrawal tx sent");
 
     let payout_txid = loop {
@@ -585,6 +605,7 @@ async fn mock_citrea_run() {
 
         // wait 1000ms
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        rpc.mine_blocks(1).await.unwrap();
     };
 
     tracing::info!("Payout txid: {:?}", payout_txid);

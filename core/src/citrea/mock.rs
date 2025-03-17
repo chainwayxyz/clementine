@@ -42,7 +42,7 @@ impl CitreaClientT for MockCitreaClient {
         let query = sqlx::query_as(
             "SELECT utxo
             FROM withdrawals
-            WHERE index = $1",
+            WHERE idx = $1",
         )
         .bind(i64::try_from(withdrawal_index).unwrap());
 
@@ -65,21 +65,21 @@ impl CitreaClientT for MockCitreaClient {
 
         for i in from_height..to_height + 1 {
             let query = sqlx::query_as(
-                "SELECT move_txid
+                "SELECT idx, move_txid
                 FROM deposits
                 WHERE height = $1",
             )
             .bind(i64::try_from(i).unwrap());
 
-            let results: Vec<(TxidDB,)> = execute_query_with_tx!(
+            let results: Vec<(i32, TxidDB)> = execute_query_with_tx!(
                 self.connection,
                 None::<DatabaseTransaction>,
                 query,
                 fetch_all
             )?;
 
-            for txid in results {
-                ret.push((i, txid.0 .0));
+            for result in results {
+                ret.push((result.0 as u64, result.1 .0));
             }
         }
 
@@ -95,20 +95,20 @@ impl CitreaClientT for MockCitreaClient {
 
         for i in from_height..to_height + 1 {
             let query = sqlx::query_as(
-                "SELECT utxo
+                "SELECT idx, utxo
                 FROM withdrawals
                 WHERE height = $1",
             )
             .bind(i64::try_from(i).unwrap());
 
-            let results: Vec<(OutPointDB,)> = execute_query_with_tx!(
+            let results: Vec<(i32, OutPointDB)> = execute_query_with_tx!(
                 self.connection,
                 None::<DatabaseTransaction>,
                 query,
                 fetch_all
             )?;
-            for utxo in results {
-                ret.push((i, utxo.0 .0));
+            for result in results {
+                ret.push((result.0 as u64 - 1, result.1 .0)); // TODO: Remove -1 when Bridge contract is fixed
             }
         }
 
@@ -144,12 +144,10 @@ impl MockCitreaClient {
 
     /// Pushes a withdrawal utxo and its ondex to the given height.
     /// TODO: Make it calc index auto
-    pub async fn insert_withdrawal_utxo(&mut self, height: u64, index: u64, utxo: OutPoint) {
-        let query =
-            sqlx::query("INSERT INTO withdrawals (height, index, utxo) VALUES ($1, $2, $3)")
-                .bind(i64::try_from(height).unwrap())
-                .bind(i64::try_from(index).unwrap())
-                .bind(OutPointDB(utxo));
+    pub async fn insert_withdrawal_utxo(&mut self, height: u64, utxo: OutPoint) {
+        let query = sqlx::query("INSERT INTO withdrawals (height, utxo) VALUES ($1, $2)")
+            .bind(i64::try_from(height).unwrap())
+            .bind(OutPointDB(utxo));
 
         execute_query_with_tx!(self.connection, None::<DatabaseTransaction>, query, execute)
             .unwrap();
@@ -213,20 +211,17 @@ mod tests {
         client
             .insert_withdrawal_utxo(
                 1,
-                0,
                 bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[1; 32]).unwrap(), 0),
             )
             .await;
         client
             .insert_withdrawal_utxo(
                 1,
-                1,
                 bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1),
             )
             .await;
         client
             .insert_withdrawal_utxo(
-                2,
                 2,
                 bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2),
             )

@@ -173,6 +173,7 @@ pub async fn create_mock_citrea_database(config: &mut BridgeConfig) {
     sqlx::query(
         "
             CREATE TABLE deposits (
+                idx SERIAL,
                 height INT NOT NULL,
                 move_txid TEXT PRIMARY KEY NOT NULL
             );
@@ -184,8 +185,8 @@ pub async fn create_mock_citrea_database(config: &mut BridgeConfig) {
     sqlx::query(
         "
         CREATE TABLE withdrawals (
+            idx SERIAL,
             height INT NOT NULL,
-            index INT NOT NULL,
             utxo TEXT PRIMARY KEY NOT NULL
         );
     ",
