@@ -7,7 +7,7 @@ use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::{
-    generate_withdrawal_transaction_and_signature, get_deposit_address, mine_once_after_in_mempool,
+    create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     run_single_deposit,
 };
 use crate::test::full_flow::ensure_outpoint_spent_while_waiting_for_light_client_sync;
@@ -23,6 +23,7 @@ use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;
 use alloy::transports::http::reqwest::Url;
 use async_trait::async_trait;
+use base64::Engine;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use bitcoin::{OutPoint, Txid};
@@ -375,16 +376,13 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     );
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
-#[tokio::test]
-async fn test_get_deposit_address() -> Result<()> {
-    let config = create_test_config_with_thread_name(None).await;
 
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await?;
+#[tokio::test]
+#[ignore = "Manual testing utility"]
+async fn get_deposit_address_for_manual_tests() {
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc();
 
     let signer = Actor::new(
         config.secret_key,
@@ -411,23 +409,39 @@ async fn test_get_deposit_address() -> Result<()> {
     // send a deposit tx
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address.0, config.protocol_paramset().bridge_amount)
-        .await?;
+        .await
+        .unwrap();
 
     // wait until the deposit tx is in a block
     rpc.mine_blocks(1).await.unwrap();
 
     println!("Deposit address: {:?}", deposit_address);
 
+    let engine = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::Alphabet::new(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+        )
+        .unwrap(),
+        base64::engine::general_purpose::PAD,
+    );
+
     // gRPC request:
     println!("grpcurl -plaintext -proto core/src/rpc/clementine.proto -d '{{");
     println!("  \"deposit_outpoint\": {{");
-    println!("    \"txid\": \"{}\",", base64::encode(deposit_outpoint.txid.to_byte_array()));
-    println!("    \"vout\": {}",  deposit_outpoint.vout);
+    println!(
+        "    \"txid\": \"{}\",",
+        engine.encode(deposit_outpoint.txid.to_byte_array())
+    );
+    println!("    \"vout\": {}", deposit_outpoint.vout);
     println!("  }},");
-    println!("  \"evm_address\": \"{}\",", base64::encode(evm_address.0));
-    println!("  \"recovery_taproot_address\": \"{}\",", signer.address.to_string());
-    println!("  \"nofn_xonly_pk\": \"{}\"", base64::encode(nofn_xonly_pk.serialize()));
-    println!("}}' 127.0.0.1:17000 clementine.ClementineAggregator.NewDeposit");
-
-    Ok(())
+    println!("  \"evm_address\": \"{}\",", engine.encode(evm_address.0));
+    println!("  \"recovery_taproot_address\": \"{}\",", signer.address);
+    println!(
+        "  \"nofn_xonly_pk\": \"{}\"",
+        engine.encode(nofn_xonly_pk.serialize())
+    );
+    println!(
+        "}}' 127.0.0.1:{} clementine.ClementineAggregator.NewDeposit",
+        config.port
+    );
 }

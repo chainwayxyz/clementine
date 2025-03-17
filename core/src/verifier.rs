@@ -227,7 +227,11 @@ impl Verifier {
 
         let tx_sender = TxSenderClient::new(db.clone(), format!("verifier_{}", idx).to_string());
 
-        tracing::info!("Verifier {} created with nofn_xonly_pk: {}", idx, nofn_xonly_pk);
+        tracing::info!(
+            "Verifier {} created with nofn_xonly_pk: {}",
+            idx,
+            nofn_xonly_pk
+        );
 
         let verifier = Verifier {
             rpc,
