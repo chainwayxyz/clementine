@@ -656,6 +656,14 @@ mod tests {
             ProtocolParamsetName::Regtest.into(),
         );
 
+        let derivation2 = WinternitzDerivationPath::BitvmAssert(
+            64,
+            2,
+            0,
+            Txid::all_zeros(),
+            ProtocolParamsetName::Regtest.into(),
+        );
+
         let signer = Actor::new(
             kp.secret_key(),
             Some(kp.secret_key()),
@@ -663,12 +671,20 @@ mod tests {
         );
 
         let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
-            vec![(
-                signer
-                    .derive_winternitz_pk(derivation.clone())
-                    .expect("failed to derive Winternitz public key"),
-                64,
-            )],
+            vec![
+                (
+                    signer
+                        .derive_winternitz_pk(derivation.clone())
+                        .expect("failed to derive Winternitz public key"),
+                    64,
+                ),
+                (
+                    signer
+                        .derive_winternitz_pk(derivation2.clone())
+                        .expect("failed to derive Winternitz public key"),
+                    64,
+                ),
+            ],
             xonly_pk,
             4,
         ));
@@ -684,7 +700,13 @@ mod tests {
         let mut tx = builder.finalize();
 
         signer
-            .tx_sign_winternitz(&mut tx, &[(vec![0; 32], derivation)])
+            .tx_sign_winternitz(
+                &mut tx,
+                &[
+                    (vec![0; 32], derivation.clone()),
+                    (vec![0; 32], derivation2.clone()),
+                ],
+            )
             .expect("failed to partially sign commitments");
 
         let tx = tx
