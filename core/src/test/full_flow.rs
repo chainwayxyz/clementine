@@ -426,7 +426,7 @@ pub async fn ensure_outpoint_spent(
     rpc: &ExtendedRpc,
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 2000;
+    let mut timeout_counter = 3000;
     while rpc
         .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
@@ -435,8 +435,8 @@ pub async fn ensure_outpoint_spent(
         .is_some()
     {
         // Mine more blocks and wait longer between checks
-        rpc.mine_blocks(2).await?;
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        rpc.mine_blocks(1).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         timeout_counter -= 1;
 
         if timeout_counter == 0 {
