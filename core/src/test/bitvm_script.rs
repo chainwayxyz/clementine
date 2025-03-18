@@ -59,7 +59,7 @@ mod tests {
             generate_public_key(&payout_tx_block_hash_params, &payout_tx_block_hash_wsk);
         let latest_block_hash_pk =
             generate_public_key(&latest_block_hash_params, &latest_block_hash_wsk);
-            
+
         let challenge_sending_watchtowers_pk = generate_public_key(
             &challenge_sending_watchtowers_params,
             &challenge_sending_watchtowers_wsk,
@@ -68,7 +68,7 @@ mod tests {
         let dummy_challenge_preimages = [[31u8; 20]; 1]; // maybe put preimages
         let mut dummy_challenge_hashes: [[u8; 20]; 160] = [[0u8; 20]; 160];
         for (idx, preimage) in dummy_challenge_preimages.iter().enumerate() {
-            let hash = *hash160::Hash::hash(&preimage.to_vec()).as_byte_array();
+            let hash = *hash160::Hash::hash(preimage.as_ref()).as_byte_array();
             dummy_challenge_hashes[idx] = hash;
         }
 
@@ -152,7 +152,7 @@ mod tests {
         let dummy_challenge_preimages = [[31u8; 20]; 160]; // maybe put preimages
         let mut dummy_challenge_hashes: [[u8; 20]; 160] = [[0u8; 20]; 160];
         for (idx, preimage) in dummy_challenge_preimages.iter().enumerate() {
-            let hash = *hash160::Hash::hash(&preimage.to_vec()).as_byte_array();
+            let hash = *hash160::Hash::hash(preimage.as_ref()).as_byte_array();
             dummy_challenge_hashes[idx] = hash;
         }
 
@@ -207,7 +207,10 @@ mod tests {
             dummy_challenge_preimages_final,
         );
 
-        assert!(resulting_witness.is_some(), "The script should be spendable by revealed preimage");
+        assert!(
+            resulting_witness.is_some(),
+            "The script should be spendable by revealed preimage"
+        );
     }
 
     #[test]
@@ -237,7 +240,7 @@ mod tests {
         let dummy_challenge_preimages = [[31u8; 20]; 160]; // maybe put preimages
         let mut dummy_challenge_hashes: [[u8; 20]; 160] = [[0u8; 20]; 160];
         for (idx, preimage) in dummy_challenge_preimages.iter().enumerate() {
-            let hash = *hash160::Hash::hash(&preimage.to_vec()).as_byte_array();
+            let hash = *hash160::Hash::hash(preimage.as_ref()).as_byte_array();
             dummy_challenge_hashes[idx] = hash;
         }
 
@@ -294,7 +297,9 @@ mod tests {
             dummy_challenge_preimages_final,
         );
 
-        assert!(resulting_witness.is_some(), "The script should be spendable by invalid latest block hash");
+        assert!(
+            resulting_witness.is_some(),
+            "The script should be spendable by invalid latest block hash"
+        );
     }
-    
 }
