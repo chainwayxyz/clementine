@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use eyre::Context;
 use serde::{Deserialize, Serialize};
 
 use super::script::SpendPath;
@@ -325,7 +326,8 @@ pub fn create_move_to_vault_txhandler(
         .script_pubkey();
 
     let recovery_extracted_xonly_pk =
-        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])?;
+        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
+            .wrap_err("Failed to extract xonly public key from recovery script pubkey")?;
 
     let script_timelock = Arc::new(TimelockScript::new(
         Some(recovery_extracted_xonly_pk),

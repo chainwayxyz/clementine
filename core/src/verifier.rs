@@ -41,6 +41,7 @@ use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use eyre::Context;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap};
 use std::pin::pin;
@@ -1098,10 +1099,12 @@ impl Verifier {
                     transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
                     kickoff_id: Some(kickoff_id),
                 })
-                .await?
+                .await
+                .wrap_err("Failed to create watchtower challenge")?
                 .into_inner()
                 .raw_tx;
-            let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
+            let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)
+                .wrap_err("Failed to deserialize challenge tx")?;
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .add_tx_to_queue(
@@ -1142,7 +1145,8 @@ impl Verifier {
             if let Some(proof) = citrea_client
                 .light_client_prover_client
                 .get_light_client_proof_by_l1_height(block_height as u64)
-                .await?
+                .await
+                .wrap_err("Failed to get light client proof")?
             {
                 break proof;
             }
@@ -1162,7 +1166,8 @@ impl Verifier {
         let proof_previous = citrea_client
             .light_client_prover_client
             .get_light_client_proof_by_l1_height(block_height as u64 - 1)
-            .await?
+            .await
+            .wrap_err("Failed to get light client proof")?
             .ok_or(BridgeError::Error(format!(
                 "Light client proof not found for block height: {}",
                 block_height - 1

@@ -12,6 +12,7 @@ use crate::verifier::VerifierServer;
 use crate::watchtower::Watchtower;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
+use eyre::Context;
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
@@ -142,7 +143,8 @@ pub async fn create_verifier_grpc_server(
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await?;
+    .await
+    .wrap_err("Failed to connect to Bitcoin RPC")?;
 
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
     let verifier = VerifierServer::new(config).await?;
@@ -218,7 +220,8 @@ pub async fn create_verifier_unix_server(
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await?;
+    .await
+    .wrap_err("Failed to connect to Bitcoin RPC")?;
 
     let verifier = VerifierServer::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
@@ -252,7 +255,8 @@ pub async fn create_operator_unix_server(
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await?;
+    .await
+    .wrap_err("Failed to connect to Bitcoin RPC")?;
 
     let operator = OperatorServer::new(config).await?;
     let svc = ClementineOperatorServer::new(operator);

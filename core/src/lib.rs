@@ -35,6 +35,7 @@ pub mod watchtower;
 #[cfg(test)]
 pub mod test;
 
+
 macro_rules! impl_try_from_vec_u8 {
     ($name:ident, $size:expr) => {
         impl TryFrom<Vec<u8>> for $name {

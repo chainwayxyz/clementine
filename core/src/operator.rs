@@ -41,6 +41,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
+use eyre::Context;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::rpc_params;
 use serde_json::json;
@@ -438,7 +439,8 @@ impl Operator {
         }
 
         let user_xonly_pk =
-            XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
+            XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])
+                .wrap_err("Failed to extract xonly public key from input utxo script pubkey")?;
 
         let payout_txhandler = builder::transaction::create_payout_txhandler(
             input_utxo,
@@ -455,7 +457,8 @@ impl Operator {
             &in_signature,
             &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,
-        )?;
+        )
+        .wrap_err("Failed to verify signature received from user for payout txin")?;
 
         let funded_tx = self
             .rpc
@@ -477,7 +480,8 @@ impl Operator {
                 }),
                 None,
             )
-            .await?
+            .await
+            .wrap_err("Failed to fund raw transaction")?
             .hex;
 
         let signed_tx: Transaction = deserialize(
@@ -485,11 +489,18 @@ impl Operator {
                 .rpc
                 .client
                 .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                .await?
+                .await
+                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
                 .hex,
-        )?;
+        )
+        .wrap_err("Failed to deserialize signed tx")?;
 
-        Ok(self.rpc.client.send_raw_transaction(&signed_tx).await?)
+        Ok(self
+            .rpc
+            .client
+            .send_raw_transaction(&signed_tx)
+            .await
+            .wrap_err("Failed to send transaction to signed tx")?)
     }
 
     /// Checks Citrea if a withdrawal is finalized.
@@ -520,7 +531,10 @@ impl Operator {
                 }),
                 "latest"
             ];
-            let response: String = citrea_client.request("eth_call", params).await?;
+            let response: String = citrea_client
+                .request("eth_call", params)
+                .await
+                .wrap_err("Failed to call check operator_id on Citrea")?;
 
             let operator_idx_as_vec = hex::decode(&response[58..66]).map_err(|_| {
                 BridgeError::InvalidCitreaResponse(format!(
@@ -559,7 +573,10 @@ impl Operator {
                 // hex::encode(move_txid.to_byte_array())),
                 hex::encode([0]))
             })];
-            let response: String = citrea_client.request("eth_call", params).await?;
+            let response: String = citrea_client
+                .request("eth_call", params)
+                .await
+                .wrap_err("Failed to call check withdrawal_idx on Citrea")?;
 
             let deposit_idx_response = &response[58..66];
             let deposit_idx_as_vec = hex::decode(deposit_idx_response).map_err(|_| {

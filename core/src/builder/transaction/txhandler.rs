@@ -13,6 +13,7 @@ use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
 use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
+use eyre::Context;
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
@@ -147,8 +148,9 @@ impl<T: State> TxHandler<T> {
             _ => bitcoin::sighash::Prevouts::All(&prevouts_vec),
         };
 
-        let sig_hash =
-            sighash_cache.taproot_key_spend_signature_hash(txin_index, &prevouts, sighash_type)?;
+        let sig_hash = sighash_cache
+            .taproot_key_spend_signature_hash(txin_index, &prevouts, sighash_type)
+            .wrap_err("Failed to calculate taproot sighash for key spend")?;
 
         Ok(sig_hash)
     }
@@ -196,12 +198,9 @@ impl<T: State> TxHandler<T> {
             _ => bitcoin::sighash::Prevouts::All(&prevouts_vec),
         };
         let leaf_hash = TapLeafHash::from_script(spend_script, LeafVersion::TapScript);
-        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
-            txin_index,
-            prevouts,
-            leaf_hash,
-            sighash_type,
-        )?;
+        let sig_hash = sighash_cache
+            .taproot_script_spend_signature_hash(txin_index, prevouts, leaf_hash, sighash_type)
+            .wrap_err("Failed to calculate taproot sighash for script spend")?;
 
         Ok(sig_hash)
     }

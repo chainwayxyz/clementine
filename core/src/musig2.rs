@@ -9,6 +9,7 @@ use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey, SecretKey},
     TapNodeHash, XOnlyPublicKey,
 };
+use eyre::Context;
 use lazy_static::lazy_static;
 use secp256k1::{
     musig::{
@@ -103,7 +104,8 @@ fn create_key_agg_cache(
 
                 musig_key_agg_cache.pubkey_xonly_tweak_add(
                     SECP256K1,
-                    &Scalar::from_be_bytes(xonly_tweak.into())?,
+                    &Scalar::from_be_bytes(xonly_tweak.into())
+                        .wrap_err("Failed to create scalar from xonly tweak bytes")?,
                 )?;
             }
             Musig2Mode::KeySpendWithScript(merkle_root) => {
@@ -114,8 +116,11 @@ fn create_key_agg_cache(
                     .chain_update(merkle_root.to_raw_hash().to_byte_array())
                     .finalize();
 
-                musig_key_agg_cache
-                    .pubkey_ec_tweak_add(SECP256K1, &Scalar::from_be_bytes(xonly_tweak.into())?)?;
+                musig_key_agg_cache.pubkey_ec_tweak_add(
+                    SECP256K1,
+                    &Scalar::from_be_bytes(xonly_tweak.into())
+                        .wrap_err("Failed to create scalar from xonly tweak bytes")?,
+                )?;
             }
         }
     };
@@ -137,9 +142,10 @@ impl AggregateFromPublicKeys for XOnlyPublicKey {
     ) -> Result<XOnlyPublicKey, BridgeError> {
         let musig_key_agg_cache = create_key_agg_cache(pks, tweak)?;
 
-        Ok(XOnlyPublicKey::from_slice(
-            &musig_key_agg_cache.agg_pk().serialize(),
-        )?)
+        Ok(
+            XOnlyPublicKey::from_slice(&musig_key_agg_cache.agg_pk().serialize())
+                .wrap_err("Failed to create XOnlyPublicKey from aggregated public key")?,
+        )
     }
 }
 
@@ -164,11 +170,13 @@ pub fn aggregate_partial_signatures(
     let partial_sigs: Vec<&MusigPartialSignature> = partial_sigs.iter().collect();
     let final_sig = session.partial_sig_agg(&partial_sigs);
 
-    SECP256K1.verify_schnorr(
-        &final_sig,
-        secp_message.as_ref(),
-        &musig_key_agg_cache.agg_pk(),
-    )?;
+    SECP256K1
+        .verify_schnorr(
+            &final_sig,
+            secp_message.as_ref(),
+            &musig_key_agg_cache.agg_pk(),
+        )
+        .wrap_err("Failed to verify schnorr signature")?;
 
     Ok(from_secp_sig(session.partial_sig_agg(&partial_sigs)))
 }

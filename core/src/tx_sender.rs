@@ -5,6 +5,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
+use eyre::Context;
 use serde::{Deserialize, Serialize};
 use tonic::async_trait;
 
@@ -232,7 +233,8 @@ impl TxSender {
             .rpc
             .client
             .estimate_smart_fee(1, Some(EstimateMode::Conservative))
-            .await?;
+            .await
+            .wrap_err("Failed to estimate smart fee")?;
 
         match fee_rate.fee_rate {
             Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
@@ -481,7 +483,8 @@ impl TxSender {
                         }),
                         None,
                     )
-                    .await?
+                    .await
+                    .wrap_err("Failed to fund raw transaction")?
                     .hex;
 
                 let signed_tx: Transaction = bitcoin::consensus::deserialize(
@@ -489,10 +492,12 @@ impl TxSender {
                         .rpc
                         .client
                         .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                        .await?
+                        .await
+                        .wrap_err("Failed to sign raw transaction")?
                         .hex,
-                )?;
-                let txid = self.rpc.client.send_raw_transaction(&signed_tx).await?;
+                )
+                .wrap_err("Failed to deserialize signed transaction")?;
+                let txid = self.rpc.client.send_raw_transaction(&signed_tx).await.wrap_err("Failed to send raw transaction")?;
                 self.db.save_rbf_txid(Some(&mut dbtx), id, txid).await?;
             } else {
                 let bumped_txid = self
@@ -540,7 +545,12 @@ impl TxSender {
             }
         );
 
-        let test_mempool_result = self.rpc.client.test_mempool_accept(&package_refs).await?;
+        let test_mempool_result = self
+            .rpc
+            .client
+            .test_mempool_accept(&package_refs)
+            .await
+            .wrap_err("Failed to test mempool accept")?;
         tracing::info!("Test mempool result: {test_mempool_result:?}");
 
         let submit_package_result: PackageSubmissionResult = self
@@ -548,13 +558,7 @@ impl TxSender {
             .client
             .submit_package(&package_refs)
             .await
-            .inspect_err(|e| {
-                tracing::warn!(
-                    "{}: failed to submit package with error {:?}",
-                    self.btc_syncer_consumer_id,
-                    e
-                );
-            })?;
+            .wrap_err("Failed to submit package")?;
 
         tracing::info!(
             self.btc_syncer_consumer_id,

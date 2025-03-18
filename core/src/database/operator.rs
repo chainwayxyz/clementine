@@ -23,6 +23,7 @@ use crate::{
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
+use eyre::Context;
 use std::str::FromStr;
 
 pub type RootHash = [u8; 32];
@@ -150,8 +151,9 @@ impl Database {
                 // Deserialize the transaction
                 //
                 let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
-                    &hex::decode(raw_signed_tx).map_err(|e| BridgeError::Error(e.to_string()))?,
-                )?;
+                    &hex::decode(raw_signed_tx).wrap_err("Failed to decode raw_signed_tx hex")?,
+                )
+                .wrap_err("Failed to deserialize raw_signed_tx")?;
 
                 // Create the outpoint and txout
                 let outpoint = OutPoint {
@@ -315,7 +317,7 @@ impl Database {
              SET public_hashes = EXCLUDED.public_hashes;",
         )
         .bind(operator_idx)
-        .bind(i32::try_from(deposit_id)?)
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(public_hashes);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -340,7 +342,7 @@ impl Database {
             WHERE operator_idx = $1 AND deposit_id = $2;",
         )
         .bind(operator_idx)
-        .bind(i32::try_from(deposit_id)?);
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -388,7 +390,7 @@ impl Database {
         let deposit_id: Result<(i32,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
-        Ok(u32::try_from(deposit_id?.0)?)
+        Ok(u32::try_from(deposit_id?.0).wrap_err("Failed to convert deposit id to u32")?)
     }
 
     pub async fn get_deposit_data(
@@ -410,7 +412,7 @@ impl Database {
                 evm_address,
                 nofn_xonly_pk,
             )) => Ok(Some((
-                u32::try_from(deposit_id)?,
+                u32::try_from(deposit_id).wrap_err("Failed to convert deposit id to u32")?,
                 DepositData {
                     deposit_outpoint: deposit_outpoint.0,
                     recovery_taproot_address: recovery_taproot_address.0,
@@ -445,7 +447,7 @@ impl Database {
             INSERT INTO deposit_signatures (deposit_id, operator_idx, round_idx, kickoff_idx, kickoff_txid, signatures)
             VALUES ($1, $2, $3, $4, $5, $6);"
         )
-        .bind(i32::try_from(deposit_id)?)
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(operator_idx as i32)
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32)
@@ -470,7 +472,7 @@ impl Database {
 
         let deposit_id: Result<(i32,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
-        Ok(u32::try_from(deposit_id?.0)?)
+        Ok(u32::try_from(deposit_id?.0).wrap_err("Failed to convert deposit id to u32")?)
     }
 
     /// Retrieves the deposit signatures for a single operator for a single reimburse
@@ -541,9 +543,12 @@ impl Database {
                     nofn_xonly_pk: nofn_xonly_pk.0,
                 },
                 KickoffId {
-                    operator_idx: u32::try_from(operator_idx)?,
-                    round_idx: u32::try_from(round_idx)?,
-                    kickoff_idx: u32::try_from(kickoff_idx)?,
+                    operator_idx: u32::try_from(operator_idx)
+                        .wrap_err("Failed to convert operator idx to u32")?,
+                    round_idx: u32::try_from(round_idx)
+                        .wrap_err("Failed to convert round idx to u32")?,
+                    kickoff_idx: u32::try_from(kickoff_idx)
+                        .wrap_err("Failed to convert kickoff idx to u32")?,
                 },
                 signatures.0.signatures,
             ))),
@@ -571,7 +576,7 @@ impl Database {
                  root_hash = EXCLUDED.root_hash;",
         )
         .bind(operator_idx)
-        .bind(i32::try_from(deposit_id)?)
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(
             assert_tx_addrs
                 .as_ref()
@@ -602,7 +607,7 @@ impl Database {
              WHERE operator_idx = $1 AND deposit_id = $2;",
         )
         .bind(operator_idx)
-        .bind(i32::try_from(deposit_id)?);
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -643,7 +648,7 @@ impl Database {
              WHERE operator_idx = $1 AND deposit_id = $2;",
         )
         .bind(operator_idx)
-        .bind(i32::try_from(deposit_id)?);
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -669,10 +674,10 @@ impl Database {
             "INSERT INTO used_kickoff_connectors (round_idx, kickoff_connector_idx, kickoff_txid)
              VALUES ($1, $2, $3);",
         )
-        .bind(i32::try_from(round_idx).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(round_idx).wrap_err("Failed to convert round idx to i32")?)
         .bind(
             i32::try_from(kickoff_connector_idx)
-                .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                .wrap_err("Failed to convert kickoff connector idx to i32")?,
         )
         .bind(kickoff_txid.map(TxidDB));
 
@@ -690,8 +695,8 @@ impl Database {
         let query = sqlx::query_as::<_, (TxidDB,)>(
             "SELECT kickoff_txid FROM used_kickoff_connectors WHERE round_idx = $1 AND kickoff_connector_idx = $2;",
         )
-        .bind(i32::try_from(round_idx).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
-        .bind(i32::try_from(kickoff_connector_idx).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(round_idx).wrap_err("Failed to convert round idx to i32")?)
+        .bind(i32::try_from(kickoff_connector_idx).wrap_err("Failed to convert kickoff connector idx to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -708,11 +713,11 @@ impl Database {
     ) -> Result<Option<(u32, u32)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, i32)>(
             "WITH current_round AS (
-                    SELECT round_idx 
-                    FROM current_round_index 
+                    SELECT round_idx
+                    FROM current_round_index
                     WHERE id = 1
                 )
-                SELECT 
+                SELECT
                     ds.round_idx as round_idx,
                     ds.kickoff_idx as kickoff_connector_idx
                 FROM deposit_signatures ds
@@ -720,24 +725,23 @@ impl Database {
                 WHERE ds.deposit_id = $1  -- Parameter for deposit_id
                     AND ds.round_idx >= cr.round_idx
                     AND NOT EXISTS (
-                        SELECT 1 
-                        FROM used_kickoff_connectors ukc 
-                        WHERE ukc.round_idx = ds.round_idx 
+                        SELECT 1
+                        FROM used_kickoff_connectors ukc
+                        WHERE ukc.round_idx = ds.round_idx
                         AND ukc.kickoff_connector_idx = ds.kickoff_idx
                     )
                 ORDER BY ds.round_idx ASC
                 LIMIT 1;",
         )
-        .bind(i32::try_from(deposit_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
             Some((round_idx, kickoff_connector_idx)) => Ok(Some((
-                u32::try_from(round_idx)
-                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                u32::try_from(round_idx).wrap_err("Failed to convert round idx to u32")?,
                 u32::try_from(kickoff_connector_idx)
-                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    .wrap_err("Failed to convert kickoff connector idx to u32")?,
             ))),
             None => Ok(None),
         }
@@ -751,11 +755,9 @@ impl Database {
             sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1;");
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
         match result {
-            Some((round_idx,)) => {
-                Ok(Some(u32::try_from(round_idx).map_err(|e| {
-                    BridgeError::ConversionError(e.to_string())
-                })?))
-            }
+            Some((round_idx,)) => Ok(Some(
+                u32::try_from(round_idx).wrap_err("Failed to convert round idx to u32")?,
+            )),
             None => Ok(None),
         }
     }
@@ -766,10 +768,7 @@ impl Database {
         round_idx: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("UPDATE current_round_index SET round_idx = $1 WHERE id = 1;")
-            .bind(
-                i32::try_from(round_idx)
-                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
-            );
+            .bind(i32::try_from(round_idx).wrap_err("Failed to convert round idx to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 

@@ -8,6 +8,7 @@ use crate::{
 };
 use bitcoin::{Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use eyre::Context;
 
 #[derive(Debug, Clone)]
 pub struct Watchtower {
@@ -25,7 +26,8 @@ impl Watchtower {
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await?;
+        .await
+        .wrap_err("Failed to connect to Bitcoin RPC")?;
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;

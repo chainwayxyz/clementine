@@ -13,6 +13,7 @@ use crate::rpc::clementine::{DepositParams, Empty};
 use crate::EVMAddress;
 use bitcoin::{BlockHash, OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
+use eyre::Context;
 pub use test_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
@@ -107,7 +108,10 @@ pub async fn run_multiple_deposits(
     );
     let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
-    aggregator.setup(Request::new(Empty {})).await?;
+    aggregator
+        .setup(Request::new(Empty {}))
+        .await
+        .wrap_err("Failed to setup aggregator")?;
 
     let mut deposit_outpoints = Vec::new();
     let mut move_txids = Vec::new();
@@ -129,9 +133,11 @@ pub async fn run_multiple_deposits(
                 recovery_taproot_address: actor.address.to_string(),
                 nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
             })
-            .await?
+            .await
+            .wrap_err("Failed to execute deposit")?
             .into_inner()
-            .try_into()?;
+            .try_into()
+            .wrap_err("Failed to convert between Txid types")?;
         rpc.mine_blocks(1).await?;
 
         let start = std::time::Instant::now();
@@ -199,7 +205,10 @@ pub async fn run_single_deposit(
     let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
     let setup_start = std::time::Instant::now();
-    aggregator.setup(Request::new(Empty {})).await?;
+    aggregator
+        .setup(Request::new(Empty {}))
+        .await
+        .wrap_err("Failed to setup aggregator")?;
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
@@ -223,9 +232,11 @@ pub async fn run_single_deposit(
 
     let move_txid: Txid = aggregator
         .new_deposit(deposit_params.clone())
-        .await?
+        .await
+        .wrap_err("Failed to execute deposit")?
         .into_inner()
-        .try_into()?;
+        .try_into()
+        .wrap_err("Failed to convert between Txid types")?;
 
     // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;

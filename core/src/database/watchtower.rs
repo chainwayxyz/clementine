@@ -9,6 +9,7 @@ use crate::execute_query_with_tx;
 use bitcoin::XOnlyPublicKey;
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
+use eyre::Context;
 
 impl Database {
     /// Sets winternitz public keys of a watchtower for an operator.
@@ -34,7 +35,7 @@ impl Database {
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
-        .bind(i32::try_from(deposit_id)?)
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(wpk);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -60,7 +61,7 @@ impl Database {
         )
         .bind(operator_id as i64)
         .bind(watchtower_id as i64)
-        .bind(i32::try_from(deposit_id)?);
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
@@ -91,7 +92,7 @@ impl Database {
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
-            .bind(i32::try_from(deposit_id)?)
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(watchtower_challenge_hash);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -117,7 +118,7 @@ impl Database {
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
-        .bind(i32::try_from(deposit_id)?);
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -163,7 +164,8 @@ impl Database {
 
         let xonly_key: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
+        Ok(XOnlyPublicKey::from_slice(&xonly_key.0)
+            .wrap_err("Failed to decode xonly public key")?)
     }
 
     /// Gets xonly public keys of all watchtowers.
@@ -178,9 +180,10 @@ impl Database {
         let rows: Vec<(Vec<u8>,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         rows.into_iter()
-            .map(|xonly_pk| {
+            .map(|xonly_pk| -> Result<_, BridgeError> {
                 XOnlyPublicKey::from_slice(&xonly_pk.0)
-                    .map_err(|e| BridgeError::Error(format!("Can't convert xonly pubkey: {}", e)))
+                    .wrap_err("Failed to decode xonly public key")
+                    .map_err(Into::into)
             })
             .collect()
     }

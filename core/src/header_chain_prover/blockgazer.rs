@@ -6,6 +6,7 @@
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
 use bitcoin::BlockHash;
 use bitcoincore_rpc::RpcApi;
+use eyre::Context;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -39,8 +40,18 @@ impl HeaderChainProver {
     #[tracing::instrument(skip(self))]
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
-        let active_tip_height = self.rpc.client.get_block_count().await?;
-        let active_tip_hash = self.rpc.client.get_block_hash(active_tip_height).await?;
+        let active_tip_height = self
+            .rpc
+            .client
+            .get_block_count()
+            .await
+            .wrap_err("Failed to get active blockchain tip height")?;
+        let active_tip_hash = self
+            .rpc
+            .client
+            .get_block_hash(active_tip_height)
+            .await
+            .wrap_err("Failed to get active blockchain tip hash")?;
         tracing::debug!(
             "Database blockchain tip is at height {} with block hash {}",
             db_tip_height,
@@ -79,7 +90,11 @@ impl HeaderChainProver {
 
             (
                 new_height,
-                self.rpc.client.get_block_hash(new_height).await?,
+                self.rpc
+                    .client
+                    .get_block_hash(new_height)
+                    .await
+                    .wrap_err("Failed to get block hash for new height")?,
             )
         };
         tracing::debug!("Fetching blocks between {db_tip_height}-{height}");
@@ -97,7 +112,8 @@ impl HeaderChainProver {
                 .rpc
                 .client
                 .get_block_header(&current_block_hash)
-                .await?
+                .await
+                .wrap_err("Failed to get block header")?
                 .prev_blockhash;
 
             let header = self
@@ -165,7 +181,11 @@ impl HeaderChainProver {
                 .set_new_block(
                     None,
                     *block_hash,
-                    self.rpc.client.get_block_header(block_hash).await?,
+                    self.rpc
+                        .client
+                        .get_block_header(block_hash)
+                        .await
+                        .wrap_err("Failed to get block header for syncing")?,
                     current_block_height + diff as u64 + 1,
                 )
                 .await?;

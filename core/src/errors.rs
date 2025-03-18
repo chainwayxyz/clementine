@@ -4,7 +4,7 @@
 
 use crate::builder::transaction::TransactionType;
 use bitcoin::{
-    consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, FeeRate, OutPoint,
+    consensus::encode::FromHexError, BlockHash, FeeRate, OutPoint,
     Txid,
 };
 use core::fmt::Debug;
@@ -17,20 +17,6 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    /// Returned when the bitcoin::secp256k1 crate returns an error
-    #[error("Secpk256Error: {0}")]
-    BitcoinSecp256k1Error(#[from] bitcoin::secp256k1::Error),
-    /// Returned when the bitcoin crate returns an error in the sighash taproot module
-    #[error("BitcoinSighashTaprootError: {0}")]
-    BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
-    #[error("Invalid bitcoin block hash: {0}")]
-    BitcoinBlockHashInvalid(#[from] bitcoin::hex::HexToArrayError),
-
-    #[error("Secp256k1 returned an error: {0}")]
-    Secp256k1Error(#[from] secp256k1::Error),
-    #[error("Scalar can't be build: {0}")]
-    Secp256k1ScalarOutOfRange(#[from] secp256k1::scalar::OutOfRangeError),
-
     /// Returned when a non finalized deposit request is found
     #[error("DepositNotFinalized")]
     DepositNotFinalized,
@@ -49,9 +35,6 @@ pub enum BridgeError {
     /// Returned when there are unconfirmed fee payer UTXOs left
     #[error("UnconfirmedFeePayerUTXOsLeft")]
     UnconfirmedFeePayerUTXOsLeft,
-    /// Returned in RPC error
-    #[error("BitcoinCoreRPCError: {0}")]
-    BitcoinRpcError(#[from] bitcoincore_rpc::Error),
     /// Returned if there is no confirmation data
     #[error("NoConfirmationData")]
     NoConfirmationData,
@@ -61,9 +44,6 @@ pub enum BridgeError {
     /// For TryFromSliceError
     #[error("TryFromSliceError")]
     TryFromSliceError,
-    /// Returned when bitcoin::Transaction error happens, also returns the error
-    #[error("BitcoinTransactionError: {0}")]
-    BitcoinConsensusEncodeError(#[from] bitcoin::consensus::encode::Error),
     /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]
     TxInputNotFound,
@@ -103,15 +83,10 @@ pub enum BridgeError {
     /// Block not found
     #[error("Block not found")]
     BlockNotFound,
-    /// Merkle Block Error
-    #[error("MerkleBlockError: {0}")]
-    MerkleBlockError(#[from] MerkleBlockError),
     /// Merkle Proof Error
     #[error("MerkleProofError")]
     MerkleProofError,
 
-    #[error("JsonRpcError: {0}")]
-    JsonRpcError(#[from] jsonrpsee::core::client::Error),
     #[error("RPC function field {0} is required!")]
     RPCRequiredParam(&'static str),
     #[error("RPC function parameter {0} is malformed: {1}")]
@@ -120,16 +95,11 @@ pub enum BridgeError {
     RPCStreamEndedUnexpectedly(String),
     #[error("Invalid response from an RPC endpoint: {0}")]
     RPCInvalidResponse(String),
-    #[error("RPCBroadcastRecvError: {0}")]
-    RPCBroadcastRecvError(#[from] tokio::sync::broadcast::error::RecvError),
     #[error("RPCBroadcastSendError: {0}")]
     RPCBroadcastSendError(String),
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),
-    /// Bitcoin Address Parse Error, probably given address network is invalid
-    #[error("BitcoinAddressParseError: {0}")]
-    BitcoinAddressParseError(#[from] bitcoin::address::ParseError),
     /// Port error for tests
     #[error("PortError: {0}")]
     PortError(String),
@@ -234,16 +204,8 @@ pub enum BridgeError {
     #[error("ConversionError: {0}")]
     ConversionError(String),
 
-    #[error("IntConversionError: {0}")]
-    IntConversionError(#[from] std::num::TryFromIntError),
-
     #[error("ERROR: {0}")]
     Error(String),
-
-    #[error("RPC endpoint returned an error: {0}")]
-    TonicError(#[from] tonic::Status),
-    #[error("RPC client couldn't start: {0}")]
-    RPCClientCouldntStart(#[from] tonic::transport::Error),
 
     #[error("No root Winternitz secret key is provided in configuration file")]
     NoWinternitzSecretKey,
@@ -353,13 +315,6 @@ pub enum BridgeError {
 
     #[error("Eyre error: {0}")]
     Eyre(#[from] eyre::Report),
-
-    #[error("Error while calling EVM contract: {0}")]
-    AlloyContract(#[from] alloy::contract::Error),
-    #[error("Error while calling EVM RPC function: {0}")]
-    AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
-    #[error("Error while encoding/decoding EVM type: {0}")]
-    AlloySolTypes(#[from] alloy::sol_types::Error),
 
     #[error("Transaction is already in block: {0}")]
     TransactionAlreadyInBlock(BlockHash),

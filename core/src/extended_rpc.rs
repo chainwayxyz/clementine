@@ -21,6 +21,7 @@ use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
+use eyre::Context;
 
 #[derive(Debug, Clone)]
 pub struct ExtendedRpc {
@@ -31,14 +32,12 @@ pub struct ExtendedRpc {
 
 impl ExtendedRpc {
     /// Connects to Bitcoin RPC and returns a new `ExtendedRpc`.
-    pub async fn connect(
-        url: String,
-        user: String,
-        password: String,
-    ) -> Result<Self, bitcoincore_rpc::Error> {
+    pub async fn connect(url: String, user: String, password: String) -> Result<Self, BridgeError> {
         let auth = Auth::UserPass(user, password);
 
-        let rpc = Client::new(&url, auth.clone()).await?;
+        let rpc = Client::new(&url, auth.clone())
+            .await
+            .wrap_err("Failed to connect to Bitcoin RPC")?;
 
         Ok(Self {
             url,
@@ -49,7 +48,11 @@ impl ExtendedRpc {
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
-        let raw_transaction_results = self.client.get_raw_transaction_info(txid, None).await?;
+        let raw_transaction_results = self
+            .client
+            .get_raw_transaction_info(txid, None)
+            .await
+            .wrap_err("Failed to get transaction info")?;
 
         raw_transaction_results
             .confirmations
@@ -61,7 +64,11 @@ impl ExtendedRpc {
         &self,
         txid: &bitcoin::Txid,
     ) -> Result<bitcoin::BlockHash, BridgeError> {
-        let raw_transaction_results = self.client.get_raw_transaction_info(txid, None).await?;
+        let raw_transaction_results = self
+            .client
+            .get_raw_transaction_info(txid, None)
+            .await
+            .wrap_err("Failed to get transaction info")?;
         let Some(blockhash) = raw_transaction_results.blockhash else {
             return Err(BridgeError::TransactionNotConfirmed(*txid));
         };
@@ -78,7 +85,8 @@ impl ExtendedRpc {
         let tx = self
             .client
             .get_raw_transaction(&outpoint.txid, None)
-            .await?;
+            .await
+            .wrap_err("Failed to get transaction")?;
 
         let current_output = tx.output[outpoint.vout as usize].clone();
 
@@ -95,7 +103,8 @@ impl ExtendedRpc {
         let res = self
             .client
             .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
-            .await?;
+            .await
+            .wrap_err("Failed to get transaction output")?;
 
         Ok(res.is_none())
     }
@@ -106,13 +115,15 @@ impl ExtendedRpc {
         let new_address = self
             .client
             .get_new_address(None, None)
-            .await?
+            .await
+            .wrap_err("Failed to get new address")?
             .assume_checked();
 
         Ok(self
             .client
             .generate_to_address(block_num, &new_address)
-            .await?)
+            .await
+            .wrap_err("Failed to generate to address")?)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -124,9 +135,14 @@ impl ExtendedRpc {
         let txid = self
             .client
             .send_to_address(address, amount_sats, None, None, None, None, None, None)
-            .await?;
+            .await
+            .wrap_err("Failed to send to address")?;
 
-        let tx_result = self.client.get_transaction(&txid, None).await?;
+        let tx_result = self
+            .client
+            .get_transaction(&txid, None)
+            .await
+            .wrap_err("Failed to get transaction")?;
         let vout = tx_result.details[0].vout; // TODO: this might be incorrect
 
         Ok(OutPoint { txid, vout })
@@ -137,7 +153,8 @@ impl ExtendedRpc {
         let tx = self
             .client
             .get_raw_transaction(&outpoint.txid, None)
-            .await?;
+            .await
+            .wrap_err("Failed to get transaction")?;
         let txout = tx.output[outpoint.vout as usize].clone();
 
         Ok(txout)
@@ -193,7 +210,11 @@ impl ExtendedRpc {
         txid: Txid,
         fee_rate: FeeRate,
     ) -> Result<Txid, BridgeError> {
-        let transaction_info = self.client.get_transaction(&txid, None).await?;
+        let transaction_info = self
+            .client
+            .get_transaction(&txid, None)
+            .await
+            .wrap_err("Failed to get transaction")?;
         if transaction_info.info.blockhash.is_some() {
             return Err(BridgeError::TransactionAlreadyInBlock(
                 transaction_info
@@ -202,19 +223,25 @@ impl ExtendedRpc {
                     .expect("Blockhash should be present"),
             ));
         }
-        let tx = transaction_info.transaction()?;
+        let tx = transaction_info.transaction()
+            .wrap_err("Failed to get transaction")?;
         let tx_size = tx.weight().to_vbytes_ceil();
         let current_fee_sat = u64::try_from(
             -transaction_info
                 .fee
                 .expect("Fee should be present")
                 .to_sat(),
-        )?;
+        )
+        .wrap_err("Failed to convert fee to sat")?;
         let current_fee_rate = FeeRate::from_sat_per_kwu(1000 * current_fee_sat / tx_size);
         if current_fee_rate >= fee_rate {
             return Ok(txid);
         }
-        let network_info = self.client.get_network_info().await?;
+        let network_info = self
+            .client
+            .get_network_info()
+            .await
+            .wrap_err("Failed to get network info")?;
         let incremental_fee = network_info.incremental_fee;
         let incremental_fee_rate: FeeRate = FeeRate::from_sat_per_kwu(incremental_fee.to_sat());
         let new_fee_rate = FeeRate::from_sat_per_kwu(

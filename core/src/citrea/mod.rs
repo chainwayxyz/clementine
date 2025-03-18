@@ -19,6 +19,7 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid};
+use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
 use BRIDGE_CONTRACT::{Deposit, Withdrawal};
@@ -76,9 +77,12 @@ impl CitreaClient {
             provider,
         );
 
-        let client = HttpClientBuilder::default().build(citrea_rpc_url)?;
-        let light_client_prover_client =
-            HttpClientBuilder::default().build(light_client_prover_url)?;
+        let client = HttpClientBuilder::default()
+            .build(citrea_rpc_url)
+            .wrap_err("Failed to build citrea rpc client")?;
+        let light_client_prover_client = HttpClientBuilder::default()
+            .build(light_client_prover_url)
+            .wrap_err("Failed to build light client prover client")?;
 
         Ok(CitreaClient {
             client,
@@ -102,7 +106,8 @@ impl CitreaClient {
             .contract
             .withdrawalUTXOs(U256::from(withdrawal_index))
             .call()
-            .await?;
+            .await
+            .wrap_err("Failed to call withdrawalUTXOs")?;
 
         let txid = withdrawal_utxo.txId.0;
         let txid = Txid::from_slice(txid.as_slice())?;
@@ -134,7 +139,12 @@ impl CitreaClient {
             let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
             let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
 
-            let logs_chunk = self.contract.provider().get_logs(&filter).await?;
+            let logs_chunk = self
+                .contract
+                .provider()
+                .get_logs(&filter)
+                .await
+                .wrap_err("Failed to get logs")?;
             logs.extend(logs_chunk);
 
             from_height += to_height;
@@ -155,19 +165,27 @@ impl CitreaClient {
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
         let filter = self.contract.event_filter::<Deposit>().filter;
-        let logs = self.get_logs(filter, from_height, to_height).await?;
+        let logs = self
+            .get_logs(filter, from_height, to_height)
+            .await
+            .wrap_err("Failed to get logs")?;
 
         let mut move_txids = vec![];
         for log in logs {
-            let deposit_raw_data = log.data().clone().data.clone();
+            let deposit_raw_data = &log.data().data;
 
-            let deposit_index = Deposit::abi_decode_data(&deposit_raw_data, false)?.4;
+            let deposit_index = Deposit::abi_decode_data(deposit_raw_data, false)
+                .wrap_err("Failed to decode deposit data")?
+                .4;
             let deposit_index: u64 = deposit_index
                 .try_into()
-                .map_err(|e| BridgeError::Error(format!("Can't convert deposit index: {:?}", e)))?;
+                .wrap_err("Failed to convert deposit index to u64")?;
 
-            let move_txid = Deposit::abi_decode_data(deposit_raw_data.as_ref(), false)?.1;
-            let move_txid = Txid::from_slice(move_txid.as_slice())?;
+            let move_txid = Deposit::abi_decode_data(deposit_raw_data, false)
+                .wrap_err("Failed to decode deposit data")?
+                .1;
+            let move_txid = Txid::from_slice(move_txid.as_ref())
+                .wrap_err("Failed to convert move txid to Txid")?;
 
             move_txids.push((deposit_index, move_txid));
         }
@@ -187,22 +205,29 @@ impl CitreaClient {
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
         let filter = self.contract.event_filter::<Withdrawal>().filter;
-        let logs = self.get_logs(filter, from_height, to_height).await?;
+        let logs = self
+            .get_logs(filter, from_height, to_height)
+            .await
+            .wrap_err("Failed to get logs")?;
 
         let mut utxos = vec![];
         for log in logs {
             let withdrawal_raw_data = log.data().clone().data.clone();
 
-            let withdrawal_index = Withdrawal::abi_decode_data(&withdrawal_raw_data, false)?.1;
-            let withdrawal_index: u64 = withdrawal_index.try_into().map_err(|e| {
-                BridgeError::Error(format!("Can't convert withdrawal index: {:?}", e))
-            })?;
+            let withdrawal_index = Withdrawal::abi_decode_data(&withdrawal_raw_data, false)
+                .wrap_err("Failed to decode withdrawal data")?
+                .1;
+            let withdrawal_index: u64 = withdrawal_index
+                .try_into()
+                .wrap_err("Failed to convert withdrawal index to u64")?;
 
-            let withdrawal_utxo =
-                Withdrawal::abi_decode_data(withdrawal_raw_data.as_ref(), false)?.0;
+            let withdrawal_utxo = Withdrawal::abi_decode_data(withdrawal_raw_data.as_ref(), false)
+                .wrap_err("Failed to decode withdrawal data")?
+                .0;
 
             let txid = withdrawal_utxo.txId.0;
-            let txid = Txid::from_slice(txid.as_slice())?;
+            let txid =
+                Txid::from_slice(txid.as_ref()).wrap_err("Failed to convert txid to Txid")?;
 
             let vout = withdrawal_utxo.outputId.0;
             let vout = u32::from_be_bytes(vout);

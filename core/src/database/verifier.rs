@@ -8,6 +8,7 @@ use super::{
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
 use bitcoin::{secp256k1::PublicKey, OutPoint, Txid};
+use eyre::Context;
 use sqlx::QueryBuilder;
 
 impl Database {
@@ -48,12 +49,12 @@ impl Database {
         move_to_vault_txid: &Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO withdrawals (idx, move_to_vault_txid) 
+            "INSERT INTO withdrawals (idx, move_to_vault_txid)
              VALUES ($1, $2)
-             ON CONFLICT (idx) DO UPDATE 
+             ON CONFLICT (idx) DO UPDATE
              SET move_to_vault_txid = $2",
         )
-        .bind(i32::try_from(citrea_idx)?)
+        .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?)
         .bind(TxidDB(*move_to_vault_txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -68,16 +69,22 @@ impl Database {
         withdrawal_batch_proof_bitcoin_block_height: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE withdrawals 
+            "UPDATE withdrawals
              SET withdrawal_utxo_txid = $2,
                  withdrawal_utxo_vout = $3,
                  withdrawal_batch_proof_bitcoin_block_height = $4
              WHERE idx = $1",
         )
-        .bind(i32::try_from(citrea_idx)?)
+        .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?)
         .bind(TxidDB(withdrawal_utxo.txid))
-        .bind(i32::try_from(withdrawal_utxo.vout)?)
-        .bind(i32::try_from(withdrawal_batch_proof_bitcoin_block_height)?);
+        .bind(
+            i32::try_from(withdrawal_utxo.vout)
+                .wrap_err("Failed to convert withdrawal utxo vout to i32")?,
+        )
+        .bind(
+            i32::try_from(withdrawal_batch_proof_bitcoin_block_height)
+                .wrap_err("Failed to convert withdrawal batch proof bitcoin block height to i32")?,
+        );
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -93,7 +100,7 @@ impl Database {
              FROM withdrawals w
              WHERE w.idx = $1",
         )
-        .bind(i32::try_from(citrea_idx)?);
+        .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?);
 
         let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -101,7 +108,8 @@ impl Database {
             .map(|(txid, vout)| {
                 Ok(OutPoint {
                     txid: txid.0,
-                    vout: u32::try_from(vout)?,
+                    vout: u32::try_from(vout)
+                        .wrap_err("Failed to convert withdrawal utxo vout to u32")?,
                 })
             })
             .transpose()
@@ -117,18 +125,23 @@ impl Database {
         let query = sqlx::query_as::<_, (i32, TxidDB)>(
             "SELECT w.idx, bsu.spending_txid
              FROM withdrawals w
-             JOIN bitcoin_syncer_spent_utxos bsu 
-                ON bsu.txid = w.withdrawal_utxo_txid 
+             JOIN bitcoin_syncer_spent_utxos bsu
+                ON bsu.txid = w.withdrawal_utxo_txid
                 AND bsu.vout = w.withdrawal_utxo_vout
              WHERE bsu.block_id = $1",
         )
-        .bind(i32::try_from(block_id)?);
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?);
 
         let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         results
             .into_iter()
-            .map(|(idx, txid)| Ok((u32::try_from(idx)?, txid.0)))
+            .map(|(idx, txid)| {
+                Ok((
+                    u32::try_from(idx).wrap_err("Failed to convert withdrawal index to u32")?,
+                    txid.0,
+                ))
+            })
             .collect()
     }
 
@@ -146,9 +159,10 @@ impl Database {
             .iter()
             .map(|(idx, txid, operator_idx, block_hash)| {
                 Ok((
-                    i32::try_from(*idx)?,
+                    i32::try_from(*idx).wrap_err("Failed to convert payout index to i32")?,
                     TxidDB(*txid),
-                    i32::try_from(*operator_idx)?,
+                    i32::try_from(*operator_idx)
+                        .wrap_err("Failed to convert payout payer operator index to i32")?,
                     BlockHashDB(*block_hash),
                 ))
             })
@@ -156,7 +170,7 @@ impl Database {
         let converted_values = converted_values?;
 
         let mut query_builder = QueryBuilder::new(
-            "UPDATE withdrawals AS w SET 
+            "UPDATE withdrawals AS w SET
                 payout_txid = c.payout_txid,
                 payout_payer_operator_idx = c.payout_payer_operator_idx
                 FROM (",

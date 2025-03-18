@@ -17,6 +17,7 @@ use bitcoin::{
 };
 use bitcoin::{TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
+use eyre::Context;
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
@@ -139,10 +140,14 @@ impl Actor {
     ) -> Result<schnorr::Signature, BridgeError> {
         Ok(bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
-            &self.keypair.add_xonly_tweak(
-                &SECP,
-                &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
-            )?,
+            &self
+                .keypair
+                .add_xonly_tweak(
+                    &SECP,
+                    &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root)
+                        .to_scalar(),
+                )
+                .wrap_err("Failed to add xonly tweak to keypair")?,
         ))
     }
 
