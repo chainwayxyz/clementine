@@ -361,7 +361,6 @@ mod tests {
 
     use super::*;
 
-    
     const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest");
     const WORK_ONLY_ELF: &[u8] =
