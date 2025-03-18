@@ -262,7 +262,7 @@ where
                 .iter()
                 .map(|derivation| match derivation {
                     WinternitzDerivationPath::BitvmAssert(len, _, _, _, _) => {
-                        (vec![0u8; *len as usize], derivation.clone())
+                        (vec![0u8; *len as usize / 2], derivation.clone())
                     }
                     _ => unreachable!(),
                 })
@@ -274,7 +274,7 @@ where
 
         Ok(signed_txhandlers
             .into_iter()
-            .map(|txhandler: super::TxHandler<super::Signed>| {
+            .map(|txhandler| {
                 (
                     txhandler.get_transaction_type(),
                     txhandler.get_cached_tx().clone(),
