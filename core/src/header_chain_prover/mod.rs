@@ -49,7 +49,11 @@ impl HeaderChainProver {
             let block_hash = BlockHash::from_raw_hash(Hash::from_slice(
                 &proof_output.chain_state.best_block_hash,
             )?);
-            let block_header = rpc.client.get_block_header(&block_hash).await.wrap_err("Failed to get block header")?;
+            let block_header = rpc
+                .client
+                .get_block_header(&block_hash)
+                .await
+                .wrap_err("Failed to get block header")?;
             // Ignore error if block entry is in database already.
             let _ = db
                 .set_new_block(

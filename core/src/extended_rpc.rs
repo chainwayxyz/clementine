@@ -223,7 +223,8 @@ impl ExtendedRpc {
                     .expect("Blockhash should be present"),
             ));
         }
-        let tx = transaction_info.transaction()
+        let tx = transaction_info
+            .transaction()
             .wrap_err("Failed to get transaction")?;
         let tx_size = tx.weight().to_vbytes_ceil();
         let current_fee_sat = u64::try_from(

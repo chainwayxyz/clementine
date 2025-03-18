@@ -497,7 +497,12 @@ impl TxSender {
                         .hex,
                 )
                 .wrap_err("Failed to deserialize signed transaction")?;
-                let txid = self.rpc.client.send_raw_transaction(&signed_tx).await.wrap_err("Failed to send raw transaction")?;
+                let txid = self
+                    .rpc
+                    .client
+                    .send_raw_transaction(&signed_tx)
+                    .await
+                    .wrap_err("Failed to send raw transaction")?;
                 self.db.save_rbf_txid(Some(&mut dbtx), id, txid).await?;
             } else {
                 let bumped_txid = self

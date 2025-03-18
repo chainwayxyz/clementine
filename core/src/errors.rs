@@ -3,10 +3,7 @@
 //! This module defines errors, returned by the library.
 
 use crate::builder::transaction::TransactionType;
-use bitcoin::{
-    consensus::encode::FromHexError, BlockHash, FeeRate, OutPoint,
-    Txid,
-};
+use bitcoin::{consensus::encode::FromHexError, BlockHash, FeeRate, OutPoint, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
 use secp256k1::musig;
