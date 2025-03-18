@@ -15,7 +15,7 @@ use bitcoin::{
     ScriptBuf, XOnlyPublicKey,
 };
 use bitcoin::{taproot, Amount, Witness};
-use bitvm::signatures::winternitz::{self, SecretKey};
+use bitvm::signatures::winternitz::SecretKey;
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
@@ -138,13 +138,10 @@ impl SpendableScript for WinternitzCommit {
 
     fn to_script_buf(&self) -> ScriptBuf {
         let mut total_script = ScriptBuf::new();
-        for (index, (pubkey, size)) in self.commitments.iter().enumerate() {
+        for (index, (pubkey, _size)) in self.commitments.iter().enumerate() {
             let params = self.get_params(index);
-            let mut a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
-                .checksig_verify(&params, pubkey);
-            for _ in 0..*size {
-                a = a.push_opcode(OP_DROP)
-            }
+            let a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+                .checksig_verify_and_clear_stack(&params, pubkey);
             total_script.extend(a.compile().instructions().map(|x| x.expect("just created")));
         }
 
