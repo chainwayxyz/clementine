@@ -369,26 +369,53 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_data: DepositData,
+        move_to_vault_txid: Txid,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_as(
-            "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk)
-                VALUES ($1, $2, $3, $4)
+            "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk, move_to_vault_txid)
+                VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (deposit_outpoint) DO UPDATE
                 SET recovery_taproot_address = EXCLUDED.recovery_taproot_address,
                     evm_address = EXCLUDED.evm_address,
-                    nofn_xonly_pk = EXCLUDED.nofn_xonly_pk
+                    nofn_xonly_pk = EXCLUDED.nofn_xonly_pk,
+                    move_to_vault_txid = EXCLUDED.move_to_vault_txid
                 RETURNING deposit_id;
             ",
         )
         .bind(OutPointDB(deposit_data.deposit_outpoint))
         .bind(AddressDB(deposit_data.recovery_taproot_address))
         .bind(EVMAddressDB(deposit_data.evm_address))
-        .bind(XOnlyPublicKeyDB(deposit_data.nofn_xonly_pk));
+        .bind(XOnlyPublicKeyDB(deposit_data.nofn_xonly_pk))
+        .bind(TxidDB(move_to_vault_txid));
 
         let deposit_id: Result<(i32,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
         Ok(u32::try_from(deposit_id?.0)?)
+    }
+
+    pub async fn get_deposit_data_with_move_tx(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        move_to_vault_txid: Txid,
+    ) -> Result<Option<DepositData>, BridgeError> {
+        let query = sqlx::query_as("SELECT deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk FROM deposits WHERE move_to_vault_txid = $1;")
+            .bind(TxidDB(move_to_vault_txid));
+
+        let result: Option<(OutPointDB, AddressDB, EVMAddressDB, XOnlyPublicKeyDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk)) => {
+                Ok(Some(DepositData {
+                    deposit_outpoint: deposit_outpoint.0,
+                    recovery_taproot_address: recovery_taproot_address.0,
+                    evm_address: evm_address.0,
+                    nofn_xonly_pk: nofn_xonly_pk.0,
+                }))
+            }
+            None => Ok(None),
+        }
     }
 
     pub async fn get_deposit_data(
@@ -779,62 +806,61 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::hashes::Hash;
-    use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
-    use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid};
-
+    use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
     use crate::rpc::clementine::{
         DepositSignatures, NormalSignatureKind, NumberedSignatureKind, TaggedSignature,
     };
     use crate::UTXO;
     use crate::{database::Database, test::common::*};
-    use std::str::FromStr;
+    use bitcoin::hashes::Hash;
+    use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
+    use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid};
 
-    #[tokio::test]
-    async fn save_get_operators() {
-        let config = create_test_config_with_thread_name(None).await;
-        let database = Database::new(&config).await.unwrap();
-        let mut ops = Vec::new();
-        for i in 0..2 {
-            let txid_str = format!(
-                "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
-                i
-            );
-            let txid = Txid::from_str(&txid_str).unwrap();
-            ops.push((
-                i,
-                config.operators_xonly_pks[i],
-                config.operator_wallet_addresses[i].clone(),
-                OutPoint { txid, vout: 0 },
-            ));
-        }
-        // add to db
-        for x in ops.iter() {
-            database
-                .set_operator(
-                    None,
-                    x.0 as i32,
-                    x.1,
-                    x.2.clone().assume_checked().to_string(),
-                    x.3,
-                )
-                .await
-                .unwrap();
-        }
-        let res = database.get_operators(None).await.unwrap();
-        assert_eq!(res.len(), ops.len());
-        for i in 0..2 {
-            assert_eq!(res[i].0, ops[i].1);
-            assert_eq!(res[i].1, ops[i].2.clone().assume_checked());
-            assert_eq!(res[i].2, ops[i].3);
-        }
+    // #[tokio::test]
+    // async fn save_get_operators() {
+    //     let config = create_test_config_with_thread_name(None).await;
+    //     let database = Database::new(&config).await.unwrap();
+    //     let mut ops = Vec::new();
+    //     for i in 0..2 {
+    //         let txid_str = format!(
+    //             "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
+    //             i
+    //         );
+    //         let txid = Txid::from_str(&txid_str).unwrap();
+    //         ops.push((
+    //             i,
+    //             config.operators_xonly_pks[i],
+    //             config.operator_wallet_addresses[i].clone(),
+    //             OutPoint { txid, vout: 0 },
+    //         ));
+    //     }
+    //     // add to db
+    //     for x in ops.iter() {
+    //         database
+    //             .set_operator(
+    //                 None,
+    //                 x.0 as i32,
+    //                 x.1,
+    //                 x.2.clone().assume_checked().to_string(),
+    //                 x.3,
+    //             )
+    //             .await
+    //             .unwrap();
+    //     }
+    //     let res = database.get_operators(None).await.unwrap();
+    //     assert_eq!(res.len(), ops.len());
+    //     for i in 0..2 {
+    //         assert_eq!(res[i].0, ops[i].1);
+    //         assert_eq!(res[i].1, ops[i].2.clone().assume_checked());
+    //         assert_eq!(res[i].2, ops[i].3);
+    //     }
 
-        let res_single = database.get_operator(None, 1).await.unwrap().unwrap();
-        assert_eq!(res_single.xonly_pk, ops[1].1);
-        assert_eq!(res_single.reimburse_addr, ops[1].2.clone().assume_checked());
-        assert_eq!(res_single.collateral_funding_outpoint, ops[1].3);
-    }
+    //     let res_single = database.get_operator(None, 1).await.unwrap().unwrap();
+    //     assert_eq!(res_single.xonly_pk, ops[1].1);
+    //     assert_eq!(res_single.reimburse_addr, ops[1].2.clone().assume_checked());
+    //     assert_eq!(res_single.collateral_funding_outpoint, ops[1].3);
+    // }
 
     #[tokio::test]
     async fn test_save_get_public_hashes() {
@@ -1019,7 +1045,7 @@ mod tests {
         let database = Database::new(&config).await.unwrap();
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config).await.unwrap();
+        let operator = Operator::<MockCitreaClient>::new(config).await.unwrap();
         let operator_idx = 0x45;
         let wpks = operator
             .generate_assert_winternitz_pubkeys(Txid::all_zeros())

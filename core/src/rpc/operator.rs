@@ -6,6 +6,7 @@ use super::clementine::{
 };
 use super::error::*;
 use crate::builder::transaction::sign::create_and_sign_txs;
+use crate::citrea::CitreaClientT;
 use crate::errors::BridgeError;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
@@ -17,7 +18,10 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
 
 #[async_trait]
-impl ClementineOperator for OperatorServer {
+impl<C> ClementineOperator for OperatorServer<C>
+where
+    C: CitreaClientT,
+{
     type DepositSignStream = ReceiverStream<Result<SchnorrSig, Status>>;
     type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
 

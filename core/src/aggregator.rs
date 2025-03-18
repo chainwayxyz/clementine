@@ -94,6 +94,13 @@ impl Aggregator {
 
         let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
 
+        tracing::info!(
+            "Aggregator created with {} verifiers, {} operators, and {} watchtowers",
+            verifier_clients.len(),
+            operator_clients.len(),
+            watchtower_clients.len()
+        );
+
         Ok(Aggregator {
             rpc,
             db,

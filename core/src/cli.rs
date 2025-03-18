@@ -6,29 +6,30 @@
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use clap::Parser;
+use clap::ValueEnum;
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::process::exit;
 
-/// Clementine (C) 2024 Chainway Limited
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum Actors {
+    Verifier,
+    Operator,
+    Aggregator,
+    Watchtower,
+}
+
+/// Clementine (C) 2025 Chainway Limited
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
+    /// Actor to run.
+    pub actor: Actors,
     /// TOML formatted configuration file.
     pub config_file: PathBuf,
     /// Verbosity level, ranging from 0 (none) to 5 (highest)
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(short, long, default_value_t = 3)]
     pub verbose: u8,
-    /// Enable verifier server.
-    #[clap(long)]
-    pub verifier_server: bool,
-    /// Enable operator server.
-    #[clap(long)]
-    pub operator_server: bool,
-    /// Enable aggregator server.
-    #[clap(long)]
-    pub aggregator_server: bool,
 }
 
 /// Parse all the command line arguments and generate a `BridgeConfig`.
@@ -45,31 +46,6 @@ where
     match Args::try_parse_from(itr) {
         Ok(c) => Ok(c),
         Err(e) => Err(BridgeError::ConfigError(e.to_string())),
-    }
-}
-
-/// Parses cli arguments, reads configuration file, parses it and generates a
-/// `BridgeConfig`.
-///
-/// # Exits
-///
-/// Prints help + error messages and kills process on error. This will not panic
-/// intentionally, just to print a user friendly message and not a trace.
-pub fn get_configuration() -> BridgeConfig {
-    let args = match parse() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{}", e);
-            exit(1);
-        }
-    };
-
-    match get_configuration_from(args) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{}", e);
-            exit(1);
-        }
     }
 }
 

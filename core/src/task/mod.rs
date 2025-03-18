@@ -8,6 +8,7 @@ use tonic::async_trait;
 use crate::errors::BridgeError;
 
 pub mod manager;
+pub mod payout_checker;
 
 /// Task trait defining the core behavior for cancelable background tasks
 ///

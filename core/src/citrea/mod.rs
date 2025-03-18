@@ -21,7 +21,12 @@ use alloy::{
 use bitcoin::{hashes::Hash, OutPoint, Txid};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
+use std::{fmt::Debug, time::Duration};
+use tonic::async_trait;
 use BRIDGE_CONTRACT::{Deposit, Withdrawal};
+
+#[cfg(test)]
+pub mod mock;
 
 pub const CITREA_CHAIN_ID: u64 = 5655;
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
@@ -37,6 +42,95 @@ sol!(
     "src/citrea/Bridge.json"
 );
 
+#[async_trait]
+pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
+    /// # Parameters
+    ///
+    /// - `citrea_rpc_url`: URL of the Citrea RPC.
+    /// - `light_client_prover_url`: URL of the Citrea light client prover RPC.
+    /// - `secret_key`: EVM secret key of the EVM user. If not given, random
+    ///   secret key is used (wallet is not required). This is given mostly for
+    ///   testing purposes.
+    async fn new(
+        citrea_rpc_url: String,
+        light_client_prover_url: String,
+        secret_key: Option<PrivateKeySigner>,
+    ) -> Result<Self, BridgeError>;
+
+    /// Fetches an UTXO from Citrea for the given withdrawal index.
+    ///
+    /// # Parameters
+    ///
+    /// - `withdrawal_index`: Index of the withdrawal.
+    ///
+    /// # Returns
+    ///
+    /// - [`OutPoint`]: UTXO for the given withdrawal.
+    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError>;
+
+    /// Returns deposit move txids with index for a given range of blocks.
+    ///
+    /// # Parameters
+    ///
+    /// - `from_height`: Start block height (inclusive)
+    /// - `to_height`: End block height (inclusive)
+    async fn collect_deposit_move_txids(
+        &self,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<Vec<(u64, Txid)>, BridgeError>;
+
+    /// Returns withdrawal utxos with index for given range of blocks.
+    ///
+    /// # Parameters
+    ///
+    /// - `from_height`: Start block height (inclusive)
+    /// - `to_height`: End block height (inclusive)
+    async fn collect_withdrawal_utxos(
+        &self,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<Vec<(u64, OutPoint)>, BridgeError>;
+
+    /// Returns the light client proof and its L2 height for the given L1 block
+    /// height.
+    ///
+    /// # Returns
+    ///
+    /// A tuple, wrapped around a [`Some`] if present:
+    ///
+    /// - [`u64`]: Last L2 block height.
+    ///
+    /// If not present, [`None`] is returned.
+    async fn get_light_client_proof(
+        &self,
+        l1_height: u64,
+    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError>;
+
+    /// Returns the L2 block height range for the given L1 block height.
+    ///
+    /// TODO: This is not the best way to do this, but it's a quick fix for now
+    /// it will attempt to fetch the light client proof max_attempts times with
+    /// 1 second intervals.
+    ///
+    /// # Parameters
+    ///
+    /// - `block_height`: L1 block height.
+    /// - `timeout`: Timeout duration.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of:
+    ///
+    /// - [`u64`]: Start of the L2 block height (not inclusive)
+    /// - [`u64`]: End of the L2 block height (inclusive)
+    async fn get_citrea_l2_height_range(
+        &self,
+        block_height: u64,
+        timeout: Duration,
+    ) -> Result<(u64, u64), BridgeError>;
+}
+
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
 /// RPC.
 #[derive(Clone, Debug)]
@@ -48,71 +142,6 @@ pub struct CitreaClient {
 }
 
 impl CitreaClient {
-    /// # Parameters
-    ///
-    /// - `citrea_rpc_url`: URL of the Citrea RPC.
-    /// - `light_client_prover_url`: URL of the Citrea light client prover RPC.
-    /// - `secret_key`: EVM secret key of the EVM user. If not given, random
-    ///   secret key is used (wallet is not required). This is given mostly for
-    ///   testing purposes.
-    pub fn new(
-        citrea_rpc_url: Url,
-        light_client_prover_url: Url,
-        secret_key: Option<PrivateKeySigner>,
-    ) -> Result<Self, BridgeError> {
-        let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
-
-        let key = secret_key.with_chain_id(Some(CITREA_CHAIN_ID));
-        let wallet_address = key.address();
-
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(key))
-            .on_http(citrea_rpc_url.clone());
-
-        let contract = BRIDGE_CONTRACT::new(
-            BRIDGE_CONTRACT_ADDRESS
-                .parse()
-                .expect("Correct contract address"),
-            provider,
-        );
-
-        let client = HttpClientBuilder::default().build(citrea_rpc_url)?;
-        let light_client_prover_client =
-            HttpClientBuilder::default().build(light_client_prover_url)?;
-
-        Ok(CitreaClient {
-            client,
-            light_client_prover_client,
-            wallet_address,
-            contract,
-        })
-    }
-
-    /// Fetches an UTXO from Citrea for the given withdrawal index.
-    ///
-    /// # Parameters
-    ///
-    /// - `withdrawal_index`: Index of the withdrawal.
-    ///
-    /// # Returns
-    ///
-    /// - [`OutPoint`]: UTXO for the given withdrawal.
-    pub async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
-        let withdrawal_utxo = self
-            .contract
-            .withdrawalUTXOs(U256::from(withdrawal_index))
-            .call()
-            .await?;
-
-        let txid = withdrawal_utxo.txId.0;
-        let txid = Txid::from_slice(txid.as_slice())?;
-
-        let vout = withdrawal_utxo.outputId.0;
-        let vout = u32::from_be_bytes(vout);
-
-        Ok(OutPoint { txid, vout })
-    }
-
     /// Returns all logs for the given filter and block range while considering
     /// about the 1000 block limit.
     async fn get_logs(
@@ -142,14 +171,64 @@ impl CitreaClient {
 
         Ok(logs)
     }
+}
 
-    /// Returns deposit move txids with index for a given range of blocks.
-    ///
-    /// # Parameters
-    ///
-    /// - `from_height`: Start block height (inclusive)
-    /// - `to_height`: End block height (inclusive)
-    pub async fn collect_deposit_move_txids(
+#[async_trait]
+impl CitreaClientT for CitreaClient {
+    async fn new(
+        citrea_rpc_url: String,
+        light_client_prover_url: String,
+        secret_key: Option<PrivateKeySigner>,
+    ) -> Result<Self, BridgeError> {
+        let citrea_rpc_url = Url::parse(&citrea_rpc_url)
+            .map_err(|e| BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e)))?;
+        let light_client_prover_url = Url::parse(&light_client_prover_url)
+            .map_err(|e| BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e)))?;
+        let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
+
+        let key = secret_key.with_chain_id(Some(CITREA_CHAIN_ID));
+        let wallet_address = key.address();
+
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(key))
+            .on_http(citrea_rpc_url.clone());
+
+        let contract = BRIDGE_CONTRACT::new(
+            BRIDGE_CONTRACT_ADDRESS
+                .parse()
+                .expect("Correct contract address"),
+            provider,
+        );
+
+        let client = HttpClientBuilder::default().build(citrea_rpc_url)?;
+        let light_client_prover_client =
+            HttpClientBuilder::default().build(light_client_prover_url)?;
+
+        Ok(CitreaClient {
+            client,
+            light_client_prover_client,
+            wallet_address,
+            contract,
+        })
+    }
+
+    async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
+        let withdrawal_utxo = self
+            .contract
+            .withdrawalUTXOs(U256::from(withdrawal_index))
+            .call()
+            .await?;
+
+        let txid = withdrawal_utxo.txId.0;
+        let txid = Txid::from_slice(txid.as_slice())?;
+
+        let vout = withdrawal_utxo.outputId.0;
+        let vout = u32::from_be_bytes(vout);
+
+        Ok(OutPoint { txid, vout })
+    }
+
+    async fn collect_deposit_move_txids(
         &self,
         from_height: u64,
         to_height: u64,
@@ -175,13 +254,7 @@ impl CitreaClient {
         Ok(move_txids)
     }
 
-    /// Returns withdrawal utxos with index for given range of blocks.
-    ///
-    /// # Parameters
-    ///
-    /// - `from_height`: Start block height (inclusive)
-    /// - `to_height`: End block height (inclusive)
-    pub async fn collect_withdrawal_utxos(
+    async fn collect_withdrawal_utxos(
         &self,
         from_height: u64,
         to_height: u64,
@@ -212,10 +285,73 @@ impl CitreaClient {
 
         Ok(utxos)
     }
+
+    async fn get_light_client_proof(
+        &self,
+        l1_height: u64,
+    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
+        let proof_result = self
+            .light_client_prover_client
+            .get_light_client_proof_by_l1_height(l1_height)
+            .await?;
+
+        let ret = if let Some(proof_result) = proof_result {
+            Some((
+                proof_result
+                    .light_client_proof_output
+                    .last_l2_height
+                    .try_into()
+                    .map_err(|e| {
+                        BridgeError::Error(format!("Can't convert last_l2_height to u64: {}", e))
+                    })?,
+                proof_result.proof,
+            ))
+        } else {
+            None
+        };
+
+        Ok(ret)
+    }
+
+    async fn get_citrea_l2_height_range(
+        &self,
+        block_height: u64,
+        timeout: Duration,
+    ) -> Result<(u64, u64), BridgeError> {
+        let start = std::time::Instant::now();
+        let proof_current = loop {
+            if let Some(proof) = self.get_light_client_proof(block_height).await? {
+                break proof;
+            }
+
+            if start.elapsed() > timeout {
+                return Err(BridgeError::Error(format!(
+                    "Light client proof not found for block height {} after {} seconds",
+                    block_height,
+                    timeout.as_secs()
+                )));
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        };
+
+        let proof_previous =
+            self.get_light_client_proof(block_height - 1)
+                .await?
+                .ok_or(BridgeError::Error(format!(
+                    "Light client proof not found for block height: {}",
+                    block_height - 1
+                )))?;
+
+        let l2_height_end: u64 = proof_current.0;
+        let l2_height_start: u64 = proof_previous.0;
+
+        Ok((l2_height_start, l2_height_end))
+    }
 }
 
 #[rpc(client, namespace = "lightClientProver")]
-pub trait LightClientProverRpc {
+trait LightClientProverRpc {
     /// Generate state transition data for the given L1 block height, and return the data as a borsh serialized hex string.
     #[method(name = "getLightClientProofByL1Height")]
     async fn get_light_client_proof_by_l1_height(
@@ -241,6 +377,7 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
 
 #[cfg(test)]
 mod tests {
+    use crate::citrea::CitreaClientT;
     use crate::citrea::BRIDGE_CONTRACT::Withdrawal;
     use crate::test::common::citrea::BRIDGE_PARAMS;
     use crate::{
@@ -251,7 +388,6 @@ mod tests {
         },
     };
     use alloy::providers::Provider;
-    use alloy::transports::http::reqwest::Url;
     use citrea_e2e::{
         config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
         framework::TestFramework,
@@ -303,10 +439,11 @@ mod tests {
             citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, None);
 
             let citrea_client = CitreaClient::new(
-                Url::parse(&config.citrea_rpc_url).unwrap(),
-                Url::parse(&config.citrea_light_client_prover_url).unwrap(),
+                config.citrea_rpc_url,
+                config.citrea_light_client_prover_url,
                 Some(SECRET_KEYS[0].to_string().parse().unwrap()),
             )
+            .await
             .unwrap();
 
             let filter = citrea_client.contract.event_filter::<Withdrawal>().filter;

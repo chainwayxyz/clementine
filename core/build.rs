@@ -54,6 +54,7 @@ fn compile_protobuf() {
             "clementine.KickoffId",
             "#[derive(Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]",
         )
+        .file_descriptor_set_path(proto_root.join("descriptor.bin"))
         .out_dir("./src/rpc")
         .compile_protos(
             &proto_files,

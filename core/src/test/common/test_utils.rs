@@ -3,6 +3,7 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+use crate::citrea::CitreaClientT;
 use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -310,7 +311,7 @@ pub async fn initialize_database(config: &BridgeConfig) {
 ///
 /// Returns a tuple of vectors of clients, handles, and socket paths for the
 /// verifiers, operators, aggregator and watchtowers, along with shutdown channels.
-pub async fn create_actors(
+pub async fn create_actors<C: CitreaClientT>(
     config: &BridgeConfig,
 ) -> (
     Vec<ClementineVerifierClient<Channel>>,
@@ -335,8 +336,6 @@ pub async fn create_actors(
 
     // Create temporary directory for Unix sockets
     let socket_dir = tempfile::tempdir().expect("Failed to create temporary directory for sockets");
-    let mut config = config.clone();
-    config.socket_path = format!("unix://{}", socket_dir.path().display()).to_string();
 
     let verifier_futures = all_verifiers_secret_keys
         .iter()
@@ -349,7 +348,7 @@ pub async fn create_actors(
                 config_with_new_db.db_name += &i;
                 initialize_database(&config_with_new_db).await;
 
-                let (socket_path, shutdown_tx) = create_verifier_unix_server(
+                let (socket_path, shutdown_tx) = create_verifier_unix_server::<C>(
                     BridgeConfig {
                         secret_key: *sk,
                         ..config_with_new_db.clone()
@@ -389,7 +388,7 @@ pub async fn create_actors(
             let socket_path = socket_dir.path().join(format!("operator_{}.sock", i));
             let verifier_config = verifier_configs[i].clone();
             async move {
-                let (socket_path, shutdown_tx) = create_operator_unix_server(
+                let (socket_path, shutdown_tx) = create_operator_unix_server::<C>(
                     BridgeConfig {
                         secret_key: *sk,
                         ..verifier_config
