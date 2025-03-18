@@ -253,7 +253,20 @@ where
                 txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
                     BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),
                 )?;
-            let dummy_data = vec![];
+            let derivations = ClementineBitVMPublicKeys::get_assert_derivations(
+                idx,
+                assert_data.deposit_data.deposit_outpoint.txid,
+                self.config.protocol_paramset(),
+            );
+            let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations
+                .iter()
+                .map(|derivation| match derivation {
+                    WinternitzDerivationPath::BitvmAssert(len, _, _, _, _) => {
+                        (vec![0u8; *len as usize / 2], derivation.clone())
+                    }
+                    _ => unreachable!(),
+                })
+                .collect();
             self.signer
                 .tx_sign_winternitz(&mut mini_assert_txhandler, &dummy_data)?;
             signed_txhandlers.push(mini_assert_txhandler.promote()?);
