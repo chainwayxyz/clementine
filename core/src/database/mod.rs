@@ -18,6 +18,9 @@ mod verifier;
 mod watchtower;
 mod wrapper;
 
+#[cfg(test)]
+pub use wrapper::*;
+
 /// PostgreSQL database connection details.
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -106,7 +109,7 @@ impl Database {
     ///
     /// URL contains user, password, host, port and database name fields, which
     /// are picked from the given configuration.
-    fn get_postgresql_database_url(config: &BridgeConfig) -> String {
+    pub fn get_postgresql_database_url(config: &BridgeConfig) -> String {
         Database::get_postgresql_url(config) + "/" + &config.db_name
     }
 

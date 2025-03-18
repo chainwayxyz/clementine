@@ -1,6 +1,7 @@
 use std::{process::exit, str::FromStr};
 
 use clementine_core::{
+    citrea::CitreaClient,
     cli::{self, Args},
     config::BridgeConfig,
     database::Database,
@@ -75,7 +76,7 @@ async fn main() {
         cli::Actors::Verifier => {
             println!("Starting verifier server...");
 
-            create_verifier_grpc_server(config.clone())
+            create_verifier_grpc_server::<CitreaClient>(config.clone())
                 .await
                 .expect("Can't create verifier server")
                 .1
@@ -83,7 +84,7 @@ async fn main() {
         cli::Actors::Operator => {
             println!("Starting operator server...");
 
-            create_operator_grpc_server(config.clone())
+            create_operator_grpc_server::<CitreaClient>(config.clone())
                 .await
                 .expect("Can't create operator server")
                 .1

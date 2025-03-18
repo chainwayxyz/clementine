@@ -15,8 +15,7 @@ use crate::builder::transaction::{
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
     TxHandlerCache,
 };
-use crate::citrea::CitreaClient;
-use crate::config::protocol::ProtocolParamsetName;
+use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::database::DatabaseTransaction;
@@ -31,7 +30,6 @@ use crate::task::{IntoTask, TaskExt};
 use crate::tx_sender::TxSenderClient;
 use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
 use crate::{builder, UTXO};
-use alloy::transports::http::reqwest::Url;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -43,22 +41,19 @@ use bitcoin::{
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::rpc_params;
-use serde_json::json;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
 
-pub struct OperatorServer {
-    pub operator: Operator,
-    background_tasks: BackgroundTaskManager<Operator>,
+pub struct OperatorServer<C: CitreaClientT> {
+    pub operator: Operator<C>,
+    background_tasks: BackgroundTaskManager<Operator<C>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Operator {
+pub struct Operator<C: CitreaClientT> {
     pub rpc: ExtendedRpc,
     pub db: Database,
     pub signer: Actor,
@@ -68,10 +63,13 @@ pub struct Operator {
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSenderClient,
-    pub citrea_client: Option<CitreaClient>,
+    pub citrea_client: C,
 }
 
-impl OperatorServer {
+impl<C> OperatorServer<C>
+where
+    C: CitreaClientT,
+{
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let paramset = config.protocol_paramset();
         let operator = Operator::new(config).await?;
@@ -106,7 +104,10 @@ impl OperatorServer {
     }
 }
 
-impl Operator {
+impl<C> Operator<C>
+where
+    C: CitreaClientT,
+{
     /// Creates a new `Operator`.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(
@@ -172,27 +173,12 @@ impl Operator {
         };
         dbtx.commit().await?;
 
-        let citrea_client = if !config.citrea_rpc_url.is_empty()
-            && !config.citrea_light_client_prover_url.is_empty()
-        {
-            Some(CitreaClient::new(
-                Url::parse(&config.citrea_rpc_url).map_err(|e| {
-                    BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e))
-                })?,
-                Url::parse(&config.citrea_light_client_prover_url).map_err(|e| {
-                    BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e))
-                })?,
-                None,
-            )?)
-        } else if config.protocol_paramset == ProtocolParamsetName::Mainnet
-            || config.protocol_paramset == ProtocolParamsetName::Testnet4
-        {
-            return Err(BridgeError::ConfigError(
-                "Citrea RPC URL and Citrea light client prover RPC URLs must be set!".to_string(),
-            ));
-        } else {
-            None
-        };
+        let citrea_client = C::new(
+            config.citrea_rpc_url.clone(),
+            config.citrea_light_client_prover_url.clone(),
+            None,
+        )
+        .await?;
 
         tracing::debug!(
             "Operator idx: {:?}, db created with name: {:?}",
@@ -204,7 +190,7 @@ impl Operator {
             rpc,
             db: db.clone(),
             signer,
-            config: config.clone(),
+            config,
             nofn_xonly_pk,
             idx,
             collateral_funding_outpoint,
@@ -340,7 +326,7 @@ impl Operator {
     /// Creates the round state machine by adding a system event to the database
     pub async fn track_rounds(&self) -> Result<(), BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
-        StateManager::<Operator>::dispatch_new_round_machine(
+        StateManager::<Operator<C>>::dispatch_new_round_machine(
             self.db.clone(),
             &mut dbtx,
             self.data(),
@@ -503,99 +489,6 @@ impl Operator {
         )?;
 
         Ok(self.rpc.client.send_raw_transaction(&signed_tx).await?)
-    }
-
-    /// Checks Citrea if a withdrawal is finalized.
-    ///
-    /// Calls `withdrawFillers(withdrawal_idx)` to check the returned id is our
-    /// operator's id. Then calculates `move_txid` and calls
-    /// `txIdToDepositId(move_txid)` to check if returned id is
-    /// `withdrawal_idx`.
-    pub async fn check_citrea_for_withdrawal(
-        &self,
-        withdrawal_idx: u32,
-        _deposit_outpoint: OutPoint,
-    ) -> Result<(), BridgeError> {
-        // Don't check anything if Citrea client is not specified.
-        let citrea_client = match &self.citrea_client {
-            Some(c) => c.client.clone(),
-            None => return Ok(()),
-        };
-
-        // Check for operator id.
-        {
-            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
-            let params = rpc_params![
-                json!({
-                    "to": "0x3100000000000000000000000000000000000002",
-                    "data": format!("0xc045577b00000000000000000000000000000000000000000000000000000000{}",
-                    hex::encode(withdrawal_idx.to_be_bytes())),
-                }),
-                "latest"
-            ];
-            let response: String = citrea_client.request("eth_call", params).await?;
-
-            let operator_idx_as_vec = hex::decode(&response[58..66]).map_err(|_| {
-                BridgeError::InvalidCitreaResponse(format!(
-                    "Failed to decode operator_idx hex from response: OperatorIdx = {}",
-                    &response[58..66]
-                ))
-            })?;
-            let operator_idx = u32::from_be_bytes(
-                operator_idx_as_vec
-                    .try_into()
-                    .expect("length statically known"),
-            );
-
-            if operator_idx - 1 != self.idx as u32 {
-                return Err(BridgeError::InvalidOperatorIndex(
-                    operator_idx as usize,
-                    self.idx,
-                ));
-            }
-        }
-
-        // Check for withdrawal idx.
-        {
-            // let move_txid = builder::transaction::create_move_to_vault_tx(
-            //     deposit_outpoint,
-            //     self.nofn_xonly_pk,
-            //     self.config.protocol_paramset().bridge_amount,
-            //     self.config.protocol_paramset().network,
-            // )
-            // .compute_txid();
-
-            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
-            let params = rpc_params![json!({
-                "to": "0x3100000000000000000000000000000000000002",
-                "data": format!("0x11e53a01{}",
-                // hex::encode(move_txid.to_byte_array())),
-                hex::encode([0]))
-            })];
-            let response: String = citrea_client.request("eth_call", params).await?;
-
-            let deposit_idx_response = &response[58..66];
-            let deposit_idx_as_vec = hex::decode(deposit_idx_response).map_err(|_| {
-                BridgeError::InvalidCitreaResponse(format!(
-                    "Invalid deposit idx response from Citrea, deposit idx = {}",
-                    &response[58..66]
-                ))
-            })?;
-            let deposit_idx = u32::from_be_bytes(
-                deposit_idx_as_vec
-                    .try_into()
-                    .expect("length statically known"),
-            );
-
-            if deposit_idx - 1 != withdrawal_idx {
-                return Err(BridgeError::InvalidDepositOutpointGiven(
-                    deposit_idx as usize - 1,
-                    withdrawal_idx as usize,
-                ));
-            }
-        }
-
-        Ok(())
     }
 
     /// Generates Winternitz public keys for every  BitVM assert tx for a deposit.
@@ -1061,7 +954,10 @@ impl Operator {
 }
 
 #[tonic::async_trait]
-impl Owner for Operator {
+impl<C> Owner for Operator<C>
+where
+    C: CitreaClientT,
+{
     const OWNER_TYPE: &'static str = "operator";
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
         match duty {
@@ -1171,6 +1067,7 @@ impl Owner for Operator {
 
 #[cfg(test)]
 mod tests {
+    use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
@@ -1250,7 +1147,9 @@ mod tests {
         let mut config = create_test_config_with_thread_name(None).await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config.clone()).await.unwrap();
+        let operator = Operator::<MockCitreaClient>::new(config.clone())
+            .await
+            .unwrap();
 
         let winternitz_public_key = operator
             .generate_assert_winternitz_pubkeys(Txid::all_zeros())
@@ -1267,7 +1166,9 @@ mod tests {
         let mut config = create_test_config_with_thread_name(None).await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config.clone()).await.unwrap();
+        let operator = Operator::<MockCitreaClient>::new(config.clone())
+            .await
+            .unwrap();
 
         let preimages = operator
             .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
@@ -1280,7 +1181,9 @@ mod tests {
         let mut config = create_test_config_with_thread_name(None).await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::new(config.clone()).await.unwrap();
+        let operator = Operator::<MockCitreaClient>::new(config.clone())
+            .await
+            .unwrap();
         let actual_wpks = operator.generate_kickoff_winternitz_pubkeys().unwrap();
 
         let (mut wpk_rx, _) = operator.get_params().await.unwrap();

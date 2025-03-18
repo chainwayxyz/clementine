@@ -1,7 +1,7 @@
 use tokio::time::Duration;
 use tonic::async_trait;
 
-use crate::{database::Database, errors::BridgeError};
+use crate::{citrea::CitreaClientT, database::Database, errors::BridgeError, operator::Operator};
 
 use super::Task;
 
@@ -12,19 +12,25 @@ pub const PAYOUT_CHECKER_POLL_DELAY: Duration = if cfg!(test) {
 };
 
 #[derive(Debug, Clone)]
-pub struct PayoutCheckerTask {
+pub struct PayoutCheckerTask<C: CitreaClientT> {
     db: Database,
-    operator: crate::operator::Operator,
+    operator: Operator<C>,
 }
 
-impl PayoutCheckerTask {
-    pub fn new(db: Database, operator: crate::operator::Operator) -> Self {
+impl<C> PayoutCheckerTask<C>
+where
+    C: CitreaClientT,
+{
+    pub fn new(db: Database, operator: Operator<C>) -> Self {
         Self { db, operator }
     }
 }
 
 #[async_trait]
-impl Task for PayoutCheckerTask {
+impl<C> Task for PayoutCheckerTask<C>
+where
+    C: CitreaClientT,
+{
     type Output = bool;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {

@@ -2,6 +2,7 @@
 //!
 //! Utilities for operator and verifier servers.
 use crate::aggregator::Aggregator;
+use crate::citrea::CitreaClientT;
 use crate::extended_rpc::ExtendedRpc;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
@@ -168,7 +169,7 @@ where
     Ok((addr, shutdown_tx))
 }
 
-pub async fn create_verifier_grpc_server(
+pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     let _rpc = ExtendedRpc::connect(
@@ -179,7 +180,7 @@ pub async fn create_verifier_grpc_server(
     .await?;
 
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let verifier = VerifierServer::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Verifier").await?;
@@ -190,7 +191,7 @@ pub async fn create_verifier_grpc_server(
     }
 }
 
-pub async fn create_operator_grpc_server(
+pub async fn create_operator_grpc_server<C: CitreaClientT>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     tracing::info!(
@@ -199,7 +200,7 @@ pub async fn create_operator_grpc_server(
         config.port
     );
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let operator = OperatorServer::new(config).await?;
+    let operator = OperatorServer::<C>::new(config).await?;
     tracing::info!("Operator gRPC server created");
     let svc = ClementineOperatorServer::new(operator);
 
@@ -243,7 +244,7 @@ pub async fn create_watchtower_grpc_server(
 
 // Functions for creating servers with Unix sockets (useful for tests)
 #[cfg(unix)]
-pub async fn create_verifier_unix_server(
+pub async fn create_verifier_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
@@ -254,7 +255,7 @@ pub async fn create_verifier_unix_server(
     )
     .await?;
 
-    let verifier = VerifierServer::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) =
@@ -277,7 +278,7 @@ pub async fn create_verifier_unix_server(
 }
 
 #[cfg(unix)]
-pub async fn create_operator_unix_server(
+pub async fn create_operator_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
@@ -288,7 +289,7 @@ pub async fn create_operator_unix_server(
     )
     .await?;
 
-    let operator = OperatorServer::new(config).await?;
+    let operator = OperatorServer::<C>::new(config).await?;
     let svc = ClementineOperatorServer::new(operator);
 
     let (server_addr, shutdown_tx) =

@@ -766,16 +766,16 @@ pub fn create_round_txhandlers(
 
 #[cfg(test)]
 mod tests {
-
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
+    use crate::builder::transaction::TransactionType;
+    use crate::builder::transaction::TxHandlerBuilder;
+    use crate::citrea::mock::MockCitreaClient;
+    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use crate::test::common::*;
     use bitcoin::XOnlyPublicKey;
     use futures::future::try_join_all;
-
-    use crate::builder::transaction::{TransactionType, TxHandlerBuilder};
-    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_deposit_and_sign_txs() {
@@ -791,7 +791,7 @@ mod tests {
             deposit_params,
             _,
             deposit_blockhash,
-        ) = run_single_deposit(&mut config, rpc.clone(), None)
+        ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
             .await
             .unwrap();
 
