@@ -408,7 +408,7 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub const fn number_of_assert_txs() -> usize {
-        42
+        46
     }
 
     pub const fn number_of_flattened_wpks() -> usize {
@@ -443,9 +443,9 @@ impl ClementineBitVMPublicKeys {
             ));
             scripts.push(script);
         }
-        // iterate NUM_U160 10 by 10
-        for i in (0..NUM_U160).step_by(10) {
-            let last_idx = std::cmp::min(i + 10, NUM_U160);
+        // iterate NUM_U160 9 by 9
+        for i in (0..NUM_U160).step_by(9) {
+            let last_idx = std::cmp::min(i + 9, NUM_U160);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.2[i..last_idx]
                     .iter()
@@ -466,9 +466,9 @@ impl ClementineBitVMPublicKeys {
     ) -> Vec<WinternitzDerivationPath> {
         if mini_assert_idx == 0 {
             vec![
+                WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, txid, paramset),
                 WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, txid, paramset),
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 2, 0, txid, paramset),
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 3, 0, txid, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 2, 0, txid, paramset),
             ]
         } else if (1..=3).contains(&mini_assert_idx) {
             // for 1, we will have 5 derivations index starting from 0 to 4
@@ -481,8 +481,8 @@ impl ClementineBitVMPublicKeys {
                 if derivations + i < NUM_U256 as u32 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         32 * 2,
+                        3,
                         derivations + i,
-                        0,
                         txid,
                         paramset,
                     ));
@@ -490,14 +490,14 @@ impl ClementineBitVMPublicKeys {
             }
             derivations_vec
         } else {
-            let derivations: u32 = (mini_assert_idx as u32 - 3) * 10;
+            let derivations: u32 = (mini_assert_idx as u32 - 4) * 9;
             let mut derivations_vec = vec![];
-            for i in 0..10 {
+            for i in 0..9 {
                 if derivations + i < NUM_U160 as u32 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         20 * 2,
+                        4,
                         derivations + i,
-                        0,
                         txid,
                         paramset,
                     ));
