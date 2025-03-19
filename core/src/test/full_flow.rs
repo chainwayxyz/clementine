@@ -17,9 +17,8 @@ use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
-use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{consensus, OutPoint, Transaction, Txid, XOnlyPublicKey};
 use eyre::{Context, Result};
-use futures::future::try_join_all;
 use tonic::Request;
 
 const BLOCKS_PER_DAY: u64 = 144;
@@ -495,30 +494,31 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
         .into_inner();
 
     // Send all assert transactions together
-    try_join_all(assert_txs.signed_txs.iter().map(|tx| async {
+    for tx in assert_txs.signed_txs.iter() {
         tracing::info!(
-            "Sending assert transaction of type: {:?}",
+            "Waiting for assert transaction of type: {:?}",
             tx.transaction_type
         );
-        send_tx(
-            &tx_sender,
+        let tx_type = tx.transaction_type.unwrap();
+        let tx = consensus::deserialize::<Transaction>(tx.raw_tx.as_slice()).unwrap();
+        ensure_outpoint_spent(
             &rpc,
-            &tx.raw_tx,
-            tx.transaction_type.unwrap().try_into().unwrap(),
+            OutPoint {
+                txid: tx.input[0].previous_output.txid,
+                vout: tx.input[0].previous_output.vout,
+            },
         )
         .await
         .context(format!(
-            "failed to send assert transaction of type {:?}",
-            tx.transaction_type.unwrap()
+            "failed to ensure assert transaction of type {:?}",
+            tx_type
         ))?;
-        Ok::<_, eyre::Report>(())
-    }))
-    .await?;
+    }
 
     // Mine blocks to confirm transactions
     rpc.mine_blocks(10).await?;
 
-    tracing::info!("Happy Path 3 test completed successfully");
+    tracing::info!("Simple Assert Flow test completed successfully");
     Ok(())
 }
 

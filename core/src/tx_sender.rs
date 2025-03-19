@@ -437,13 +437,7 @@ impl TxSender {
 
         if fee_paying_type == FeePayingType::RBF {
             tracing::info!(
-                "Sending RBF tx for tx_type: {:?}, round_idx: {:?}, kickoff_idx: {:?}, operator_idx: {:?}, verifier_idx: {:?}, deposit_outpoint: {:?}, details: {:?} ",
-                tx_metadata.as_ref().map(|d| d.tx_type),
-                tx_metadata.as_ref().map(|d| d.round_idx),
-                tx_metadata.as_ref().map(|d| d.kickoff_idx),
-                tx_metadata.as_ref().map(|d| d.operator_idx),
-                tx_metadata.as_ref().map(|d| d.verifier_idx),
-                tx_metadata.as_ref().map(|d| d.deposit_outpoint),
+                "Sending RBF tx, meta: {tx_metadata:?}, tx: {:?}",
                 hex::encode(bitcoin::consensus::serialize(&tx))
             );
 
@@ -451,13 +445,7 @@ impl TxSender {
             let last_rbf_txid = self.db.get_last_rbf_txid(Some(&mut dbtx), id).await?;
             if last_rbf_txid.is_none() {
                 tracing::info!(
-                    "Funding RBF tx for tx_type: {:?}, round_idx: {:?}, kickoff_idx: {:?}, operator_idx: {:?}, verifier_idx: {:?}, deposit_outpoint: {:?}, details: {:?} ",
-                    tx_metadata.as_ref().map(|d| d.tx_type),
-                    tx_metadata.as_ref().map(|d| d.round_idx),
-                    tx_metadata.as_ref().map(|d| d.kickoff_idx),
-                    tx_metadata.as_ref().map(|d| d.operator_idx),
-                    tx_metadata.as_ref().map(|d| d.verifier_idx),
-                    tx_metadata.as_ref().map(|d| d.deposit_outpoint),
+                    "Funding RBF tx, meta: {tx_metadata:?}, tx: {:?}",
                     hex::encode(bitcoin::consensus::serialize(&tx))
                 );
 
