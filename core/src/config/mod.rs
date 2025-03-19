@@ -109,6 +109,7 @@ pub struct BridgeConfig {
     pub all_watchtowers_secret_keys: Option<Vec<SecretKey>>,
 
     #[cfg(test)]
+    #[serde(skip)]
     pub test_params: TestParams,
 }
 

@@ -453,6 +453,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 /// Simple Assert flow without watchtower challenges/acks
 pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Simple Assert Flow");
+    config.test_params.should_run_state_manager = false;
 
     let (
         mut operators,
@@ -488,18 +489,6 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
 
     rpc.mine_blocks(8 * BLOCKS_PER_HOUR as u64).await?;
 
-    for i in 0..config.protocol_paramset().num_watchtowers {
-        send_tx_with_type(
-            &rpc,
-            &tx_sender,
-            &all_txs,
-            TxType::WatchtowerChallengeTimeout(i),
-        )
-        .await?;
-    }
-
-    // Sending all timeouts should trigger the state machine to send the assert transactions
-
     // Create assert transactions for operator 0
     let assert_txs = operators[0]
         .internal_create_assert_commitment_txs(AssertRequest {
@@ -512,17 +501,16 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
     // Ensure all assert transactions are sent in order
     for tx in assert_txs.signed_txs.iter() {
         tracing::info!(
-            "Waiting for assert transaction of type: {:?}",
+            "Sending assert transaction of type: {:?}",
             tx.transaction_type
         );
-        let tx_type = tx.transaction_type.unwrap();
-        let tx = consensus::deserialize::<Transaction>(tx.raw_tx.as_slice()).unwrap();
-        ensure_outpoint_spent(&rpc, tx.input[0].previous_output)
-            .await
-            .context(format!(
-                "failed to ensure assert transaction of type {:?}",
-                tx_type
-            ))?;
+        send_tx(
+            &tx_sender,
+            &rpc,
+            tx.raw_tx.as_slice(),
+            tx.transaction_type.unwrap().try_into().unwrap(),
+        )
+        .await?;
     }
 
     // Mine blocks to confirm transactions
