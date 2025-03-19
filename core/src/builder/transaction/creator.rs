@@ -769,6 +769,7 @@ mod tests {
     use crate::rpc::clementine::{
         AssertRequest, DepositParams, KickoffId, SignedTxsWithType, TransactionRequest,
     };
+    use crate::test::common::citrea::create_mock_citrea_database;
     use crate::test::common::*;
     use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     use futures::future::try_join_all;
@@ -1098,6 +1099,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_replacement_deposit_and_sign_txs() {
         let mut config = create_test_config_with_thread_name(None).await;
+        create_mock_citrea_database(&mut config).await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
         let (verifiers, operators, _, watchtowers, _cleanup, deposit_params, _, deposit_blockhash) =

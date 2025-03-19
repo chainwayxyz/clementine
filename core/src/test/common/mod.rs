@@ -28,6 +28,7 @@ use bitcoin::key::Keypair;
 use bitcoin::secp256k1::Message;
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
+use citrea::get_transaction_params;
 pub use test_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
@@ -422,6 +423,7 @@ pub async fn run_replacement_deposit(
         move_txid,
     });
 
+    tracing::info!("Replacing move tx with new deposit: {:?}", move_txid);
     let deposit_params: DepositParams = deposit_data.into();
 
     let move_txid: Txid = aggregator
@@ -429,6 +431,41 @@ pub async fn run_replacement_deposit(
         .await?
         .into_inner()
         .try_into()?;
+
+    tracing::info!("New move txid: {:?}", move_txid);
+    // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    rpc.mine_blocks(1).await?;
+
+    mine_once_after_in_mempool(&rpc, move_txid, Some("New Move tx"), None).await?;
+
+    // Send deposit to Citrea
+    let tx = rpc
+        .client
+        .get_raw_transaction(&move_txid, None)
+        .await
+        .unwrap();
+    let tx_info = rpc
+        .client
+        .get_raw_transaction_info(&move_txid, None)
+        .await
+        .unwrap();
+    let block = rpc
+        .client
+        .get_block(&tx_info.blockhash.unwrap())
+        .await
+        .unwrap();
+    let block_height = rpc
+        .client
+        .get_block_info(&block.block_hash())
+        .await
+        .unwrap()
+        .height as u64;
+
+    // get_transaction_params
+    let params = get_transaction_params(tx, block, block_height as u32, move_txid)?;
+    use alloy::sol_types::SolValue;
+    tracing::info!("Params: {:?}", hex::encode(params.abi_encode()));
 
     Ok((
         verifiers,
