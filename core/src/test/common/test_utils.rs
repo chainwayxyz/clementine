@@ -222,17 +222,14 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
 /// # Returns
 ///
 /// - [`BridgeConfig`]: Modified configuration struct
-pub async fn create_test_config_with_thread_name(suffix: Option<&str>) -> BridgeConfig {
-    let suffix = suffix.unwrap_or_default().to_string();
-
+pub async fn create_test_config_with_thread_name() -> BridgeConfig {
     let handle = std::thread::current()
         .name()
         .expect("Failed to get thread name")
         .split(':')
         .last()
         .expect("Failed to get thread name")
-        .to_owned()
-        + &suffix;
+        .to_owned();
 
     // Use maximum log level for tests.
     initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG))

@@ -411,31 +411,31 @@ impl Database {
         current_tip_height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
-            "WITH 
+            "WITH
                 -- Find non-active transactions (not seen or timelock not passed)
                 non_active_txs AS (
                     -- Transactions with txid activations that aren't active yet
                     SELECT DISTINCT
                         activate_txid.activated_id AS tx_id
-                    FROM 
+                    FROM
                         tx_sender_activate_try_to_send_txids AS activate_txid
-                    LEFT JOIN 
+                    LEFT JOIN
                         bitcoin_syncer AS syncer ON activate_txid.seen_block_id = syncer.id
-                    WHERE 
-                        activate_txid.seen_block_id IS NULL 
+                    WHERE
+                        activate_txid.seen_block_id IS NULL
                         OR (syncer.height + activate_txid.timelock > $2)
-                    
+
                     UNION
-                    
+
                     -- Transactions with outpoint activations that aren't active yet
                     SELECT DISTINCT
                         activate_outpoint.activated_id AS tx_id
-                    FROM 
+                    FROM
                         tx_sender_activate_try_to_send_outpoints AS activate_outpoint
-                    LEFT JOIN 
+                    LEFT JOIN
                         bitcoin_syncer AS syncer ON activate_outpoint.seen_block_id = syncer.id
-                    WHERE 
-                        activate_outpoint.seen_block_id IS NULL 
+                    WHERE
+                        activate_outpoint.seen_block_id IS NULL
                         OR (syncer.height + activate_outpoint.timelock > $2)
                 ),
 
@@ -444,28 +444,28 @@ impl Database {
                     -- Transactions with cancelled outpoints
                     SELECT DISTINCT
                         cancelled_id AS tx_id
-                    FROM 
+                    FROM
                         tx_sender_cancel_try_to_send_outpoints
-                    WHERE 
+                    WHERE
                         seen_block_id IS NOT NULL
-                    
+
                     UNION
-                    
+
                     -- Transactions with cancelled txids
                     SELECT DISTINCT
                         cancelled_id AS tx_id
-                    FROM 
+                    FROM
                         tx_sender_cancel_try_to_send_txids
-                    WHERE 
+                    WHERE
                         seen_block_id IS NOT NULL
                 )
 
                 -- Final query to get sendable transactions
-                SELECT 
+                SELECT
                     txs.id
-                FROM 
+                FROM
                     tx_sender_try_to_send_txs AS txs
-                WHERE 
+                WHERE
                     -- Transaction must not be in the non-active list
                     txs.id NOT IN (SELECT tx_id FROM non_active_txs)
                     -- Transaction must not be in the cancelled list
@@ -560,7 +560,7 @@ mod tests {
     use bitcoin::{Block, OutPoint, Txid};
 
     async fn setup_test_db() -> Database {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         Database::new(&config).await.unwrap()
     }
 

@@ -1074,7 +1074,7 @@ mod tests {
     use bitcoin::Txid;
     // #[tokio::test]
     // async fn set_funding_utxo() {
-    //     let mut config = create_test_config_with_thread_name(None).await;
+    //     let mut config = create_test_config_with_thread_name().await;
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -1107,7 +1107,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn is_profitable() {
-    //     let mut config = create_test_config_with_thread_name(None).await;
+    //     let mut config = create_test_config_with_thread_name().await;
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -1144,7 +1144,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::<MockCitreaClient>::new(config.clone())
@@ -1163,7 +1163,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::<MockCitreaClient>::new(config.clone())
@@ -1178,7 +1178,7 @@ mod tests {
 
     #[tokio::test]
     async fn operator_get_params() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::<MockCitreaClient>::new(config.clone())

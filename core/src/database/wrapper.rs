@@ -289,7 +289,7 @@ mod tests {
         ($db_type:ty, $inner:ty, $db_wrapper:expr, $table_name:expr, $column_type:expr) => {
             let db_wrapper = $db_wrapper;
 
-            let config = create_test_config_with_thread_name(None).await;
+            let config = create_test_config_with_thread_name().await;
             let database = Database::new(&config).await.unwrap();
 
             // Create table if it doesn't exist

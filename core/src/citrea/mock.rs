@@ -77,6 +77,7 @@ impl CitreaClientT for MockCitreaClient {
         tracing::info!(
             "Using the mock Citrea client, beware that data returned from this client is not real"
         );
+        tracing::info!("Acquiring citrea client {}", citrea_rpc_url);
         if citrea_rpc_url.is_empty() {
             return Err(eyre::eyre!(
                 "citrea_rpc_url is empty, please use create_mock_citrea_database to create a mock citrea client"
@@ -191,7 +192,6 @@ impl MockCitreaClient {
     }
 
     /// Pushes a withdrawal utxo and its ondex to the given height.
-    /// TODO: Make it calc index auto
     pub async fn insert_withdrawal_utxo(&mut self, height: u64, utxo: OutPoint) {
         let mut storage = self.storage.lock().await;
         let idx = storage.withdrawals.len() as u64 + 1;
@@ -210,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn deposit_move_txid() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let mut client = super::MockCitreaClient::new(config.citrea_rpc_url, "".to_string(), None)
             .await
             .unwrap();
@@ -241,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn withdrawal_utxos() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let mut client = super::MockCitreaClient::new(config.citrea_rpc_url, "".to_string(), None)
             .await
             .unwrap();
