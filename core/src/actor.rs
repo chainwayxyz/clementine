@@ -266,7 +266,7 @@ impl Actor {
             .and_then(|sig| schnorr::Signature::from_slice(sig.signature.as_ref()).ok())
     }
 
-    fn add_script_path_to_witness(
+    pub fn add_script_path_to_witness(
         witness: &mut Witness,
         script: &ScriptBuf,
         spend_info: &TaprootSpendInfo,

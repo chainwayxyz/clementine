@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
+use crate::builder::address::create_taproot_address;
 use crate::builder::script::{CheckSig, ReplacementDepositScript, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
@@ -28,6 +29,7 @@ use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::Message;
+use bitcoin::transaction::Version;
 use bitcoin::{BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 pub use test_utils::*;
@@ -330,7 +332,15 @@ fn sign_nofn_deposit_tx(deposit_tx: &TxHandler, config: &BridgeConfig) -> Transa
     )
     .unwrap();
 
-    let witness = Witness::from_slice(&[final_signature.serialize()]);
+    let mut witness = Witness::from_slice(&[final_signature.serialize()]);
+    // get script of movetx
+    let script_buf = CheckSig::new(nofn_xonly_pk).to_script_buf();
+    let (_, spend_info) = create_taproot_address(
+        &[script_buf.clone()],
+        None,
+        config.protocol_paramset().network,
+    );
+    Actor::add_script_path_to_witness(&mut witness, &script_buf, &spend_info).unwrap();
     let mut tx = deposit_tx.get_cached_tx().clone();
     tx.input[0].witness = witness;
     tx
@@ -356,19 +366,20 @@ pub async fn run_replacement_deposit(
     let (verifiers, operators, mut aggregator, watchtowers, cleanup, dep_params, move_txid, _) =
         run_single_deposit(config, rpc.clone(), evm_address).await?;
 
-    tracing::warn!(
+    tracing::info!(
         "First deposit {} completed, starting replacement deposit",
         DepositData::try_from(dep_params)?
             .get_deposit_outpoint()
             .txid
     );
-    tracing::warn!("First deposit move txid: {}", move_txid);
+    tracing::info!("First deposit move txid: {}", move_txid);
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
             .unwrap();
 
     // generate replacement deposit tx
     let new_deposit_tx = TxHandlerBuilder::new(TransactionType::Dummy)
+        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             SpendableTxIn::from_scripts(
@@ -399,7 +410,7 @@ pub async fn run_replacement_deposit(
 
     let replacement_deposit_tx = sign_nofn_deposit_tx(&new_deposit_tx, config);
     let replacement_deposit_txid = replacement_deposit_tx.compute_txid();
-    tracing::warn!("Replacement deposit txid: {}", replacement_deposit_txid);
+    tracing::info!("Replacement deposit txid: {}", replacement_deposit_txid);
 
     aggregator
         .internal_send_tx(RawSignedTx::from(&replacement_deposit_tx))
