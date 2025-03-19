@@ -227,29 +227,29 @@ impl Actor {
     ) -> Result<ClementineBitVMPublicKeys, BridgeError> {
         let mut pks = ClementineBitVMPublicKeys::create_replacable();
         let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-            20, 0, 0, txid, paramset,
+            40, 0, 0, txid, paramset,
         ))?;
         pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
         let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-            20, 1, 0, txid, paramset,
+            40, 1, 0, txid, paramset,
         ))?;
         pks.challenge_sending_watchtowers_pk =
             ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
         for i in 0..pks.bitvm_pks.0.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-                32, 2, i as u32, txid, paramset,
+                64, 2, i as u32, txid, paramset,
             ))?;
             pks.bitvm_pks.0[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
         }
         for i in 0..pks.bitvm_pks.1.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-                32, 3, i as u32, txid, paramset,
+                64, 3, i as u32, txid, paramset,
             ))?;
             pks.bitvm_pks.1[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
         }
         for i in 0..pks.bitvm_pks.2.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-                20, 4, i as u32, txid, paramset,
+                40, 4, i as u32, txid, paramset,
             ))?;
             pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
         }

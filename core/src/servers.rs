@@ -2,6 +2,7 @@
 //!
 //! Utilities for operator and verifier servers.
 use crate::aggregator::Aggregator;
+use crate::citrea::CitreaClientT;
 use crate::extended_rpc::ExtendedRpc;
 use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
@@ -12,10 +13,13 @@ use crate::verifier::VerifierServer;
 use crate::watchtower::Watchtower;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
-use eyre::Context;
+use std::env;
+use std::fs;
+use std::path::Path;
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
+use tonic_reflection::server::Builder;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
 
@@ -67,7 +71,37 @@ where
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
-    let server_builder = tonic::transport::Server::builder().add_service(service);
+    // Create reflection service using the descriptor file
+    let descriptor_path = std::env::var("DESCRIPTOR_PATH").map_or_else(
+        |_| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join("rpc")
+                .join("descriptor.bin")
+        },
+        |path| Path::new(&path).to_path_buf(),
+    );
+
+    let descriptor_bytes = fs::read(&descriptor_path).map_err(|e| {
+        BridgeError::ServerError(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to read descriptor file: {}", e),
+        ))
+    })?;
+
+    let reflection_service = Builder::configure()
+        .register_encoded_file_descriptor_set(&descriptor_bytes)
+        .build_v1()
+        .map_err(|e| {
+            BridgeError::ServerError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to build reflection service: {}", e),
+            ))
+        })?;
+
+    let server_builder = tonic::transport::Server::builder()
+        .add_service(reflection_service)
+        .add_service(service);
 
     match addr {
         ServerAddr::Tcp(socket_addr) => {
@@ -135,7 +169,7 @@ where
     Ok((addr, shutdown_tx))
 }
 
-pub async fn create_verifier_grpc_server(
+pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     let _rpc = ExtendedRpc::connect(
@@ -147,7 +181,7 @@ pub async fn create_verifier_grpc_server(
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let verifier = VerifierServer::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Verifier").await?;
@@ -158,7 +192,7 @@ pub async fn create_verifier_grpc_server(
     }
 }
 
-pub async fn create_operator_grpc_server(
+pub async fn create_operator_grpc_server<C: CitreaClientT>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     tracing::info!(
@@ -167,7 +201,7 @@ pub async fn create_operator_grpc_server(
         config.port
     );
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let operator = OperatorServer::new(config).await?;
+    let operator = OperatorServer::<C>::new(config).await?;
     tracing::info!("Operator gRPC server created");
     let svc = ClementineOperatorServer::new(operator);
 
@@ -211,7 +245,7 @@ pub async fn create_watchtower_grpc_server(
 
 // Functions for creating servers with Unix sockets (useful for tests)
 #[cfg(unix)]
-pub async fn create_verifier_unix_server(
+pub async fn create_verifier_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
@@ -223,7 +257,7 @@ pub async fn create_verifier_unix_server(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let verifier = VerifierServer::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) =
@@ -246,7 +280,7 @@ pub async fn create_verifier_unix_server(
 }
 
 #[cfg(unix)]
-pub async fn create_operator_unix_server(
+pub async fn create_operator_unix_server<C: CitreaClientT>(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
@@ -258,7 +292,7 @@ pub async fn create_operator_unix_server(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let operator = OperatorServer::new(config).await?;
+    let operator = OperatorServer::<C>::new(config).await?;
     let svc = ClementineOperatorServer::new(operator);
 
     let (server_addr, shutdown_tx) =

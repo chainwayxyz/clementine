@@ -1,5 +1,6 @@
 use super::{convert_int_to_another, parse_deposit_params};
 use crate::builder::transaction::DepositData;
+use crate::citrea::CitreaClientT;
 use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
@@ -25,10 +26,13 @@ use bitcoin::{address::NetworkUnchecked, secp256k1::schnorr};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tonic::Status;
 
-impl TryFrom<&Verifier> for VerifierParams {
+impl<C> TryFrom<&Verifier<C>> for VerifierParams
+where
+    C: CitreaClientT,
+{
     type Error = Status;
 
-    fn try_from(verifier: &Verifier) -> Result<Self, Self::Error> {
+    fn try_from(verifier: &Verifier<C>) -> Result<Self, Self::Error> {
         Ok(VerifierParams {
             id: convert_int_to_another("id", verifier.idx, u32::try_from)?,
             public_key: verifier.signer.public_key.serialize().to_vec(),

@@ -15,7 +15,7 @@ use bitcoin::{
     ScriptBuf, XOnlyPublicKey,
 };
 use bitcoin::{taproot, Amount, Witness};
-use bitvm::signatures::winternitz::{self, SecretKey};
+use bitvm::signatures::winternitz::SecretKey;
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
@@ -138,13 +138,10 @@ impl SpendableScript for WinternitzCommit {
 
     fn to_script_buf(&self) -> ScriptBuf {
         let mut total_script = ScriptBuf::new();
-        for (index, (pubkey, size)) in self.commitments.iter().enumerate() {
+        for (index, (pubkey, _size)) in self.commitments.iter().enumerate() {
             let params = self.get_params(index);
-            let mut a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
-                .checksig_verify(&params, pubkey);
-            for _ in 0..*size {
-                a = a.push_opcode(OP_DROP)
-            }
+            let a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+                .checksig_verify_and_clear_stack(&params, pubkey);
             total_script.extend(a.compile().instructions().map(|x| x.expect("just created")));
         }
 
@@ -167,13 +164,13 @@ impl WinternitzCommit {
         let mut witness = Witness::new();
         witness.push(signature.serialize());
         for (index, (data, secret_key)) in commit_data.iter().enumerate().rev() {
-            #[cfg(debug_assertions)]
-            {
-                let pk = winternitz::generate_public_key(&self.get_params(index), secret_key);
-                if pk != self.commitments[index].0 {
-                    tracing::error!("Winternitz public key mismatch");
-                }
-            }
+            // #[cfg(debug_assertions)]
+            // {
+            //     let pk = winternitz::generate_public_key(&self.get_params(index), secret_key);
+            //     if pk != self.commitments[index].0 {
+            //         tracing::error!("Winternitz public key mismatch");
+            //     }
+            // }
             bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
                 .sign(&self.get_params(index), secret_key, data)
                 .into_iter()
@@ -656,6 +653,14 @@ mod tests {
             ProtocolParamsetName::Regtest.into(),
         );
 
+        let derivation2 = WinternitzDerivationPath::BitvmAssert(
+            64,
+            2,
+            0,
+            Txid::all_zeros(),
+            ProtocolParamsetName::Regtest.into(),
+        );
+
         let signer = Actor::new(
             kp.secret_key(),
             Some(kp.secret_key()),
@@ -663,12 +668,20 @@ mod tests {
         );
 
         let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
-            vec![(
-                signer
-                    .derive_winternitz_pk(derivation.clone())
-                    .expect("failed to derive Winternitz public key"),
-                64,
-            )],
+            vec![
+                (
+                    signer
+                        .derive_winternitz_pk(derivation.clone())
+                        .expect("failed to derive Winternitz public key"),
+                    64,
+                ),
+                (
+                    signer
+                        .derive_winternitz_pk(derivation2.clone())
+                        .expect("failed to derive Winternitz public key"),
+                    64,
+                ),
+            ],
             xonly_pk,
             4,
         ));
@@ -684,7 +697,13 @@ mod tests {
         let mut tx = builder.finalize();
 
         signer
-            .tx_sign_winternitz(&mut tx, &[(vec![0; 32], derivation)])
+            .tx_sign_winternitz(
+                &mut tx,
+                &[
+                    (vec![0; 32], derivation.clone()),
+                    (vec![0; 32], derivation2.clone()),
+                ],
+            )
             .expect("failed to partially sign commitments");
 
         let tx = tx

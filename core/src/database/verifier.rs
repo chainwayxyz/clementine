@@ -7,8 +7,7 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{secp256k1::PublicKey, OutPoint, Txid};
-use eyre::Context;
+use bitcoin::{secp256k1::PublicKey, BlockHash, OutPoint, Txid};
 use sqlx::QueryBuilder;
 
 impl Database {
@@ -95,7 +94,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         citrea_idx: u32,
     ) -> Result<Option<OutPoint>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB, i32)>(
+        let query = sqlx::query_as::<_, (Option<TxidDB>, Option<i32>)>(
             "SELECT w.withdrawal_utxo_txid, w.withdrawal_utxo_vout
              FROM withdrawals w
              WHERE w.idx = $1",
@@ -105,12 +104,12 @@ impl Database {
         let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         results
-            .map(|(txid, vout)| {
-                Ok(OutPoint {
+            .map(|(txid, vout)| match (txid, vout) {
+                (Some(txid), Some(vout)) => Ok(OutPoint {
                     txid: txid.0,
-                    vout: u32::try_from(vout)
-                        .wrap_err("Failed to convert withdrawal utxo vout to u32")?,
-                })
+                    vout: u32::try_from(vout)?,
+                }),
+                _ => Err(BridgeError::Error("Unexpected null value".to_string())),
             })
             .transpose()
     }
@@ -172,7 +171,8 @@ impl Database {
         let mut query_builder = QueryBuilder::new(
             "UPDATE withdrawals AS w SET
                 payout_txid = c.payout_txid,
-                payout_payer_operator_idx = c.payout_payer_operator_idx
+                payout_payer_operator_idx = c.payout_payer_operator_idx,
+                payout_tx_blockhash = c.payout_tx_blockhash
                 FROM (",
         );
 
@@ -193,6 +193,72 @@ impl Database {
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
+    }
+
+    pub async fn get_first_unhandled_payout_by_operator_id(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        operator_id: u32,
+    ) -> Result<Option<(u32, Txid, BlockHash)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, Option<TxidDB>, Option<BlockHashDB>)>(
+            "SELECT w.idx, w.move_to_vault_txid, w.payout_tx_blockhash
+             FROM withdrawals w
+             WHERE w.payout_txid IS NOT NULL
+                AND w.is_payout_handled = FALSE
+                AND w.payout_payer_operator_idx = $1
+                ORDER BY w.idx ASC
+             LIMIT 1",
+        )
+        .bind(i32::try_from(operator_id)?);
+
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        results
+            .map(|(citrea_idx, move_to_vault_txid, payout_tx_blockhash)| {
+                Ok((
+                    u32::try_from(citrea_idx)?,
+                    move_to_vault_txid
+                        .expect("move_to_vault_txid Must be Some")
+                        .0,
+                    payout_tx_blockhash
+                        .expect("payout_tx_blockhash Must be Some")
+                        .0,
+                ))
+            })
+            .transpose()
+    }
+
+    pub async fn set_payout_handled(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        citrea_idx: u32,
+        kickoff_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE withdrawals SET is_payout_handled = TRUE, kickoff_txid = $2 WHERE idx = $1",
+        )
+        .bind(i32::try_from(citrea_idx)?)
+        .bind(TxidDB(kickoff_txid));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn get_handled_payout_kickoff_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        payout_txid: Txid,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (Option<TxidDB>,)>(
+            "SELECT kickoff_txid FROM withdrawals WHERE payout_txid = $1 AND is_payout_handled = TRUE",
+        )
+        .bind(TxidDB(payout_txid));
+
+        let result: Option<(Option<TxidDB>,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(result
+            .map(|(kickoff_txid,)| kickoff_txid.expect("If handled, kickoff_txid must exist").0))
     }
 }
 

@@ -1,6 +1,8 @@
+use crate::actor::WinternitzDerivationPath;
 use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 
+use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
 use ark_bn254::Bn254;
 use bitcoin::key::Parity;
@@ -406,7 +408,7 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub const fn number_of_assert_txs() -> usize {
-        42
+        46
     }
 
     pub const fn number_of_flattened_wpks() -> usize {
@@ -430,7 +432,7 @@ impl ClementineBitVMPublicKeys {
         scripts.push(first_script);
         // iterate NUM_U256 5 by 5
         for i in (0..NUM_U256).step_by(5) {
-            let last_idx = std::cmp::min(i + 5, NUM_U256 - 1);
+            let last_idx = std::cmp::min(i + 5, NUM_U256);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.1[i..last_idx]
                     .iter()
@@ -441,9 +443,9 @@ impl ClementineBitVMPublicKeys {
             ));
             scripts.push(script);
         }
-        // iterate NUM_U160 10 by 10
-        for i in (0..NUM_U160).step_by(10) {
-            let last_idx = std::cmp::min(i + 10, NUM_U160 - 1);
+        // iterate NUM_U160 9 by 9
+        for i in (0..NUM_U160).step_by(9) {
+            let last_idx = std::cmp::min(i + 9, NUM_U160);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.2[i..last_idx]
                     .iter()
@@ -457,6 +459,53 @@ impl ClementineBitVMPublicKeys {
         scripts
     }
 
+    pub fn get_assert_derivations(
+        mini_assert_idx: usize,
+        txid: bitcoin::Txid,
+        paramset: &'static ProtocolParamset,
+    ) -> Vec<WinternitzDerivationPath> {
+        if mini_assert_idx == 0 {
+            vec![
+                WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, txid, paramset),
+                WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, txid, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 2, 0, txid, paramset),
+            ]
+        } else if (1..=3).contains(&mini_assert_idx) {
+            // for 1, we will have 5 derivations index starting from 0 to 4
+            // for 2, we will have 5 derivations index starting from 5 to 9
+            // for 3, we will have 5 derivations index starting from 10 to 13
+            let derivations: u32 = (mini_assert_idx as u32 - 1) * 5;
+
+            let mut derivations_vec = vec![];
+            for i in 0..5 {
+                if derivations + i < NUM_U256 as u32 {
+                    derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
+                        32 * 2,
+                        3,
+                        derivations + i,
+                        txid,
+                        paramset,
+                    ));
+                }
+            }
+            derivations_vec
+        } else {
+            let derivations: u32 = (mini_assert_idx as u32 - 4) * 9;
+            let mut derivations_vec = vec![];
+            for i in 0..9 {
+                if derivations + i < NUM_U160 as u32 {
+                    derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
+                        20 * 2,
+                        4,
+                        derivations + i,
+                        txid,
+                        paramset,
+                    ));
+                }
+            }
+            derivations_vec
+        }
+    }
     pub fn get_assert_taproot_leaf_hashes(
         &self,
         xonly_public_key: XOnlyPublicKey,

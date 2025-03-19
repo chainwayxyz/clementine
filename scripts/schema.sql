@@ -65,7 +65,8 @@ create table if not exists deposits (
     ),
     recovery_taproot_address text,
     evm_address text check (evm_address ~ '^[a-fA-F0-9]{40}'),
-    nofn_xonly_pk text
+    nofn_xonly_pk text,
+    move_to_vault_txid text check (move_to_vault_txid ~ '^[a-fA-F0-9]{64}')
 );
 -- Deposit signatures
 create table if not exists deposit_signatures (
@@ -127,7 +128,13 @@ create table if not exists bitcoin_syncer_spent_utxos (
     foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
 );
 -- enum for bitcoin_syncer_events
-create type bitcoin_syncer_event_type as enum ('new_block', 'reorged_block');
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bitcoin_syncer_event_type') THEN
+        CREATE TYPE bitcoin_syncer_event_type AS ENUM ('new_block', 'reorged_block');
+    END IF;
+END
+$$;
 create table if not exists bitcoin_syncer_events (
     id serial primary key,
     block_id int not null references bitcoin_syncer (id),
@@ -141,7 +148,13 @@ create table if not exists bitcoin_syncer_event_handlers (
     primary key (consumer_handle)
 );
 -------- TX SENDER --------
-create type fee_paying_type as enum ('cpfp', 'rbf');
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'fee_paying_type') THEN
+        CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf');
+    END IF;
+END
+$$;
 -- Table to store txs that needs to be fee bumped
 create table if not exists tx_sender_try_to_send_txs (
     id serial primary key,
@@ -217,6 +230,7 @@ create table if not exists withdrawals (
     payout_payer_operator_idx int,
     payout_tx_blockhash text check (payout_tx_blockhash ~ '^[a-fA-F0-9]{64}'),
     is_payout_handled boolean not null default false,
+    kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now()
 );
 
