@@ -408,7 +408,7 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub const fn number_of_assert_txs() -> usize {
-        41
+        45
     }
 
     pub const fn number_of_flattened_wpks() -> usize {
