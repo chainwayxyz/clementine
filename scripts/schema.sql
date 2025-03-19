@@ -157,7 +157,7 @@ END $$;
 create table if not exists tx_sender_try_to_send_txs (
     id serial primary key,
     raw_tx bytea not null,
-    tx_data_for_logging text,
+    tx_metadata text,
     fee_paying_type fee_paying_type not null,
     effective_fee_rate bigint,
     txid text check (txid ~ '^[a-fA-F0-9]{64}'),

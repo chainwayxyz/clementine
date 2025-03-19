@@ -21,19 +21,20 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::{DepositParams, Empty, FeeType, RawSignedTx, SendTxRequest};
-use crate::test::full_flow::get_txid_where_utxo_is_spent;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::Message;
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
-pub use test_utils::*;
+pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
+use tx_utils::get_txid_where_utxo_is_spent;
 
 pub mod citrea;
-mod test_utils;
+mod setup_utils;
+pub mod tx_utils;
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
 /// sure that it is included in the next block.

@@ -65,7 +65,7 @@ pub struct ActivatedWithOutpoint {
 }
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct TxDataForLogging {
+pub struct TxMetadata {
     pub deposit_outpoint: Option<OutPoint>,
     pub operator_idx: Option<u32>,
     pub verifier_idx: Option<u32>,
@@ -433,17 +433,11 @@ impl TxSender {
             })
             .collect();
 
-        let (tx_data_for_logging, tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
+        let (tx_metadata, tx, fee_paying_type, _) = self.db.get_tx(None, id).await?;
 
         if fee_paying_type == FeePayingType::RBF {
             tracing::info!(
-                "Sending RBF tx for tx_type: {:?}, round_idx: {:?}, kickoff_idx: {:?}, operator_idx: {:?}, verifier_idx: {:?}, deposit_outpoint: {:?}, details: {:?} ",
-                tx_data_for_logging.as_ref().map(|d| d.tx_type),
-                tx_data_for_logging.as_ref().map(|d| d.round_idx),
-                tx_data_for_logging.as_ref().map(|d| d.kickoff_idx),
-                tx_data_for_logging.as_ref().map(|d| d.operator_idx),
-                tx_data_for_logging.as_ref().map(|d| d.verifier_idx),
-                tx_data_for_logging.as_ref().map(|d| d.deposit_outpoint),
+                "Sending RBF tx, meta: {tx_metadata:?}, tx: {:?}",
                 hex::encode(bitcoin::consensus::serialize(&tx))
             );
 
@@ -451,13 +445,7 @@ impl TxSender {
             let last_rbf_txid = self.db.get_last_rbf_txid(Some(&mut dbtx), id).await?;
             if last_rbf_txid.is_none() {
                 tracing::info!(
-                    "Funding RBF tx for tx_type: {:?}, round_idx: {:?}, kickoff_idx: {:?}, operator_idx: {:?}, verifier_idx: {:?}, deposit_outpoint: {:?}, details: {:?} ",
-                    tx_data_for_logging.as_ref().map(|d| d.tx_type),
-                    tx_data_for_logging.as_ref().map(|d| d.round_idx),
-                    tx_data_for_logging.as_ref().map(|d| d.kickoff_idx),
-                    tx_data_for_logging.as_ref().map(|d| d.operator_idx),
-                    tx_data_for_logging.as_ref().map(|d| d.verifier_idx),
-                    tx_data_for_logging.as_ref().map(|d| d.deposit_outpoint),
+                    "Funding RBF tx, meta: {tx_metadata:?}, tx: {:?}",
                     hex::encode(bitcoin::consensus::serialize(&tx))
                 );
 
@@ -523,13 +511,10 @@ impl TxSender {
                 .await?;
         }
         tracing::info!(
-            "Submitting package for tx_type: {:?}, round_idx: {:?}, kickoff_idx: {:?}, operator_idx: {:?}, verifier_idx: {:?}, deposit_outpoint: {:?}, details: {:?} ",
-            tx_data_for_logging.as_ref().map(|d| d.tx_type),
-            tx_data_for_logging.as_ref().map(|d| d.round_idx),
-            tx_data_for_logging.as_ref().map(|d| d.kickoff_idx),
-            tx_data_for_logging.as_ref().map(|d| d.operator_idx),
-            tx_data_for_logging.as_ref().map(|d| d.verifier_idx),
-            tx_data_for_logging.as_ref().map(|d| d.deposit_outpoint),
+            "Submitting package: {}\n\n pkg tx hexs: {:?}",
+            tx_metadata
+                .map(|tx_metadata| format!("{tx_metadata:?}"))
+                .unwrap_or("missing tx metadata".to_string()),
             if env::var("DBG_PACKAGE_HEX").is_ok() {
                 package
                     .iter()
@@ -558,7 +543,7 @@ impl TxSender {
 
         tracing::info!(
             self.btc_syncer_consumer_id,
-            ?tx_data_for_logging,
+            ?tx_metadata,
             "Submit package result: {submit_package_result:?}"
         );
 
@@ -763,7 +748,7 @@ impl TxSenderClient {
     pub async fn insert_try_to_send(
         &self,
         dbtx: DatabaseTransaction<'_, '_>,
-        tx_data_for_logging: Option<TxDataForLogging>,
+        tx_metadata: Option<TxMetadata>,
         signed_tx: &Transaction,
         fee_paying_type: FeePayingType,
         cancel_outpoints: &[OutPoint],
@@ -772,23 +757,17 @@ impl TxSenderClient {
         activate_outpoints: &[ActivatedWithOutpoint],
     ) -> Result<u32, BridgeError> {
         tracing::info!(
-            "{} added tx {:?} with tx_data_for_logging: {:?}",
+            "{} added tx {:?} with tx_metadata: {:?}",
             self.tx_sender_consumer_id,
-            tx_data_for_logging
+            tx_metadata
                 .map(|data| data.tx_type)
                 .unwrap_or(TransactionType::Dummy),
-            tx_data_for_logging
+            tx_metadata
         );
         let txid = signed_tx.compute_txid();
         let try_to_send_id = self
             .db
-            .save_tx(
-                Some(dbtx),
-                tx_data_for_logging,
-                signed_tx,
-                fee_paying_type,
-                txid,
-            )
+            .save_tx(Some(dbtx), tx_metadata, signed_tx, fee_paying_type, txid)
             .await?;
 
         for input_outpoint in signed_tx.input.iter().map(|input| input.previous_output) {
@@ -871,10 +850,10 @@ impl TxSenderClient {
         tx_type: TransactionType,
         signed_tx: &Transaction,
         related_txs: &[(TransactionType, Transaction)],
-        tx_data_for_logging: Option<TxDataForLogging>,
+        tx_metadata: Option<TxMetadata>,
         config: &BridgeConfig,
     ) -> Result<u32, BridgeError> {
-        let tx_data_for_logging = tx_data_for_logging.map(|mut data| {
+        let tx_metadata = tx_metadata.map(|mut data| {
             data.tx_type = tx_type;
             data
         });
@@ -898,7 +877,7 @@ impl TxSenderClient {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
                     dbtx,
-                    tx_data_for_logging,
+                    tx_metadata,
                     signed_tx,
                     FeePayingType::CPFP,
                     &[],
@@ -911,7 +890,7 @@ impl TxSenderClient {
             TransactionType::Challenge => {
                 self.insert_try_to_send(
                     dbtx,
-                    tx_data_for_logging,
+                    tx_metadata,
                     signed_tx,
                     FeePayingType::RBF,
                     &[],
@@ -936,7 +915,7 @@ impl TxSenderClient {
                     ))?;
                 self.insert_try_to_send(
                     dbtx,
-                    tx_data_for_logging,
+                    tx_metadata,
                     signed_tx,
                     FeePayingType::CPFP,
                     &[OutPoint {
@@ -964,7 +943,7 @@ impl TxSenderClient {
                     ))?;
                 self.insert_try_to_send(
                     dbtx,
-                    tx_data_for_logging,
+                    tx_metadata,
                     signed_tx,
                     FeePayingType::CPFP,
                     &[],
@@ -1002,6 +981,14 @@ mod tests {
     use bitcoin::transaction::Version;
     use secp256k1::rand;
     use std::sync::Arc;
+
+    impl TxSenderClient {
+        pub async fn test_dbtx(
+            &self,
+        ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
+            self.db.begin_transaction().await
+        }
+    }
 
     async fn create_test_tx_sender(
         rpc: ExtendedRpc,

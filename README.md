@@ -4,7 +4,7 @@ Clementine is Citrea's BitVM based trust-minimized two-way peg program.
 
 The repository includes:
 
-- A library for bridge operator, verifiers and aggregator
+- A library for bridge operator, verifiers, aggregator and watchtower
 - Circuits that will be optimistically verified with BitVM
 
 > [!WARNING]
@@ -17,41 +17,43 @@ The repository includes:
 
 ### Setup
 
-Clementine requires a Bitcoin node up and running on the client. Please install
-and configure Bitcoin Core if you haven't already.
+Clementine requires a Bitcoin node up and running. Please install and configure
+Bitcoin Core if you haven't already.
 
 ### Preparing a Configuration File
 
-Running the binary as a verifier, aggregator or operator requires a configuration
-file. An example configuration file is located at
+Running the binary as a verifier, aggregator, operator or watchtower requires a
+configuration file. An example configuration file is located at
 [`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
 ### Starting a Server
 
-A server can be started using its corresponding CLI flag:
+Clementine is designed to be run multiple times for every actor that an entity
+requires. An actor's server can be started using its corresponding argument:
 
 ```sh
 # Build the binary
-cargo build --release --bin server
+cargo build --release
 
 # Run binary with a target
-./target/release/server $CONFIGFILE --verifier-server # Start verifier server
-./target/release/server $CONFIGFILE --aggregator-server # Start aggregator server
-./target/release/server $CONFIGFILE --operator-server # Start operator server
+./target/release/clementine-core verifier $CONFIGFILE # Start verifier server
+./target/release/clementine-core operator $CONFIGFILE # Start operator server
+./target/release/clementine-core aggregator $CONFIGFILE # Start aggregator server
+./target/release/clementine-core watchtower $CONFIGFILE # Start watchtower server
 ```
 
 A server's log level can be specified with `--verbose` flag:
 
 ```sh
-./target/release/server $CONFIGFILE --operator-server --verbose 5 # Logs everything
+./target/release/clementine-core operator $CONFIGFILE --verbose 5 # Logs everything
 ```
 
-More information, use `--help` flag:
+For more information, use `--help` flag:
 
 ```sh
-./target/release/server --help
+./target/release/clementine-core --help
 ```
 
 ### Testing
@@ -60,7 +62,7 @@ More information, use `--help` flag:
 
 1. **PostgreSQL Database**
 
-   Tests require a PostgreSQL database with a high max connection limit due to parallelism of tests. 
+   Tests require a PostgreSQL database with a high max connection limit due to parallelism of tests.
    It is also required to have pgmq extension installed for PostgreSQL.
    You can quickly set one up using Docker:
 

@@ -6,7 +6,7 @@ use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
-    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging},
+    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata},
 };
 use bitcoin::{
     consensus::{deserialize, serialize},
@@ -292,17 +292,17 @@ impl Database {
     pub async fn save_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        tx_data_for_logging: Option<TxDataForLogging>,
+        tx_metadata: Option<TxMetadata>,
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
         txid: Txid,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_data_for_logging, txid) VALUES ($1, $2::fee_paying_type, $3, $4) RETURNING id"
+            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_metadata, txid) VALUES ($1, $2::fee_paying_type, $3, $4) RETURNING id"
         )
         .bind(serialize(raw_tx))
         .bind(fee_paying_type)
-        .bind(serde_json::to_string(&tx_data_for_logging).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(serde_json::to_string(&tx_metadata).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
         .bind(TxidDB(txid));
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
@@ -411,31 +411,31 @@ impl Database {
         current_tip_height: u32,
     ) -> Result<Vec<u32>, BridgeError> {
         let select_query = sqlx::query_as::<_, (i32,)>(
-            "WITH 
+            "WITH
                 -- Find non-active transactions (not seen or timelock not passed)
                 non_active_txs AS (
                     -- Transactions with txid activations that aren't active yet
                     SELECT DISTINCT
                         activate_txid.activated_id AS tx_id
-                    FROM 
+                    FROM
                         tx_sender_activate_try_to_send_txids AS activate_txid
-                    LEFT JOIN 
+                    LEFT JOIN
                         bitcoin_syncer AS syncer ON activate_txid.seen_block_id = syncer.id
-                    WHERE 
-                        activate_txid.seen_block_id IS NULL 
+                    WHERE
+                        activate_txid.seen_block_id IS NULL
                         OR (syncer.height + activate_txid.timelock > $2)
-                    
+
                     UNION
-                    
+
                     -- Transactions with outpoint activations that aren't active yet
                     SELECT DISTINCT
                         activate_outpoint.activated_id AS tx_id
-                    FROM 
+                    FROM
                         tx_sender_activate_try_to_send_outpoints AS activate_outpoint
-                    LEFT JOIN 
+                    LEFT JOIN
                         bitcoin_syncer AS syncer ON activate_outpoint.seen_block_id = syncer.id
-                    WHERE 
-                        activate_outpoint.seen_block_id IS NULL 
+                    WHERE
+                        activate_outpoint.seen_block_id IS NULL
                         OR (syncer.height + activate_outpoint.timelock > $2)
                 ),
 
@@ -444,28 +444,28 @@ impl Database {
                     -- Transactions with cancelled outpoints
                     SELECT DISTINCT
                         cancelled_id AS tx_id
-                    FROM 
+                    FROM
                         tx_sender_cancel_try_to_send_outpoints
-                    WHERE 
+                    WHERE
                         seen_block_id IS NOT NULL
-                    
+
                     UNION
-                    
+
                     -- Transactions with cancelled txids
                     SELECT DISTINCT
                         cancelled_id AS tx_id
-                    FROM 
+                    FROM
                         tx_sender_cancel_try_to_send_txids
-                    WHERE 
+                    WHERE
                         seen_block_id IS NOT NULL
                 )
 
                 -- Final query to get sendable transactions
-                SELECT 
+                SELECT
                     txs.id
-                FROM 
+                FROM
                     tx_sender_try_to_send_txs AS txs
-                WHERE 
+                WHERE
                     -- Transaction must not be in the non-active list
                     txs.id NOT IN (SELECT tx_id FROM non_active_txs)
                     -- Transaction must not be in the cancelled list
@@ -511,18 +511,10 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: u32,
-    ) -> Result<
-        (
-            Option<TxDataForLogging>,
-            Transaction,
-            FeePayingType,
-            Option<u32>,
-        ),
-        BridgeError,
-    > {
+    ) -> Result<(Option<TxMetadata>, Transaction, FeePayingType, Option<u32>), BridgeError> {
         let query =
             sqlx::query_as::<_, (Option<String>, Option<Vec<u8>>, FeePayingType, Option<i32>)>(
-                "SELECT tx_data_for_logging, raw_tx, fee_paying_type, seen_block_id
+                "SELECT tx_metadata, raw_tx, fee_paying_type, seen_block_id
              FROM tx_sender_try_to_send_txs
              WHERE id = $1 LIMIT 1",
             )
@@ -535,7 +527,7 @@ impl Database {
                 .map(|s| serde_json::from_str(&s))
                 .transpose()
                 .map_err(|e| BridgeError::ConversionError(e.to_string()))?
-                .ok_or_else(|| BridgeError::ConversionError("TxDataForLogging".to_string()))?,
+                .ok_or_else(|| BridgeError::ConversionError("TxMetadata".to_string()))?,
             deserialize(&result.1.unwrap_or_default())
                 .map_err(|e| BridgeError::Error(format!("Bitcoin deserialization error: {}", e)))?,
             result.2,
