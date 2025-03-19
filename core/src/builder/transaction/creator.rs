@@ -754,6 +754,8 @@ pub fn create_round_txhandlers(
 #[cfg(test)]
 mod tests {
 
+    use std::collections::HashMap;
+
     use super::*;
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
@@ -764,10 +766,28 @@ mod tests {
     use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
     use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-    use crate::rpc::clementine::{AssertRequest, DepositParams, KickoffId, TransactionRequest};
+    use crate::rpc::clementine::{
+        AssertRequest, DepositParams, KickoffId, SignedTxsWithType, TransactionRequest,
+    };
     use crate::test::common::*;
-    use bitcoin::{BlockHash, XOnlyPublicKey};
+    use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     use futures::future::try_join_all;
+    use tokio::sync::mpsc;
+
+    fn signed_txs_to_txid(signed_txs: SignedTxsWithType) -> Vec<(TransactionType, bitcoin::Txid)> {
+        signed_txs
+            .signed_txs
+            .into_iter()
+            .map(|signed_tx| {
+                (
+                    signed_tx.transaction_type.unwrap().try_into().unwrap(),
+                    bitcoin::consensus::deserialize::<Transaction>(&signed_tx.raw_tx)
+                        .unwrap()
+                        .compute_txid(),
+                )
+            })
+            .collect()
+    }
 
     async fn check_if_signable(
         mut verifiers: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
@@ -828,6 +848,10 @@ mod tests {
             ));
         }
 
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut created_txs: HashMap<(KickoffId, TransactionType), Vec<bitcoin::Txid>> =
+            HashMap::new();
+
         // try to sign everything for all operators
         let operator_task_handles: Vec<_> = operators
             .iter_mut()
@@ -837,6 +861,7 @@ mod tests {
                 let deposit_params = deposit_params.clone();
                 let mut operator_rpc = operator_rpc.clone();
                 let utxo_idxs = utxo_idxs.clone();
+                let tx = tx.clone();
                 async move {
                     for round_idx in 0..paramset.num_round_txs {
                         for &kickoff_idx in &utxo_idxs[operator_idx] {
@@ -846,7 +871,7 @@ mod tests {
                                 kickoff_idx: kickoff_idx as u32,
                             };
                             let start_time = std::time::Instant::now();
-                            let raw_tx = operator_rpc
+                            let raw_txs = operator_rpc
                                 .internal_create_signed_txs(TransactionRequest {
                                     deposit_params: deposit_params.clone().into(),
                                     transaction_type: Some(
@@ -860,7 +885,7 @@ mod tests {
                             // test if all needed tx's are signed
                             for tx_type in &txs_operator_can_sign {
                                 assert!(
-                                    raw_tx
+                                    raw_txs
                                         .signed_txs
                                         .iter()
                                         .any(|signed_tx| signed_tx.transaction_type
@@ -874,19 +899,21 @@ mod tests {
                                 TransactionType::AllNeededForDeposit,
                                 start_time.elapsed()
                             );
-                            let _raw_assert_txs = operator_rpc
+                            tx.send((kickoff_id, signed_txs_to_txid(raw_txs))).unwrap();
+                            let raw_assert_txs = operator_rpc
                                 .internal_create_assert_commitment_txs(AssertRequest {
                                     deposit_params: deposit_params.clone().into(),
                                     kickoff_id: Some(kickoff_id),
                                 })
                                 .await
                                 .unwrap()
-                                .into_inner()
-                                .signed_txs;
+                                .into_inner();
                             tracing::info!(
                                 "Operator Signed Assert txs of size: {}",
-                                _raw_assert_txs.len()
+                                raw_assert_txs.signed_txs.len()
                             );
+                            tx.send((kickoff_id, signed_txs_to_txid(raw_assert_txs)))
+                                .unwrap();
                         }
                     }
                 }
@@ -902,6 +929,7 @@ mod tests {
                 let deposit_params = deposit_params.clone();
                 let mut watchtower_rpc = watchtower_rpc.clone();
                 let utxo_idxs = utxo_idxs.clone();
+                let tx = tx.clone();
                 async move {
                     for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
                         for round_idx in 0..paramset.num_round_txs {
@@ -911,7 +939,7 @@ mod tests {
                                     round_idx: round_idx as u32,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
-                                let _raw_tx = watchtower_rpc
+                                let raw_tx = watchtower_rpc
                                     .internal_create_watchtower_challenge(TransactionRequest {
                                         deposit_params: deposit_params.clone().into(),
                                         transaction_type: Some(
@@ -921,7 +949,15 @@ mod tests {
                                         kickoff_id: Some(kickoff_id),
                                     })
                                     .await
-                                    .unwrap();
+                                    .unwrap()
+                                    .into_inner();
+                                tx.send((
+                                    kickoff_id,
+                                    signed_txs_to_txid(SignedTxsWithType {
+                                        signed_txs: vec![raw_tx],
+                                    }),
+                                ))
+                                .unwrap();
                                 tracing::info!(
                                     "Watchtower Signed tx: {:?}",
                                     TransactionType::WatchtowerChallenge(watchtower_idx)
@@ -959,6 +995,7 @@ mod tests {
                 let deposit_params = deposit_params.clone();
                 let mut verifier_rpc = verifier_rpc.clone();
                 let utxo_idxs = utxo_idxs.clone();
+                let tx = tx.clone();
                 async move {
                     for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
                         for round_idx in 0..paramset.num_round_txs {
@@ -969,7 +1006,7 @@ mod tests {
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 let start_time = std::time::Instant::now();
-                                let raw_tx = verifier_rpc
+                                let raw_txs = verifier_rpc
                                     .internal_create_signed_txs(TransactionRequest {
                                         deposit_params: deposit_params.clone().into(),
                                         transaction_type: Some(
@@ -983,7 +1020,7 @@ mod tests {
                                 // test if all needed tx's are signed
                                 for tx_type in &txs_verifier_can_sign {
                                     assert!(
-                                        raw_tx
+                                        raw_txs
                                             .signed_txs
                                             .iter()
                                             .any(|signed_tx| signed_tx.transaction_type
@@ -997,6 +1034,7 @@ mod tests {
                                     TransactionType::AllNeededForDeposit,
                                     start_time.elapsed()
                                 );
+                                tx.send((kickoff_id, signed_txs_to_txid(raw_txs))).unwrap();
                             }
                         }
                     }
@@ -1004,6 +1042,32 @@ mod tests {
             })
             .map(tokio::task::spawn)
             .collect();
+
+        drop(tx);
+        while let Some((kickoff_id, txids)) = rx.recv().await {
+            for (tx_type, txid) in txids {
+                created_txs
+                    .entry((kickoff_id, tx_type))
+                    .or_default()
+                    .push(txid);
+            }
+        }
+
+        let mut incorrect = false;
+
+        for ((kickoff_id, tx_type), txids) in &created_txs {
+            // check if all txids are equal
+            if !txids.iter().all(|txid| txid == &txids[0]) {
+                tracing::error!(
+                    "Mismatch in Txids for kickoff_id: {:?}, tx_type: {:?}, Txids: {:?}",
+                    kickoff_id,
+                    tx_type,
+                    txids
+                );
+                incorrect = true;
+            }
+        }
+        assert!(!incorrect);
 
         try_join_all(operator_task_handles).await.unwrap();
         try_join_all(watchtower_task_handles).await.unwrap();
