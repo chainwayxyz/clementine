@@ -25,8 +25,13 @@ pub struct TransactionRequestData {
     pub kickoff_id: KickoffId,
 }
 
-/// Get hash of operator xonly pubkey, deposit blockhash and deposit outpoint, and retrieve num_kickoffs_to_sign
-/// number of unique indexes to sign
+/// Deterministically generates a set of kickoff indices for an operator to sign.
+///
+/// This function creates a deterministic seed from the operator's public key, deposit block hash,
+/// and deposit outpoint, then uses it to select a subset of kickoff indices.
+///
+/// Returns a vector of indices that the operator should sign, with the count determined
+/// by the protocol parameter `num_signed_kickoffs`.
 pub fn get_kickoff_utxos_to_sign(
     paramset: &'static ProtocolParamset,
     op_xonly_pk: XOnlyPublicKey,
@@ -53,9 +58,18 @@ pub fn get_kickoff_utxos_to_sign(
         .collect()
 }
 
-/// Signs all txes that are created and possible to be signed for the entity and returns them.
-/// Tx's that are not possible to be signed: MiniAsserts, WatchtowerChallenge, Disprove, do not use
-/// this for them
+/// Creates and signs all transaction types that can be signed by the entity.
+///
+/// This function handles the creation and signing of transactions based on the provided
+/// transaction data. It returns a vector of signed transactions with their corresponding types.
+///
+/// # Note
+/// This function should not be used for transaction types that require special handling:
+/// - MiniAsserts
+/// - WatchtowerChallenge
+/// - Disprove
+///
+/// These transaction types have their own specialized signing flows.
 pub async fn create_and_sign_txs(
     db: Database,
     signer: &Actor,

@@ -30,7 +30,7 @@ use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
-use crate::tx_sender::{TxDataForLogging, TxSender, TxSenderClient};
+use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -972,7 +972,7 @@ where
         )
         .await?;
 
-        let tx_data_for_logging = Some(TxDataForLogging {
+        let tx_metadata = Some(TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
             operator_idx: Some(kickoff_id.operator_idx),
             verifier_idx: Some(self.idx as u32),
@@ -996,7 +996,7 @@ where
                             *tx_type,
                             signed_tx,
                             &signed_txs,
-                            tx_data_for_logging,
+                            tx_metadata,
                             &self.config,
                         )
                         .await?;
@@ -1048,7 +1048,7 @@ where
                 TransactionType::WatchtowerChallenge(self.idx),
                 &challenge_tx,
                 &[],
-                Some(TxDataForLogging {
+                Some(TxMetadata {
                     tx_type: TransactionType::WatchtowerChallenge(self.idx),
                     operator_idx: None,
                     verifier_idx: Some(self.idx as u32),
