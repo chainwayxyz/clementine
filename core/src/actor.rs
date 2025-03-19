@@ -23,9 +23,6 @@ pub enum WinternitzDerivationPath {
     /// round_idx, kickoff_idx
     /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
     Kickoff(u32, u32, &'static ProtocolParamset),
-    /// operator_idx, deposit_txid
-    /// Message length is fixed WATCHTOWER_CHALLENGE_MESSAGE_LENGTH
-    WatchtowerChallenge(u32, Txid, &'static ProtocolParamset),
     /// message_length, pk_type_idx, pk_idx, deposit_txid
     BitvmAssert(u32, u32, u32, Txid, &'static ProtocolParamset),
     /// watchtower_idx, deposit_txid
@@ -37,9 +34,8 @@ impl WinternitzDerivationPath {
     fn get_type_id(&self) -> u8 {
         match self {
             WinternitzDerivationPath::Kickoff(..) => 0u8,
-            WinternitzDerivationPath::WatchtowerChallenge(..) => 1u8,
-            WinternitzDerivationPath::BitvmAssert(..) => 2u8,
-            WinternitzDerivationPath::ChallengeAckHash(..) => 3u8,
+            WinternitzDerivationPath::BitvmAssert(..) => 1u8,
+            WinternitzDerivationPath::ChallengeAckHash(..) => 2u8,
         }
     }
 
@@ -51,10 +47,6 @@ impl WinternitzDerivationPath {
             WinternitzDerivationPath::Kickoff(seq_collat_idx, kickoff_idx, _) => {
                 bytes.extend_from_slice(&seq_collat_idx.to_be_bytes());
                 bytes.extend_from_slice(&kickoff_idx.to_be_bytes());
-            }
-            WinternitzDerivationPath::WatchtowerChallenge(operator_idx, deposit_txid, _) => {
-                bytes.extend_from_slice(&operator_idx.to_be_bytes());
-                bytes.extend_from_slice(&deposit_txid.to_byte_array());
             }
             WinternitzDerivationPath::BitvmAssert(
                 message_length,
@@ -84,12 +76,6 @@ impl WinternitzDerivationPath {
                 paramset.kickoff_blockhash_commit_length,
                 paramset.winternitz_log_d,
             ),
-            WinternitzDerivationPath::WatchtowerChallenge(_, _, paramset) => {
-                winternitz::Parameters::new(
-                    paramset.watchtower_challenge_message_length as u32,
-                    paramset.winternitz_log_d,
-                )
-            }
             WinternitzDerivationPath::BitvmAssert(message_length, _, _, _, paramset) => {
                 winternitz::Parameters::new(*message_length, paramset.winternitz_log_d)
             }
@@ -854,20 +840,9 @@ mod tests {
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::WatchtowerChallenge(1, Txid::all_zeros(), paramset);
-        let expected_pk = vec![
-            237, 68, 125, 7, 202, 239, 182, 192, 94, 207, 47, 40, 57, 188, 195, 82, 231, 236, 105,
-            252,
-        ];
-        assert_eq!(
-            actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
-            expected_pk
-        );
-
         let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, Txid::all_zeros(), paramset);
         let expected_pk = vec![
-            49, 157, 5, 44, 165, 90, 254, 67, 195, 122, 253, 48, 212, 174, 142, 227, 246, 73, 98,
-            146,
+            224, 101, 120, 58, 98, 81, 185, 170, 95, 83, 4, 26, 162, 206, 73, 239, 34, 128, 222, 43,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -876,8 +851,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::ChallengeAckHash(0, Txid::all_zeros(), paramset);
         let expected_pk = vec![
-            50, 128, 175, 255, 135, 45, 190, 117, 75, 4, 141, 166, 43, 146, 207, 154, 189, 149,
-            143, 254,
+            52, 104, 75, 112, 27, 246, 92, 105, 191, 110, 32, 49, 155, 126, 25, 165, 197, 83, 254,
+            151,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),

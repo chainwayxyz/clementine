@@ -206,7 +206,6 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     )[0] as u32;
 
     let base_tx_req = TransactionRequest {
-        transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
@@ -294,7 +293,6 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     tracing::info!("Sending round 2 transaction");
     let all_txs_2 = operators[0]
         .internal_create_signed_txs(TransactionRequest {
-            transaction_type: Some(TransactionType::Round.into()),
             kickoff_id: Some(KickoffId {
                 operator_idx: 0,
                 round_idx: 1,
@@ -366,7 +364,10 @@ pub async fn send_tx(
                 verifier_idx: None,
             }),
             &tx,
-            if tx_type == TransactionType::Challenge {
+            if matches!(
+                tx_type,
+                TransactionType::Challenge | TransactionType::WatchtowerChallenge(_)
+            ) {
                 FeePayingType::RBF
             } else {
                 FeePayingType::CPFP
@@ -391,7 +392,10 @@ pub async fn send_tx(
     // Mine blocks to confirm the transaction
     rpc.mine_blocks(3).await?;
 
-    if tx_type == TransactionType::Challenge {
+    if matches!(
+        tx_type,
+        TransactionType::Challenge | TransactionType::WatchtowerChallenge(_)
+    ) {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
     } else {
         ensure_tx_onchain(rpc, tx.compute_txid()).await?;
@@ -591,7 +595,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
-        transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
@@ -659,10 +662,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // 8. Send Watchtower Challenge Transactions
     for (watchtower_idx, watchtower) in watchtowers.iter_mut().enumerate() {
         let watchtower_challenge_tx = watchtower
-            .internal_create_watchtower_challenge(TransactionRequest {
-                transaction_type: Some(TransactionType::WatchtowerChallenge(watchtower_idx).into()),
-                ..base_tx_req.clone()
-            })
+            .internal_create_watchtower_challenge(base_tx_req.clone())
             .await?
             .into_inner();
         tracing::info!(
@@ -691,12 +691,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             watchtower_idx
         );
         let operator_challenge_ack_txs = operators[0]
-            .internal_create_signed_txs(TransactionRequest {
-                transaction_type: Some(
-                    TransactionType::OperatorChallengeAck(watchtower_idx).into(),
-                ),
-                ..base_tx_req.clone()
-            })
+            .internal_create_signed_txs(base_tx_req.clone())
             .await?
             .into_inner();
         let operator_challenge_ack_tx = operator_challenge_ack_txs
@@ -784,15 +779,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // 8. Send Reimburse Generator 1
     tracing::info!("Sending round 2 transaction");
     let all_txs_2 = operators[0]
-        .internal_create_signed_txs(TransactionRequest {
-            transaction_type: Some(TransactionType::Round.into()),
-            kickoff_id: Some(KickoffId {
-                operator_idx: 0,
-                round_idx: 1,
-                kickoff_idx: 0,
-            }),
-            ..base_tx_req.clone()
-        })
+        .internal_create_signed_txs(base_tx_req.clone())
         .await?
         .into_inner();
 
@@ -941,7 +928,6 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
-        transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
@@ -1015,7 +1001,6 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     );
     let watchtower_challenge_tx = watchtowers[watchtower_idx]
         .internal_create_watchtower_challenge(TransactionRequest {
-            transaction_type: Some(TransactionType::WatchtowerChallenge(watchtower_idx).into()),
             ..base_tx_req.clone()
         })
         .await?
@@ -1162,7 +1147,6 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
-        transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
@@ -1356,7 +1340,6 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 
     // 4. Create and send all transactions for the flow
     let base_tx_req = TransactionRequest {
-        transaction_type: Some(TransactionType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,

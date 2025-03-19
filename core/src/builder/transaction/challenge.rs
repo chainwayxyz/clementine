@@ -1,57 +1,81 @@
 use crate::builder;
-use crate::builder::script::{SpendPath, TimelockScript, WinternitzCommit};
+use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
-use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::{ProtocolParamset, WATCHTOWER_CHALLENGE_BYTES};
+use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-use bitcoin::{Sequence, TxOut, XOnlyPublicKey};
-use std::sync::Arc;
+use bitcoin::script::PushBytesBuf;
+use bitcoin::{Sequence, TxOut, WitnessVersion};
 
 use super::input::{get_challenge_ack_vout, get_watchtower_challenge_utxo_vout};
 
 /// Creates a [`TxHandler`] for the `watchtower_challenge_tx`. This transaction
 /// is sent by the watchtowers to reveal their Groth16 proofs with their public
-/// inputs for the longest chain proof, signed by the corresponding watchtowers
-/// using WOTS.
+/// inputs for the longest chain proof. The data is encoded as 32 byte script pubkeys
+/// of taproot utxos, and a single at max 80 byte OP_RETURN utxo.
 pub fn create_watchtower_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
-    nofn_xonly_pk: XOnlyPublicKey,
-    wots_script: Arc<WinternitzCommit>,
-    paramset: &'static ProtocolParamset,
+    commit_data: &[u8],
 ) -> Result<TxHandler, BridgeError> {
-    let prevout = kickoff_txhandler
-        .get_spendable_output(get_watchtower_challenge_utxo_vout(watchtower_idx))?;
-    let nofn_2week = Arc::new(TimelockScript::new(
-        Some(nofn_xonly_pk),
-        paramset.watchtower_challenge_timeout_timelock,
-    ));
-    Ok(
-        TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-            .with_version(Version::non_standard(3))
-            .add_input(
-                (
-                    NumberedSignatureKind::NumberedNotStored,
-                    watchtower_idx as i32,
-                ),
-                SpendableTxIn::from_scripts(
-                    *prevout.get_prev_outpoint(),
-                    prevout.get_prevout().value,
-                    vec![nofn_2week, wots_script],
-                    None,
-                    paramset.network,
-                ),
-                SpendPath::ScriptSpend(1),
-                DEFAULT_SEQUENCE,
-            )
-            .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
-            ))
-            .add_output(UnspentTxOut::from_partial(op_return_txout(b"PADDING")))
-            .finalize(),
-    )
+    if commit_data.len() != WATCHTOWER_CHALLENGE_BYTES {
+        return Err(BridgeError::InvalidWatchtowerChallengeData);
+    }
+    let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
+        .with_version(Version::non_standard(3))
+        .add_input(
+            (
+                NumberedSignatureKind::WatchtowerChallenge,
+                watchtower_idx as i32,
+            ),
+            kickoff_txhandler
+                .get_spendable_output(get_watchtower_challenge_utxo_vout(watchtower_idx))?,
+            SpendPath::ScriptSpend(1),
+            DEFAULT_SEQUENCE,
+        );
+    let mut current_idx = 0;
+    while current_idx + 80 < WATCHTOWER_CHALLENGE_BYTES {
+        // encode next 32 bytes of data as script pubkey of taproot utxo
+        let data = PushBytesBuf::try_from(commit_data[current_idx..current_idx + 32].to_vec())
+            .map_err(|e| {
+                BridgeError::Error(format!(
+                    "Failed to create pushbytesbuf for watchtower challenge op_return: {}",
+                    e
+                ))
+            })?;
+
+        let data_encoded_scriptbuf = Builder::new()
+            .push_opcode(WitnessVersion::V1.into())
+            .push_slice(data)
+            .into_script();
+
+        builder = builder.add_output(UnspentTxOut::from_partial(TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: data_encoded_scriptbuf,
+        }));
+        current_idx += 32;
+    }
+
+    // add the remaining data as an op_return output
+    if current_idx < WATCHTOWER_CHALLENGE_BYTES {
+        let remaining_data =
+            PushBytesBuf::try_from(commit_data[current_idx..].to_vec()).map_err(|e| {
+                BridgeError::Error(format!(
+                    "Failed to create pushbytesbuf for watchtower challenge op_return: {}",
+                    e
+                ))
+            })?;
+        builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(remaining_data)));
+    }
+
+    Ok(builder
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize())
 }
 
 /// Creates the watchtower challenge timeout txhandler.

@@ -1,8 +1,7 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, PartialSig, SignedTxWithType, SignedTxsWithType, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerKeysWithDeposit,
-    WatchtowerParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use super::error;
 use crate::builder::transaction::sign::create_and_sign_txs;
@@ -392,20 +391,6 @@ where
             parser::verifier::parse_op_keys_with_deposit(data)?;
         self.verifier
             .set_operator_keys(deposit_params, op_keys, operator_idx)
-            .await?;
-        Ok(Response::new(Empty {}))
-    }
-
-    async fn set_watchtower_keys(
-        &self,
-        request: Request<WatchtowerKeysWithDeposit>,
-    ) -> Result<Response<Empty>, Status> {
-        let data = request.into_inner();
-        let (deposit_params, wt_keys, watchtower_idx) =
-            parser::verifier::parse_wt_keys_with_deposit(data)?;
-
-        self.verifier
-            .set_watchtower_keys(deposit_params, wt_keys, watchtower_idx)
             .await?;
         Ok(Response::new(Empty {}))
     }

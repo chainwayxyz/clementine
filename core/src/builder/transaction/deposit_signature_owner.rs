@@ -42,7 +42,8 @@ impl SignatureId {
     pub fn get_deposit_sig_owner(&self) -> Result<DepositSigKeyOwner, BridgeError> {
         use DepositSigKeyOwner::*;
         use TapSighashType::{
-            Default as SighashDefault, None as SighashNone, SinglePlusAnyoneCanPay,
+            AllPlusAnyoneCanPay, Default as SighashDefault, None as SighashNone,
+            SinglePlusAnyoneCanPay,
         };
         match *self {
             SignatureId::NormalSignature(normal_sig) => {
@@ -95,6 +96,7 @@ impl SignatureId {
                     UnspentKickoff2 => Ok(OperatorSharedSetup(SighashDefault)),
                     WatchtowerChallengeTimeout1 => Ok(NofnSharedDeposit(SighashDefault)),
                     WatchtowerChallengeTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
+                    WatchtowerChallenge => Ok(Own(AllPlusAnyoneCanPay)),
                 }
             }
         }

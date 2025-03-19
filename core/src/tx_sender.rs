@@ -886,7 +886,6 @@ impl TxSenderClient {
             | TransactionType::Reimburse
             | TransactionType::Round
             | TransactionType::OperatorChallengeNack(_)
-            | TransactionType::WatchtowerChallenge(_)
             | TransactionType::UnspentKickoff(_)
             | TransactionType::Payout
             | TransactionType::MoveToVault
@@ -908,7 +907,7 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::Challenge => {
+            TransactionType::Challenge | TransactionType::WatchtowerChallenge(_) => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_data_for_logging,

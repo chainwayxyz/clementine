@@ -1,8 +1,8 @@
+use bitcoin::XOnlyPublicKey;
+
 use crate::actor::Actor;
-use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
-use crate::builder::script::WinternitzCommit;
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
@@ -14,7 +14,6 @@ use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use super::{remove_txhandler_from_map, RoundTxInput};
 
@@ -57,15 +56,13 @@ impl KickoffWinternitzKeys {
 }
 
 /// Struct to retrieve and cache data from DB for creating TxHandlers on demand
-/// It can only store information for one reimbursement (i.e. one kickoff)
+/// It can only store information for one deposit and operator pair.
 #[derive(Debug, Clone)]
 pub struct ReimburseDbCache {
     pub db: Database,
     pub operator_idx: u32,
     pub deposit_data: Option<DepositData>,
     pub paramset: &'static ProtocolParamset,
-    /// watchtower challenge addresses
-    watchtower_challenge_hashes: Option<Vec<[u8; 32]>>,
     /// winternitz keys to sign the kickoff tx with the blockhash
     kickoff_winternitz_keys: Option<KickoffWinternitzKeys>,
     /// bitvm assert scripts for each assert utxo
@@ -76,6 +73,8 @@ pub struct ReimburseDbCache {
     challenge_ack_hashes: Option<Vec<PublicHash>>,
     /// operator data
     operator_data: Option<OperatorData>,
+    /// watchtower xonly pks
+    watchtower_xonly_pks: Option<Vec<XOnlyPublicKey>>,
 }
 
 impl ReimburseDbCache {
@@ -91,12 +90,12 @@ impl ReimburseDbCache {
             operator_idx,
             deposit_data: Some(deposit_data),
             paramset,
-            watchtower_challenge_hashes: None,
             kickoff_winternitz_keys: None,
             bitvm_assert_addr: None,
             bitvm_disprove_root_hash: None,
             challenge_ack_hashes: None,
             operator_data: None,
+            watchtower_xonly_pks: None,
         }
     }
 
@@ -111,12 +110,12 @@ impl ReimburseDbCache {
             operator_idx,
             deposit_data: None,
             paramset,
-            watchtower_challenge_hashes: None,
             kickoff_winternitz_keys: None,
             bitvm_assert_addr: None,
             bitvm_disprove_root_hash: None,
             challenge_ack_hashes: None,
             operator_data: None,
+            watchtower_xonly_pks: None,
         }
     }
 
@@ -148,32 +147,14 @@ impl ReimburseDbCache {
         }
     }
 
-    pub async fn watchtower_challenge_root_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
-        if let Some(deposit_data) = &self.deposit_data {
-            match self.watchtower_challenge_hashes {
-                Some(ref addr) => Ok(addr),
-                None => {
-                    // Get all watchtower challenge addresses for the operator.
-                    let watchtower_challenge_addr = (0..self.paramset.num_watchtowers)
-                        .map(|i| {
-                            self.db.get_watchtower_challenge_hash(
-                                None,
-                                i as u32,
-                                self.operator_idx,
-                                deposit_data.deposit_outpoint,
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    self.watchtower_challenge_hashes =
-                        Some(futures::future::try_join_all(watchtower_challenge_addr).await?);
-                    Ok(self
-                        .watchtower_challenge_hashes
-                        .as_ref()
-                        .expect("Inserted before"))
-                }
+    pub async fn get_watchtower_xonly_pks(&mut self) -> Result<&[XOnlyPublicKey], BridgeError> {
+        match self.watchtower_xonly_pks {
+            Some(ref pks) => Ok(pks),
+            None => {
+                self.watchtower_xonly_pks =
+                    Some(self.db.get_all_watchtowers_xonly_pks(None).await?);
+                Ok(self.watchtower_xonly_pks.as_ref().expect("Inserted before"))
             }
-        } else {
-            Err(BridgeError::InsufficientContext)
         }
     }
 
@@ -489,8 +470,7 @@ pub async fn create_txhandlers(
 
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
-    let watchtower_challenge_root_hashes =
-        db_cache.watchtower_challenge_root_hash().await?.to_vec();
+    let watchtower_xonly_pks = db_cache.get_watchtower_xonly_pks().await?.to_vec();
 
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
@@ -515,7 +495,7 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
-            &watchtower_challenge_root_hashes,
+            &watchtower_xonly_pks,
             &public_hashes,
             paramset,
         )?;
@@ -539,7 +519,7 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
-            &watchtower_challenge_root_hashes,
+            &watchtower_xonly_pks,
             &public_hashes,
             paramset,
         )?
@@ -618,37 +598,10 @@ pub async fn create_txhandlers(
         );
     }
 
-    // Generate watchtower challenge with correct script if specifically requested
-    if let TransactionType::WatchtowerChallenge(watchtower_idx) = transaction_type {
-        // generate with actual scripts if we want to specifically create a watchtower challenge tx
-        let path = WatchtowerChallenge(
-            kickoff_id.operator_idx,
-            deposit_data.deposit_outpoint.txid,
-            paramset,
-        );
-
-        let actor = context.signer.ok_or(BridgeError::InsufficientContext)?;
-        let public_key = actor.derive_winternitz_pk(path)?;
-
-        let watchtower_challenge_txhandler =
-            builder::transaction::create_watchtower_challenge_txhandler(
-                get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                watchtower_idx,
-                deposit_data.nofn_xonly_pk,
-                Arc::new(WinternitzCommit::new(
-                    vec![(
-                        public_key,
-                        paramset.watchtower_challenge_message_length as u32,
-                    )],
-                    actor.xonly_public_key,
-                    paramset.winternitz_log_d,
-                )),
-                paramset,
-            )?;
-        txhandlers.insert(
-            watchtower_challenge_txhandler.get_transaction_type(),
-            watchtower_challenge_txhandler,
-        );
+    if let TransactionType::WatchtowerChallenge(_) = transaction_type {
+        return Err(BridgeError::Error(
+            "Cant directly create a watchtower challenge in create_txhandlers as it needs commit data".to_string(),
+        ));
     }
 
     let assert_timeouts = create_assert_timeout_txhandlers(
@@ -772,7 +725,7 @@ mod tests {
     use crate::builder::transaction::TransactionType;
     use crate::builder::transaction::TxHandlerBuilder;
     use crate::citrea::mock::MockCitreaClient;
-    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
+    use crate::rpc::clementine::{KickoffId, TransactionRequest};
     use crate::test::common::*;
     use bitcoin::XOnlyPublicKey;
     use futures::future::try_join_all;
@@ -871,9 +824,6 @@ mod tests {
                             let raw_tx = operator_rpc
                                 .internal_create_signed_txs(TransactionRequest {
                                     deposit_params: deposit_params.clone().into(),
-                                    transaction_type: Some(
-                                        TransactionType::AllNeededForDeposit.into(),
-                                    ),
                                     kickoff_id: Some(kickoff_id),
                                 })
                                 .await
@@ -897,7 +847,7 @@ mod tests {
                                 start_time.elapsed()
                             );
                             let _raw_assert_txs = operator_rpc
-                                .internal_create_assert_commitment_txs(AssertRequest {
+                                .internal_create_assert_commitment_txs(TransactionRequest {
                                     deposit_params: deposit_params.clone().into(),
                                     kickoff_id: Some(kickoff_id),
                                 })
@@ -936,10 +886,6 @@ mod tests {
                                 let _raw_tx = watchtower_rpc
                                     .internal_create_watchtower_challenge(TransactionRequest {
                                         deposit_params: deposit_params.clone().into(),
-                                        transaction_type: Some(
-                                            TransactionType::WatchtowerChallenge(watchtower_idx)
-                                                .into(),
-                                        ),
                                         kickoff_id: Some(kickoff_id),
                                     })
                                     .await
@@ -994,9 +940,6 @@ mod tests {
                                 let raw_tx = verifier_rpc
                                     .internal_create_signed_txs(TransactionRequest {
                                         deposit_params: deposit_params.clone().into(),
-                                        transaction_type: Some(
-                                            TransactionType::AllNeededForDeposit.into(),
-                                        ),
                                         kickoff_id: Some(kickoff_id),
                                     })
                                     .await

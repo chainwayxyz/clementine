@@ -165,7 +165,8 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
             }): Option<Message<SystemEvent>> = self
                 .inner
                 .queue
-                .read_with_cxn(&self.queue_name, 1, &mut *dbtx)
+                // 2nd param of read_with_cxn is the visibility timeout, set to 0 as we only have 1 consumer of the queue, which is the state machine
+                .read_with_cxn(&self.queue_name, 0, &mut *dbtx)
                 .await
                 .wrap_err("Reading event from queue")?
             else {

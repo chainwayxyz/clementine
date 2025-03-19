@@ -52,6 +52,7 @@ enum NumberedSignatureKind {
   UnspentKickoff2 = 9;
   WatchtowerChallengeTimeout1 = 10;
   WatchtowerChallengeTimeout2 = 11;
+  WatchtowerChallenge = 12;
 }
 
 message NormalSignatureId {
@@ -145,12 +146,6 @@ message KickoffId {
 
 message TransactionRequest {
   DepositParams deposit_params = 1;
-  GrpcTransactionId transaction_type = 2;
-  KickoffId kickoff_id = 3;
-}
-
-message AssertRequest {
-  DepositParams deposit_params = 1;
   KickoffId kickoff_id = 2;
 }
 
@@ -184,12 +179,6 @@ message OperatorKeysWithDeposit {
   OperatorKeys operator_keys = 1;
   DepositParams deposit_params = 2;
   uint32 operator_idx = 3;
-}
-
-message WatchtowerKeysWithDeposit {
-  WatchtowerKeys watchtower_keys = 1;
-  DepositParams deposit_params = 2;
-  uint32 watchtower_idx = 3;
 }
 
 message OperatorKeys {
@@ -262,7 +251,7 @@ service ClementineOperator {
   //
   // # Returns
   // - Raw signed assert transactions
-  rpc InternalCreateAssertCommitmentTxs(AssertRequest) returns (SignedTxsWithType) {}
+  rpc InternalCreateAssertCommitmentTxs(TransactionRequest) returns (SignedTxsWithType) {}
   // Returns an operator's parameters. It will be called once, by the
   // aggregator, to set all the public keys.
   //
@@ -361,8 +350,6 @@ message VerifierPublicKeys {
 }
 
 service ClementineVerifier {
-  // Sets the watchtower's winternitz keys for each operator for a single deposit.
-  rpc SetWatchtowerKeys(WatchtowerKeysWithDeposit) returns (Empty) {}
   // Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
   rpc SetOperatorKeys(OperatorKeysWithDeposit)  returns (Empty) {}
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
@@ -419,16 +406,10 @@ message WatchtowerParams {
   }
 }
 
-message WatchtowerKeys {
-  repeated WinternitzPubkey winternitz_pubkeys = 1;
-}
-
 // Watchtowers are responsible for challenging the operator's kickoff txs.
 // Each watchtower also runs a verifier server connected to the same db. Thus,
 // they will have the operator's winternitz pubkeys.
 service ClementineWatchtower {
-  // Returns watchtower's challenge winternitz keys for each operator for a deposit.
-  rpc GetChallengeKeys(DepositParams) returns (WatchtowerKeys) {}
   // Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
   // It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
   //
