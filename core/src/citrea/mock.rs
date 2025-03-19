@@ -75,9 +75,8 @@ impl CitreaClientT for MockCitreaClient {
         _secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError> {
         tracing::info!(
-            "Using the mock Citrea client, beware that data returned from this client is not real"
+            "Using the mock Citrea client ({citrea_rpc_url}), beware that data returned from this client is not real"
         );
-        tracing::info!("Acquiring citrea client {}", citrea_rpc_url);
         if citrea_rpc_url.is_empty() {
             return Err(eyre::eyre!(
                 "citrea_rpc_url is empty, please use create_mock_citrea_database to create a mock citrea client"
