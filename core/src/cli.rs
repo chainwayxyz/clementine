@@ -26,7 +26,7 @@ pub struct Args {
     /// Actor to run.
     pub actor: Actors,
     /// TOML formatted configuration file.
-    pub config_file: PathBuf,
+    pub config_file: Option<PathBuf>,
     /// Verbosity level, ranging from 0 (none) to 5 (highest)
     #[arg(short, long, default_value_t = 3)]
     pub verbose: u8,
@@ -51,8 +51,8 @@ where
 
 /// Reads configuration file, parses it and generates a `BridgeConfig` from
 /// given cli arguments.
-pub fn get_configuration_from(args: Args) -> Result<BridgeConfig, BridgeError> {
-    match BridgeConfig::try_parse_file(args.config_file.clone()) {
+pub fn get_configuration_from(config_file: PathBuf) -> Result<BridgeConfig, BridgeError> {
+    match BridgeConfig::try_parse_file(config_file) {
         Ok(c) => Ok(c),
         Err(e) => Err(BridgeError::ConfigError(e.to_string())),
     }

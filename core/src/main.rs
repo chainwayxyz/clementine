@@ -53,7 +53,20 @@ pub fn get_configuration_for_binaries() -> (BridgeConfig, Args) {
             exit(1);
         }
     };
-    let config = match clementine_core::cli::get_configuration_from(args.clone()) {
+
+    // Return early if environment variables are set.
+    if let Ok(config) = BridgeConfig::from_env() {
+        tracing::info!(
+            "All the environment variables are set. Using them instead of configuration file..."
+        );
+        return (config, args);
+    };
+
+    let config = match clementine_core::cli::get_configuration_from(
+        args.config_file
+            .clone()
+            .expect("Configuration file not specified"), // TODO: Nothing to do instead of this. #304
+    ) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("{e}");
