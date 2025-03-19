@@ -12,7 +12,7 @@ use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::error::output_stream_ended_prematurely;
 use crate::rpc::parser;
-use crate::tx_sender::{FeePayingType, TxDataForLogging};
+use crate::tx_sender::{FeePayingType, TxMetadata};
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -454,7 +454,7 @@ impl Aggregator {
         self.tx_sender
             .insert_try_to_send(
                 &mut dbtx,
-                Some(TxDataForLogging {
+                Some(TxMetadata {
                     deposit_outpoint: Some(deposit_data.deposit_outpoint),
                     operator_idx: None,
                     verifier_idx: None,
