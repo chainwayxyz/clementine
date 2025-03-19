@@ -8,7 +8,7 @@ use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{
-    DepositParams, Empty, FinalizedPayoutParams, KickoffId, TransactionRequest,
+    AssertRequest, DepositParams, Empty, FinalizedPayoutParams, KickoffId, TransactionRequest,
 };
 use crate::test::common::*;
 use crate::tx_sender::{FeePayingType, TxDataForLogging, TxSenderClient};
@@ -723,26 +723,32 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     // 10. Send Assert Transactions
     // TODO: Add assert transactions
-    // let assert_txs = operators[0]
-    //     .internal_create_assert_commitment_txs(AssertRequest {
-    //         deposit_params: Some(dep_params.clone()),
-    //         kickoff_id: Some(KickoffId {
-    //             operator_idx: 0,
-    //             round_idx: 0,
-    //             kickoff_idx: 0,
-    //         }),
-    //     })
-    //     .await?
-    //     .into_inner();
-    // for (assert_idx, tx) in assert_txs.raw_txs.iter().enumerate() {
-    //     tracing::info!("Sending mini assert transaction {}", assert_idx);
-    //      send_tx(&tx_sender, &tx_sender_db, &rpc, &tx.raw_tx)
-    //         .await
-    //         .context(format!(
-    //             "failed to send mini assert transaction {}",
-    //             assert_idx
-    //         ))?;
-    // }
+    let assert_txs = operators[0]
+        .internal_create_assert_commitment_txs(AssertRequest {
+            deposit_params: Some(dep_params.clone()),
+            kickoff_id: Some(KickoffId {
+                operator_idx: 0,
+                round_idx: 0,
+                kickoff_idx,
+            }),
+        })
+        .await?
+        .into_inner();
+    for (assert_idx, tx) in assert_txs.signed_txs.iter().enumerate() {
+        tracing::info!("Sending mini assert transaction {}", assert_idx);
+        send_tx(
+            &tx_sender,
+            &tx_sender_db,
+            &rpc,
+            tx.raw_tx.as_slice(),
+            TransactionType::MiniAssert(assert_idx),
+        )
+        .await
+        .context(format!(
+            "failed to send mini assert transaction {}",
+            assert_idx
+        ))?;
+    }
 
     rpc.mine_blocks(BLOCKS_PER_DAY * 5).await?;
     // 11. Send Disprove Timeout Transaction
