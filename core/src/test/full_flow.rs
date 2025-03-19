@@ -230,6 +230,7 @@ pub async fn run_operator_end_round(
 
 pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting happy path test");
+    config.test_params.should_run_state_manager = false;
 
     let (
         mut operators,

@@ -72,15 +72,28 @@ where
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let paramset = config.protocol_paramset();
-        let operator = Operator::new(config).await?;
+        let operator = Operator::new(config.clone()).await?;
         let mut background_tasks = BackgroundTaskManager::default();
 
         // initialize and run state manager
         let state_manager =
             StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
 
-        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-        background_tasks.loop_and_monitor(state_manager.into_task());
+        let should_run_state_mgr = {
+            #[cfg(test)]
+            {
+                config.test_params.should_run_state_manager
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        };
+
+        if should_run_state_mgr {
+            background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+            background_tasks.loop_and_monitor(state_manager.into_task());
+        }
 
         // run payout checker task
         background_tasks.loop_and_monitor(
