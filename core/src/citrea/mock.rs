@@ -84,7 +84,11 @@ impl CitreaClientT for MockCitreaClient {
 
         let mut global = MOCK_CITREA_GLOBAL.lock().await;
         if global.contains_key(&citrea_rpc_url) {
-            let storage = global.get(&citrea_rpc_url).unwrap().upgrade().expect("Storage dropped during test");
+            let storage = global
+                .get(&citrea_rpc_url)
+                .unwrap()
+                .upgrade()
+                .expect("Storage dropped during test");
             Ok(MockCitreaClient { storage })
         } else {
             let storage = Arc::new(Mutex::new(MockCitreaStorage::new(citrea_rpc_url.clone())));
@@ -199,10 +203,7 @@ impl MockCitreaClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        citrea::CitreaClientT,
-        test::common::{citrea, create_test_config_with_thread_name},
-    };
+    use crate::{citrea::CitreaClientT, test::common::create_test_config_with_thread_name};
     use bitcoin::hashes::Hash;
 
     #[tokio::test]

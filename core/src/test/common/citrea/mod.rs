@@ -1,8 +1,6 @@
 //! # Citrea Related Utilities
 
-use std::sync::Arc;
-
-use crate::citrea::mock::{MockCitreaStorage, MOCK_CITREA_GLOBAL};
+use crate::citrea::mock::MOCK_CITREA_GLOBAL;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{config::BridgeConfig, errors::BridgeError};
 use citrea_e2e::{
@@ -14,7 +12,6 @@ use citrea_e2e::{
 use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
-use tokio::sync::Mutex;
 
 mod bitcoin_merkle;
 mod parameters;

@@ -254,8 +254,6 @@ pub async fn create_test_config_with_thread_name(suffix: Option<&str>) -> Bridge
     config.db_name = handle.to_string();
     config.citrea_rpc_url = handle.to_string();
 
-    create_mock_citrea_database(&mut config).await;
-
     // Overwrite user's environment to test's hard coded data if environment
     // file is specified.
     if let Some(env_config) = env_config {
