@@ -512,15 +512,9 @@ impl TxSender {
         }
         tracing::info!(
             "Submitting package: {}\n\n pkg tx hexs: {:?}",
-            tx_metadata.as_ref().map(|TxMetadata {
-                tx_type,
-                round_idx,
-                kickoff_idx,
-                operator_idx,
-                verifier_idx,
-                deposit_outpoint,
-
-            }| format!("{tx_type:?}, round_idx: {round_idx:?}, kickoff_idx: {kickoff_idx:?}, operator_idx: {operator_idx:?}, verifier_idx: {verifier_idx:?}, deposit_outpoint: {deposit_outpoint:?}",)).unwrap_or("missing tx metadata".to_string()),
+            tx_metadata
+                .map(|tx_metadata| format!("{tx_metadata:?}"))
+                .unwrap_or("missing tx metadata".to_string()),
             if env::var("DBG_PACKAGE_HEX").is_ok() {
                 package
                     .iter()
