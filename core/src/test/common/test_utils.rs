@@ -30,8 +30,6 @@ use tokio::sync::{oneshot, Mutex};
 use tonic::async_trait;
 use tonic::transport::Channel;
 
-use super::citrea::create_mock_citrea_database;
-
 /// TODO: This won't block `let _ =`.
 #[must_use = "Servers will die if not used"]
 pub struct ActorsCleanup(pub (Vec<oneshot::Sender<()>>, tempfile::TempDir));
@@ -254,6 +252,7 @@ pub async fn create_test_config_with_thread_name(suffix: Option<&str>) -> Bridge
         };
 
     config.db_name = handle.to_string();
+    config.citrea_rpc_url = handle.to_string();
 
     create_mock_citrea_database(&mut config).await;
 

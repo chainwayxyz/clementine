@@ -455,7 +455,6 @@ async fn mock_citrea_run() {
     let mut config = create_test_config_with_thread_name(None).await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    citrea::create_mock_citrea_database(&mut config).await;
     let mut citrea_client =
         MockCitreaClient::new(config.citrea_rpc_url.clone(), "".to_string(), None)
             .await

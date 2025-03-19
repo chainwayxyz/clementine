@@ -5,7 +5,7 @@ use bitcoin::{OutPoint, Txid};
 use std::{
     collections::HashMap,
     fmt,
-    sync::{Arc, LazyLock},
+    sync::{Arc, LazyLock, Weak},
     time::Duration,
 };
 use tokio::sync::{Mutex, MutexGuard};
@@ -40,7 +40,7 @@ impl MockCitreaStorage {
 }
 
 pub static MOCK_CITREA_GLOBAL: LazyLock<
-    Arc<Mutex<HashMap<String, Arc<Mutex<MockCitreaStorage>>>>>,
+    Arc<Mutex<HashMap<String, Weak<Mutex<MockCitreaStorage>>>>>,
 > = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// A mock implementation of the CitreaClientTrait. This implementation is used
@@ -82,14 +82,15 @@ impl CitreaClientT for MockCitreaClient {
             .into());
         }
 
-        let storage = MOCK_CITREA_GLOBAL
-            .lock()
-            .await
-            .entry(citrea_rpc_url.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(MockCitreaStorage::new(citrea_rpc_url))))
-            .clone();
-
-        Ok(MockCitreaClient { storage })
+        let mut global = MOCK_CITREA_GLOBAL.lock().await;
+        if global.contains_key(&citrea_rpc_url) {
+            let storage = global.get(&citrea_rpc_url).unwrap().upgrade().expect("Storage dropped during test");
+            Ok(MockCitreaClient { storage })
+        } else {
+            let storage = Arc::new(Mutex::new(MockCitreaStorage::new(citrea_rpc_url.clone())));
+            global.insert(citrea_rpc_url.clone(), Arc::downgrade(&storage));
+            Ok(MockCitreaClient { storage })
+        }
     }
 
     async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
@@ -207,7 +208,6 @@ mod tests {
     #[tokio::test]
     async fn deposit_move_txid() {
         let mut config = create_test_config_with_thread_name(None).await;
-        citrea::create_mock_citrea_database(&mut config).await;
         let mut client = super::MockCitreaClient::new(config.citrea_rpc_url, "".to_string(), None)
             .await
             .unwrap();
@@ -239,7 +239,6 @@ mod tests {
     #[tokio::test]
     async fn withdrawal_utxos() {
         let mut config = create_test_config_with_thread_name(None).await;
-        citrea::create_mock_citrea_database(&mut config).await;
         let mut client = super::MockCitreaClient::new(config.citrea_rpc_url, "".to_string(), None)
             .await
             .unwrap();

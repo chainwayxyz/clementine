@@ -132,19 +132,6 @@ pub fn update_config_with_citrea_e2e_values(
     }
 }
 
-/// Creates a storage backend for mock Citrea client and assigns its name to
-/// `config.citrea_rpc_url`.
-pub async fn create_mock_citrea_database(config: &mut BridgeConfig) {
-    let storage = MockCitreaStorage::new(config.db_name.clone());
-
-    MOCK_CITREA_GLOBAL
-        .lock()
-        .await
-        .insert(config.db_name.clone(), Arc::new(Mutex::new(storage)));
-
-    config.citrea_rpc_url = config.db_name.clone();
-}
-
 pub async fn wait_until_lc_contract_updated(
     client: &HttpClient,
     block_height: u64,
