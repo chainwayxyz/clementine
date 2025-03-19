@@ -1,4 +1,10 @@
-use std::{process::exit, str::FromStr};
+//! # Clementine 🍊
+//!
+//! This is Clementine, Citrea's BitVM based trust-minimized two-way peg program.
+//!
+//! Clementine binary acts as a server for the every actor. An entity should
+//! spawn multiple actor servers that it needs, in different processes. Meaning
+//! Clementine binary should be run multiple times with different arguments.
 
 use clementine_core::{
     citrea::CitreaClient,
@@ -10,10 +16,11 @@ use clementine_core::{
         create_watchtower_grpc_server,
     },
 };
+use std::{process::exit, str::FromStr};
 use tracing::{level_filters::LevelFilter, Level};
 
-/// Gets configuration from CLI, for binaries. If there are any errors, print
-/// error to stderr and exit program.
+/// Gets configuration from CLI. If there are any errors, print error to stderr
+/// and exit program.
 ///
 /// Steps:
 ///
@@ -21,16 +28,13 @@ use tracing::{level_filters::LevelFilter, Level};
 /// 2. Initialize logger
 /// 3. Get configuration file
 ///
-/// These steps are pretty standard and binaries can use this to get a
-/// `BridgeConfig`.
-///
 /// # Returns
 ///
 /// A tuple, containing:
 ///
 /// - [`BridgeConfig`] from CLI argument
 /// - [`Args`] from CLI options
-pub fn get_configuration_for_binaries() -> (BridgeConfig, Args) {
+pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
     let args = match clementine_core::cli::parse() {
         Ok(args) => args,
         Err(e) => {
@@ -66,7 +70,7 @@ pub fn get_configuration_for_binaries() -> (BridgeConfig, Args) {
 
 #[tokio::main]
 async fn main() {
-    let (config, args) = get_configuration_for_binaries();
+    let (config, args) = get_configuration_from_cli();
 
     Database::run_schema_script(&config)
         .await
