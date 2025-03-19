@@ -1102,10 +1102,12 @@ where
                 transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
                 kickoff_id: Some(kickoff_id),
             })
-            .await?
+            .await
+            .wrap_err("Failed to create watchtower challenge")?
             .into_inner()
             .raw_tx;
-        let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
+        let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)
+            .wrap_err("Failed to deserialize challenge tx")?;
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(

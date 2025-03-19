@@ -81,7 +81,11 @@ pub async fn mine_once_after_in_mempool(
         )));
     }
 
-    let tx_block_height = rpc.client.get_block_info(&tx.blockhash.unwrap()).await?;
+    let tx_block_height = rpc
+        .client
+        .get_block_info(&tx.blockhash.unwrap())
+        .await
+        .wrap_err("Failed to get block info")?;
 
     Ok(tx_block_height.height)
 }

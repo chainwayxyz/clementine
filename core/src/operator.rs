@@ -41,6 +41,7 @@ use bitcoin::{
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
+use eyre::Context;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -145,7 +146,8 @@ where
         let reimburse_addr = rpc
             .client
             .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
-            .await?
+            .await
+            .wrap_err("Failed to get new address")?
             .assume_checked();
 
         // check if we store our collateral outpoint already in db

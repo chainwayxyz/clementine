@@ -13,6 +13,7 @@ use crate::verifier::VerifierServer;
 use crate::watchtower::Watchtower;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
+use eyre::Context;
 use std::env;
 use std::fs;
 use std::path::Path;

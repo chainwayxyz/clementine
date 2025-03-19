@@ -206,9 +206,12 @@ impl CitreaClientT for CitreaClient {
             provider,
         );
 
-        let client = HttpClientBuilder::default().build(citrea_rpc_url)?;
-        let light_client_prover_client =
-            HttpClientBuilder::default().build(light_client_prover_url)?;
+        let client = HttpClientBuilder::default()
+            .build(citrea_rpc_url)
+            .wrap_err("Failed to create Citrea RPC client")?;
+        let light_client_prover_client = HttpClientBuilder::default()
+            .build(light_client_prover_url)
+            .wrap_err("Failed to create Citrea LCP RPC client")?;
 
         Ok(CitreaClient {
             client,
@@ -223,7 +226,8 @@ impl CitreaClientT for CitreaClient {
             .contract
             .withdrawalUTXOs(U256::from(withdrawal_index))
             .call()
-            .await?;
+            .await
+            .wrap_err("Failed to get withdrawal UTXO")?;
 
         let txid = withdrawal_utxo.txId.0;
         let txid = Txid::from_slice(txid.as_slice())?;
@@ -314,7 +318,8 @@ impl CitreaClientT for CitreaClient {
         let proof_result = self
             .light_client_prover_client
             .get_light_client_proof_by_l1_height(l1_height)
-            .await?;
+            .await
+            .wrap_err("Failed to get light client proof")?;
 
         let ret = if let Some(proof_result) = proof_result {
             Some((

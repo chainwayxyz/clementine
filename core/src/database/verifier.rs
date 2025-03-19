@@ -8,6 +8,7 @@ use super::{
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
 use bitcoin::{secp256k1::PublicKey, BlockHash, OutPoint, Txid};
+use eyre::Context;
 use sqlx::QueryBuilder;
 
 impl Database {
@@ -107,7 +108,8 @@ impl Database {
             .map(|(txid, vout)| match (txid, vout) {
                 (Some(txid), Some(vout)) => Ok(OutPoint {
                     txid: txid.0,
-                    vout: u32::try_from(vout)?,
+                    vout: u32::try_from(vout)
+                        .wrap_err("Failed to convert withdrawal utxo vout to u32")?,
                 }),
                 _ => Err(BridgeError::Error("Unexpected null value".to_string())),
             })
@@ -209,14 +211,14 @@ impl Database {
                 ORDER BY w.idx ASC
              LIMIT 1",
         )
-        .bind(i32::try_from(operator_id)?);
+        .bind(i32::try_from(operator_id).wrap_err("Failed to convert operator id to i32")?);
 
         let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         results
             .map(|(citrea_idx, move_to_vault_txid, payout_tx_blockhash)| {
                 Ok((
-                    u32::try_from(citrea_idx)?,
+                    u32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to u32")?,
                     move_to_vault_txid
                         .expect("move_to_vault_txid Must be Some")
                         .0,
@@ -237,7 +239,7 @@ impl Database {
         let query = sqlx::query(
             "UPDATE withdrawals SET is_payout_handled = TRUE, kickoff_txid = $2 WHERE idx = $1",
         )
-        .bind(i32::try_from(citrea_idx)?)
+        .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?)
         .bind(TxidDB(kickoff_txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
