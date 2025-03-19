@@ -18,10 +18,11 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
 
+pub mod env;
 pub mod protocol;
 
 /// Configuration options for any Clementine target (tests, binaries etc.).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BridgeConfig {
     /// Protocol paramset name
     /// One of:

@@ -1,7 +1,9 @@
 use bitcoin::{Amount, Network};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use std::fs;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::errors::BridgeError;
@@ -28,6 +30,34 @@ pub enum ProtocolParamsetName {
     Regtest,
     Testnet4,
     Signet,
+}
+
+impl FromStr for ProtocolParamsetName {
+    type Err = BridgeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "mainnet" => Ok(ProtocolParamsetName::Mainnet),
+            "regtest" => Ok(ProtocolParamsetName::Regtest),
+            "testnet4" => Ok(ProtocolParamsetName::Testnet4),
+            "signet" => Ok(ProtocolParamsetName::Signet),
+            _ => Err(BridgeError::ConfigError(format!(
+                "Unknown paramset name: {}",
+                s
+            ))),
+        }
+    }
+}
+
+impl Display for ProtocolParamsetName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProtocolParamsetName::Mainnet => write!(f, "mainnet"),
+            ProtocolParamsetName::Regtest => write!(f, "regtest"),
+            ProtocolParamsetName::Testnet4 => write!(f, "testnet4"),
+            ProtocolParamsetName::Signet => write!(f, "signet"),
+        }
+    }
 }
 
 impl From<ProtocolParamsetName> for &'static ProtocolParamset {

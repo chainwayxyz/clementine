@@ -366,6 +366,9 @@ pub enum BridgeError {
 
     #[error("User's withdrawal UTXO not set for withdrawal index: {0}")]
     UsersWithdrawalUtxoNotSetForWithdrawalIndex(u32),
+
+    #[error("Environment variable not set for configuration: {0}")]
+    EnvVarNotGiven(#[from] std::env::VarError),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
