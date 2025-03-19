@@ -7,12 +7,12 @@ use crate::database::Database;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::SECRET_KEYS;
+use crate::test::common::tx_utils::{
+    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+};
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     run_single_deposit,
-};
-use crate::test::full_flow::{
-    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
 };
 use crate::{builder, EVMAddress};
 use crate::{
