@@ -12,6 +12,8 @@ use crate::builder::transaction::{
     anchor_output, BaseDepositData, DepositData, ReplacementDepositData, TransactionType,
     TxHandler, TxHandlerBuilder, DEFAULT_SEQUENCE,
 };
+use crate::citrea::mock::MockCitreaClient;
+use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
@@ -53,7 +55,7 @@ pub async fn mine_once_after_in_mempool(
     txid: Txid,
     tx_name: Option<&str>,
     timeout: Option<u64>,
-) -> Result<(), BridgeError> {
+) -> Result<usize, BridgeError> {
     let timeout = timeout.unwrap_or(60);
     let start = std::time::Instant::now();
     let tx_name = tx_name.unwrap_or("Unnamed tx");
@@ -97,10 +99,12 @@ pub async fn mine_once_after_in_mempool(
         )));
     }
 
-    Ok(())
+    let tx_block_height = rpc.client.get_block_info(&tx.blockhash.unwrap()).await?;
+
+    Ok(tx_block_height.height)
 }
 
-pub async fn run_multiple_deposits(
+pub async fn run_multiple_deposits<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     count: usize,
@@ -116,7 +120,8 @@ pub async fn run_multiple_deposits(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers, cleanup) = create_actors(config).await;
+    let (verifiers, operators, mut aggregator, watchtowers, cleanup) =
+        create_actors::<C>(config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
     let actor = Actor::new(
@@ -194,7 +199,7 @@ pub async fn run_multiple_deposits(
     ))
 }
 
-pub async fn run_single_deposit(
+pub async fn run_single_deposit<C: CitreaClientT>(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
     evm_address: Option<EVMAddress>,
@@ -211,7 +216,8 @@ pub async fn run_single_deposit(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers, cleanup) = create_actors(config).await;
+    let (verifiers, operators, mut aggregator, watchtowers, cleanup) =
+        create_actors::<C>(config).await;
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
@@ -364,7 +370,7 @@ pub async fn run_replacement_deposit(
     BridgeError,
 > {
     let (verifiers, operators, mut aggregator, watchtowers, cleanup, dep_params, move_txid, _) =
-        run_single_deposit(config, rpc.clone(), evm_address).await?;
+        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
 
     tracing::info!(
         "First deposit {} completed, starting replacement deposit",
@@ -459,4 +465,52 @@ pub async fn run_replacement_deposit(
         move_txid,
         deposit_blockhash,
     ))
+}
+
+#[ignore = "Tested everywhere, no need to run again"]
+#[tokio::test]
+async fn test_deposit() {
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+    let _ = run_single_deposit::<MockCitreaClient>(&mut config, rpc, None)
+        .await
+        .unwrap();
+}
+
+#[ignore = "Tested everywhere, no need to run again"]
+#[tokio::test]
+async fn multiple_deposits_for_operator() {
+    let mut config = create_test_config_with_thread_name(None).await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+    let _ = run_multiple_deposits::<MockCitreaClient>(&mut config, rpc, 2)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn create_regtest_rpc_macro() {
+    let mut config = create_test_config_with_thread_name(None).await;
+
+    let regtest = create_regtest_rpc(&mut config).await;
+
+    let macro_rpc = regtest.rpc();
+    let rpc = ExtendedRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    )
+    .await
+    .unwrap();
+
+    macro_rpc.mine_blocks(1).await.unwrap();
+    let height = macro_rpc.client.get_block_count().await.unwrap();
+    let new_rpc_height = rpc.client.get_block_count().await.unwrap();
+    assert_eq!(height, new_rpc_height);
+
+    rpc.mine_blocks(1).await.unwrap();
+    let new_rpc_height = rpc.client.get_block_count().await.unwrap();
+    let height = macro_rpc.client.get_block_count().await.unwrap();
+    assert_eq!(height, new_rpc_height);
 }

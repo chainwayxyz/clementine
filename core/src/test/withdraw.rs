@@ -1,6 +1,6 @@
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::bitvm_client::SECP;
-use crate::citrea::{CitreaClient, SATS_TO_WEI_MULTIPLIER};
+use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::generate_withdrawal_transaction_and_signature;
 use crate::{
@@ -13,7 +13,6 @@ use crate::{
 use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;
 use alloy::providers::Provider;
-use alloy::transports::http::reqwest::Url;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
@@ -92,10 +91,11 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
         let citrea_client = CitreaClient::new(
-            Url::parse(&config.citrea_rpc_url).unwrap(),
-            Url::parse(&config.citrea_light_client_prover_url).unwrap(),
+            config.citrea_rpc_url.clone(),
+            config.citrea_light_client_prover_url.clone(),
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
         )
+        .await
         .unwrap();
 
         let balance = citrea_client

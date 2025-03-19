@@ -4,6 +4,7 @@ use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
+use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -217,7 +218,10 @@ impl Watchtower {
     }
 }
 
-impl Operator {
+impl<C> Operator<C>
+where
+    C: CitreaClientT,
+{
     pub async fn create_assert_commitment_txs(
         &self,
         assert_data: AssertRequestData,
@@ -249,7 +253,20 @@ impl Operator {
                 txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
                     BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),
                 )?;
-            let dummy_data = vec![];
+            let derivations = ClementineBitVMPublicKeys::get_assert_derivations(
+                idx,
+                assert_data.deposit_data.get_deposit_outpoint().txid,
+                self.config.protocol_paramset(),
+            );
+            let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations
+                .iter()
+                .map(|derivation| match derivation {
+                    WinternitzDerivationPath::BitvmAssert(len, _, _, _, _) => {
+                        (vec![0u8; *len as usize / 2], derivation.clone())
+                    }
+                    _ => unreachable!(),
+                })
+                .collect();
             self.signer
                 .tx_sign_winternitz(&mut mini_assert_txhandler, &dummy_data)?;
             signed_txhandlers.push(mini_assert_txhandler.promote()?);

@@ -50,7 +50,7 @@ pub fn create_mini_asserts(
                 .add_output(UnspentTxOut::from_partial(
                     builder::transaction::anchor_output(),
                 ))
-                .add_output(UnspentTxOut::from_partial(op_return_txout(b"PADDING")))
+                .add_output(UnspentTxOut::from_partial(op_return_txout(b"")))
                 .finalize(),
         );
     }

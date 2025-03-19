@@ -906,6 +906,7 @@ impl ClementineAggregator for Aggregator {
 mod tests {
     use crate::actor::Actor;
     use crate::builder::transaction::{BaseDepositData, DepositData};
+    use crate::citrea::mock::MockCitreaClient;
     use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{self};
     use crate::{builder, EVMAddress};
@@ -920,7 +921,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name(None).await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let (_, _, mut aggregator, _, _cleanup) = create_actors(&config).await;
+        let (_, _, mut aggregator, _, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -939,7 +940,7 @@ mod tests {
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
         let (_verifiers, _operators, mut aggregator, _watchtowers, _cleanup) =
-            create_actors(&config).await;
+            create_actors::<MockCitreaClient>(&config).await;
 
         let evm_address = EVMAddress([1u8; 20]);
         let signer = Actor::new(

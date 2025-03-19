@@ -2,6 +2,7 @@ use super::common::{create_actors, create_test_config_with_thread_name};
 use crate::actor::Actor;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{BaseDepositData, DepositData, TransactionType};
+use crate::citrea::mock::MockCitreaClient;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
@@ -16,6 +17,9 @@ use bitcoin::consensus::{self};
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
+use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
+use citrea_e2e::config::LightClientProverConfig;
+use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
 use tonic::Request;
 
@@ -29,7 +33,7 @@ pub async fn run_operator_end_round(
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (mut verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
-        create_actors(&config).await;
+        create_actors::<MockCitreaClient>(&config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
@@ -125,7 +129,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     let verifier_0_config = {
         let mut config = config.clone();
@@ -400,7 +404,7 @@ pub async fn send_tx(
     Ok(())
 }
 
-async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
+pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
     let mut timeout_counter = 50;
     while rpc
         .client
@@ -422,8 +426,11 @@ async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Erro
     Ok(())
 }
 
-async fn ensure_outpoint_spent(rpc: &ExtendedRpc, outpoint: OutPoint) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 1000;
+pub async fn ensure_outpoint_spent(
+    rpc: &ExtendedRpc,
+    outpoint: OutPoint,
+) -> Result<(), eyre::Error> {
+    let mut timeout_counter = 3000;
     while rpc
         .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
@@ -432,8 +439,8 @@ async fn ensure_outpoint_spent(rpc: &ExtendedRpc, outpoint: OutPoint) -> Result<
         .is_some()
     {
         // Mine more blocks and wait longer between checks
-        rpc.mine_blocks(2).await?;
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        rpc.mine_blocks(1).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         timeout_counter -= 1;
 
         if timeout_counter == 0 {
@@ -443,6 +450,46 @@ async fn ensure_outpoint_spent(rpc: &ExtendedRpc, outpoint: OutPoint) -> Result<
             );
         }
     }
+    rpc.client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await?;
+    Ok(())
+}
+
+pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
+    rpc: &ExtendedRpc,
+    lc_prover: &Node<LightClientProverConfig>,
+    outpoint: OutPoint,
+) -> Result<(), eyre::Error> {
+    let mut timeout_counter = 1000;
+    while rpc
+        .client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await
+        .unwrap()
+        .is_some()
+    {
+        // Mine more blocks and wait longer between checks
+        let block_count = rpc.client.get_blockchain_info().await?.blocks;
+        lc_prover
+            .wait_for_l1_height(block_count as u64 - DEFAULT_FINALITY_DEPTH, None)
+            .await
+            .unwrap();
+        rpc.mine_blocks(1).await?;
+
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        timeout_counter -= 1;
+
+        if timeout_counter == 0 {
+            bail!(
+                "timeout while waiting for outpoint {:?} to be spent",
+                outpoint
+            );
+        }
+    }
+    rpc.client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await?;
     Ok(())
 }
 
@@ -463,7 +510,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
@@ -823,7 +870,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, mut watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
@@ -1046,7 +1093,7 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
@@ -1243,7 +1290,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     // 1. Setup environment and actors
     tracing::info!("Setting up environment and actors");
     let (_verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
-        create_actors(config).await;
+        create_actors::<MockCitreaClient>(config).await;
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
