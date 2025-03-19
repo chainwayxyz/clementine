@@ -1,6 +1,5 @@
 //! # Citrea Related Utilities
 
-use crate::citrea::mock::MOCK_CITREA_GLOBAL;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{config::BridgeConfig, errors::BridgeError};
 use citrea_e2e::{

@@ -24,6 +24,7 @@ pub struct Withdrawal {
 }
 
 pub struct MockCitreaStorage {
+    #[allow(dead_code)]
     name: String,
     deposits: Vec<Deposit>,
     withdrawals: Vec<Withdrawal>,
@@ -39,6 +40,7 @@ impl MockCitreaStorage {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub static MOCK_CITREA_GLOBAL: LazyLock<
     Arc<Mutex<HashMap<String, Weak<Mutex<MockCitreaStorage>>>>>,
 > = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
@@ -208,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn deposit_move_txid() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name(None).await;
         let mut client = super::MockCitreaClient::new(config.citrea_rpc_url, "".to_string(), None)
             .await
             .unwrap();
@@ -239,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn withdrawal_utxos() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name(None).await;
         let mut client = super::MockCitreaClient::new(config.citrea_rpc_url, "".to_string(), None)
             .await
             .unwrap();
