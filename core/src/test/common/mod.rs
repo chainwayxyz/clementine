@@ -419,7 +419,7 @@ pub async fn run_replacement_deposit(
             vout: 0,
         },
         nofn_xonly_pk,
-        move_txid,
+        old_move_txid: move_txid,
     });
 
     let deposit_params: DepositParams = deposit_data.into();

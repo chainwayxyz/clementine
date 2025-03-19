@@ -94,7 +94,7 @@ message ReplacementDeposit {
   // Deposit UTXO.
   Outpoint deposit_outpoint = 1;
   // Move to vault txid that is being replaced.
-  Txid move_txid = 2;
+  Txid old_move_txid = 2;
   // nofn public key used to sign the deposit
   bytes nofn_xonly_pk = 3;
 }

@@ -82,7 +82,7 @@ pub struct ReplacementDeposit {
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
     /// Move to vault txid that is being replaced.
     #[prost(message, optional, tag = "2")]
-    pub move_txid: ::core::option::Option<Txid>,
+    pub old_move_txid: ::core::option::Option<Txid>,
     /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "3")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,

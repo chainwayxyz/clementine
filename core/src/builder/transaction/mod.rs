@@ -92,7 +92,7 @@ pub struct ReplacementDepositData {
     /// deposit UTXO.
     pub deposit_outpoint: bitcoin::OutPoint,
     /// old move_to_vault txid that was replaced
-    pub move_txid: Txid,
+    pub old_move_txid: Txid,
     /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
 }
@@ -388,7 +388,7 @@ pub fn create_move_to_vault_txhandler(
         DepositData::ReplacementDeposit(replacement_deposit_data) => {
             let deposit_script = Arc::new(ReplacementDepositScript::new(
                 replacement_deposit_data.nofn_xonly_pk,
-                replacement_deposit_data.move_txid,
+                replacement_deposit_data.old_move_txid,
                 paramset.bridge_amount,
             ));
 

@@ -182,7 +182,7 @@ impl From<ReplacementDepositData> for ReplacementDeposit {
     fn from(data: ReplacementDepositData) -> Self {
         ReplacementDeposit {
             deposit_outpoint: Some(data.deposit_outpoint.into()),
-            move_txid: Some(data.move_txid.into()),
+            old_move_txid: Some(data.old_move_txid.into()),
             nofn_xonly_pk: data.nofn_xonly_pk.serialize().to_vec(),
         }
     }
@@ -283,7 +283,7 @@ fn parse_replacement_deposit_data(data: ReplacementDeposit) -> Result<DepositDat
         .ok_or(Status::invalid_argument("No deposit outpoint received"))?
         .try_into()?;
     let move_txid: Txid = data
-        .move_txid
+        .old_move_txid
         .ok_or(Status::invalid_argument("No move_txid received"))?
         .try_into()
         .map_err(|e| {
@@ -298,7 +298,7 @@ fn parse_replacement_deposit_data(data: ReplacementDeposit) -> Result<DepositDat
 
     Ok(DepositData::ReplacementDeposit(ReplacementDepositData {
         deposit_outpoint,
-        move_txid,
+        old_move_txid: move_txid,
         nofn_xonly_pk,
     }))
 }
