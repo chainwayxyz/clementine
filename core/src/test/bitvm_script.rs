@@ -40,9 +40,7 @@ mod tests {
         78, // 78 is correct value trimmed in Groth16 public input
     ];
 
-    fn setup_bitvm_test_environment(
-        num_dummy_challenges: usize,
-    ) -> (
+    type BitvmTestEnv = (
         Vec<u8>,
         Parameters,
         Parameters,
@@ -52,7 +50,9 @@ mod tests {
         Vec<u8>,
         Vec<u8>,
         Vec<u8>,
-    ) {
+    );
+
+    fn setup_bitvm_test_environment(num_dummy_challenges: usize) -> BitvmTestEnv {
         let groth16_public_input_wsk = vec![1u8; 20];
         let payout_tx_block_hash_wsk = vec![2u8; 20];
         let latest_block_hash_wsk = vec![3u8; 20];
