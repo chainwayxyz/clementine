@@ -40,8 +40,8 @@ mod tests {
         78, // 78 is correct value trimmed in Groth16 public input
     ];
 
-
-    fn setup_bitvm_test_environment(num_dummy_challenges: usize
+    fn setup_bitvm_test_environment(
+        num_dummy_challenges: usize,
     ) -> (
         Vec<u8>,
         Parameters,
@@ -57,12 +57,12 @@ mod tests {
         let payout_tx_block_hash_wsk = vec![2u8; 20];
         let latest_block_hash_wsk = vec![3u8; 20];
         let challenge_sending_watchtowers_wsk = vec![4u8; 20];
-    
+
         let groth16_public_input_params = Parameters::new(64, 4);
         let payout_tx_block_hash_params = Parameters::new(40, 4);
         let latest_block_hash_params = Parameters::new(40, 4);
         let challenge_sending_watchtowers_params = Parameters::new(40, 4);
-    
+
         let groth16_public_input_pk =
             generate_public_key(&groth16_public_input_params, &groth16_public_input_wsk);
         let payout_tx_block_hash_pk =
@@ -73,13 +73,13 @@ mod tests {
             &challenge_sending_watchtowers_params,
             &challenge_sending_watchtowers_wsk,
         );
-    
+
         let dummy_challenge_preimages = vec![[31u8; 20]; num_dummy_challenges];
         let mut dummy_challenge_hashes: [[u8; 20]; 160] = [[0u8; 20]; 160];
         for (idx, preimage) in dummy_challenge_preimages.iter().enumerate() {
             dummy_challenge_hashes[idx] = *hash160::Hash::hash(preimage.as_ref()).as_byte_array();
         }
-    
+
         let (script, _) = create_additional_replacable_disprove_script(
             BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.combined_method_id,
             BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.deposit_constant,
@@ -89,7 +89,7 @@ mod tests {
             challenge_sending_watchtowers_pk,
             dummy_challenge_hashes,
         );
-    
+
         (
             script,
             groth16_public_input_params,
@@ -102,7 +102,6 @@ mod tests {
             challenge_sending_watchtowers_wsk,
         )
     }
-    
 
     #[test]
     fn test_bitvm_script() {
@@ -174,7 +173,6 @@ mod tests {
             latest_block_hash_wsk,
             challenge_sending_watchtowers_wsk,
         ) = setup_bitvm_test_environment(160);
-   
 
         // Sign the winternitz messages
         let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
