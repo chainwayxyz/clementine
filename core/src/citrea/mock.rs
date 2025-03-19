@@ -1,21 +1,66 @@
 use super::CitreaClientT;
-use crate::{
-    database::{DatabaseTransaction, OutPointDB, TxidDB},
-    errors::BridgeError,
-    execute_query_with_tx,
-};
+use crate::errors::BridgeError;
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{OutPoint, Txid};
-use sqlx::{Pool, Postgres};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    fmt,
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
+use tokio::sync::{Mutex, MutexGuard};
 use tonic::async_trait;
+
+pub struct Deposit {
+    idx: u64,
+    height: u64,
+    move_txid: Txid,
+}
+
+pub struct Withdrawal {
+    idx: u64,
+    height: u64,
+    utxo: OutPoint,
+}
+
+pub struct MockCitreaStorage {
+    name: String,
+    deposits: Vec<Deposit>,
+    withdrawals: Vec<Withdrawal>,
+}
+
+impl MockCitreaStorage {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            deposits: vec![],
+            withdrawals: vec![],
+        }
+    }
+}
+
+pub static MOCK_CITREA_GLOBAL: LazyLock<
+    Arc<Mutex<HashMap<String, Arc<Mutex<MockCitreaStorage>>>>>,
+> = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// A mock implementation of the CitreaClientTrait. This implementation is used
 /// for testing purposes and will generate dummy values. Don't use this in
 /// citrea-e2e tests, use the real client.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MockCitreaClient {
-    connection: Option<Pool<Postgres>>,
+    storage: Arc<Mutex<MockCitreaStorage>>,
+}
+
+impl std::fmt::Debug for MockCitreaClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MockCitreaClient")
+    }
+}
+
+impl MockCitreaClient {
+    pub async fn get_storage(&self) -> MutexGuard<'_, MockCitreaStorage> {
+        self.storage.lock().await
+    }
 }
 
 #[async_trait]
@@ -27,37 +72,40 @@ impl CitreaClientT for MockCitreaClient {
         _light_client_prover_url: String,
         _secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError> {
-        tracing::warn!(
+        tracing::info!(
             "Using the mock Citrea client, beware that data returned from this client is not real"
         );
+        if citrea_rpc_url.is_empty() {
+            return Err(eyre::eyre!(
+                "citrea_rpc_url is empty, please use create_mock_citrea_database to create a mock citrea client"
+            )
+            .into());
+        }
 
-        tracing::debug!("Connecting to the database: {}", citrea_rpc_url);
+        let storage = MOCK_CITREA_GLOBAL
+            .lock()
+            .await
+            .entry(citrea_rpc_url.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(MockCitreaStorage::new(citrea_rpc_url))))
+            .clone();
 
-        let connection = if citrea_rpc_url.is_empty() {
-            None
-        } else {
-            Some(sqlx::PgPool::connect(&citrea_rpc_url).await.unwrap())
-        };
-
-        Ok(MockCitreaClient { connection })
+        Ok(MockCitreaClient { storage })
     }
 
     async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT utxo
-            FROM withdrawals
-            WHERE idx = $1",
-        )
-        .bind(i64::try_from(withdrawal_index).unwrap());
-
-        let utxo: (OutPointDB,) = execute_query_with_tx!(
-            self.connection.clone().unwrap(),
-            None::<DatabaseTransaction>,
-            query,
-            fetch_one
-        )?;
-
-        Ok(utxo.0 .0)
+        Ok(*self
+            .get_storage()
+            .await
+            .withdrawals
+            .iter()
+            .find_map(|Withdrawal { idx, utxo, .. }| {
+                if *idx == withdrawal_index {
+                    Some(utxo)
+                } else {
+                    None
+                }
+            })
+            .unwrap())
     }
 
     async fn collect_deposit_move_txids(
@@ -68,22 +116,16 @@ impl CitreaClientT for MockCitreaClient {
         let mut ret: Vec<(u64, Txid)> = vec![];
 
         for i in from_height..to_height + 1 {
-            let query = sqlx::query_as(
-                "SELECT idx, move_txid
-                FROM deposits
-                WHERE height = $1",
-            )
-            .bind(i64::try_from(i).unwrap());
-
-            let results: Vec<(i32, TxidDB)> = execute_query_with_tx!(
-                self.connection.clone().unwrap(),
-                None::<DatabaseTransaction>,
-                query,
-                fetch_all
-            )?;
+            let storage = self.storage.lock().await;
+            let results: Vec<(i32, Txid)> = storage
+                .deposits
+                .iter()
+                .filter(|deposit| deposit.height == i)
+                .map(|deposit| (deposit.idx as i32, deposit.move_txid))
+                .collect();
 
             for result in results {
-                ret.push((result.0 as u64, result.1 .0));
+                ret.push((result.0 as u64, result.1));
             }
         }
 
@@ -98,21 +140,15 @@ impl CitreaClientT for MockCitreaClient {
         let mut ret = vec![];
 
         for i in from_height..to_height + 1 {
-            let query = sqlx::query_as(
-                "SELECT idx, utxo
-                FROM withdrawals
-                WHERE height = $1",
-            )
-            .bind(i64::try_from(i).unwrap());
-
-            let results: Vec<(i32, OutPointDB)> = execute_query_with_tx!(
-                self.connection.clone().unwrap(),
-                None::<DatabaseTransaction>,
-                query,
-                fetch_all
-            )?;
+            let storage = self.storage.lock().await;
+            let results: Vec<(i32, OutPoint)> = storage
+                .withdrawals
+                .iter()
+                .filter(|withdrawal| withdrawal.height == i)
+                .map(|withdrawal| (withdrawal.idx as i32, withdrawal.utxo))
+                .collect();
             for result in results {
-                ret.push((result.0 as u64 - 1, result.1 .0)); // TODO: Remove -1 when Bridge contract is fixed
+                ret.push((result.0 as u64 - 1, result.1)); // TODO: Remove -1 when Bridge contract is fixed
             }
         }
 
@@ -138,33 +174,25 @@ impl CitreaClientT for MockCitreaClient {
 impl MockCitreaClient {
     /// Pushes a deposit move txid to the given height.
     pub async fn insert_deposit_move_txid(&mut self, height: u64, txid: Txid) {
-        let query = sqlx::query("INSERT INTO deposits (height, move_txid) VALUES ($1, $2)")
-            .bind(i64::try_from(height).unwrap())
-            .bind(TxidDB(txid));
-
-        execute_query_with_tx!(
-            self.connection.clone().unwrap(),
-            None::<DatabaseTransaction>,
-            query,
-            execute
-        )
-        .unwrap();
+        let mut storage = self.storage.lock().await;
+        let idx = storage.deposits.len() as u64;
+        storage.deposits.push(Deposit {
+            idx,
+            height,
+            move_txid: txid,
+        });
     }
 
     /// Pushes a withdrawal utxo and its ondex to the given height.
     /// TODO: Make it calc index auto
     pub async fn insert_withdrawal_utxo(&mut self, height: u64, utxo: OutPoint) {
-        let query = sqlx::query("INSERT INTO withdrawals (height, utxo) VALUES ($1, $2)")
-            .bind(i64::try_from(height).unwrap())
-            .bind(OutPointDB(utxo));
-
-        execute_query_with_tx!(
-            self.connection.clone().unwrap(),
-            None::<DatabaseTransaction>,
-            query,
-            execute
-        )
-        .unwrap();
+        let mut storage = self.storage.lock().await;
+        let idx = storage.withdrawals.len() as u64 + 1;
+        storage.withdrawals.push(Withdrawal {
+            idx, // Index starts from 1
+            height,
+            utxo,
+        });
     }
 }
 

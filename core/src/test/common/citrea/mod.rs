@@ -1,6 +1,8 @@
 //! # Citrea Related Utilities
 
-use crate::database::Database;
+use std::sync::Arc;
+
+use crate::citrea::mock::{MockCitreaStorage, MOCK_CITREA_GLOBAL};
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{config::BridgeConfig, errors::BridgeError};
 use citrea_e2e::{
@@ -12,6 +14,7 @@ use citrea_e2e::{
 use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
+use tokio::sync::Mutex;
 
 mod bitcoin_merkle;
 mod parameters;
@@ -129,75 +132,17 @@ pub fn update_config_with_citrea_e2e_values(
     }
 }
 
-/// Creates a database for mock Citrea client and assigns it's name to
+/// Creates a storage backend for mock Citrea client and assigns its name to
 /// `config.citrea_rpc_url`.
 pub async fn create_mock_citrea_database(config: &mut BridgeConfig) {
-    let db_name = std::thread::current()
-        .name()
-        .expect("Failed to get thread name")
-        .split(':')
-        .last()
-        .expect("Failed to get thread name")
-        .to_owned()
-        + "_mock_citrea";
+    let storage = MockCitreaStorage::new(config.db_name.clone());
 
-    let altered_config = BridgeConfig {
-        db_name: db_name.clone(),
-        ..config.clone()
-    };
+    MOCK_CITREA_GLOBAL
+        .lock()
+        .await
+        .insert(config.db_name.clone(), Arc::new(Mutex::new(storage)));
 
-    let url = Database::get_postgresql_url(&altered_config);
-    let conn = sqlx::PgPool::connect(url.as_str()).await.unwrap();
-
-    sqlx::query(&format!(
-        "DROP DATABASE IF EXISTS {}",
-        &altered_config.db_name
-    ))
-    .execute(&conn)
-    .await
-    .unwrap();
-
-    sqlx::query(&format!(
-        "CREATE DATABASE {} WITH OWNER {}",
-        altered_config.db_name, altered_config.db_user
-    ))
-    .execute(&conn)
-    .await
-    .unwrap();
-
-    conn.close().await;
-
-    let url = Database::get_postgresql_database_url(&altered_config);
-    let conn = sqlx::PgPool::connect(url.as_str()).await.unwrap();
-
-    sqlx::query(
-        "
-            CREATE TABLE deposits (
-                idx SERIAL,
-                height INT NOT NULL,
-                move_txid TEXT PRIMARY KEY NOT NULL
-            );
-        ",
-    )
-    .execute(&conn)
-    .await
-    .unwrap();
-    sqlx::query(
-        "
-        CREATE TABLE withdrawals (
-            idx SERIAL,
-            height INT NOT NULL,
-            utxo TEXT PRIMARY KEY NOT NULL
-        );
-    ",
-    )
-    .execute(&conn)
-    .await
-    .unwrap();
-
-    conn.close().await;
-
-    config.citrea_rpc_url = url;
+    config.citrea_rpc_url = config.db_name.clone();
 }
 
 pub async fn wait_until_lc_contract_updated(
