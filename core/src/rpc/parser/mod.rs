@@ -1,6 +1,6 @@
 use super::clementine::{
-    self, AssertRequest, BaseDeposit, DepositParams, Outpoint, RawSignedTx, ReplacementDeposit,
-    SchnorrSig, TransactionRequest, WinternitzPubkey,
+    self, AssertRequest, BaseDeposit, DepositParams, FeeType, Outpoint, RawSignedTx,
+    ReplacementDeposit, SchnorrSig, TransactionRequest, WinternitzPubkey,
 };
 use super::error;
 use crate::builder::transaction::sign::{AssertRequestData, TransactionRequestData};
@@ -8,10 +8,11 @@ use crate::builder::transaction::{
     BaseDepositData, DepositData, ReplacementDepositData, TransactionType,
 };
 use crate::errors::BridgeError;
+use crate::tx_sender::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{Amount, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
@@ -123,6 +124,27 @@ impl TryFrom<WinternitzPubkey> for winternitz::PublicKey {
     }
 }
 
+impl From<FeePayingType> for FeeType {
+    fn from(value: FeePayingType) -> Self {
+        match value {
+            FeePayingType::CPFP => FeeType::Cpfp,
+            FeePayingType::RBF => FeeType::Rbf,
+        }
+    }
+}
+
+impl TryFrom<FeeType> for FeePayingType {
+    type Error = Status;
+
+    fn try_from(value: FeeType) -> Result<Self, Self::Error> {
+        match value {
+            FeeType::Cpfp => Ok(FeePayingType::CPFP),
+            FeeType::Rbf => Ok(FeePayingType::RBF),
+            _ => Err(Status::invalid_argument("Invalid FeeType variant")),
+        }
+    }
+}
+
 impl TryFrom<SchnorrSig> for Signature {
     type Error = BridgeError;
 
@@ -162,7 +184,6 @@ impl From<ReplacementDepositData> for ReplacementDeposit {
             deposit_outpoint: Some(data.deposit_outpoint.into()),
             move_txid: Some(data.move_txid.into()),
             nofn_xonly_pk: data.nofn_xonly_pk.serialize().to_vec(),
-            bridge_amount: data.bridge_amount.to_sat(),
         }
     }
 }
@@ -275,12 +296,10 @@ fn parse_replacement_deposit_data(data: ReplacementDeposit) -> Result<DepositDat
     let nofn_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_slice(&data.nofn_xonly_pk)
         .map_err(|e| BridgeError::Error(format!("Failed to parse xonly public key: {}", e)))?;
 
-    let bridge_amount = Amount::from_sat(data.bridge_amount);
     Ok(DepositData::ReplacementDeposit(ReplacementDepositData {
         deposit_outpoint,
         move_txid,
         nofn_xonly_pk,
-        bridge_amount,
     }))
 }
 

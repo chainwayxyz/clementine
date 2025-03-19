@@ -980,9 +980,12 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::AllNeededForDeposit => unreachable!(),
-            TransactionType::ReadyToReimburse => unimplemented!(),
-            TransactionType::YieldKickoffTxid => unreachable!(),
+            TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
+                unreachable!()
+            }
+            TransactionType::ReadyToReimburse
+            | TransactionType::BaseDeposit
+            | TransactionType::ReplacementDeposit => unimplemented!(),
         }
     }
 }

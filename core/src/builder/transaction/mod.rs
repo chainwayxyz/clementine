@@ -72,12 +72,6 @@ impl DepositData {
             DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk,
         }
     }
-    pub fn get_bridge_amount(&self, paramset: &'static ProtocolParamset) -> Amount {
-        match self {
-            DepositData::BaseDeposit(_) => paramset.bridge_amount,
-            DepositData::ReplacementDeposit(data) => data.bridge_amount,
-        }
-    }
 }
 
 /// Type to uniquely identify a deposit.
@@ -101,8 +95,6 @@ pub struct ReplacementDepositData {
     pub move_txid: Txid,
     /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
-    /// Amount of sats in bridge deposit
-    pub bridge_amount: Amount,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
@@ -162,6 +154,8 @@ pub enum TransactionType {
     ChallengeTimeout,
     BurnUnusedKickoffConnectors,
     YieldKickoffTxid, // This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
+    BaseDeposit,
+    ReplacementDeposit,
 }
 
 // converter from proto type to rust enum
@@ -192,6 +186,8 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
                     Normal::BurnUnusedKickoffConnectors => Ok(Self::BurnUnusedKickoffConnectors),
                     Normal::YieldKickoffTxid => Ok(Self::YieldKickoffTxid),
+                    Normal::BaseDeposit => Ok(Self::BaseDeposit),
+                    Normal::ReplacementDeposit => Ok(Self::ReplacementDeposit),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -254,6 +250,10 @@ impl From<TransactionType> for GrpcTransactionId {
                 }
                 TransactionType::ChallengeTimeout => {
                     NormalTransaction(Normal::ChallengeTimeout as i32)
+                }
+                TransactionType::BaseDeposit => NormalTransaction(Normal::BaseDeposit as i32),
+                TransactionType::ReplacementDeposit => {
+                    NormalTransaction(Normal::ReplacementDeposit as i32)
                 }
                 TransactionType::WatchtowerChallenge(index) => {
                     NumberedTransaction(NumberedTransactionId {
@@ -347,14 +347,13 @@ pub fn create_move_to_vault_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()));
-    let bridge_amount = deposit_data.get_bridge_amount(paramset);
 
     let builder = match deposit_data {
         DepositData::BaseDeposit(original_deposit_data) => {
             let deposit_script = Arc::new(BaseDepositScript::new(
                 original_deposit_data.nofn_xonly_pk,
                 original_deposit_data.evm_address,
-                bridge_amount,
+                paramset.bridge_amount,
             ));
 
             let recovery_script_pubkey = original_deposit_data
@@ -377,7 +376,7 @@ pub fn create_move_to_vault_txhandler(
                     NormalSignatureKind::NotStored,
                     SpendableTxIn::from_scripts(
                         original_deposit_data.deposit_outpoint,
-                        bridge_amount,
+                        paramset.bridge_amount,
                         vec![deposit_script, script_timelock],
                         None,
                         paramset.network,
@@ -390,7 +389,7 @@ pub fn create_move_to_vault_txhandler(
             let deposit_script = Arc::new(ReplacementDepositScript::new(
                 replacement_deposit_data.nofn_xonly_pk,
                 replacement_deposit_data.move_txid,
-                bridge_amount,
+                paramset.bridge_amount,
             ));
 
             TxHandlerBuilder::new(TransactionType::MoveToVault)
@@ -399,7 +398,7 @@ pub fn create_move_to_vault_txhandler(
                     NormalSignatureKind::NotStored,
                     SpendableTxIn::from_scripts(
                         replacement_deposit_data.deposit_outpoint,
-                        bridge_amount,
+                        paramset.bridge_amount,
                         vec![deposit_script],
                         None,
                         paramset.network,
@@ -412,8 +411,47 @@ pub fn create_move_to_vault_txhandler(
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
-            bridge_amount - ANCHOR_AMOUNT,
+            paramset.bridge_amount - ANCHOR_AMOUNT,
             vec![nofn_script],
+            None,
+            paramset.network,
+        ))
+        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        .finalize())
+}
+
+/// Creates a [`TxHandler`] for the `move_to_vault_tx`. This transaction will move
+/// the funds to a NofN address from the deposit intent address, after all the signature
+/// collection operations are done.
+pub fn create_replacement_deposit_txhandler(
+    old_move_txid: Txid,
+    nofn_xonly_pk: XOnlyPublicKey,
+    paramset: &'static ProtocolParamset,
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    Ok(TxHandlerBuilder::new(TransactionType::ReplacementDeposit)
+        .with_version(Version::non_standard(3))
+        .add_input(
+            NormalSignatureKind::NotStored,
+            SpendableTxIn::from_scripts(
+                bitcoin::OutPoint {
+                    txid: old_move_txid,
+                    vout: 0,
+                },
+                paramset.bridge_amount - ANCHOR_AMOUNT,
+                vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
+                None,
+                paramset.network,
+            ),
+            crate::builder::script::SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_scripts(
+            paramset.bridge_amount,
+            vec![Arc::new(ReplacementDepositScript::new(
+                nofn_xonly_pk,
+                old_move_txid,
+                paramset.bridge_amount,
+            ))],
             None,
             paramset.network,
         ))

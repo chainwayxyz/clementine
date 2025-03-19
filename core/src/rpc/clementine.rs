@@ -86,9 +86,6 @@ pub struct ReplacementDeposit {
     /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "3")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
-    /// Amount of the bridge UTXO.
-    #[prost(uint64, tag = "4")]
-    pub bridge_amount: u64,
 }
 /// A new original deposit request's details.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -377,6 +374,13 @@ pub struct RawSignedTx {
     pub raw_tx: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendTxRequest {
+    #[prost(message, optional, tag = "1")]
+    pub raw_tx: ::core::option::Option<RawSignedTx>,
+    #[prost(enumeration = "FeeType", tag = "2")]
+    pub fee_type: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedTxs {
     #[prost(message, repeated, tag = "1")]
     pub raw_txs: ::prost::alloc::vec::Vec<RawSignedTx>,
@@ -526,6 +530,35 @@ impl NumberedSignatureKind {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
+pub enum FeeType {
+    Unspecified = 0,
+    Cpfp = 1,
+    Rbf = 2,
+}
+impl FeeType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "UNSPECIFIED",
+            Self::Cpfp => "CPFP",
+            Self::Rbf => "RBF",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UNSPECIFIED" => Some(Self::Unspecified),
+            "CPFP" => Some(Self::Cpfp),
+            "RBF" => Some(Self::Rbf),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
 pub enum NormalTransactionId {
     UnspecifiedTransactionType = 0,
     Round = 1,
@@ -543,6 +576,8 @@ pub enum NormalTransactionId {
     ChallengeTimeout = 13,
     BurnUnusedKickoffConnectors = 14,
     YieldKickoffTxid = 15,
+    BaseDeposit = 16,
+    ReplacementDeposit = 17,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -567,6 +602,8 @@ impl NormalTransactionId {
             Self::ChallengeTimeout => "CHALLENGE_TIMEOUT",
             Self::BurnUnusedKickoffConnectors => "BURN_UNUSED_KICKOFF_CONNECTORS",
             Self::YieldKickoffTxid => "YIELD_KICKOFF_TXID",
+            Self::BaseDeposit => "BASE_DEPOSIT",
+            Self::ReplacementDeposit => "REPLACEMENT_DEPOSIT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -588,6 +625,8 @@ impl NormalTransactionId {
             "CHALLENGE_TIMEOUT" => Some(Self::ChallengeTimeout),
             "BURN_UNUSED_KICKOFF_CONNECTORS" => Some(Self::BurnUnusedKickoffConnectors),
             "YIELD_KICKOFF_TXID" => Some(Self::YieldKickoffTxid),
+            "BASE_DEPOSIT" => Some(Self::BaseDeposit),
+            "REPLACEMENT_DEPOSIT" => Some(Self::ReplacementDeposit),
             _ => None,
         }
     }
@@ -1736,7 +1775,7 @@ pub mod clementine_aggregator_client {
         /// send a pre-signed tx
         pub async fn internal_send_tx(
             &mut self,
-            request: impl tonic::IntoRequest<super::RawSignedTx>,
+            request: impl tonic::IntoRequest<super::SendTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
             self.inner
                 .ready()
@@ -3520,7 +3559,7 @@ pub mod clementine_aggregator_server {
         /// send a pre-signed tx
         async fn internal_send_tx(
             &self,
-            request: tonic::Request<super::RawSignedTx>,
+            request: tonic::Request<super::SendTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     #[derive(Debug)]
@@ -3695,7 +3734,7 @@ pub mod clementine_aggregator_server {
                     struct InternalSendTxSvc<T: ClementineAggregator>(pub Arc<T>);
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::RawSignedTx>
+                    > tonic::server::UnaryService<super::SendTxRequest>
                     for InternalSendTxSvc<T> {
                         type Response = super::Empty;
                         type Future = BoxFuture<
@@ -3704,7 +3743,7 @@ pub mod clementine_aggregator_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::RawSignedTx>,
+                            request: tonic::Request<super::SendTxRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {

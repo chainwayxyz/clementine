@@ -1,21 +1,15 @@
 //! # Common Utilities for Integration Tests
-
-use std::sync::Arc;
-
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::{CheckSig, ReplacementDepositScript, SpendableScript};
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::output::UnspentTxOut;
+use crate::builder::script::{CheckSig, SpendableScript};
 use crate::builder::transaction::{
-    anchor_output, BaseDepositData, DepositData, ReplacementDepositData, TransactionType,
-    TxHandler, TxHandlerBuilder, DEFAULT_SEQUENCE,
+    create_replacement_deposit_txhandler, BaseDepositData, DepositData, ReplacementDepositData,
+    TxHandler,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
-use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
@@ -26,13 +20,13 @@ use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorCl
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-use crate::rpc::clementine::{DepositParams, Empty, NormalSignatureKind, RawSignedTx};
+use crate::rpc::clementine::{DepositParams, Empty, FeeType, RawSignedTx, SendTxRequest};
+use crate::test::full_flow::get_txid_where_utxo_is_spent;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::Message;
-use bitcoin::transaction::Version;
-use bitcoin::{BlockHash, OutPoint, Transaction, Txid, Witness};
+use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 pub use test_utils::*;
 use tonic::transport::Channel;
@@ -286,7 +280,7 @@ fn sign_nofn_deposit_tx(deposit_tx: &TxHandler, config: &BridgeConfig) -> Transa
             .calculate_script_spend_sighash(
                 0,
                 &CheckSig::new(nofn_xonly_pk).to_script_buf(),
-                bitcoin::TapSighashType::Default,
+                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
             )
             .unwrap()
             .to_byte_array(),
@@ -338,7 +332,12 @@ fn sign_nofn_deposit_tx(deposit_tx: &TxHandler, config: &BridgeConfig) -> Transa
     )
     .unwrap();
 
-    let mut witness = Witness::from_slice(&[final_signature.serialize()]);
+    let final_taproot_sig = taproot::Signature {
+        signature: final_signature,
+        sighash_type: bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+    };
+
+    let mut witness = Witness::from_slice(&[final_taproot_sig.serialize()]);
     // get script of movetx
     let script_buf = CheckSig::new(nofn_xonly_pk).to_script_buf();
     let (_, spend_info) = create_taproot_address(
@@ -384,67 +383,43 @@ pub async fn run_replacement_deposit(
             .unwrap();
 
     // generate replacement deposit tx
-    let new_deposit_tx = TxHandlerBuilder::new(TransactionType::Dummy)
-        .with_version(Version::non_standard(3))
-        .add_input(
-            NormalSignatureKind::NotStored,
-            SpendableTxIn::from_scripts(
-                bitcoin::OutPoint {
-                    txid: move_txid,
-                    vout: 0,
-                },
-                config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT,
-                vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
-                None,
-                config.protocol_paramset().network,
-            ),
-            crate::builder::script::SpendPath::ScriptSpend(0),
-            DEFAULT_SEQUENCE,
-        )
-        .add_output(UnspentTxOut::from_scripts(
-            config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT * 3,
-            vec![Arc::new(ReplacementDepositScript::new(
-                nofn_xonly_pk,
-                move_txid,
-                config.protocol_paramset().bridge_amount,
-            ))],
-            None,
-            config.protocol_paramset().network,
-        ))
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
-        .finalize();
+    let new_deposit_tx =
+        create_replacement_deposit_txhandler(move_txid, nofn_xonly_pk, config.protocol_paramset())?;
 
     let replacement_deposit_tx = sign_nofn_deposit_tx(&new_deposit_tx, config);
-    let replacement_deposit_txid = replacement_deposit_tx.compute_txid();
-    tracing::info!("Replacement deposit txid: {}", replacement_deposit_txid);
 
     aggregator
-        .internal_send_tx(RawSignedTx::from(&replacement_deposit_tx))
+        .internal_send_tx(SendTxRequest {
+            raw_tx: Some(RawSignedTx::from(&replacement_deposit_tx)),
+            fee_type: FeeType::Rbf as i32,
+        })
         .await?;
 
     // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // mine 1 block
-    rpc.mine_blocks(1).await?;
 
-    mine_once_after_in_mempool(
+    let replacement_deposit_txid = get_txid_where_utxo_is_spent(
         &rpc,
-        replacement_deposit_txid,
-        Some("Replacement deposit tx"),
-        None,
+        OutPoint {
+            txid: move_txid,
+            vout: 0,
+        },
     )
     .await?;
+    tracing::info!(
+        "Replacement deposit sent, txid: {}",
+        replacement_deposit_txid
+    );
 
     let deposit_blockhash = rpc.get_blockhash_of_tx(&replacement_deposit_txid).await?;
 
     let deposit_data = DepositData::ReplacementDeposit(ReplacementDepositData {
         deposit_outpoint: bitcoin::OutPoint {
-            txid: replacement_deposit_tx.compute_txid(),
+            txid: replacement_deposit_txid,
             vout: 0,
         },
         nofn_xonly_pk,
         move_txid,
-        bridge_amount: config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT * 3,
     });
 
     let deposit_params: DepositParams = deposit_data.into();

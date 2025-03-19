@@ -476,16 +476,21 @@ impl Aggregator {
 impl ClementineAggregator for Aggregator {
     async fn internal_send_tx(
         &self,
-        request: Request<clementine::RawSignedTx>,
+        request: Request<clementine::SendTxRequest>,
     ) -> Result<Response<Empty>, Status> {
-        let signed_tx: bitcoin::Transaction = request.into_inner().try_into()?;
+        let send_tx_req = request.into_inner();
+        let fee_type = send_tx_req.fee_type();
+        let signed_tx: bitcoin::Transaction = send_tx_req
+            .raw_tx
+            .ok_or(Status::invalid_argument("Missing raw_tx"))?
+            .try_into()?;
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .insert_try_to_send(
                 &mut dbtx,
                 None,
                 &signed_tx,
-                FeePayingType::CPFP,
+                fee_type.try_into()?,
                 &[],
                 &[],
                 &[],

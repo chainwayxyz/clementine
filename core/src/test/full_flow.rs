@@ -456,6 +456,26 @@ pub async fn ensure_outpoint_spent(
     Ok(())
 }
 
+/// Helper function that ensures that utxo is spent then gets the txid where it was spent
+/// Be careful that this function will only work if utxo is not already spent.
+pub async fn get_txid_where_utxo_is_spent(
+    rpc: &ExtendedRpc,
+    utxo: OutPoint,
+) -> Result<Txid, eyre::Error> {
+    ensure_outpoint_spent(rpc, utxo).await?;
+    let current_height = rpc.client.get_block_count().await?;
+    let hash = rpc.client.get_block_hash(current_height).await?;
+    let block = rpc.client.get_block(&hash).await?;
+    let tx = block
+        .txdata
+        .iter()
+        .find(|txid| txid.input.iter().any(|input| input.previous_output == utxo))
+        .ok_or(eyre::eyre!(
+            "utxo not found in block where utxo was supposedly spent"
+        ))?;
+    Ok(tx.compute_txid())
+}
+
 pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     rpc: &ExtendedRpc,
     lc_prover: &Node<LightClientProverConfig>,
