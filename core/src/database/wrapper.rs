@@ -232,7 +232,7 @@ use crate::rpc::clementine::DepositParams;
 impl_bytea_wrapper_custom!(
     DepositParamsDB,
     DepositParams,
-    |signatures: &DepositParams| { signatures.encode_to_vec() },
+    |deposit_params: &DepositParams| { deposit_params.encode_to_vec() },
     |x: &[u8]| -> Result<DepositParams, BoxDynError> {
         DepositParams::decode(x).map_err(Into::into)
     }
