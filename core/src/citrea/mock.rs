@@ -183,7 +183,7 @@ impl MockCitreaClient {
     /// Pushes a deposit move txid to the given height.
     pub async fn insert_deposit_move_txid(&mut self, height: u64, txid: Txid) {
         let mut storage = self.storage.lock().await;
-        let idx = storage.deposits.len() as u64;
+        let idx = storage.deposits.len() as u64 + 1;
         storage.deposits.push(Deposit {
             idx,
             height,
@@ -194,12 +194,8 @@ impl MockCitreaClient {
     /// Pushes a withdrawal utxo and its ondex to the given height.
     pub async fn insert_withdrawal_utxo(&mut self, height: u64, utxo: OutPoint) {
         let mut storage = self.storage.lock().await;
-        let idx = storage.withdrawals.len() as u64;
-        storage.withdrawals.push(Withdrawal {
-            idx,
-            height,
-            utxo,
-        });
+        let idx = storage.withdrawals.len() as u64 + 1;
+        storage.withdrawals.push(Withdrawal { idx, height, utxo });
     }
 }
 
