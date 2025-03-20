@@ -18,7 +18,7 @@ use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
-use bitcoin::{consensus, OutPoint, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use eyre::{Context, Result};
 use tonic::Request;
 
