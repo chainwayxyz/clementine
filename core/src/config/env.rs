@@ -141,9 +141,7 @@ impl BridgeConfig {
             db_password: std::env::var("DB_PASSWORD")?,
             db_name: std::env::var("DB_NAME")?,
             citrea_rpc_url: std::env::var("CITREA_RPC_URL")?,
-            citrea_light_client_prover_url: std::env::var("CITREA_LIGHT_CLIENT_PROVER_URL")?
-                .parse()
-                .unwrap(),
+            citrea_light_client_prover_url: std::env::var("CITREA_LIGHT_CLIENT_PROVER_URL")?,
             bridge_contract_address: std::env::var("BRIDGE_CONTRACT_ADDRESS")?,
             header_chain_proof_path: std::env::var("HEADER_CHAIN_PROOF_PATH")
                 .unwrap_or_default()
