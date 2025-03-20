@@ -455,7 +455,6 @@ impl ClementineBitVMPublicKeys {
                 4,
             ));
             scripts.push(script);
-            
         }
         scripts
     }
