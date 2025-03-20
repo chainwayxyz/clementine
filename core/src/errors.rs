@@ -369,6 +369,8 @@ pub enum BridgeError {
 
     #[error("Environment variable {1}: {0}")]
     EnvVarNotSet(std::env::VarError, &'static str),
+    #[error("Environment variable {0} is malformed: {1}")]
+    EnvVarMalformed(&'static str, String),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

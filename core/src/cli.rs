@@ -128,9 +128,7 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
     let config_file = if let Some(config_file) = args.config_file.clone() {
         config_file
     } else {
-        tracing::error!(
-            "Configuration file is not provided!"
-        );
+        tracing::error!("Configuration file is not provided!");
         exit(1);
     };
 
