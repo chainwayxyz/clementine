@@ -83,8 +83,24 @@ message WinternitzPubkey {
   repeated bytes digit_pubkey = 3;
 }
 
-// A deposit request's details.
 message DepositParams {
+  oneof deposit_data {
+    BaseDeposit base_deposit = 1;
+    ReplacementDeposit replacement_deposit = 2;
+  }
+}
+
+message ReplacementDeposit {
+  // Deposit UTXO.
+  Outpoint deposit_outpoint = 1;
+  // Move to vault txid that is being replaced.
+  Txid old_move_txid = 2;
+  // nofn public key used to sign the deposit
+  bytes nofn_xonly_pk = 3;
+}
+
+// A new original deposit request's details.
+message BaseDeposit {
   // User's deposit UTXO.
   Outpoint deposit_outpoint = 1;
   // User's EVM address.
@@ -93,6 +109,12 @@ message DepositParams {
   string recovery_taproot_address = 3;
   // nofn public key used to sign the deposit
   bytes nofn_xonly_pk = 4;
+}
+
+enum FeeType {
+  UNSPECIFIED = 0;
+  CPFP = 1;
+  RBF = 2;
 }
 
 enum NormalTransactionId {
@@ -112,6 +134,8 @@ enum NormalTransactionId {
     CHALLENGE_TIMEOUT = 13;
     BURN_UNUSED_KICKOFF_CONNECTORS = 14;
     YIELD_KICKOFF_TXID = 15;
+    BASE_DEPOSIT = 16;
+    REPLACEMENT_DEPOSIT = 17;
 }
 
 enum NumberedTransactionType {
@@ -450,6 +474,11 @@ message RawSignedTx {
   bytes raw_tx = 1;
 }
 
+message SendTxRequest {
+  RawSignedTx raw_tx = 1;
+  FeeType fee_type = 2;
+}
+
 message RawSignedTxs {
   repeated RawSignedTx raw_txs = 1;
 }
@@ -476,4 +505,6 @@ service ClementineAggregator {
   // DepositFinalize then it will collect the partial sigs and create the move
   // tx.
   rpc NewDeposit(DepositParams) returns (Txid) {}
+  // send a pre-signed tx
+  rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 }

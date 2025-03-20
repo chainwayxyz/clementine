@@ -1,3 +1,4 @@
+use crate::builder::transaction::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit, WatchtowerKeysWithDeposit};
 use crate::tx_sender::TxSenderClient;
@@ -15,13 +16,11 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
-    EVMAddress,
 };
 use bitcoin::hashes::Hash;
 use bitcoin::{
-    address::NetworkUnchecked,
     secp256k1::{schnorr, Message},
-    Address, OutPoint, XOnlyPublicKey,
+    XOnlyPublicKey,
 };
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
@@ -40,7 +39,7 @@ pub struct Aggregator {
     pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    pub(crate) nofn_xonly_pk: XOnlyPublicKey,
+    pub(crate) _nofn_xonly_pk: XOnlyPublicKey,
     pub(crate) tx_sender: TxSenderClient,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
@@ -105,7 +104,7 @@ impl Aggregator {
             rpc,
             db,
             config,
-            nofn_xonly_pk,
+            _nofn_xonly_pk: nofn_xonly_pk,
             tx_sender,
             verifier_clients,
             operator_clients,
@@ -344,20 +343,13 @@ impl Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     fn aggregate_move_partial_sigs(
         &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
+        deposit_data: DepositData,
         agg_nonce: &MusigAggNonce,
         partial_sigs: Vec<MusigPartialSignature>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let tx = builder::transaction::create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-            self.nofn_xonly_pk,
-            self.config.protocol_paramset().user_takes_after,
-            self.config.protocol_paramset().bridge_amount,
-            self.config.protocol_paramset().network,
+            deposit_data,
+            self.config.protocol_paramset(),
         )?;
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());

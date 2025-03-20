@@ -1,4 +1,4 @@
-use super::{convert_int_to_another, parse_deposit_params};
+use super::convert_int_to_another;
 use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
 use crate::errors::BridgeError;
@@ -18,11 +18,10 @@ use crate::{
         },
         error::{self, invalid_argument},
     },
-    EVMAddress,
 };
+use bitcoin::secp256k1::schnorr;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::{address::NetworkUnchecked, secp256k1::schnorr};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tonic::Status;
 
@@ -151,41 +150,16 @@ impl From<MusigPartialSignature> for PartialSig {
 pub fn parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
     verifier_idx: usize,
-) -> Result<
-    (
-        bitcoin::OutPoint,
-        EVMAddress,
-        bitcoin::Address<NetworkUnchecked>,
-        u32,
-    ),
-    Status,
-> {
+) -> Result<(DepositData, u32), Status> {
     let deposit_params = deposit_sign_session
         .deposit_params
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?;
+        .ok_or(Status::invalid_argument("No deposit params received"))?;
 
-    let deposit_outpoint: bitcoin::OutPoint = deposit_params
-        .deposit_outpoint
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
-        .try_into()?;
-    let evm_address: EVMAddress = deposit_params.evm_address.try_into().map_err(|e| {
-        Status::invalid_argument(format!(
-            "Failed to convert evm_address to EVMAddress: {}",
-            e
-        ))
-    })?;
-    let recovery_taproot_address = deposit_params
-        .recovery_taproot_address
-        .parse::<bitcoin::Address<_>>()
-        .map_err(|e| Status::internal(e.to_string()))?;
+    let deposit_data: DepositData = deposit_params.try_into()?;
+
     let session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;
 
-    Ok((
-        deposit_outpoint,
-        evm_address,
-        recovery_taproot_address,
-        session_id,
-    ))
+    Ok((deposit_data, session_id))
 }
 
 pub fn parse_partial_sigs(
@@ -211,13 +185,14 @@ pub fn parse_op_keys_with_deposit(
     let deposit_params = data
         .deposit_params
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
-    let deposit_id = parse_deposit_params(deposit_params)?;
+
+    let deposit_data: DepositData = deposit_params.try_into()?;
 
     let op_keys = data
         .operator_keys
         .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
 
-    Ok((deposit_id, op_keys, data.operator_idx))
+    Ok((deposit_data, op_keys, data.operator_idx))
 }
 
 pub async fn parse_next_deposit_finalize_param_schnorr_sig(
@@ -273,11 +248,12 @@ pub fn parse_wt_keys_with_deposit(
     let deposit_params = data
         .deposit_params
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
-    let deposit_id = parse_deposit_params(deposit_params)?;
+
+    let deposit_data: DepositData = deposit_params.try_into()?;
 
     let watchtower_keys = data
         .watchtower_keys
         .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
 
-    Ok((deposit_id, watchtower_keys, data.watchtower_idx))
+    Ok((deposit_data, watchtower_keys, data.watchtower_idx))
 }

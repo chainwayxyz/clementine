@@ -6,11 +6,12 @@ use super::clementine::{
 };
 use super::error::*;
 use crate::builder::transaction::sign::create_and_sign_txs;
+use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
 use crate::errors::BridgeError;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
-use crate::rpc::parser::{parse_assert_request, parse_deposit_params, parse_transaction_request};
+use crate::rpc::parser::{parse_assert_request, parse_transaction_request};
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use tokio::sync::mpsc;
@@ -68,9 +69,10 @@ where
         request: Request<DepositSignSession>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let (tx, rx) = mpsc::channel(1280);
-        let deposit_sign_session = request.into_inner();
 
-        let deposit_data = parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
+        let deposit_sign_session = request.into_inner();
+        let deposit_params: DepositParams = deposit_sign_session.try_into()?;
+        let deposit_data: DepositData = deposit_params.try_into()?;
 
         let mut deposit_signatures_rx = self.operator.deposit_sign(deposit_data).await?;
 
@@ -161,15 +163,15 @@ where
         request: Request<DepositParams>,
     ) -> Result<Response<OperatorKeys>, Status> {
         let start = std::time::Instant::now();
-        let deposit_req = request.into_inner();
-        let deposit_data = parse_deposit_params(deposit_req)?;
+        let deposit_params = request.into_inner();
+        let deposit_data: DepositData = deposit_params.try_into()?;
 
         let winternitz_keys = self
             .operator
-            .generate_assert_winternitz_pubkeys(deposit_data.deposit_outpoint.txid)?;
-        let hashes = self
-            .operator
-            .generate_challenge_ack_preimages_and_hashes(deposit_data.deposit_outpoint.txid)?;
+            .generate_assert_winternitz_pubkeys(deposit_data.get_deposit_outpoint().txid)?;
+        let hashes = self.operator.generate_challenge_ack_preimages_and_hashes(
+            deposit_data.get_deposit_outpoint().txid,
+        )?;
         tracing::info!("Generated deposit keys in {:?}", start.elapsed());
 
         Ok(Response::new(OperatorKeys {

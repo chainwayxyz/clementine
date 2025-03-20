@@ -7,14 +7,15 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use super::script::SpendPath;
-use super::script::{CheckSig, DepositScript, TimelockScript};
+use super::script::{BaseDepositScript, CheckSig, TimelockScript};
+use super::script::{ReplacementDepositScript, SpendPath};
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::operator_assert::*;
 use crate::builder::transaction::operator_collateral::*;
 use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
+use crate::config::protocol::ProtocolParamset;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::grpc_transaction_id;
@@ -27,7 +28,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
 use bitcoin::transaction::Version;
-use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 
 // Exports to the outside
 pub use crate::builder::transaction::txhandler::*;
@@ -52,16 +53,47 @@ pub mod output;
 pub mod sign;
 mod txhandler;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum DepositData {
+    BaseDeposit(BaseDepositData),
+    ReplacementDeposit(ReplacementDepositData),
+}
+
+impl DepositData {
+    pub fn get_deposit_outpoint(&self) -> OutPoint {
+        match self {
+            DepositData::BaseDeposit(data) => data.deposit_outpoint,
+            DepositData::ReplacementDeposit(data) => data.deposit_outpoint,
+        }
+    }
+    pub fn get_nofn_xonly_pk(&self) -> XOnlyPublicKey {
+        match self {
+            DepositData::BaseDeposit(data) => data.nofn_xonly_pk,
+            DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk,
+        }
+    }
+}
+
 /// Type to uniquely identify a deposit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct DepositData {
+pub struct BaseDepositData {
     /// User's deposit UTXO.
     pub deposit_outpoint: bitcoin::OutPoint,
     /// User's EVM address.
     pub evm_address: EVMAddress,
     /// User's recovery taproot address.
     pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
-    /// nofn xonly public key used for deposit. TODO: save this in db
+    /// nofn xonly public key used for deposit.
+    pub nofn_xonly_pk: XOnlyPublicKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ReplacementDepositData {
+    /// deposit UTXO.
+    pub deposit_outpoint: bitcoin::OutPoint,
+    /// old move_to_vault txid that was replaced
+    pub old_move_txid: Txid,
+    /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
 }
 
@@ -122,6 +154,8 @@ pub enum TransactionType {
     ChallengeTimeout,
     BurnUnusedKickoffConnectors,
     YieldKickoffTxid, // This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
+    BaseDeposit,
+    ReplacementDeposit,
 }
 
 // converter from proto type to rust enum
@@ -152,6 +186,8 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::UnspecifiedTransactionType => Err(::prost::UnknownEnumValue(idx)),
                     Normal::BurnUnusedKickoffConnectors => Ok(Self::BurnUnusedKickoffConnectors),
                     Normal::YieldKickoffTxid => Ok(Self::YieldKickoffTxid),
+                    Normal::BaseDeposit => Ok(Self::BaseDeposit),
+                    Normal::ReplacementDeposit => Ok(Self::ReplacementDeposit),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -214,6 +250,10 @@ impl From<TransactionType> for GrpcTransactionId {
                 }
                 TransactionType::ChallengeTimeout => {
                     NormalTransaction(Normal::ChallengeTimeout as i32)
+                }
+                TransactionType::BaseDeposit => NormalTransaction(Normal::BaseDeposit as i32),
+                TransactionType::ReplacementDeposit => {
+                    NormalTransaction(Normal::ReplacementDeposit as i32)
                 }
                 TransactionType::WatchtowerChallenge(index) => {
                     NumberedTransaction(NumberedTransactionId {
@@ -303,56 +343,117 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
 /// the funds to a NofN address from the deposit intent address, after all the signature
 /// collection operations are done.
 pub fn create_move_to_vault_txhandler(
-    deposit_outpoint: OutPoint,
-    user_evm_address: EVMAddress,
-    recovery_taproot_address: &Address<NetworkUnchecked>,
-    nofn_xonly_pk: XOnlyPublicKey,
-    user_takes_after: u16,
-    bridge_amount_sats: Amount,
-    network: bitcoin::Network,
+    deposit_data: DepositData,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
-    let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
+    let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()));
 
-    let deposit_script = Arc::new(DepositScript::new(
-        nofn_xonly_pk,
-        user_evm_address,
-        bridge_amount_sats,
-    ));
+    let builder = match deposit_data {
+        DepositData::BaseDeposit(original_deposit_data) => {
+            let deposit_script = Arc::new(BaseDepositScript::new(
+                original_deposit_data.nofn_xonly_pk,
+                original_deposit_data.evm_address,
+                paramset.bridge_amount,
+            ));
 
-    let recovery_script_pubkey = recovery_taproot_address
-        .clone()
-        .assume_checked()
-        .script_pubkey();
+            let recovery_script_pubkey = original_deposit_data
+                .recovery_taproot_address
+                .clone()
+                .assume_checked()
+                .script_pubkey();
 
-    let recovery_extracted_xonly_pk =
-        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])?;
+            let recovery_extracted_xonly_pk =
+                XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])?;
 
-    let script_timelock = Arc::new(TimelockScript::new(
-        Some(recovery_extracted_xonly_pk),
-        user_takes_after,
-    ));
+            let script_timelock = Arc::new(TimelockScript::new(
+                Some(recovery_extracted_xonly_pk),
+                paramset.user_takes_after,
+            ));
 
-    let builder = TxHandlerBuilder::new(TransactionType::MoveToVault)
+            TxHandlerBuilder::new(TransactionType::MoveToVault)
+                .with_version(Version::non_standard(3))
+                .add_input(
+                    NormalSignatureKind::NotStored,
+                    SpendableTxIn::from_scripts(
+                        original_deposit_data.deposit_outpoint,
+                        paramset.bridge_amount,
+                        vec![deposit_script, script_timelock],
+                        None,
+                        paramset.network,
+                    ),
+                    SpendPath::ScriptSpend(0),
+                    DEFAULT_SEQUENCE,
+                )
+        }
+        DepositData::ReplacementDeposit(replacement_deposit_data) => {
+            let deposit_script = Arc::new(ReplacementDepositScript::new(
+                replacement_deposit_data.nofn_xonly_pk,
+                replacement_deposit_data.old_move_txid,
+                paramset.bridge_amount,
+            ));
+
+            TxHandlerBuilder::new(TransactionType::MoveToVault)
+                .with_version(Version::non_standard(3))
+                .add_input(
+                    NormalSignatureKind::NotStored,
+                    SpendableTxIn::from_scripts(
+                        replacement_deposit_data.deposit_outpoint,
+                        paramset.bridge_amount,
+                        vec![deposit_script],
+                        None,
+                        paramset.network,
+                    ),
+                    SpendPath::ScriptSpend(0),
+                    DEFAULT_SEQUENCE,
+                )
+        }
+    };
+
+    Ok(builder
+        .add_output(UnspentTxOut::from_scripts(
+            paramset.bridge_amount - ANCHOR_AMOUNT,
+            vec![nofn_script],
+            None,
+            paramset.network,
+        ))
+        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        .finalize())
+}
+
+/// Creates a [`TxHandler`] for the `move_to_vault_tx`. This transaction will move
+/// the funds to a NofN address from the deposit intent address, after all the signature
+/// collection operations are done.
+pub fn create_replacement_deposit_txhandler(
+    old_move_txid: Txid,
+    nofn_xonly_pk: XOnlyPublicKey,
+    paramset: &'static ProtocolParamset,
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    Ok(TxHandlerBuilder::new(TransactionType::ReplacementDeposit)
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             SpendableTxIn::from_scripts(
-                deposit_outpoint,
-                bridge_amount_sats,
-                vec![deposit_script, script_timelock],
+                bitcoin::OutPoint {
+                    txid: old_move_txid,
+                    vout: 0,
+                },
+                paramset.bridge_amount - ANCHOR_AMOUNT,
+                vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
                 None,
-                network,
+                paramset.network,
             ),
-            SpendPath::ScriptSpend(0),
+            crate::builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
-        );
-
-    Ok(builder
+        )
         .add_output(UnspentTxOut::from_scripts(
-            bridge_amount_sats - ANCHOR_AMOUNT,
-            vec![nofn_script],
+            paramset.bridge_amount,
+            vec![Arc::new(ReplacementDepositScript::new(
+                nofn_xonly_pk,
+                old_move_txid,
+                paramset.bridge_amount,
+            ))],
             None,
-            network,
+            paramset.network,
         ))
         .add_output(UnspentTxOut::from_partial(anchor_output()))
         .finalize())

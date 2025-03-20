@@ -3,7 +3,8 @@ use super::clementine::{
     clementine_watchtower_server::ClementineWatchtower, watchtower_params, DepositParams, Empty,
     TransactionRequest, WatchtowerKeys, WatchtowerParams,
 };
-use crate::rpc::parser::{parse_deposit_params, parse_transaction_request};
+use crate::builder::transaction::DepositData;
+use crate::rpc::parser::parse_transaction_request;
 use crate::watchtower::Watchtower;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
@@ -75,11 +76,11 @@ impl ClementineWatchtower for Watchtower {
         &self,
         request: Request<DepositParams>,
     ) -> Result<Response<WatchtowerKeys>, Status> {
-        let deposit_req = request.into_inner();
-        let deposit_data = parse_deposit_params(deposit_req)?;
+        let deposit_params = request.into_inner();
+        let deposit_data: DepositData = deposit_params.try_into()?;
 
         let winternitz_keys =
-            self.get_watchtower_winternitz_public_keys(deposit_data.deposit_outpoint.txid)?;
+            self.get_watchtower_winternitz_public_keys(deposit_data.get_deposit_outpoint().txid)?;
 
         Ok(Response::new(WatchtowerKeys {
             winternitz_pubkeys: winternitz_keys

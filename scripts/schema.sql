@@ -63,9 +63,7 @@ create table if not exists deposits (
     deposit_outpoint text unique not null check (
         deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     ),
-    recovery_taproot_address text,
-    evm_address text check (evm_address ~ '^[a-fA-F0-9]{40}'),
-    nofn_xonly_pk text,
+    deposit_params bytea,
     move_to_vault_txid text check (move_to_vault_txid ~ '^[a-fA-F0-9]{64}')
 );
 -- Deposit signatures
@@ -128,13 +126,13 @@ create table if not exists bitcoin_syncer_spent_utxos (
     foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
 );
 -- enum for bitcoin_syncer_events
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bitcoin_syncer_event_type') THEN
-        CREATE TYPE bitcoin_syncer_event_type AS ENUM ('new_block', 'reorged_block');
-    END IF;
-END
-$$;
+DO $$ BEGIN IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type
+    WHERE typname = 'bitcoin_syncer_event_type'
+) THEN CREATE TYPE bitcoin_syncer_event_type AS ENUM ('new_block', 'reorged_block');
+END IF;
+END $$;
 create table if not exists bitcoin_syncer_events (
     id serial primary key,
     block_id int not null references bitcoin_syncer (id),
@@ -148,13 +146,13 @@ create table if not exists bitcoin_syncer_event_handlers (
     primary key (consumer_handle)
 );
 -------- TX SENDER --------
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'fee_paying_type') THEN
-        CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf');
-    END IF;
-END
-$$;
+DO $$ BEGIN IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type
+    WHERE typname = 'fee_paying_type'
+) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf');
+END IF;
+END $$;
 -- Table to store txs that needs to be fee bumped
 create table if not exists tx_sender_try_to_send_txs (
     id serial primary key,
@@ -218,7 +216,6 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     created_at timestamp not null default now(),
     primary key (activated_id, txid, vout)
 );
-
 -------- FINALIZED BLOCK SYNCER , CITREA DEPOSITS AND WITHDRAWALS --------
 create table if not exists withdrawals (
     idx int primary key,
@@ -233,7 +230,6 @@ create table if not exists withdrawals (
     kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now()
 );
-
 -- Add state machine tables at the end of the file:
 -- State machines table to store serialized machines
 CREATE TABLE IF NOT EXISTS state_machines (
