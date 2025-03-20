@@ -239,7 +239,6 @@ mod tests {
             std::env::set_var("HEADER_CHAIN_PROOF_PATH", header_chain_proof_path);
         }
         if let Some(ref trusted_watchtower_endpoint) = default_config.trusted_watchtower_endpoint {
-            println!("lan {}", trusted_watchtower_endpoint);
             std::env::set_var("TRUSTED_WATCHTOWER_ENDPOINT", trusted_watchtower_endpoint);
         }
         if let Some(ref verifier_endpoints) = default_config.verifier_endpoints {
