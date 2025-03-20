@@ -36,22 +36,6 @@ create table if not exists watchtower_xonly_public_keys (
     xonly_pk bytea not null,
     primary key (watchtower_id)
 );
--- Verifier table of watchtower Winternitz public keys for every operator and deposit_id pair
-create table if not exists watchtower_winternitz_public_keys (
-    watchtower_id int not null,
-    operator_id int not null,
-    deposit_id int not null,
-    winternitz_public_key bytea not null,
-    primary key (watchtower_id, operator_id, deposit_id)
-);
--- Verifier table of watchtower challenge addresses for every operator and deposit_id
-create table if not exists watchtower_challenge_hashes (
-    watchtower_id int not null,
-    operator_id int not null,
-    deposit_id int not null,
-    challenge_hash bytea not null,
-    primary key (watchtower_id, operator_id, deposit_id)
-);
 -- Verifier table of operators Winternitz public keys for every kickoff utxo for committing blockhash
 create table if not exists operator_winternitz_public_keys (
     operator_id int not null,

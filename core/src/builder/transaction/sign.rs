@@ -1,3 +1,4 @@
+use super::challenge::create_watchtower_challenge_txhandler;
 use super::{ContractContext, TxHandlerCache};
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
@@ -5,7 +6,7 @@ use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::citrea::CitreaClientT;
-use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::{ProtocolParamset, WATCHTOWER_CHALLENGE_BYTES};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
@@ -20,13 +21,6 @@ use secp256k1::rand::seq::SliceRandom;
 
 #[derive(Debug, Clone)]
 pub struct TransactionRequestData {
-    pub deposit_data: DepositData,
-    pub transaction_type: TransactionType,
-    pub kickoff_id: KickoffId,
-}
-
-#[derive(Debug, Clone)]
-pub struct AssertRequestData {
     pub deposit_data: DepositData,
     pub kickoff_id: KickoffId,
 }
@@ -90,7 +84,7 @@ pub async fn create_and_sign_txs(
     );
 
     let txhandlers = builder::transaction::create_txhandlers(
-        transaction_data.transaction_type,
+        TransactionType::AllNeededForDeposit,
         context,
         &mut TxHandlerCache::new(),
         &mut ReimburseDbCache::new_for_deposit(
@@ -179,13 +173,7 @@ impl Watchtower {
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
     ) -> Result<(TransactionType, Transaction), BridgeError> {
-        if commit_data.len()
-            != self
-                .config
-                .protocol_paramset()
-                .watchtower_challenge_message_length
-                / 2
-        {
+        if commit_data.len() != WATCHTOWER_CHALLENGE_BYTES {
             return Err(BridgeError::InvalidWatchtowerChallengeData);
         }
 
@@ -197,7 +185,7 @@ impl Watchtower {
         );
 
         let mut txhandlers = builder::transaction::create_txhandlers(
-            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            TransactionType::AllNeededForDeposit,
             context,
             &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
@@ -209,21 +197,20 @@ impl Watchtower {
         )
         .await?;
 
-        let mut requested_txhandler = txhandlers
-            .remove(&transaction_data.transaction_type)
-            .ok_or(BridgeError::TxHandlerNotFound(
-                transaction_data.transaction_type,
-            ))?;
+        let kickoff_txhandler = txhandlers
+            .remove(&TransactionType::Kickoff)
+            .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Kickoff))?;
 
-        let path = WinternitzDerivationPath::WatchtowerChallenge(
-            transaction_data.kickoff_id.operator_idx,
-            transaction_data.deposit_data.get_deposit_outpoint().txid,
-            self.config.protocol_paramset(),
-        );
+        let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
+            &kickoff_txhandler,
+            self.config.index as usize,
+            commit_data,
+        )?;
+
         self.signer
-            .tx_sign_winternitz(&mut requested_txhandler, &[(commit_data.to_vec(), path)])?;
+            .tx_sign_and_fill_sigs(&mut watchtower_challenge_txhandler, &[])?;
 
-        let checked_txhandler = requested_txhandler.promote()?;
+        let checked_txhandler = watchtower_challenge_txhandler.promote()?;
 
         Ok((
             TransactionType::WatchtowerChallenge(self.config.index as usize),
@@ -238,7 +225,7 @@ where
 {
     pub async fn create_assert_commitment_txs(
         &self,
-        assert_data: AssertRequestData,
+        assert_data: TransactionRequestData,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_asserts(
             assert_data.kickoff_id,

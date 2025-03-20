@@ -1,9 +1,9 @@
 use super::clementine::SignedTxWithType;
 use super::clementine::{
-    clementine_watchtower_server::ClementineWatchtower, watchtower_params, DepositParams, Empty,
-    TransactionRequest, WatchtowerKeys, WatchtowerParams,
+    clementine_watchtower_server::ClementineWatchtower, watchtower_params, Empty,
+    TransactionRequest, WatchtowerParams,
 };
-use crate::builder::transaction::DepositData;
+use crate::config::protocol::WATCHTOWER_CHALLENGE_BYTES;
 use crate::rpc::parser::parse_transaction_request;
 use crate::watchtower::Watchtower;
 use tokio::sync::mpsc::{self, error::SendError};
@@ -56,37 +56,13 @@ impl ClementineWatchtower for Watchtower {
         let (tx_type, signed_tx) = self
             .create_and_sign_watchtower_challenge(
                 transaction_data,
-                &vec![
-                    0u8;
-                    self.config
-                        .protocol_paramset()
-                        .watchtower_challenge_message_length
-                        / 2
-                ], // dummy challenge
+                &[0u8; WATCHTOWER_CHALLENGE_BYTES], // dummy challenge
             )
             .await?;
 
         Ok(Response::new(SignedTxWithType {
             transaction_type: Some(tx_type.into()),
             raw_tx: bitcoin::consensus::serialize(&signed_tx),
-        }))
-    }
-
-    async fn get_challenge_keys(
-        &self,
-        request: Request<DepositParams>,
-    ) -> Result<Response<WatchtowerKeys>, Status> {
-        let deposit_params = request.into_inner();
-        let deposit_data: DepositData = deposit_params.try_into()?;
-
-        let winternitz_keys =
-            self.get_watchtower_winternitz_public_keys(deposit_data.get_deposit_outpoint().txid)?;
-
-        Ok(Response::new(WatchtowerKeys {
-            winternitz_pubkeys: winternitz_keys
-                .into_iter()
-                .map(|pubkey| pubkey.into())
-                .collect(),
         }))
     }
 }

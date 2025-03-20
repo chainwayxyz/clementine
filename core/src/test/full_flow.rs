@@ -11,8 +11,7 @@ use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::{
-    AssertRequest, DepositParams, Empty, FinalizedPayoutParams, KickoffId, SignedTxsWithType,
-    TransactionRequest,
+    DepositParams, Empty, FinalizedPayoutParams, KickoffId, SignedTxsWithType, TransactionRequest,
 };
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
@@ -109,7 +108,6 @@ async fn base_setup(
         deposit_outpoint,
     )[0] as u32;
     let base_tx_req = TransactionRequest {
-        transaction_type: Some(TxType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
@@ -267,7 +265,6 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     tracing::info!("Sending round 2 transaction");
     let all_txs_2 = operators[0]
         .internal_create_signed_txs(TransactionRequest {
-            transaction_type: Some(TxType::Round.into()),
             kickoff_id: Some(KickoffId {
                 operator_idx: 0,
                 round_idx: 1,
@@ -329,10 +326,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // Send Watchtower Challenge Transactions
     for (watchtower_idx, watchtower) in watchtowers.iter_mut().enumerate() {
         let watchtower_challenge_tx = watchtower
-            .internal_create_watchtower_challenge(TransactionRequest {
-                transaction_type: Some(TxType::WatchtowerChallenge(watchtower_idx).into()),
-                ..base_tx_req.clone()
-            })
+            .internal_create_watchtower_challenge(base_tx_req.clone())
             .await?
             .into_inner();
         tracing::info!(
@@ -360,10 +354,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             watchtower_idx
         );
         let operator_challenge_ack_txs = operators[0]
-            .internal_create_signed_txs(TransactionRequest {
-                transaction_type: Some(TxType::OperatorChallengeAck(watchtower_idx).into()),
-                ..base_tx_req.clone()
-            })
+            .internal_create_signed_txs(base_tx_req.clone())
             .await?
             .into_inner();
         send_tx_with_type(
@@ -376,9 +367,8 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     }
 
     // Send Assert Transactions
-    // these are already sent by the state machine
     let assert_txs = operators[0]
-        .internal_create_assert_commitment_txs(AssertRequest {
+        .internal_create_assert_commitment_txs(TransactionRequest {
             deposit_params: Some(dep_params.clone()),
             kickoff_id: Some(KickoffId {
                 operator_idx: 0,
@@ -418,11 +408,10 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     tracing::info!("Sending round 2 transaction");
     let all_txs_2 = operators[0]
         .internal_create_signed_txs(TransactionRequest {
-            transaction_type: Some(TxType::Round.into()),
             kickoff_id: Some(KickoffId {
                 operator_idx: 0,
                 round_idx: 1,
-                kickoff_idx,
+                kickoff_idx: 0,
             }),
             ..base_tx_req.clone()
         })
@@ -492,7 +481,7 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
 
     // Create assert transactions for operator 0
     let assert_txs = operators[0]
-        .internal_create_assert_commitment_txs(AssertRequest {
+        .internal_create_assert_commitment_txs(TransactionRequest {
             kickoff_id: Some(kickoff_id),
             deposit_params: Some(dep_params.clone()),
         })
@@ -563,10 +552,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         watchtower_idx
     );
     let watchtower_challenge_tx = watchtowers[watchtower_idx]
-        .internal_create_watchtower_challenge(TransactionRequest {
-            transaction_type: Some(TxType::WatchtowerChallenge(watchtower_idx).into()),
-            ..base_tx_req.clone()
-        })
+        .internal_create_watchtower_challenge(base_tx_req.clone())
         .await?
         .into_inner();
     tracing::info!(
@@ -634,8 +620,6 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     // Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
-
-    // Send Challenge Transaction
 
     // Send Challenge Transaction
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;

@@ -6,9 +6,7 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::sign::{
-    create_and_sign_txs, AssertRequestData, TransactionRequestData,
-};
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
@@ -665,7 +663,6 @@ where
 
         let transaction_data = TransactionRequestData {
             deposit_data,
-            transaction_type: TransactionType::AllNeededForDeposit,
             kickoff_id,
         };
         let signed_txs = create_and_sign_txs(
@@ -924,11 +921,11 @@ where
         &self,
         kickoff_id: KickoffId,
         deposit_data: DepositData,
-        _watchtower_challenges: HashMap<usize, Witness>,
+        _watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
     ) -> Result<(), BridgeError> {
         let assert_txs = self
-            .create_assert_commitment_txs(AssertRequestData {
+            .create_assert_commitment_txs(TransactionRequestData {
                 kickoff_id,
                 deposit_data: deposit_data.clone(),
             })

@@ -1,13 +1,9 @@
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{
-    actor::{Actor, WinternitzDerivationPath},
-    config::BridgeConfig,
-    database::Database,
-    errors::BridgeError,
+    actor::Actor, config::BridgeConfig, database::Database, errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
-use bitcoin::{Txid, XOnlyPublicKey};
-use bitvm::signatures::winternitz;
+use bitcoin::XOnlyPublicKey;
 
 #[derive(Debug, Clone)]
 pub struct Watchtower {
@@ -46,31 +42,6 @@ impl Watchtower {
         })
     }
 
-    /// Generates Winternitz public keys for watchtower challenges for every operator
-    /// for a single deposit.
-    ///
-    /// # Returns
-    ///
-    /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public key for
-    ///   `operator index`.
-    pub fn get_watchtower_winternitz_public_keys(
-        &self,
-        deposit_txid: Txid,
-    ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
-        let mut winternitz_pubkeys = Vec::new();
-
-        for operator in 0..self.config.num_operators as u32 {
-            let path = WinternitzDerivationPath::WatchtowerChallenge(
-                operator,
-                deposit_txid,
-                self.config.protocol_paramset(),
-            );
-            winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
-        }
-
-        Ok(winternitz_pubkeys)
-    }
-
     /// Returns id, winteritz public keys and x-only public key of a watchtower.
     ///
     /// # Returns
@@ -90,32 +61,13 @@ impl Watchtower {
 #[cfg(test)]
 mod tests {
     use crate::test::common::*;
-
     use crate::watchtower::Watchtower;
-
-    use bitcoin::hashes::Hash;
-    use bitcoin::Txid;
 
     #[tokio::test]
     async fn new_watchtower() {
         let config = create_test_config_with_thread_name().await;
 
         let _should_not_panic = Watchtower::new(config.clone()).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn get_watchtower_winternitz_public_keys() {
-        let config = create_test_config_with_thread_name().await;
-
-        let watchtower = Watchtower::new(config.clone()).await.unwrap();
-        let watchtower_winternitz_public_keys = watchtower
-            .get_watchtower_winternitz_public_keys(Txid::all_zeros())
-            .unwrap();
-
-        assert_eq!(
-            watchtower_winternitz_public_keys.len(),
-            config.num_operators
-        );
     }
 
     #[tokio::test]

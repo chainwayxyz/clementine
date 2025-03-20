@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::{OutPoint, Witness};
+use bitcoin::{OutPoint, Transaction, Witness};
 use eyre::Report;
 use serde_with::serde_as;
 use statig::prelude::*;
@@ -66,7 +66,7 @@ pub struct KickoffStateMachine<T: Owner> {
     kickoff_height: u32,
     payout_blockhash: Witness,
     spent_watchtower_utxos: HashSet<usize>,
-    watchtower_challenges: HashMap<usize, Witness>,
+    watchtower_challenges: HashMap<usize, Transaction>,
     operator_asserts: HashMap<usize, Witness>,
     operator_challenge_acks: HashMap<usize, Witness>,
     phantom: std::marker::PhantomData<T>,
@@ -297,12 +297,13 @@ impl<T: Owner> KickoffStateMachine<T> {
                 challenge_outpoint,
             } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                let witness = context
+                let tx = context
                     .cache
-                    .get_witness_of_utxo(challenge_outpoint)
+                    .get_tx_of_utxo(challenge_outpoint)
                     .expect("Challenge outpoint that got matched should be in block");
                 // save challenge witness
-                self.watchtower_challenges.insert(*watchtower_idx, witness);
+                self.watchtower_challenges
+                    .insert(*watchtower_idx, tx.clone());
                 self.check_if_time_to_send_asserts(context).await;
                 Handled
             }

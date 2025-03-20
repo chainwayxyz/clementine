@@ -3,6 +3,7 @@ use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::KickoffId;
 
+use bitcoin::Transaction;
 use bitcoin::Txid;
 use bitcoin::Witness;
 use statig::awaitable::InitializedStateMachine;
@@ -68,7 +69,7 @@ pub enum Duty {
     SendOperatorAsserts {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
-        watchtower_challenges: HashMap<usize, Witness>,
+        watchtower_challenges: HashMap<usize, Transaction>,
         payout_blockhash: Witness,
     },
     /// This duty is only sent if a kickoff was challenged.

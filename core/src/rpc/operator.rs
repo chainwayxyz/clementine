@@ -1,8 +1,8 @@
 use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
-    self, AssertRequest, ChallengeAckDigest, DepositParams, DepositSignSession, Empty,
-    FinalizedPayoutParams, OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType,
-    SignedTxsWithType, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
+    self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
+    OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
+    TransactionRequest, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::create_and_sign_txs;
@@ -11,7 +11,7 @@ use crate::citrea::CitreaClientT;
 use crate::errors::BridgeError;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
-use crate::rpc::parser::{parse_assert_request, parse_transaction_request};
+use crate::rpc::parser::parse_transaction_request;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use tokio::sync::mpsc;
@@ -136,14 +136,14 @@ where
     #[tracing::instrument(skip(self, request), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn internal_create_assert_commitment_txs(
         &self,
-        request: Request<AssertRequest>,
+        request: Request<TransactionRequest>,
     ) -> std::result::Result<tonic::Response<super::SignedTxsWithType>, tonic::Status> {
-        let assert_request = request.into_inner();
-        let assert_data = parse_assert_request(assert_request)?;
+        let tx_req = request.into_inner();
+        let tx_req_data = parse_transaction_request(tx_req)?;
 
         let raw_txs = self
             .operator
-            .create_assert_commitment_txs(assert_data)
+            .create_assert_commitment_txs(tx_req_data)
             .await?;
 
         Ok(Response::new(SignedTxsWithType {

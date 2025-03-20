@@ -2,7 +2,6 @@ use crate::actor::Actor;
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::address::taproot_builder_with_scripts;
-use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
@@ -25,7 +24,6 @@ use crate::rpc;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::{
     KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature, TransactionRequest,
-    WatchtowerKeys,
 };
 use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
@@ -922,67 +920,6 @@ where
         Ok(())
     }
 
-    pub async fn set_watchtower_keys(
-        &self,
-        deposit_id: DepositData,
-        keys: WatchtowerKeys,
-        watchtower_idx: u32,
-    ) -> Result<(), BridgeError> {
-        let watchtower_xonly_pk = self
-            .db
-            .get_watchtower_xonly_pk(None, watchtower_idx)
-            .await?;
-
-        let winternitz_keys: Vec<winternitz::PublicKey> = keys
-            .winternitz_pubkeys
-            .into_iter()
-            .map(|x| x.try_into())
-            .collect::<Result<_, BridgeError>>()?;
-
-        for (operator_id, winternitz_key) in winternitz_keys.into_iter().enumerate() {
-            self.db
-                .set_watchtower_winternitz_public_keys(
-                    None,
-                    watchtower_idx,
-                    operator_id as u32,
-                    deposit_id.get_deposit_outpoint(),
-                    &winternitz_key,
-                )
-                .await?;
-
-            let script = WinternitzCommit::new(
-                vec![(
-                    winternitz_key,
-                    self.config
-                        .protocol_paramset()
-                        .watchtower_challenge_message_length as u32,
-                )],
-                watchtower_xonly_pk,
-                self.config.protocol_paramset().winternitz_log_d,
-            )
-            .to_script_buf();
-
-            let taproot_builder = taproot_builder_with_scripts(&[script]);
-            let root_hash = taproot_builder
-                .try_into_taptree()
-                .expect("taproot builder always builds a full taptree")
-                .root_hash();
-            let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
-
-            self.db
-                .set_watchtower_challenge_hash(
-                    None,
-                    watchtower_idx,
-                    operator_id as u32,
-                    root_hash_bytes,
-                    deposit_id.get_deposit_outpoint(),
-                )
-                .await?;
-        }
-
-        Ok(())
-    }
-
     // TODO: #402
     async fn is_kickoff_malicious(
         &self,
@@ -1009,7 +946,6 @@ where
 
         let transaction_data = TransactionRequestData {
             deposit_data: deposit_data.clone(),
-            transaction_type: TransactionType::AllNeededForDeposit,
             kickoff_id,
         };
         let signed_txs = create_and_sign_txs(
@@ -1076,7 +1012,6 @@ where
         let raw_challenge_tx = watchtower
             .internal_create_watchtower_challenge(TransactionRequest {
                 deposit_params: Some(deposit_data.clone().into()),
-                transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
                 kickoff_id: Some(kickoff_id),
             })
             .await?
