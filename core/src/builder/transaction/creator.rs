@@ -6,7 +6,7 @@ use crate::builder;
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
-    DepositData, OperatorData, TransactionType, TxHandler,
+    OperatorData, TransactionType, TxHandler,
 };
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
@@ -15,7 +15,7 @@ use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
 
-use super::{remove_txhandler_from_map, RoundTxInput};
+use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
 
 // helper function to get a txhandler from a hashmap
 fn get_txhandler(
@@ -61,7 +61,7 @@ impl KickoffWinternitzKeys {
 pub struct ReimburseDbCache {
     pub db: Database,
     pub operator_idx: u32,
-    pub deposit_data: Option<DepositData>,
+    pub deposit_outpoint: Option<bitcoin::OutPoint>,
     pub paramset: &'static ProtocolParamset,
     /// winternitz keys to sign the kickoff tx with the blockhash
     kickoff_winternitz_keys: Option<KickoffWinternitzKeys>,
@@ -82,13 +82,13 @@ impl ReimburseDbCache {
     pub fn new_for_deposit(
         db: Database,
         operator_idx: u32,
-        deposit_data: DepositData,
+        deposit_outpoint: bitcoin::OutPoint,
         paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
             db,
             operator_idx,
-            deposit_data: Some(deposit_data),
+            deposit_outpoint: Some(deposit_outpoint),
             paramset,
             kickoff_winternitz_keys: None,
             bitvm_assert_addr: None,
@@ -108,7 +108,7 @@ impl ReimburseDbCache {
         Self {
             db,
             operator_idx,
-            deposit_data: None,
+            deposit_outpoint: None,
             paramset,
             kickoff_winternitz_keys: None,
             bitvm_assert_addr: None,
@@ -124,7 +124,10 @@ impl ReimburseDbCache {
             Self::new_for_deposit(
                 db,
                 context.operator_idx,
-                context.deposit_data.expect("checked in if statement"),
+                context
+                    .deposit_data
+                    .expect("checked in if statement")
+                    .get_deposit_outpoint(),
                 context.paramset,
             )
         } else {
@@ -179,21 +182,17 @@ impl ReimburseDbCache {
     }
 
     pub async fn get_bitvm_assert_hash(&mut self) -> Result<&[[u8; 32]], BridgeError> {
-        if let Some(deposit_data) = &self.deposit_data {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
             match self.bitvm_assert_addr {
                 Some(ref addr) => Ok(addr),
                 None => {
                     let (assert_addr, bitvm_hash) = self
                         .db
-                        .get_bitvm_setup(
-                            None,
-                            self.operator_idx as i32,
-                            deposit_data.deposit_outpoint,
-                        )
+                        .get_bitvm_setup(None, self.operator_idx as i32, *deposit_outpoint)
                         .await?
                         .ok_or(BridgeError::BitvmSetupNotFound(
                             self.operator_idx as i32,
-                            deposit_data.deposit_outpoint.txid,
+                            deposit_outpoint.txid,
                         ))?;
                     self.bitvm_assert_addr = Some(assert_addr);
                     self.bitvm_disprove_root_hash = Some(bitvm_hash);
@@ -206,7 +205,7 @@ impl ReimburseDbCache {
     }
 
     pub async fn get_challenge_ack_hashes(&mut self) -> Result<&[PublicHash], BridgeError> {
-        if let Some(deposit_data) = &self.deposit_data {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
             match self.challenge_ack_hashes {
                 Some(ref hashes) => Ok(hashes),
                 None => {
@@ -215,12 +214,12 @@ impl ReimburseDbCache {
                             .get_operators_challenge_ack_hashes(
                                 None,
                                 self.operator_idx as i32,
-                                deposit_data.deposit_outpoint,
+                                *deposit_outpoint,
                             )
                             .await?
                             .ok_or(BridgeError::WatchtowerPublicHashesNotFound(
                                 self.operator_idx as i32,
-                                deposit_data.deposit_outpoint.txid,
+                                deposit_outpoint.txid,
                             ))?,
                     );
                     Ok(self.challenge_ack_hashes.as_ref().expect("Inserted before"))
@@ -232,21 +231,17 @@ impl ReimburseDbCache {
     }
 
     pub async fn get_bitvm_disprove_root_hash(&mut self) -> Result<&[u8; 32], BridgeError> {
-        if let Some(deposit_data) = &self.deposit_data {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
             match self.bitvm_disprove_root_hash {
                 Some(ref hash) => Ok(hash),
                 None => {
                     let bitvm_hash = self
                         .db
-                        .get_bitvm_root_hash(
-                            None,
-                            self.operator_idx as i32,
-                            deposit_data.deposit_outpoint,
-                        )
+                        .get_bitvm_root_hash(None, self.operator_idx as i32, *deposit_outpoint)
                         .await?
                         .ok_or(BridgeError::BitvmSetupNotFound(
                             self.operator_idx as i32,
-                            deposit_data.deposit_outpoint.txid,
+                            deposit_outpoint.txid,
                         ))?;
                     self.bitvm_disprove_root_hash = Some(bitvm_hash);
                     Ok(self
@@ -387,7 +382,6 @@ impl TxHandlerCache {
     }
 }
 
-#[tracing::instrument(skip_all, err, fields(deposit_data = ?db_cache.deposit_data, txtype = ?transaction_type, ?context))]
 pub async fn create_txhandlers(
     transaction_type: TransactionType,
     context: ContractContext,
@@ -456,15 +450,8 @@ pub async fn create_txhandlers(
 
     if !txhandlers.contains_key(&TransactionType::MoveToVault) {
         // if not cached create move_txhandler
-        let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
-            deposit_data.deposit_outpoint,
-            deposit_data.evm_address,
-            &deposit_data.recovery_taproot_address,
-            deposit_data.nofn_xonly_pk,
-            paramset.user_takes_after,
-            paramset.bridge_amount,
-            paramset.network,
-        )?;
+        let move_txhandler =
+            builder::transaction::create_move_to_vault_txhandler(deposit_data.clone(), paramset)?;
         txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
     }
 
@@ -482,8 +469,8 @@ pub async fn create_txhandlers(
 
         // deposit_data.deposit_outpoint.txid
 
-        let bitvm_pks =
-            actor.generate_bitvm_pks_for_deposit(deposit_data.deposit_outpoint.txid, paramset)?;
+        let bitvm_pks = actor
+            .generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint().txid, paramset)?;
 
         let assert_scripts = bitvm_pks.get_assert_scripts(operator_data.xonly_pk);
 
@@ -491,7 +478,7 @@ pub async fn create_txhandlers(
             kickoff_id,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-            deposit_data.nofn_xonly_pk,
+            deposit_data.get_nofn_xonly_pk(),
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
@@ -515,7 +502,7 @@ pub async fn create_txhandlers(
             kickoff_id,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-            deposit_data.nofn_xonly_pk,
+            deposit_data.get_nofn_xonly_pk(),
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
@@ -719,35 +706,48 @@ pub fn create_round_txhandlers(
 
 #[cfg(test)]
 mod tests {
+
+    use std::collections::HashMap;
+
+    use super::*;
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-    use crate::builder::transaction::TransactionType;
-    use crate::builder::transaction::TxHandlerBuilder;
+    use crate::builder::transaction::{DepositData, TransactionType, TxHandlerBuilder};
     use crate::citrea::mock::MockCitreaClient;
-    use crate::rpc::clementine::{KickoffId, TransactionRequest};
+    use crate::config::BridgeConfig;
+    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+    use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+    use crate::rpc::clementine::{DepositParams, KickoffId, SignedTxsWithType, TransactionRequest};
     use crate::test::common::*;
-    use bitcoin::XOnlyPublicKey;
+    use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     use futures::future::try_join_all;
+    use tokio::sync::mpsc;
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_deposit_and_sign_txs() {
-        let mut config = create_test_config_with_thread_name().await;
-        let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
+    fn signed_txs_to_txid(signed_txs: SignedTxsWithType) -> Vec<(TransactionType, bitcoin::Txid)> {
+        signed_txs
+            .signed_txs
+            .into_iter()
+            .map(|signed_tx| {
+                (
+                    signed_tx.transaction_type.unwrap().try_into().unwrap(),
+                    bitcoin::consensus::deserialize::<Transaction>(&signed_tx.raw_tx)
+                        .unwrap()
+                        .compute_txid(),
+                )
+            })
+            .collect()
+    }
 
-        let (
-            mut verifiers,
-            mut operators,
-            _,
-            mut watchtowers,
-            _cleanup,
-            deposit_params,
-            _,
-            deposit_blockhash,
-        ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
-            .await
-            .unwrap();
-
+    async fn check_if_signable(
+        mut verifiers: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+        mut operators: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+        mut watchtowers: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
+        deposit_params: DepositParams,
+        deposit_blockhash: BlockHash,
+        config: BridgeConfig,
+    ) {
         let paramset = config.protocol_paramset();
 
         let mut txs_operator_can_sign = vec![
@@ -787,12 +787,8 @@ mod tests {
             })
             .collect();
         let mut utxo_idxs: Vec<Vec<usize>> = Vec::with_capacity(operator_xonly_pks.len());
-        let deposit_outpoint: bitcoin::OutPoint = deposit_params
-            .clone()
-            .deposit_outpoint
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let deposit_data: DepositData = deposit_params.clone().try_into().unwrap();
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
 
         for op_xonly_pk in operator_xonly_pks {
             utxo_idxs.push(get_kickoff_utxos_to_sign(
@@ -803,6 +799,10 @@ mod tests {
             ));
         }
 
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut created_txs: HashMap<(KickoffId, TransactionType), Vec<bitcoin::Txid>> =
+            HashMap::new();
+
         // try to sign everything for all operators
         let operator_task_handles: Vec<_> = operators
             .iter_mut()
@@ -812,6 +812,7 @@ mod tests {
                 let deposit_params = deposit_params.clone();
                 let mut operator_rpc = operator_rpc.clone();
                 let utxo_idxs = utxo_idxs.clone();
+                let tx = tx.clone();
                 async move {
                     for round_idx in 0..paramset.num_round_txs {
                         for &kickoff_idx in &utxo_idxs[operator_idx] {
@@ -821,7 +822,7 @@ mod tests {
                                 kickoff_idx: kickoff_idx as u32,
                             };
                             let start_time = std::time::Instant::now();
-                            let raw_tx = operator_rpc
+                            let raw_txs = operator_rpc
                                 .internal_create_signed_txs(TransactionRequest {
                                     deposit_params: deposit_params.clone().into(),
                                     kickoff_id: Some(kickoff_id),
@@ -832,7 +833,7 @@ mod tests {
                             // test if all needed tx's are signed
                             for tx_type in &txs_operator_can_sign {
                                 assert!(
-                                    raw_tx
+                                    raw_txs
                                         .signed_txs
                                         .iter()
                                         .any(|signed_tx| signed_tx.transaction_type
@@ -846,19 +847,21 @@ mod tests {
                                 TransactionType::AllNeededForDeposit,
                                 start_time.elapsed()
                             );
-                            let _raw_assert_txs = operator_rpc
+                            tx.send((kickoff_id, signed_txs_to_txid(raw_txs))).unwrap();
+                            let raw_assert_txs = operator_rpc
                                 .internal_create_assert_commitment_txs(TransactionRequest {
                                     deposit_params: deposit_params.clone().into(),
                                     kickoff_id: Some(kickoff_id),
                                 })
                                 .await
                                 .unwrap()
-                                .into_inner()
-                                .signed_txs;
+                                .into_inner();
                             tracing::info!(
                                 "Operator Signed Assert txs of size: {}",
-                                _raw_assert_txs.len()
+                                raw_assert_txs.signed_txs.len()
                             );
+                            tx.send((kickoff_id, signed_txs_to_txid(raw_assert_txs)))
+                                .unwrap();
                         }
                     }
                 }
@@ -874,6 +877,7 @@ mod tests {
                 let deposit_params = deposit_params.clone();
                 let mut watchtower_rpc = watchtower_rpc.clone();
                 let utxo_idxs = utxo_idxs.clone();
+                let tx = tx.clone();
                 async move {
                     for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
                         for round_idx in 0..paramset.num_round_txs {
@@ -883,13 +887,21 @@ mod tests {
                                     round_idx: round_idx as u32,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
-                                let _raw_tx = watchtower_rpc
+                                let raw_tx = watchtower_rpc
                                     .internal_create_watchtower_challenge(TransactionRequest {
                                         deposit_params: deposit_params.clone().into(),
                                         kickoff_id: Some(kickoff_id),
                                     })
                                     .await
-                                    .unwrap();
+                                    .unwrap()
+                                    .into_inner();
+                                tx.send((
+                                    kickoff_id,
+                                    signed_txs_to_txid(SignedTxsWithType {
+                                        signed_txs: vec![raw_tx],
+                                    }),
+                                ))
+                                .unwrap();
                                 tracing::info!(
                                     "Watchtower Signed tx: {:?}",
                                     TransactionType::WatchtowerChallenge(watchtower_idx)
@@ -927,6 +939,7 @@ mod tests {
                 let deposit_params = deposit_params.clone();
                 let mut verifier_rpc = verifier_rpc.clone();
                 let utxo_idxs = utxo_idxs.clone();
+                let tx = tx.clone();
                 async move {
                     for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
                         for round_idx in 0..paramset.num_round_txs {
@@ -937,7 +950,7 @@ mod tests {
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 let start_time = std::time::Instant::now();
-                                let raw_tx = verifier_rpc
+                                let raw_txs = verifier_rpc
                                     .internal_create_signed_txs(TransactionRequest {
                                         deposit_params: deposit_params.clone().into(),
                                         kickoff_id: Some(kickoff_id),
@@ -948,7 +961,7 @@ mod tests {
                                 // test if all needed tx's are signed
                                 for tx_type in &txs_verifier_can_sign {
                                     assert!(
-                                        raw_tx
+                                        raw_txs
                                             .signed_txs
                                             .iter()
                                             .any(|signed_tx| signed_tx.transaction_type
@@ -962,6 +975,7 @@ mod tests {
                                     TransactionType::AllNeededForDeposit,
                                     start_time.elapsed()
                                 );
+                                tx.send((kickoff_id, signed_txs_to_txid(raw_txs))).unwrap();
                             }
                         }
                     }
@@ -970,12 +984,78 @@ mod tests {
             .map(tokio::task::spawn)
             .collect();
 
+        drop(tx);
+        while let Some((kickoff_id, txids)) = rx.recv().await {
+            for (tx_type, txid) in txids {
+                created_txs
+                    .entry((kickoff_id, tx_type))
+                    .or_default()
+                    .push(txid);
+            }
+        }
+
+        let mut incorrect = false;
+
+        for ((kickoff_id, tx_type), txids) in &created_txs {
+            // check if all txids are equal
+            if !txids.iter().all(|txid| txid == &txids[0]) {
+                tracing::error!(
+                    "Mismatch in Txids for kickoff_id: {:?}, tx_type: {:?}, Txids: {:?}",
+                    kickoff_id,
+                    tx_type,
+                    txids
+                );
+                incorrect = true;
+            }
+        }
+        assert!(!incorrect);
+
         try_join_all(operator_task_handles).await.unwrap();
         try_join_all(watchtower_task_handles).await.unwrap();
         try_join_all(verifier_task_handles).await.unwrap();
     }
 
-    use super::*;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_deposit_and_sign_txs() {
+        let mut config = create_test_config_with_thread_name().await;
+        let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
+
+        let (verifiers, operators, _, watchtowers, _cleanup, deposit_params, _, deposit_blockhash) =
+            run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
+                .await
+                .unwrap();
+
+        check_if_signable(
+            verifiers,
+            operators,
+            watchtowers,
+            deposit_params,
+            deposit_blockhash,
+            config.clone(),
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_replacement_deposit_and_sign_txs() {
+        let mut config = create_test_config_with_thread_name().await;
+        let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
+
+        let (verifiers, operators, _, watchtowers, _cleanup, deposit_params, _, deposit_blockhash) =
+            run_replacement_deposit(&mut config, rpc.clone(), None)
+                .await
+                .unwrap();
+
+        check_if_signable(
+            verifiers,
+            operators,
+            watchtowers,
+            deposit_params,
+            deposit_blockhash,
+            config.clone(),
+        )
+        .await;
+    }
 
     #[test]
     fn test_txhandler_cache_store_for_next_kickoff() {

@@ -1,7 +1,7 @@
 use super::common::{create_actors, create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::TransactionType as TxType;
+use crate::builder::transaction::{BaseDepositData, DepositData, TransactionType as TxType};
 use crate::citrea::mock::MockCitreaClient;
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
@@ -76,12 +76,13 @@ async fn base_setup(
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
-    let dep_params = DepositParams {
-        deposit_outpoint: Some(deposit_outpoint.into()),
-        evm_address: evm_address.0.to_vec(),
-        recovery_taproot_address: recovery_taproot_address.to_string(),
-        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-    };
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
+        nofn_xonly_pk,
+    });
+    let dep_params: DepositParams = deposit_data.into();
     tracing::info!("Creating move transaction");
     let move_tx_response = aggregator
         .new_deposit(dep_params.clone())
@@ -165,12 +166,14 @@ pub async fn run_operator_end_round(
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
-    let dep_params = DepositParams {
-        deposit_outpoint: Some(deposit_outpoint.into()),
-        evm_address: evm_address.0.to_vec(),
-        recovery_taproot_address: recovery_taproot_address.to_string(),
-        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-    };
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
+        nofn_xonly_pk,
+    });
+
+    let dep_params: DepositParams = deposit_data.into();
 
     tracing::info!("Creating move transaction");
     let move_tx_response = aggregator
@@ -228,7 +231,6 @@ pub async fn run_operator_end_round(
 
 pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting happy path test");
-    config.test_params.should_run_state_manager = false;
 
     let (
         mut operators,
@@ -436,7 +438,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 /// Simple Assert flow without watchtower challenges/acks
 pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Simple Assert Flow");
-    config.test_params.should_run_state_manager = false;
 
     let (
         mut operators,
@@ -715,6 +716,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_simple_assert_flow() {
         let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -725,6 +727,7 @@ mod tests {
     // #[ignore = "Design changes in progress"]
     async fn test_happy_path_1() {
         let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_happy_path_1(&mut config, rpc).await.unwrap();
@@ -733,6 +736,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_happy_path_2() {
         let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_happy_path_2(&mut config, rpc).await.unwrap();
@@ -741,6 +745,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bad_path_1() {
         let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_bad_path_1(&mut config, rpc).await.unwrap();
@@ -749,6 +754,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bad_path_2() {
         let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_bad_path_2(&mut config, rpc).await.unwrap();
@@ -758,6 +764,7 @@ mod tests {
     #[ignore = "Assert is not ready"]
     async fn test_bad_path_3() {
         let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_bad_path_3(&mut config, rpc).await.unwrap();
@@ -766,6 +773,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_operator_end_round() {
         let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -775,6 +783,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_operator_end_round_with_challenge() {
         let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 

@@ -306,7 +306,7 @@ where
 
         let deposit_blockhash = self
             .rpc
-            .get_blockhash_of_tx(&deposit_data.deposit_outpoint.txid)
+            .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
@@ -944,7 +944,7 @@ where
                         verifier_idx: None,
                         round_idx: Some(kickoff_id.round_idx),
                         kickoff_idx: Some(kickoff_id.kickoff_idx),
-                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     &self.config,
                 )
@@ -1010,7 +1010,7 @@ where
                 payout_blockhash,
             } => {
                 tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash);
+                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
             }
             Duty::CheckIfKickoff {
                 txid,

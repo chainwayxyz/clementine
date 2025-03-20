@@ -30,35 +30,59 @@ use super::block_cache;
 use super::kickoff;
 use super::round;
 
-// Duty types that can be dispatched
 #[derive(Debug, Clone)]
+/// Duties are notifications that are sent to the owner (verifier or operator) of the state machine to notify them on changes to the current
+/// contract state that require action.
+/// Note that for all kickoff state duties, they are only sent if withdrawal process is still going on, meaning the burn connector and
+/// kickoff finalizer is still on-chain/unspent.
 pub enum Duty {
+    /// -- Round state duties --
+    /// This duty is sent after a new ready to reimburse tx is sent by the corresponding operator.
+    /// used_kickoffs is a set of kickoff indexes that have been used in the previous round.
+    /// If there are unspent kickoffs, the owner can send a unspent kickoff connector tx.
     NewReadyToReimburse {
         round_idx: u32,
         operator_idx: u32,
         used_kickoffs: HashSet<usize>,
     },
+    /// This duty is sent after a kickoff utxo is spent by the operator.
+    /// It includes the txid in which the utxo was spent, so that the owner can verify if this is an actual kickoff sent by operator.
+    /// Witness is also sent as if tx is an actual kickoff, the witness includes payout blockhash.
+    CheckIfKickoff {
+        txid: Txid,
+        block_height: u32,
+        witness: Witness,
+    },
+    /// -- Kickoff state duties --
+    /// This duty is only sent if a kickoff was challenged.
+    /// This duty is sent after some time (paramset.time_to_send_watchtower_challenge number of blocks) passes after a kickoff was sent to chain.
+    /// It denotes to the owner that it is time to send a watchtower challenge to the corresponding kickoff.
     WatchtowerChallenge {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
     },
+    /// This duty is only sent if a kickoff was challenged.
+    /// This duty is sent only after all watchtower challenge utxo's are spent either by challenges or timeouts so that
+    /// it is certain no new watchtower challenges can be sent.
+    /// The duty denotes that it is time to start sending operator asserts to the corresponding kickoff.
+    /// It includes the all watchtower challenges and the payout blockhash so that they can be used in the proof.
     SendOperatorAsserts {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Transaction>,
         payout_blockhash: Witness,
     },
+    /// This duty is only sent if a kickoff was challenged.
+    /// This duty is sent after some time (paramset.time_to_disprove number of blocks) passes after a kickoff was sent to chain.
+    /// It denotes to the owner that it is time to send a disprove to the corresponding kickoff.
+    /// It includes the operator asserts, operator acks and the payout blockhash so that they can be used in the disprove tx if the proof
+    /// is invalid.
     VerifierDisprove {
         kickoff_id: KickoffId,
         deposit_data: DepositData,
         operator_asserts: HashMap<usize, Witness>,
         operator_acks: HashMap<usize, Witness>,
         payout_blockhash: Witness,
-    },
-    CheckIfKickoff {
-        txid: Txid,
-        block_height: u32,
-        witness: Witness,
     },
 }
 

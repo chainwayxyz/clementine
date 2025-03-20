@@ -9,8 +9,7 @@ use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    create_txhandlers, ContractContext, DepositData, ReimburseDbCache, TransactionType,
-    TxHandlerCache,
+    create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandlerCache,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -21,6 +20,8 @@ use async_stream::try_stream;
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
+
+use super::transaction::DepositData;
 
 impl BridgeConfig {
     /// Returns the number of required signatures for N-of-N signing session.
@@ -157,10 +158,10 @@ pub fn create_nofn_sighash_stream(
                 config.protocol_paramset(),
                 *op_xonly_pk,
                 deposit_blockhash,
-                deposit_data.deposit_outpoint,
+                deposit_data.get_deposit_outpoint(),
             );
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.clone(), config.protocol_paramset());
+            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
             let mut txhandler_cache = TxHandlerCache::new();
 
@@ -243,7 +244,7 @@ pub fn create_operator_sighash_stream(
     deposit_blockhash: bitcoin::BlockHash,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.clone(), config.protocol_paramset());
+        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
         let operator = db.get_operator(None, operator_idx as i32).await?;
 
@@ -256,9 +257,8 @@ pub fn create_operator_sighash_stream(
             config.protocol_paramset(),
             operator.xonly_pk,
             deposit_blockhash,
-            deposit_data.deposit_outpoint,
+            deposit_data.get_deposit_outpoint(),
         );
-
 
         let paramset = config.protocol_paramset();
         let mut txhandler_cache = TxHandlerCache::new();

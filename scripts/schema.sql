@@ -47,9 +47,7 @@ create table if not exists deposits (
     deposit_outpoint text unique not null check (
         deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
     ),
-    recovery_taproot_address text,
-    evm_address text check (evm_address ~ '^[a-fA-F0-9]{40}'),
-    nofn_xonly_pk text,
+    deposit_params bytea,
     move_to_vault_txid text check (move_to_vault_txid ~ '^[a-fA-F0-9]{64}')
 );
 -- Deposit signatures

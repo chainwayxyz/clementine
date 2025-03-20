@@ -60,9 +60,36 @@ pub struct WinternitzPubkey {
     #[prost(bytes = "vec", repeated, tag = "3")]
     pub digit_pubkey: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
-/// A deposit request's details.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositParams {
+    #[prost(oneof = "deposit_params::DepositData", tags = "1, 2")]
+    pub deposit_data: ::core::option::Option<deposit_params::DepositData>,
+}
+/// Nested message and enum types in `DepositParams`.
+pub mod deposit_params {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum DepositData {
+        #[prost(message, tag = "1")]
+        BaseDeposit(super::BaseDeposit),
+        #[prost(message, tag = "2")]
+        ReplacementDeposit(super::ReplacementDeposit),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReplacementDeposit {
+    /// Deposit UTXO.
+    #[prost(message, optional, tag = "1")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+    /// Move to vault txid that is being replaced.
+    #[prost(message, optional, tag = "2")]
+    pub old_move_txid: ::core::option::Option<Txid>,
+    /// nofn public key used to sign the deposit
+    #[prost(bytes = "vec", tag = "3")]
+    pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
+}
+/// A new original deposit request's details.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BaseDeposit {
     /// User's deposit UTXO.
     #[prost(message, optional, tag = "1")]
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
@@ -324,6 +351,13 @@ pub struct RawSignedTx {
     pub raw_tx: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendTxRequest {
+    #[prost(message, optional, tag = "1")]
+    pub raw_tx: ::core::option::Option<RawSignedTx>,
+    #[prost(enumeration = "FeeType", tag = "2")]
+    pub fee_type: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedTxs {
     #[prost(message, repeated, tag = "1")]
     pub raw_txs: ::prost::alloc::vec::Vec<RawSignedTx>,
@@ -476,6 +510,35 @@ impl NumberedSignatureKind {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
+pub enum FeeType {
+    Unspecified = 0,
+    Cpfp = 1,
+    Rbf = 2,
+}
+impl FeeType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "UNSPECIFIED",
+            Self::Cpfp => "CPFP",
+            Self::Rbf => "RBF",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UNSPECIFIED" => Some(Self::Unspecified),
+            "CPFP" => Some(Self::Cpfp),
+            "RBF" => Some(Self::Rbf),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
 pub enum NormalTransactionId {
     UnspecifiedTransactionType = 0,
     Round = 1,
@@ -493,6 +556,8 @@ pub enum NormalTransactionId {
     ChallengeTimeout = 13,
     BurnUnusedKickoffConnectors = 14,
     YieldKickoffTxid = 15,
+    BaseDeposit = 16,
+    ReplacementDeposit = 17,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -517,6 +582,8 @@ impl NormalTransactionId {
             Self::ChallengeTimeout => "CHALLENGE_TIMEOUT",
             Self::BurnUnusedKickoffConnectors => "BURN_UNUSED_KICKOFF_CONNECTORS",
             Self::YieldKickoffTxid => "YIELD_KICKOFF_TXID",
+            Self::BaseDeposit => "BASE_DEPOSIT",
+            Self::ReplacementDeposit => "REPLACEMENT_DEPOSIT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -538,6 +605,8 @@ impl NormalTransactionId {
             "CHALLENGE_TIMEOUT" => Some(Self::ChallengeTimeout),
             "BURN_UNUSED_KICKOFF_CONNECTORS" => Some(Self::BurnUnusedKickoffConnectors),
             "YIELD_KICKOFF_TXID" => Some(Self::YieldKickoffTxid),
+            "BASE_DEPOSIT" => Some(Self::BaseDeposit),
+            "REPLACEMENT_DEPOSIT" => Some(Self::ReplacementDeposit),
             _ => None,
         }
     }
@@ -1629,6 +1698,30 @@ pub mod clementine_aggregator_client {
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new("clementine.ClementineAggregator", "NewDeposit"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// send a pre-signed tx
+        pub async fn internal_send_tx(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SendTxRequest>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/InternalSendTx",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineAggregator", "InternalSendTx"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -3284,6 +3377,11 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
+        /// send a pre-signed tx
+        async fn internal_send_tx(
+            &self,
+            request: tonic::Request<super::SendTxRequest>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ClementineAggregatorServer<T> {
@@ -3437,6 +3535,55 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = NewDepositSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/InternalSendTx" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalSendTxSvc<T: ClementineAggregator>(pub Arc<T>);
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::SendTxRequest>
+                    for InternalSendTxSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SendTxRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::internal_send_tx(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalSendTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
