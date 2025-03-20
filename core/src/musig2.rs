@@ -102,11 +102,13 @@ fn create_key_agg_cache(
                     .chain_update(agg_key.serialize())
                     .finalize();
 
-                musig_key_agg_cache.pubkey_xonly_tweak_add(
-                    SECP256K1,
-                    &Scalar::from_be_bytes(xonly_tweak.into())
-                        .wrap_err("Failed to create scalar from xonly tweak bytes")?,
-                ).wrap_err("Failed to tweak aggregated public key")?;
+                musig_key_agg_cache
+                    .pubkey_xonly_tweak_add(
+                        SECP256K1,
+                        &Scalar::from_be_bytes(xonly_tweak.into())
+                            .wrap_err("Failed to create scalar from xonly tweak bytes")?,
+                    )
+                    .wrap_err("Failed to tweak aggregated public key")?;
             }
             Musig2Mode::KeySpendWithScript(merkle_root) => {
                 // sha256(C, C, IPK, s) where C = sha256("TapTweak")
@@ -116,11 +118,13 @@ fn create_key_agg_cache(
                     .chain_update(merkle_root.to_raw_hash().to_byte_array())
                     .finalize();
 
-                musig_key_agg_cache.pubkey_ec_tweak_add(
-                    SECP256K1,
-                    &Scalar::from_be_bytes(xonly_tweak.into())
-                        .wrap_err("Failed to create scalar from xonly tweak bytes")?,
-                ).wrap_err("Failed to tweak aggregated public key")?;
+                musig_key_agg_cache
+                    .pubkey_ec_tweak_add(
+                        SECP256K1,
+                        &Scalar::from_be_bytes(xonly_tweak.into())
+                            .wrap_err("Failed to create scalar from xonly tweak bytes")?,
+                    )
+                    .wrap_err("Failed to tweak aggregated public key")?;
             }
         }
     };
@@ -199,7 +203,8 @@ pub fn nonce_pair(
         to_secp_kp(keypair).public_key(),
         None,
         None,
-    ).wrap_err("Failed to generate nonce pair")?)
+    )
+    .wrap_err("Failed to generate nonce pair")?)
 }
 
 pub fn partial_sign(
@@ -221,12 +226,14 @@ pub fn partial_sign(
         to_secp_msg(&sighash),
     );
 
-    Ok(session.partial_sign(
-        SECP256K1,
-        sec_nonce,
-        &to_secp_kp(&keypair),
-        &musig_key_agg_cache,
-    ).wrap_err("Failed to sign partial signature")?)
+    Ok(session
+        .partial_sign(
+            SECP256K1,
+            sec_nonce,
+            &to_secp_kp(&keypair),
+            &musig_key_agg_cache,
+        )
+        .wrap_err("Failed to sign partial signature")?)
 }
 
 #[cfg(test)]

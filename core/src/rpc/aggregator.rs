@@ -201,7 +201,10 @@ async fn nonce_distributor(
                         stream_name: format!("Partial sig stream {idx}"),
                     })?;
 
-                Ok::<_, BridgeError>(MusigPartialSignature::from_slice(&partial_sig.partial_sig).wrap_err("Failed to parse partial signature")?)
+                Ok::<_, BridgeError>(
+                    MusigPartialSignature::from_slice(&partial_sig.partial_sig)
+                        .wrap_err("Failed to parse partial signature")?,
+                )
             },
         ))
         .await?;
