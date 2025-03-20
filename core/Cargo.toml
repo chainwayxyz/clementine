@@ -56,5 +56,9 @@ serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
 citrea-e2e = { workspace = true }
 
+[[bin]]
+name = "clementine-cli"
+path = "src/bin/cli.rs"
+
 [lints.clippy]
 unwrap_used = { level = "deny" }

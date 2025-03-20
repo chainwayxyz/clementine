@@ -1,10 +1,8 @@
 use super::common::citrea::BRIDGE_PARAMS;
-use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
-use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::WithdrawParams;
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
@@ -14,7 +12,6 @@ use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     run_single_deposit,
 };
-use crate::{builder, EVMAddress};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{

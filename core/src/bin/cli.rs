@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 use clementine_core::rpc::clementine::{
-    BaseDeposit, DepositParams, Empty, Outpoint,
     clementine_aggregator_client::ClementineAggregatorClient,
-    clementine_operator_client::ClementineOperatorClient, deposit_params::DepositData,
+    clementine_operator_client::ClementineOperatorClient, deposit_params::DepositData, BaseDeposit,
+    DepositParams, Empty, Outpoint,
 };
 
 #[derive(Parser)]
