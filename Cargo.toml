@@ -6,7 +6,7 @@ members = [
   "risc0-circuits/bridge-circuit",
   "risc0-circuits/work-only",
   "bridge-circuit-host"
-] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
+, "cli"] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]
 hex = "0.4.3"
