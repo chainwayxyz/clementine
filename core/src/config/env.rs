@@ -393,19 +393,31 @@ mod tests {
             "NUM_SIGNED_KICKOFFS",
             default_config.num_signed_kickoffs.to_string(),
         );
-        std::env::set_var("BRIDGE_AMOUNT", default_config.bridge_amount.to_string());
+        std::env::set_var(
+            "BRIDGE_AMOUNT",
+            default_config.bridge_amount.to_sat().to_string(),
+        );
         std::env::set_var(
             "NUM_WATCHTOWERS",
             default_config.num_watchtowers.to_string(),
         );
-        std::env::set_var("KICKOFF_AMOUNT", default_config.kickoff_amount.to_string());
+        std::env::set_var(
+            "KICKOFF_AMOUNT",
+            default_config.kickoff_amount.to_sat().to_string(),
+        );
         std::env::set_var(
             "OPERATOR_CHALLENGE_AMOUNT",
-            default_config.operator_challenge_amount.to_string(),
+            default_config
+                .operator_challenge_amount
+                .to_sat()
+                .to_string(),
         );
         std::env::set_var(
             "COLLATERAL_FUNDING_AMOUNT",
-            default_config.collateral_funding_amount.to_string(),
+            default_config
+                .collateral_funding_amount
+                .to_sat()
+                .to_string(),
         );
         std::env::set_var(
             "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
