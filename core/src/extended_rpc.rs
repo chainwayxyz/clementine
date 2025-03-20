@@ -22,6 +22,7 @@ use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
+use eyre::OptionExt;
 
 #[derive(Debug, Clone)]
 pub struct ExtendedRpc {
@@ -56,7 +57,8 @@ impl ExtendedRpc {
 
         raw_transaction_results
             .confirmations
-            .ok_or(BridgeError::NoConfirmationData)
+            .ok_or_eyre("No confirmation data")
+            .map_err(Into::into)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

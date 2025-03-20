@@ -2,7 +2,7 @@
 //!
 //! This module defines errors, returned by the library.
 
-use crate::{builder::transaction::TransactionType};
+use crate::builder::transaction::TransactionType;
 use bitcoin::{consensus::encode::FromHexError, BlockHash, FeeRate, OutPoint, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
@@ -14,12 +14,6 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    /// Returned if there is no confirmation data
-    #[error("NoConfirmationData")]
-    NoConfirmationData,
-    /// For Vec<u8> conversion
-    #[error("VecConversionError")]
-    VecConversionError,
     /// For TryFromSliceError
     #[error("TryFromSliceError")]
     TryFromSliceError,
@@ -310,4 +304,3 @@ impl<T> From<tokio::sync::broadcast::error::SendError<T>> for BridgeError {
         BridgeError::RPCBroadcastSendError(e.to_string())
     }
 }
-
