@@ -5,6 +5,7 @@ use clementine_core::{
     cli::{self, Args},
     config::BridgeConfig,
     database::Database,
+    errors::BridgeError,
     servers::{
         create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
         create_watchtower_grpc_server,
@@ -12,17 +13,15 @@ use clementine_core::{
 };
 use tracing::{level_filters::LevelFilter, Level};
 
-/// Gets configuration from CLI, for binaries. If there are any errors, print
-/// error to stderr and exit program.
+/// Gets configuration from CLI, for binaries. If there are any errors, prints
+/// error and exits the program.
 ///
 /// Steps:
 ///
 /// 1. Get CLI arguments
 /// 2. Initialize logger
-/// 3. Get configuration file
-///
-/// These steps are pretty standard and binaries can use this to get a
-/// `BridgeConfig`.
+/// 3. Get configuration file, either from environment variables or
+///    configuration file
 ///
 /// # Returns
 ///
@@ -55,21 +54,40 @@ pub fn get_configuration_for_binaries() -> (BridgeConfig, Args) {
     };
 
     // Return early if environment variables are set.
-    if let Ok(config) = BridgeConfig::from_env() {
-        tracing::info!(
-            "All the environment variables are set. Using them instead of configuration file..."
+    match BridgeConfig::from_env() {
+        Ok(config) => {
+            tracing::info!(
+                "All the environment variables are set. Using them instead of configuration file..."
+            );
+
+            return (config, args);
+        }
+        Err(BridgeError::EnvVarNotSet(_)) => {
+            tracing::info!("Not all the config overwrite environment variables are set, using configuration file...");
+        }
+        Err(e) => {
+            // TODO: Almost every error is converted automatically and it's not
+            // possible to tell which env var is malformed without managing
+            // every error manually. Maybe the new error interface will solve
+            // this problem?
+            tracing::error!("Malformed value set to an environment variable: {e}");
+            exit(1);
+        }
+    }
+
+    let config_file = if let Some(config_file) = args.config_file.clone() {
+        config_file
+    } else {
+        tracing::error!(
+            "Neither environment variables are set nor a configuration file is provided!"
         );
-        return (config, args);
+        exit(1);
     };
 
-    let config = match clementine_core::cli::get_configuration_from(
-        args.config_file
-            .clone()
-            .expect("Configuration file not specified"), // TODO: Nothing to do instead of this. #304
-    ) {
+    let config = match clementine_core::cli::get_configuration_from(config_file) {
         Ok(config) => config,
         Err(e) => {
-            eprintln!("{e}");
+            tracing::error!("Can't read configuration file: {e}");
             exit(1);
         }
     };
