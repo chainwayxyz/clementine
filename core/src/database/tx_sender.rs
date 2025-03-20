@@ -527,12 +527,8 @@ impl Database {
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
-            result
-                .0
-                .as_deref()
-                .map(serde_json::from_str)
-                .transpose()
-                .wrap_err("Failed to decode tx_metadata")?,
+            serde_json::from_str(result.0.as_deref().unwrap_or("null"))
+                .wrap_err_with(|| format!("Failed to decode tx_metadata from {:?}", result.0))?,
             result
                 .1
                 .as_deref()
