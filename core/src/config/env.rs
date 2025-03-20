@@ -218,9 +218,6 @@ impl ProtocolParamset {
             kickoff_blockhash_commit_length: read_string_from_env_then_parse::<u32>(
                 "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
             )?,
-            watchtower_challenge_message_length: read_string_from_env_then_parse::<usize>(
-                "WATCHTOWER_CHALLENGE_MESSAGE_LENGTH",
-            )?,
             winternitz_log_d: read_string_from_env_then_parse::<u32>("WINTERNITZ_LOG_D")?,
             user_takes_after: read_string_from_env_then_parse::<u16>("USER_TAKES_AFTER")?,
             operator_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
@@ -422,12 +419,6 @@ mod tests {
         std::env::set_var(
             "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
             default_config.kickoff_blockhash_commit_length.to_string(),
-        );
-        std::env::set_var(
-            "WATCHTOWER_CHALLENGE_MESSAGE_LENGTH",
-            default_config
-                .watchtower_challenge_message_length
-                .to_string(),
         );
         std::env::set_var(
             "WINTERNITZ_LOG_D",
