@@ -171,9 +171,9 @@ impl ExtendedRpc {
         confirmation_block_count: u32,
         network: bitcoin::Network,
         user_takes_after: u16,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<(), eyre::Report> {
         if self.confirmation_blocks(&deposit_outpoint.txid).await? < confirmation_block_count {
-            return Err(BridgeError::DepositNotFinalized);
+            eyre::bail!("Deposit not finalized");
         }
 
         let (deposit_address, _) = builder::address::generate_deposit_address(
@@ -193,11 +193,11 @@ impl ExtendedRpc {
             )
             .await?
         {
-            return Err(BridgeError::InvalidDepositUTXO);
+            eyre::bail!("Invalid deposit UTXO");
         }
 
         if self.is_utxo_spent(deposit_outpoint).await? {
-            return Err(BridgeError::UTXOSpent);
+            eyre::bail!("Deposit UTXO has already spent");
         }
 
         Ok(())

@@ -2,7 +2,7 @@
 //!
 //! This module defines errors, returned by the library.
 
-use crate::builder::transaction::TransactionType;
+use crate::{builder::transaction::TransactionType};
 use bitcoin::{consensus::encode::FromHexError, BlockHash, FeeRate, OutPoint, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
@@ -14,24 +14,6 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    /// Returned when a non finalized deposit request is found
-    #[error("DepositNotFinalized")]
-    DepositNotFinalized,
-    /// Returned when an invalid deposit UTXO is found
-    #[error("InvalidDepositUTXO")]
-    InvalidDepositUTXO,
-    /// Returned when a UTXO is already spent
-    #[error("UTXOSpent")]
-    UTXOSpent,
-    /// Returned when it fails to get FailedToGetPresigns
-    #[error("FailedToGetPresigns")]
-    FailedToGetPresigns,
-    /// Returned when it fails to find the txid in the block
-    #[error("TxidNotFound")]
-    TxidNotFound,
-    /// Returned when there are unconfirmed fee payer UTXOs left
-    #[error("UnconfirmedFeePayerUTXOsLeft")]
-    UnconfirmedFeePayerUTXOsLeft,
     /// Returned if there is no confirmation data
     #[error("NoConfirmationData")]
     NoConfirmationData,
@@ -59,12 +41,6 @@ pub enum BridgeError {
     TaprootBuilderError,
     #[error("TaprootScriptError")]
     TaprootScriptError,
-    /// ControlBlockError is returned when the control block is not found
-    #[error("ControlBlockError")]
-    ControlBlockError,
-    /// PkSkLengthMismatch is returned when the public key and secret key length do not match
-    #[error("PkSkLengthMismatch")]
-    PkSkLengthMismatch,
     /// PublicKeyNotFound is returned when the public key is not found in all public keys
     #[error("PublicKeyNotFound")]
     PublicKeyNotFound,
@@ -282,9 +258,6 @@ pub enum BridgeError {
     #[error("Arithmetic overflow")]
     Overflow,
 
-    #[error("Insufficient fee payer amount")]
-    InsufficientFeePayerAmount,
-
     #[error("Effective fee rate is lower than required")]
     EffectiveFeeRateLowerThanRequired,
 
@@ -337,3 +310,4 @@ impl<T> From<tokio::sync::broadcast::error::SendError<T>> for BridgeError {
         BridgeError::RPCBroadcastSendError(e.to_string())
     }
 }
+

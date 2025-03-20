@@ -13,7 +13,7 @@ use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
 use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
-use eyre::Context;
+use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
@@ -318,7 +318,7 @@ impl TxHandler<Unsigned> {
             .as_ref()
             .ok_or(BridgeError::MissingSpendInfo)?
             .control_block(&(script.clone(), LeafVersion::TapScript))
-            .ok_or(BridgeError::ControlBlockError)?;
+            .ok_or_eyre("Failed to find control block for script")?;
 
         let mut witness = Witness::new();
         script_inputs

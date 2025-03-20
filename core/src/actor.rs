@@ -17,7 +17,7 @@ use bitcoin::{
 };
 use bitcoin::{TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
-use eyre::Context;
+use eyre::{Context, OptionExt};
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
@@ -278,7 +278,7 @@ impl Actor {
     ) -> Result<(), BridgeError> {
         let spend_control_block = spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
-            .ok_or(BridgeError::ControlBlockError)?;
+            .ok_or_eyre("Failed to find control block for script")?;
         witness.push(script.clone());
         witness.push(spend_control_block.serialize());
         Ok(())
