@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn create_address_and_transaction_then_sign_transaction() {
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
