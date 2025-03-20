@@ -245,7 +245,7 @@ pub struct ClementineBitVMReplacementData {
     pub bitvm_pks: (
         [[Vec<(usize, usize)>; 68]; NUM_PUBS],
         [[Vec<(usize, usize)>; 68]; NUM_U256],
-        [[Vec<(usize, usize)>; 44]; NUM_HASH],
+        [[Vec<(usize, usize)>; 36]; NUM_HASH],
     ),
 }
 
@@ -495,7 +495,7 @@ impl ClementineBitVMPublicKeys {
             for i in 0..9 {
                 if derivations + i < NUM_HASH as u32 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
-                        20 * 2,
+                        16 * 2,
                         4,
                         derivations + i,
                         txid,
