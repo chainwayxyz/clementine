@@ -131,7 +131,7 @@ mod tests {
 
     #[tokio::test]
     async fn valid_database_connection() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
 
         Database::new(&config).await.unwrap();
     }

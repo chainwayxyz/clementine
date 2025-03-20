@@ -647,7 +647,7 @@ mod tests {
     #[tokio::test]
 
     async fn test_checksig_spendable() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -686,7 +686,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_winternitz_commit_spendable() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
@@ -766,7 +766,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_timelock_script_spendable() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
 
@@ -810,7 +810,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_preimage_reveal_script_spendable() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
@@ -852,7 +852,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_base_deposit_script_spendable() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -892,7 +892,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_replacement_deposit_script_spendable() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 

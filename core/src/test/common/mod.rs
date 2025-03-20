@@ -446,7 +446,7 @@ pub async fn run_replacement_deposit(
 #[ignore = "Tested everywhere, no need to run again"]
 #[tokio::test]
 async fn test_deposit() {
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
     let _ = run_single_deposit::<MockCitreaClient>(&mut config, rpc, None)
@@ -457,7 +457,7 @@ async fn test_deposit() {
 #[ignore = "Tested everywhere, no need to run again"]
 #[tokio::test]
 async fn multiple_deposits_for_operator() {
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
     let _ = run_multiple_deposits::<MockCitreaClient>(&mut config, rpc, 2)
@@ -467,7 +467,7 @@ async fn multiple_deposits_for_operator() {
 
 #[tokio::test]
 async fn create_regtest_rpc_macro() {
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
 
     let regtest = create_regtest_rpc(&mut config).await;
 

@@ -18,7 +18,7 @@ use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
-use bitcoin::{consensus, OutPoint, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use eyre::{Context, Result};
 use tonic::Request;
 
@@ -233,6 +233,7 @@ pub async fn run_operator_end_round(
 
 pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting happy path test");
+    config.test_params.should_run_state_manager = false;
 
     let (
         mut operators,
@@ -455,6 +456,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 /// Simple Assert flow without watchtower challenges/acks
 pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Result<()> {
     tracing::info!("Starting Simple Assert Flow");
+    config.test_params.should_run_state_manager = false;
 
     let (
         mut operators,
@@ -490,18 +492,6 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
 
     rpc.mine_blocks(8 * BLOCKS_PER_HOUR as u64).await?;
 
-    for i in 0..config.protocol_paramset().num_watchtowers {
-        send_tx_with_type(
-            &rpc,
-            &tx_sender,
-            &all_txs,
-            TxType::WatchtowerChallengeTimeout(i),
-        )
-        .await?;
-    }
-
-    // Sending all timeouts should trigger the state machine to send the assert transactions
-
     // Create assert transactions for operator 0
     let assert_txs = operators[0]
         .internal_create_assert_commitment_txs(AssertRequest {
@@ -514,17 +504,16 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
     // Ensure all assert transactions are sent in order
     for tx in assert_txs.signed_txs.iter() {
         tracing::info!(
-            "Waiting for assert transaction of type: {:?}",
+            "Sending assert transaction of type: {:?}",
             tx.transaction_type
         );
-        let tx_type = tx.transaction_type.unwrap();
-        let tx = consensus::deserialize::<Transaction>(tx.raw_tx.as_slice()).unwrap();
-        ensure_outpoint_spent(&rpc, tx.input[0].previous_output)
-            .await
-            .context(format!(
-                "failed to ensure assert transaction of type {:?}",
-                tx_type
-            ))?;
+        send_tx(
+            &tx_sender,
+            &rpc,
+            tx.raw_tx.as_slice(),
+            tx.transaction_type.unwrap().try_into().unwrap(),
+        )
+        .await?;
     }
 
     // Mine blocks to confirm transactions
@@ -750,7 +739,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_simple_assert_flow() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -760,7 +749,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     // #[ignore = "Design changes in progress"]
     async fn test_happy_path_1() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_happy_path_1(&mut config, rpc).await.unwrap();
@@ -768,7 +757,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_happy_path_2() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_happy_path_2(&mut config, rpc).await.unwrap();
@@ -776,7 +765,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bad_path_1() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_bad_path_1(&mut config, rpc).await.unwrap();
@@ -784,7 +773,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bad_path_2() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_bad_path_2(&mut config, rpc).await.unwrap();
@@ -793,7 +782,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "Assert is not ready"]
     async fn test_bad_path_3() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_bad_path_3(&mut config, rpc).await.unwrap();
@@ -801,7 +790,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_operator_end_round() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -810,7 +799,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_operator_end_round_with_challenge() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 

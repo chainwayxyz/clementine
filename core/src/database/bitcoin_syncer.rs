@@ -337,7 +337,7 @@ mod tests {
     use bitcoin::{BlockHash, CompactTarget};
 
     async fn setup_test_db() -> Database {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         Database::new(&config).await.unwrap()
     }
 
@@ -582,7 +582,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_get_block_info() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
         let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
@@ -634,7 +634,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_and_get_txids_from_block() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
         let mut dbtx = db.begin_transaction().await.unwrap();
 
@@ -677,7 +677,7 @@ mod tests {
 
     #[tokio::test]
     async fn insert_get_spent_utxos() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
         let mut dbtx = db.begin_transaction().await.unwrap();
 

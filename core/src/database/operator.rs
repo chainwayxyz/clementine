@@ -702,11 +702,11 @@ impl Database {
     ) -> Result<Option<(u32, u32)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, i32)>(
             "WITH current_round AS (
-                    SELECT round_idx 
-                    FROM current_round_index 
+                    SELECT round_idx
+                    FROM current_round_index
                     WHERE id = 1
                 )
-                SELECT 
+                SELECT
                     ds.round_idx as round_idx,
                     ds.kickoff_idx as kickoff_connector_idx
                 FROM deposit_signatures ds
@@ -714,9 +714,9 @@ impl Database {
                 WHERE ds.deposit_id = $1  -- Parameter for deposit_id
                     AND ds.round_idx >= cr.round_idx
                     AND NOT EXISTS (
-                        SELECT 1 
-                        FROM used_kickoff_connectors ukc 
-                        WHERE ukc.round_idx = ds.round_idx 
+                        SELECT 1
+                        FROM used_kickoff_connectors ukc
+                        WHERE ukc.round_idx = ds.round_idx
                         AND ukc.kickoff_connector_idx = ds.kickoff_idx
                     )
                 ORDER BY ds.round_idx ASC
@@ -786,7 +786,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn save_get_operators() {
-    //     let config = create_test_config_with_thread_name(None).await;
+    //     let config = create_test_config_with_thread_name().await;
     //     let database = Database::new(&config).await.unwrap();
     //     let mut ops = Vec::new();
     //     for i in 0..2 {
@@ -831,7 +831,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_get_public_hashes() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;
@@ -871,7 +871,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_get_unspent_kickoff_sigs() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0x45;
@@ -924,7 +924,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_funding_utxo_1() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
         let utxo = UTXO {
@@ -946,7 +946,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_funding_utxo_2() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
         let db_utxo = db.get_funding_utxo(None).await.unwrap();
@@ -956,7 +956,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_get_bitvm_setup() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;
@@ -1008,7 +1008,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_operator_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
         let _regtest = create_regtest_rpc(&mut config).await;
 
@@ -1037,7 +1037,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_deposit_signatures() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0x45;

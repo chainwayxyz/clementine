@@ -200,7 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_and_load_state_machines() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
         // Create test data with owner_type
