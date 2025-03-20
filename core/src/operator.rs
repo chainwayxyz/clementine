@@ -431,7 +431,7 @@ where
             self.config.protocol_paramset().bridge_amount,
             operator_withdrawal_fee_sats,
         ) {
-            return Err(BridgeError::NotEnoughFeeForOperator);
+            return Err(eyre::eyre!("Not enough fee for operator").into());
         }
 
         let user_xonly_pk =

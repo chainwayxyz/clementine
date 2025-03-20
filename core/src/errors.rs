@@ -13,16 +13,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    /// TxInputNotFound is returned when the input is not found in the transaction
-    #[error("TxInputNotFound")]
-    TxInputNotFound,
-    #[error("TxOutputNotFound")]
-    TxOutputNotFound,
-    #[error("WitnessAlreadySet")]
-    WitnessAlreadySet,
-    #[error("Script with index {0} not found for transaction")]
-    ScriptNotFound(usize),
-
+    // RPC errors
     #[error("RPC function field {0} is required!")]
     RPCRequiredParam(&'static str),
     #[error("RPC function parameter {0} is malformed: {1}")]
@@ -37,39 +28,17 @@ pub enum BridgeError {
     #[error("Operator idx {0} was not found in the DB")]
     OperatorNotFound(u32),
 
-    #[error("Insufficient Context data for the requested TxHandler")]
-    InsufficientContext,
-
+    // State Manager errors
     #[error("State machine received event that it doesn't know how to handle: {0}")]
     UnhandledEvent(String),
 
-    #[error("InvalidOperatorIndex: {0}, {1}")]
-    InvalidOperatorIndex(usize, usize),
-
-    #[error("InvalidDepositOutpointGiven: {0}, {1}")]
-    InvalidDepositOutpointGiven(usize, usize),
-
-    #[error("NotEnoughFeeForOperator")]
-    NotEnoughFeeForOperator,
-
-    #[error("KickoffGeneratorTxNotFound")]
-    KickoffGeneratorTxNotFound,
-
-    #[error("KickoffGeneratorTxsTooManyIterations")]
-    KickoffGeneratorTxsTooManyIterations,
-
-    #[error("OperatorSlashOrTakeSigNotFound")]
-    OperatorSlashOrTakeSigNotFound,
-
-    #[error("OperatorTakesSigNotFound")]
-    OperatorTakesSigNotFound,
-
+    // Header chain prover errors
     #[error("Prover returned an error: {0}")]
     ProverError(String),
-    #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
-    BlockgazerTooDeep(u64),
     #[error("Error while de/serializing object: {0}")]
     ProverDeSerializationError(std::io::Error),
+    #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
+    BlockgazerTooDeep(u64),
     #[error("No header chain proofs for hash {0}")]
     NoHeaderChainProof(BlockHash),
 
@@ -82,6 +51,18 @@ pub enum BridgeError {
     #[error("Can't encode/decode data using borsh: {0}")]
     BorshError(std::io::Error),
 
+    // TxHandler errors
+    /// TxInputNotFound is returned when the input is not found in the transaction
+    #[error("TxInputNotFound")]
+    TxInputNotFound,
+    #[error("TxOutputNotFound")]
+    TxOutputNotFound,
+    #[error("WitnessAlreadySet")]
+    WitnessAlreadySet,
+    #[error("Script with index {0} not found for transaction")]
+    ScriptNotFound(usize),
+    #[error("Insufficient Context data for the requested TxHandler")]
+    InsufficientContext,
     #[error("No scripts in TxHandler for the TxIn with index {0}")]
     NoScriptsForTxIn(usize),
     #[error("No script in TxHandler for the index {0}")]
@@ -96,22 +77,22 @@ pub enum BridgeError {
     SignatureNotFound(TransactionType),
     #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
     TxHandlerNotFound(TransactionType),
-
     #[error("BitvmSetupNotFound for operator {0}, deposit_txid {1}")]
     BitvmSetupNotFound(i32, Txid),
-
     #[error("MissingSpendInfo")]
     MissingSpendInfo,
 
+    // TxSender errors
     #[error("Can't bump fee for Txid of {0} and feerate of {1}: {2}")]
     BumpFeeError(Txid, FeeRate, String),
-
     #[error("Cannot bump fee - UTXO is already spent")]
     BumpFeeUTXOSpent(OutPoint),
+    #[error("Transaction is already in block: {0}")]
+    TransactionAlreadyInBlock(BlockHash),
 
+    // Aggregator errors
     #[error("Sighash stream ended prematurely")]
     SighashStreamEndedPrematurely,
-
     #[error("{0} input channel for {1} ended prematurely")]
     ChannelEndedPrematurely(&'static str, &'static str),
 
@@ -120,21 +101,27 @@ pub enum BridgeError {
     #[error("Error while sending {0} data: {1}")]
     SendError(&'static str, String),
 
-    #[error("Transaction is already in block: {0}")]
-    TransactionAlreadyInBlock(BlockHash),
-
-    /// Database error
+    // Wrappers
     #[error("DatabaseError: {0}")]
     DatabaseError(#[from] sqlx::Error),
-
     #[error("FromHexError: {0}")]
     FromHexError(#[from] FromHexError),
-
     #[error("FromSliceError: {0}")]
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
 
-    #[error("Eyre error: {0}")]
+    // Base wrapper for eyre
+    #[error("{0:?}")]
     Eyre(#[from] eyre::Report),
+}
+
+impl BridgeError {
+    #[track_caller]
+    pub fn into_eyre(self) -> eyre::Report {
+        match self {
+            BridgeError::Eyre(report) => report,
+            _ => eyre::Report::new(self),
+        }
+    }
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
