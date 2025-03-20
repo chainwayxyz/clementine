@@ -156,6 +156,9 @@ impl BridgeConfig {
             all_verifiers_secret_keys,
             all_operators_secret_keys,
             all_watchtowers_secret_keys,
+
+            #[cfg(test)]
+            test_params: super::TestParams::default(),
         })
     }
 }

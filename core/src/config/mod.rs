@@ -21,7 +21,7 @@ use std::{fs::File, io::Read, path::PathBuf};
 pub mod env;
 pub mod protocol;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestParams {
     pub should_run_state_manager: bool,
 }
