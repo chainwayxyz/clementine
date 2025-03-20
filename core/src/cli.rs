@@ -16,7 +16,6 @@ pub enum Actors {
     Verifier,
     Operator,
     Aggregator,
-    Watchtower,
 }
 
 /// Clementine (C) 2025 Chainway Limited

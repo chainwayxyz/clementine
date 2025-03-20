@@ -66,8 +66,6 @@ pub struct ProtocolParamset {
     pub num_signed_kickoffs: usize,
     /// Bridge deposit amount that users can deposit.
     pub bridge_amount: Amount,
-    /// Number of watchtowers. (changes the number of watchtower challenge kickoff txouts)
-    pub num_watchtowers: usize,
     /// Amount allocated for each kickoff UTXO.
     pub kickoff_amount: Amount,
     /// Amount allocated for operator challenge transactions.
@@ -117,7 +115,6 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     winternitz_log_d: WINTERNITZ_LOG_D,
-    num_watchtowers: 3,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
@@ -142,7 +139,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     winternitz_log_d: WINTERNITZ_LOG_D,
-    num_watchtowers: 3,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR,
     operator_challenge_nack_timelock: 4 * BLOCKS_PER_HOUR * 3,
@@ -167,7 +163,6 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     winternitz_log_d: WINTERNITZ_LOG_D,
-    num_watchtowers: 3,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
     operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
@@ -192,7 +187,6 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
     winternitz_log_d: WINTERNITZ_LOG_D,
-    num_watchtowers: 3,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_DAY,
     operator_challenge_nack_timelock: BLOCKS_PER_DAY * 3,

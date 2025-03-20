@@ -12,7 +12,7 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::Operator;
 use crate::rpc::clementine::KickoffId;
-use crate::watchtower::Watchtower;
+use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
 use rand_chacha::rand_core::SeedableRng;
@@ -166,7 +166,10 @@ pub async fn create_and_sign_txs(
     Ok(signed_txs)
 }
 
-impl Watchtower {
+impl<C> Verifier<C>
+where
+    C: CitreaClientT,
+{
     /// Creates and signs the watchtower challenge
     pub async fn create_and_sign_watchtower_challenge(
         &self,
@@ -201,11 +204,8 @@ impl Watchtower {
             .remove(&TransactionType::Kickoff)
             .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Kickoff))?;
 
-        let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
-            &kickoff_txhandler,
-            self.config.index as usize,
-            commit_data,
-        )?;
+        let mut watchtower_challenge_txhandler =
+            create_watchtower_challenge_txhandler(&kickoff_txhandler, self.idx, commit_data)?;
 
         self.signer
             .tx_sign_and_fill_sigs(&mut watchtower_challenge_txhandler, &[])?;
@@ -213,7 +213,7 @@ impl Watchtower {
         let checked_txhandler = watchtower_challenge_txhandler.promote()?;
 
         Ok((
-            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            TransactionType::WatchtowerChallenge(self.idx),
             checked_txhandler.get_cached_tx().clone(),
         ))
     }

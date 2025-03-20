@@ -47,13 +47,9 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
 # Header chain prover's assumption to start with.
 header_chain_proof_path = "../core/tests/data/first_1.bin"
 
-trusted_watchtower_endpoint = "http://127.0.0.1:17007"
-
 verifier_endpoints = ["http://127.0.0.1:17001", "http://127.0.0.1:17002", "http://127.0.0.1:17003", "http://127.0.0.1:17004"]
 
 operator_endpoints = ["http://127.0.0.1:17005", "http://127.0.0.1:17006"]
-
-watchtower_endpoints = ["http://127.0.0.1:17007", "http://127.0.0.1:17008", "http://127.0.0.1:17009"]
 
 # # Testing only fields.
 # all_verifiers_secret_keys = [
@@ -65,11 +61,6 @@ watchtower_endpoints = ["http://127.0.0.1:17007", "http://127.0.0.1:17008", "htt
 # all_operators_secret_keys = [
 #     "5555555555555555555555555555555555555555555555555555555555555555",
 #     "6666666666666666666666666666666666666666666666666666666666666666",
-# ]
-# all_watchtowers_secret_keys = [
-#     "1111111111111111111111111111111111111111111111111111111111111111",
-#     "2222222222222222222222222222222222222222222222222222222222222222",
-#     "3333333333333333333333333333333333333333333333333333333333333333",
 # ]
 
 

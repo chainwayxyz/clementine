@@ -9,7 +9,7 @@ use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
-use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::{
     DepositParams, Empty, FinalizedPayoutParams, KickoffId, SignedTxsWithType, TransactionRequest,
 };
@@ -29,7 +29,7 @@ async fn base_setup(
 ) -> Result<
     (
         Vec<ClementineOperatorClient<tonic::transport::Channel>>,
-        Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
+        Vec<ClementineVerifierClient<tonic::transport::Channel>>,
         TxSenderClient,
         DepositParams,
         u32,
@@ -40,7 +40,7 @@ async fn base_setup(
     eyre::Error,
 > {
     tracing::info!("Setting up environment and actors");
-    let (_verifiers, mut operators, mut aggregator, watchtowers, cleanup) =
+    let (verifiers, mut operators, mut aggregator, cleanup) =
         create_actors::<MockCitreaClient>(config).await;
     let verifier_0_config = {
         let mut config = config.clone();
@@ -81,6 +81,7 @@ async fn base_setup(
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
         nofn_xonly_pk,
+        num_verifiers: config.num_verifiers,
     });
     let dep_params: DepositParams = deposit_data.into();
     tracing::info!("Creating move transaction");
@@ -121,7 +122,7 @@ async fn base_setup(
         .into_inner();
     Ok((
         operators,
-        watchtowers,
+        verifiers,
         tx_sender,
         dep_params,
         kickoff_idx,
@@ -138,7 +139,7 @@ pub async fn run_operator_end_round(
 ) -> Result<()> {
     // Setup environment and actors
     tracing::info!("Setting up environment and actors");
-    let (mut verifiers, mut operators, mut aggregator, _watchtowers, _cleanup) =
+    let (mut verifiers, mut operators, mut aggregator, _cleanup) =
         create_actors::<MockCitreaClient>(&config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
@@ -171,6 +172,7 @@ pub async fn run_operator_end_round(
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
         nofn_xonly_pk,
+        num_verifiers: config.num_verifiers,
     });
 
     let dep_params: DepositParams = deposit_data.into();
@@ -234,7 +236,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     let (
         mut operators,
-        _watchtowers,
+        _verifiers,
         tx_sender,
         _dep_params,
         _kickoff_idx,
@@ -302,7 +304,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
 
     let (
         mut operators,
-        mut watchtowers,
+        mut verifiers,
         tx_sender,
         dep_params,
         kickoff_idx,
@@ -324,34 +326,34 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
     // Send Watchtower Challenge Transactions
-    for (watchtower_idx, watchtower) in watchtowers.iter_mut().enumerate() {
-        let watchtower_challenge_tx = watchtower
+    for (verifier_idx, verifier) in verifiers.iter_mut().enumerate() {
+        let watchtower_challenge_tx = verifier
             .internal_create_watchtower_challenge(base_tx_req.clone())
             .await?
             .into_inner();
         tracing::info!(
             "Sending watchtower challenge transaction for watchtower {}",
-            watchtower_idx
+            verifier_idx
         );
 
         send_tx(
             &tx_sender,
             &rpc,
             watchtower_challenge_tx.raw_tx.as_slice(),
-            TxType::WatchtowerChallenge(watchtower_idx),
+            TxType::WatchtowerChallenge(verifier_idx),
         )
         .await
         .context(format!(
             "failed to send watchtower challenge transaction for watchtower {}",
-            watchtower_idx
+            verifier_idx
         ))?;
     }
 
     // Send Operator Challenge Acknowledgment Transactions
-    for watchtower_idx in 0..config.protocol_paramset().num_watchtowers {
+    for verifier_idx in 0..config.num_verifiers {
         tracing::info!(
-            "Sending operator challenge ack transaction for watchtower {}",
-            watchtower_idx
+            "Sending operator challenge ack transaction for verifier {}",
+            verifier_idx
         );
         let operator_challenge_ack_txs = operators[0]
             .internal_create_signed_txs(base_tx_req.clone())
@@ -361,7 +363,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             &rpc,
             &tx_sender,
             &operator_challenge_ack_txs,
-            TxType::OperatorChallengeAck(watchtower_idx),
+            TxType::OperatorChallengeAck(verifier_idx),
         )
         .await?;
     }
@@ -523,7 +525,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 
     let (
         _operators,
-        mut watchtowers,
+        mut verifiers,
         tx_sender,
         _dep_params,
         _kickoff_idx,
@@ -551,7 +553,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         "Sending watchtower challenge transaction for watchtower {}",
         watchtower_idx
     );
-    let watchtower_challenge_tx = watchtowers[watchtower_idx]
+    let watchtower_challenge_tx = verifiers[watchtower_idx]
         .internal_create_watchtower_challenge(base_tx_req.clone())
         .await?
         .into_inner();
@@ -671,7 +673,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
     // Send Watchtower Challenge Transactions
-    for watchtower_idx in 0..config.protocol_paramset().num_watchtowers {
+    for watchtower_idx in 0..config.num_verifiers {
         tracing::info!(
             "Sending watchtower challenge transaction for watchtower {}",
             watchtower_idx
@@ -686,16 +688,16 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     }
 
     // Send Operator Challenge Acknowledgment Transactions
-    for watchtower_idx in 0..config.protocol_paramset().num_watchtowers {
+    for verifier_idx in 0..config.num_verifiers {
         tracing::info!(
             "Sending operator challenge ack transaction for watchtower {}",
-            watchtower_idx
+            verifier_idx
         );
         send_tx_with_type(
             &rpc,
             &tx_sender,
             &all_txs,
-            TxType::OperatorChallengeAck(watchtower_idx),
+            TxType::OperatorChallengeAck(verifier_idx),
         )
         .await?;
     }
@@ -767,7 +769,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    #[ignore = "Assert is not ready"]
+    #[ignore = "Disprove is not ready"]
     async fn test_bad_path_3() {
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.should_run_state_manager = false;

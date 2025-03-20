@@ -13,7 +13,6 @@ use crate::{
         clementine::{
             clementine_operator_client::ClementineOperatorClient,
             clementine_verifier_client::ClementineVerifierClient,
-            clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
 };
@@ -43,7 +42,6 @@ pub struct Aggregator {
     pub(crate) tx_sender: TxSenderClient,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
-    pub(crate) watchtower_clients: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
 }
 
 impl Aggregator {
@@ -80,24 +78,12 @@ impl Aggregator {
         let operator_clients =
             rpc::get_clients(operator_endpoints, ClementineOperatorClient::new).await?;
 
-        let watchtower_endpoints =
-            config
-                .watchtower_endpoints
-                .clone()
-                .ok_or(BridgeError::ConfigError(
-                    "Couldn't find watchtower endpoints in config file!".to_string(),
-                ))?;
-
-        let watchtower_clients =
-            rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::new).await?;
-
         let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
 
         tracing::info!(
-            "Aggregator created with {} verifiers, {} operators, and {} watchtowers",
+            "Aggregator created with {} verifiers and {} operators",
             verifier_clients.len(),
             operator_clients.len(),
-            watchtower_clients.len()
         );
 
         Ok(Aggregator {
@@ -108,7 +94,6 @@ impl Aggregator {
             tx_sender,
             verifier_clients,
             operator_clients,
-            watchtower_clients,
         })
     }
 

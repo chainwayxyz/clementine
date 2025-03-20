@@ -30,7 +30,6 @@ pub mod task;
 pub mod tx_sender;
 pub mod utils;
 pub mod verifier;
-pub mod watchtower;
 
 #[cfg(test)]
 pub mod test;

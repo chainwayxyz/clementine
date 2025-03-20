@@ -41,13 +41,12 @@ impl BridgeConfig {
     }
 
     pub fn get_num_required_nofn_sigs_per_kickoff(&self) -> usize {
-        6 + 4 * self.protocol_paramset().num_watchtowers
+        6 + 4 * self.num_verifiers
             + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
     }
 
     pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {
-        2 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
-            + self.protocol_paramset().num_watchtowers
+        2 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() + self.num_verifiers
     }
 
     /// Returns the total number of winternitz pks used in kickoff utxos for blockhash commits
@@ -63,7 +62,7 @@ impl BridgeConfig {
 
     /// Returns the number of challenge ack hashes needed for a single operator for each round
     pub fn get_num_challenge_ack_hashes(&self) -> usize {
-        self.protocol_paramset().num_watchtowers
+        self.num_verifiers
     }
 
     // /// Returns the number of winternitz pks needed for a single operator for each round

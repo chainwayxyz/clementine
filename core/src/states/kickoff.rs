@@ -162,7 +162,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent, its safe to send asserts
-                    if self.spent_watchtower_utxos.len() == context.paramset.num_watchtowers {
+                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_verifiers() {
                         context
                             .owner
                             .handle_duty(Duty::SendOperatorAsserts {
@@ -424,7 +424,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             );
         }
         // add watchtower challenges and challenge acks
-        for watchtower_idx in 0..context.paramset.num_watchtowers {
+        for watchtower_idx in 0..self.deposit_data.get_num_verifiers() {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
             let watchtower_challenge_vout = 4 + num_asserts + watchtower_idx * 2;
