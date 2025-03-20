@@ -408,7 +408,7 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub const fn number_of_assert_txs() -> usize {
-        45
+        27
     }
 
     pub const fn number_of_flattened_wpks() -> usize {
@@ -444,8 +444,8 @@ impl ClementineBitVMPublicKeys {
             scripts.push(script);
         }
         // iterate NUM_HASH 9 by 9
-        for i in (0..NUM_HASH).step_by(9) {
-            let last_idx = std::cmp::min(i + 9, NUM_HASH);
+        for i in (0..NUM_HASH).step_by(16) {
+            let last_idx = std::cmp::min(i + 16, NUM_HASH);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.2[i..last_idx]
                     .iter()
@@ -455,6 +455,7 @@ impl ClementineBitVMPublicKeys {
                 4,
             ));
             scripts.push(script);
+            
         }
         scripts
     }
@@ -490,9 +491,9 @@ impl ClementineBitVMPublicKeys {
             }
             derivations_vec
         } else {
-            let derivations: u32 = (mini_assert_idx as u32 - 4) * 9;
+            let derivations: u32 = (mini_assert_idx as u32 - 4) * 16;
             let mut derivations_vec = vec![];
-            for i in 0..9 {
+            for i in 0..16 {
                 if derivations + i < NUM_HASH as u32 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         16 * 2,
