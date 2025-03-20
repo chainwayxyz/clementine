@@ -99,7 +99,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         println!("Block count before deposit: {:?}", block_count);
         let lc_prover = lc_prover.unwrap();
 
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
             da,
@@ -384,7 +384,7 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
 #[tokio::test]
 #[ignore = "Manual testing utility"]
 async fn get_deposit_address_for_manual_tests() {
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc();
 
@@ -452,10 +452,9 @@ async fn get_deposit_address_for_manual_tests() {
 
 #[tokio::test]
 async fn mock_citrea_run() {
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    citrea::create_mock_citrea_database(&mut config).await;
     let mut citrea_client =
         MockCitreaClient::new(config.citrea_rpc_url.clone(), "".to_string(), None)
             .await
@@ -557,7 +556,7 @@ async fn mock_citrea_run() {
 
     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
 
-    println!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
+    tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
     tracing::info!("Collecting deposits and withdrawals");
 

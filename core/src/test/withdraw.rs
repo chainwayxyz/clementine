@@ -62,7 +62,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .await
             .unwrap();
 
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, None);
 
         let rpc = ExtendedRpc::connect(
