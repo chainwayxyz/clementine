@@ -9,6 +9,7 @@ use crate::builder::script::{PreimageRevealScript, SpendPath};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::config::protocol::ProtocolParamset;
+use crate::constants::ANCHOR_AMOUNT;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::KickoffId;
@@ -187,7 +188,7 @@ pub fn create_kickoff_txhandler(
         let watchtower_checksig = Arc::new(CheckSig::new(*xonly_pk));
         // UTXO for watchtower challenge or watchtower challenge timeouts
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            MIN_TAPROOT_AMOUNT * 2 + ANCHOR_AMOUNT, // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
             vec![nofn_2week.clone(), watchtower_checksig],
             None,
             paramset.network,

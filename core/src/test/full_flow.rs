@@ -626,8 +626,6 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
 
     // Send Challenge Transaction
-
-    // Send Challenge Transaction
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
     // Ready to reimburse without finalized kickoff

@@ -70,7 +70,7 @@ pub async fn send_tx(
                 verifier_idx: None,
             }),
             &tx,
-            if matches!(tx_type, TxType::Challenge | TxType::WatchtowerChallenge(_)) {
+            if tx_type == TxType::Challenge {
                 FeePayingType::RBF
             } else {
                 FeePayingType::CPFP
@@ -95,7 +95,7 @@ pub async fn send_tx(
     // Mine blocks to confirm the transaction
     rpc.mine_blocks(3).await?;
 
-    if matches!(tx_type, TxType::Challenge | TxType::WatchtowerChallenge(_)) {
+    if tx_type == TxType::Challenge {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
     } else {
         ensure_tx_onchain(rpc, tx.compute_txid()).await?;
