@@ -107,13 +107,13 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
     match BridgeConfig::from_env() {
         Ok(config) => {
             tracing::info!(
-                "All the environment variables are set. Using them instead of configuration file..."
+                "All the environment variables are set. Using them instead of a configuration file..."
             );
 
             return (config, args);
         }
-        Err(BridgeError::EnvVarNotSet(_)) => {
-            tracing::info!("Not all the config overwrite environment variables are set, using configuration file...");
+        Err(BridgeError::EnvVarNotSet(e, field)) => {
+            tracing::info!("Environment variable {field} is not set ({e}). Skipping reading environment variables and using configuration file...");
         }
         Err(e) => {
             // TODO: Almost every error is converted automatically and it's not
@@ -129,7 +129,7 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
         config_file
     } else {
         tracing::error!(
-            "Neither environment variables are set nor a configuration file is provided!"
+            "Configuration file is not provided!"
         );
         exit(1);
     };
@@ -137,7 +137,7 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
     let config = match get_configuration_from(config_file) {
         Ok(config) => config,
         Err(e) => {
-            tracing::error!("Can't read configuration file: {e}");
+            tracing::error!("Can't read configuration from file: {e}");
             exit(1);
         }
     };

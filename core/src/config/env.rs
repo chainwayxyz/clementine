@@ -10,14 +10,16 @@ use std::str::FromStr;
 
 impl BridgeConfig {
     pub fn from_env() -> Result<Self, BridgeError> {
-        let verifiers_public_keys = std::env::var("VERIFIERS_PUBLIC_KEYS")?;
+        let verifiers_public_keys = std::env::var("VERIFIERS_PUBLIC_KEYS")
+            .map_err(|e| BridgeError::EnvVarNotSet(e, "VERIFIERS_PUBLIC_KEYS"))?;
         let verifiers_public_keys = verifiers_public_keys.split(",").collect::<Vec<&str>>();
         let verifiers_public_keys = verifiers_public_keys
             .iter()
             .map(|x| PublicKey::from_str(x))
             .collect::<Result<Vec<PublicKey>, _>>()?;
 
-        let operators_xonly_pks = std::env::var("OPERATOR_XONLY_PKS")?;
+        let operators_xonly_pks = std::env::var("OPERATOR_XONLY_PKS")
+            .map_err(|e| BridgeError::EnvVarNotSet(e, "OPERATOR_XONLY_PKS"))?;
         let operators_xonly_pks = operators_xonly_pks.split(",").collect::<Vec<&str>>();
         let operators_xonly_pks = operators_xonly_pks
             .iter()
@@ -105,44 +107,63 @@ impl BridgeConfig {
             };
 
         Ok(BridgeConfig {
-            protocol_paramset: std::env::var("PROTOCOL_PARAMSET")?.parse()?,
-            host: std::env::var("HOST")?,
-            port: std::env::var("PORT")?
+            protocol_paramset: std::env::var("PROTOCOL_PARAMSET")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "PROTOCOL_PARAMSET"))?
+                .parse()?,
+            host: std::env::var("HOST").map_err(|e| BridgeError::EnvVarNotSet(e, "HOST"))?,
+            port: std::env::var("PORT")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "PORT"))?
                 .parse::<u16>()
                 .map_err(|e| BridgeError::Error(format!("Can't convert int: {}", e)))?,
-            index: std::env::var("INDEX")?
+            index: std::env::var("INDEX")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "INDEX"))?
                 .parse::<u32>()
                 .map_err(|e| BridgeError::Error(format!("Can't convert int: {}", e)))?,
-            secret_key: std::env::var("SECRET_KEY")?.parse()?,
+            secret_key: std::env::var("SECRET_KEY")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "SECRET_KEY"))?
+                .parse()?,
             winternitz_secret_key: std::env::var("WINTERNITZ_SECRET_KEY")
                 .unwrap_or_default()
                 .parse()
                 .ok(),
             verifiers_public_keys,
-            num_verifiers: std::env::var("NUM_VERIFIERS")?
+            num_verifiers: std::env::var("NUM_VERIFIERS")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "NUM_VERIFIERS"))?
                 .parse::<usize>()
                 .map_err(|e| BridgeError::Error(format!("Can't convert int: {}", e)))?,
             operators_xonly_pks,
-            num_operators: std::env::var("NUM_OPERATORS")?
+            num_operators: std::env::var("NUM_OPERATORS")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "NUM_OPERATORS"))?
                 .parse::<usize>()
                 .map_err(|e| BridgeError::Error(format!("Can't convert int: {}", e)))?,
             operator_withdrawal_fee_sats: std::env::var("OPERATOR_WITHDRAWAL_FEE_SATS")
                 .unwrap_or_default()
                 .parse()
                 .ok(),
-            bitcoin_rpc_url: std::env::var("BITCOIN_RPC_URL")?,
-            bitcoin_rpc_user: std::env::var("BITCOIN_RPC_USER")?,
-            bitcoin_rpc_password: std::env::var("BITCOIN_RPC_PASSWORD")?,
-            db_host: std::env::var("DB_HOST")?,
-            db_port: std::env::var("DB_PORT")?
+            bitcoin_rpc_url: std::env::var("BITCOIN_RPC_URL")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "BITCOIN_RPC_URL"))?,
+            bitcoin_rpc_user: std::env::var("BITCOIN_RPC_USER")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "BITCOIN_RPC_USER"))?,
+            bitcoin_rpc_password: std::env::var("BITCOIN_RPC_PASSWORD")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "BITCOIN_RPC_PASSWORD"))?,
+            db_host: std::env::var("DB_HOST")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "DB_HOST"))?,
+            db_port: std::env::var("DB_PORT")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "DB_PORT"))?
                 .parse::<usize>()
                 .map_err(|e| BridgeError::Error(format!("Can't convert int: {}", e)))?,
-            db_user: std::env::var("DB_USER")?,
-            db_password: std::env::var("DB_PASSWORD")?,
-            db_name: std::env::var("DB_NAME")?,
-            citrea_rpc_url: std::env::var("CITREA_RPC_URL")?,
-            citrea_light_client_prover_url: std::env::var("CITREA_LIGHT_CLIENT_PROVER_URL")?,
-            bridge_contract_address: std::env::var("BRIDGE_CONTRACT_ADDRESS")?,
+            db_user: std::env::var("DB_USER")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "DB_USER"))?,
+            db_password: std::env::var("DB_PASSWORD")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "DB_PASSWORD"))?,
+            db_name: std::env::var("DB_NAME")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "DB_NAME"))?,
+            citrea_rpc_url: std::env::var("CITREA_RPC_URL")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "CITREA_RPC_URL"))?,
+            citrea_light_client_prover_url: std::env::var("CITREA_LIGHT_CLIENT_PROVER_URL")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "CITREA_LIGHT_CLIENT_PROVER_URL"))?,
+            bridge_contract_address: std::env::var("BRIDGE_CONTRACT_ADDRESS")
+                .map_err(|e| BridgeError::EnvVarNotSet(e, "BRIDGE_CONTRACT_ADDRESS"))?,
             header_chain_proof_path: std::env::var("HEADER_CHAIN_PROOF_PATH")
                 .unwrap_or_default()
                 .parse()
