@@ -1,10 +1,10 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
-use super::BridgeConfig;
+use super::{protocol::ProtocolParamset, BridgeConfig};
 use crate::errors::BridgeError;
 use bitcoin::{
     secp256k1::{PublicKey, SecretKey},
-    Amount, XOnlyPublicKey,
+    Amount, Network, XOnlyPublicKey,
 };
 use std::{path::PathBuf, str::FromStr};
 
@@ -195,9 +195,66 @@ impl BridgeConfig {
     }
 }
 
+impl ProtocolParamset {
+    pub fn from_env() -> Result<Self, BridgeError> {
+        let config = ProtocolParamset {
+            network: read_string_from_env_then_parse::<Network>("NETWORK")?,
+            num_round_txs: read_string_from_env_then_parse::<usize>("NUM_ROUND_TXS")?,
+            num_kickoffs_per_round: read_string_from_env_then_parse::<usize>(
+                "NUM_KICKOFFS_PER_ROUND",
+            )?,
+            num_signed_kickoffs: read_string_from_env_then_parse::<usize>("NUM_SIGNED_KICKOFFS")?,
+            bridge_amount: read_string_from_env_then_parse::<Amount>("BRIDGE_AMOUNT")?,
+            num_watchtowers: read_string_from_env_then_parse::<usize>("NUM_WATCHTOWERS")?,
+            kickoff_amount: read_string_from_env_then_parse::<Amount>("KICKOFF_AMOUNT")?,
+            operator_challenge_amount: read_string_from_env_then_parse::<Amount>(
+                "OPERATOR_CHALLENGE_AMOUNT",
+            )?,
+            collateral_funding_amount: read_string_from_env_then_parse::<Amount>(
+                "COLLATERAL_FUNDING_AMOUNT",
+            )?,
+            kickoff_blockhash_commit_length: read_string_from_env_then_parse::<u32>(
+                "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
+            )?,
+            watchtower_challenge_message_length: read_string_from_env_then_parse::<usize>(
+                "WATCHTOWER_CHALLENGE_MESSAGE_LENGTH",
+            )?,
+            winternitz_log_d: read_string_from_env_then_parse::<u32>("WINTERNITZ_LOG_D")?,
+            user_takes_after: read_string_from_env_then_parse::<u16>("USER_TAKES_AFTER")?,
+            operator_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK",
+            )?,
+            operator_challenge_nack_timelock: read_string_from_env_then_parse::<u16>(
+                "OPERATOR_CHALLENGE_NACK_TIMELOCK",
+            )?,
+            disprove_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "DISPROVE_TIMEOUT_TIMELOCK",
+            )?,
+            assert_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "ASSERT_TIMEOUT_TIMELOCK",
+            )?,
+            operator_reimburse_timelock: read_string_from_env_then_parse::<u16>(
+                "OPERATOR_REIMBURSE_TIMELOCK",
+            )?,
+            watchtower_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK",
+            )?,
+            time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
+                "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
+            )?,
+            time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
+            finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
+            start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
+        };
+
+        tracing::debug!("ProtocolParamset from env: {:?}", config);
+        Ok(config)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::config::BridgeConfig;
+    use crate::config::{protocol::REGTEST_PARAMSET, BridgeConfig};
 
     #[test]
     fn fail_if_not_all_env_vars_are_set() {
@@ -317,5 +374,93 @@ mod tests {
         }
 
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
+    }
+
+    #[test]
+    fn get_protocol_paramset_from_env_vars() {
+        let default_config = REGTEST_PARAMSET;
+
+        std::env::set_var("NETWORK", default_config.network.to_string());
+        std::env::set_var("NUM_ROUND_TXS", default_config.num_round_txs.to_string());
+        std::env::set_var(
+            "NUM_KICKOFFS_PER_ROUND",
+            default_config.num_kickoffs_per_round.to_string(),
+        );
+        std::env::set_var(
+            "NUM_SIGNED_KICKOFFS",
+            default_config.num_signed_kickoffs.to_string(),
+        );
+        std::env::set_var("BRIDGE_AMOUNT", default_config.bridge_amount.to_string());
+        std::env::set_var(
+            "NUM_WATCHTOWERS",
+            default_config.num_watchtowers.to_string(),
+        );
+        std::env::set_var("KICKOFF_AMOUNT", default_config.kickoff_amount.to_string());
+        std::env::set_var(
+            "OPERATOR_CHALLENGE_AMOUNT",
+            default_config.operator_challenge_amount.to_string(),
+        );
+        std::env::set_var(
+            "COLLATERAL_FUNDING_AMOUNT",
+            default_config.collateral_funding_amount.to_string(),
+        );
+        std::env::set_var(
+            "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
+            default_config.kickoff_blockhash_commit_length.to_string(),
+        );
+        std::env::set_var(
+            "WATCHTOWER_CHALLENGE_MESSAGE_LENGTH",
+            default_config
+                .watchtower_challenge_message_length
+                .to_string(),
+        );
+        std::env::set_var(
+            "WINTERNITZ_LOG_D",
+            default_config.winternitz_log_d.to_string(),
+        );
+        std::env::set_var(
+            "USER_TAKES_AFTER",
+            default_config.user_takes_after.to_string(),
+        );
+        std::env::set_var(
+            "OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK",
+            default_config
+                .operator_challenge_timeout_timelock
+                .to_string(),
+        );
+        std::env::set_var(
+            "OPERATOR_CHALLENGE_NACK_TIMELOCK",
+            default_config.operator_challenge_nack_timelock.to_string(),
+        );
+        std::env::set_var(
+            "DISPROVE_TIMEOUT_TIMELOCK",
+            default_config.disprove_timeout_timelock.to_string(),
+        );
+        std::env::set_var(
+            "ASSERT_TIMEOUT_TIMELOCK",
+            default_config.assert_timeout_timelock.to_string(),
+        );
+        std::env::set_var(
+            "OPERATOR_REIMBURSE_TIMELOCK",
+            default_config.operator_reimburse_timelock.to_string(),
+        );
+        std::env::set_var(
+            "WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK",
+            default_config
+                .watchtower_challenge_timeout_timelock
+                .to_string(),
+        );
+        std::env::set_var(
+            "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
+            default_config.time_to_send_watchtower_challenge.to_string(),
+        );
+        std::env::set_var(
+            "TIME_TO_DISPROVE",
+            default_config.time_to_disprove.to_string(),
+        );
+        std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
+        std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
+
+        assert_eq!(super::ProtocolParamset::from_env().unwrap(), default_config);
     }
 }

@@ -1,3 +1,4 @@
+use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -5,8 +6,6 @@ use std::fmt::Display;
 use std::fs;
 use std::str::FromStr;
 use std::sync::Arc;
-
-use crate::errors::BridgeError;
 
 pub const BLOCKS_PER_HOUR: u16 = 6;
 
@@ -62,9 +61,16 @@ impl Display for ProtocolParamsetName {
 
 impl From<ProtocolParamsetName> for &'static ProtocolParamset {
     fn from(name: ProtocolParamsetName) -> Self {
+        if ProtocolParamset::from_env().is_ok() {
+            tracing::debug!("Using protocol params from env...");
+            return &ENV_PARAMSET;
+        }
+
         if std::env::var("PROTOCOL_CONFIG_PATH").is_ok() {
+            tracing::debug!("Using protocol params from external config file...");
             return &RUNTIME_PARAMSET;
         }
+
         match name {
             ProtocolParamsetName::Mainnet => &MAINNET_PARAMSET,
             ProtocolParamsetName::Regtest => &REGTEST_PARAMSET,
@@ -251,6 +257,18 @@ lazy_static! {
                 eprintln!(
                     "Failed to load protocol params from {}: {}. Using regtest defaults.",
                     config_path, e
+                );
+                Arc::new(REGTEST_PARAMSET)
+            }
+        }
+    };
+    pub static ref ENV_PARAMSET: Arc<ProtocolParamset> = {
+        match ProtocolParamset::from_env() {
+            Ok(params) => Arc::new(params),
+            Err(e) => {
+                eprintln!(
+                    "Failed to load protocol params from env: {}. Using regtest defaults.",
+                    e
                 );
                 Arc::new(REGTEST_PARAMSET)
             }
