@@ -28,7 +28,7 @@ use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::{IntoTask, TaskExt};
 use crate::tx_sender::TxSenderClient;
-use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxDataForLogging};
+use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata};
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
@@ -250,7 +250,7 @@ where
         self.tx_sender
             .insert_try_to_send(
                 &mut dbtx,
-                Some(TxDataForLogging {
+                Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_idx: Some(self.idx as u32),
                     verifier_idx: None,
@@ -680,7 +680,7 @@ where
         )
         .await?;
 
-        let tx_data_for_logging = Some(TxDataForLogging {
+        let tx_metadata = Some(TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
             operator_idx: Some(self.idx as u32),
             verifier_idx: None,
@@ -703,7 +703,7 @@ where
                             *tx_type,
                             signed_tx,
                             &signed_txs,
-                            tx_data_for_logging,
+                            tx_metadata,
                             &self.config,
                         )
                         .await?;
@@ -845,7 +845,7 @@ where
         self.tx_sender
             .insert_try_to_send(
                 dbtx,
-                Some(TxDataForLogging {
+                Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_idx: Some(self.idx as u32),
                     verifier_idx: None,
@@ -866,7 +866,7 @@ where
         self.tx_sender
             .insert_try_to_send(
                 dbtx,
-                Some(TxDataForLogging {
+                Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_idx: Some(self.idx as u32),
                     verifier_idx: None,
@@ -887,7 +887,7 @@ where
         self.tx_sender
             .insert_try_to_send(
                 dbtx,
-                Some(TxDataForLogging {
+                Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_idx: Some(self.idx as u32),
                     verifier_idx: None,
@@ -940,7 +940,7 @@ where
                     tx_type,
                     &tx,
                     &[],
-                    Some(TxDataForLogging {
+                    Some(TxMetadata {
                         tx_type,
                         operator_idx: Some(self.idx as u32),
                         verifier_idx: None,

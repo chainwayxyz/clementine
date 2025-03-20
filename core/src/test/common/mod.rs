@@ -16,12 +16,13 @@ use crate::EVMAddress;
 use bitcoin::{BlockHash, OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
-pub use test_utils::*;
+pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
 
 pub mod citrea;
-mod test_utils;
+mod setup_utils;
+pub mod tx_utils;
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
 /// sure that it is included in the next block.
