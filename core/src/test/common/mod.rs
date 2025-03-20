@@ -57,7 +57,10 @@ pub async fn mine_once_after_in_mempool(
 
     loop {
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
-            panic!("{} did not land onchain within {timeout} seconds", tx_name);
+            return Err(BridgeError::Error(format!(
+                "{} did not land onchain within {} seconds",
+                tx_name, timeout
+            )));
         }
 
         if rpc.client.get_mempool_entry(&txid).await.is_ok() {

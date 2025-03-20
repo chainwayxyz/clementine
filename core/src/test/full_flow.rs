@@ -367,7 +367,6 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     }
 
     // Send Assert Transactions
-    // these are already sent by the state machine
     let assert_txs = operators[0]
         .internal_create_assert_commitment_txs(TransactionRequest {
             deposit_params: Some(dep_params.clone()),
@@ -408,7 +407,14 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // Send Reimburse Generator 1
     tracing::info!("Sending round 2 transaction");
     let all_txs_2 = operators[0]
-        .internal_create_signed_txs(base_tx_req.clone())
+        .internal_create_signed_txs(TransactionRequest {
+            kickoff_id: Some(KickoffId {
+                operator_idx: 0,
+                round_idx: 1,
+                kickoff_idx: 0,
+            }),
+            ..base_tx_req.clone()
+        })
         .await?
         .into_inner();
 
