@@ -49,7 +49,10 @@ pub type SighashCalculator<'a> =
 
 impl<T: State> TxHandler<T> {
     pub fn get_spendable_output(&self, idx: usize) -> Result<SpendableTxIn, BridgeError> {
-        let txout = self.txouts.get(idx).ok_or(BridgeError::TxOutputNotFound)?;
+        let txout = self
+            .txouts
+            .get(idx)
+            .ok_or_else(|| eyre::eyre!("Could not find output {idx} in transaction"))?;
         Ok(SpendableTxIn::new(
             OutPoint {
                 txid: self.cached_txid,
@@ -269,7 +272,7 @@ impl TxHandler<Signed> {
 impl TxHandler<Unsigned> {
     pub fn promote(self) -> Result<TxHandler<Signed>, BridgeError> {
         if self.txins.iter().any(|s| s.get_witness().is_none()) {
-            return Err(BridgeError::MissingWitnessData);
+            return Err(eyre::eyre!("Missing witness data").into());
         }
 
         Ok(TxHandler {
@@ -309,7 +312,9 @@ impl TxHandler<Unsigned> {
             .get_spendable()
             .get_scripts()
             .get(script_index)
-            .ok_or(BridgeError::TaprootScriptError)?
+            .ok_or_else(|| {
+                eyre::eyre!("Could not find script {script_index} in input {txin_index}")
+            })?
             .to_script_buf();
 
         let spend_control_block = txin

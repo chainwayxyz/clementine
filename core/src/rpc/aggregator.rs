@@ -201,7 +201,7 @@ async fn nonce_distributor(
                         stream_name: format!("Partial sig stream {idx}"),
                     })?;
 
-                Ok::<_, BridgeError>(MusigPartialSignature::from_slice(&partial_sig.partial_sig)?)
+                Ok::<_, BridgeError>(MusigPartialSignature::from_slice(&partial_sig.partial_sig).wrap_err("Failed to parse partial signature")?)
             },
         ))
         .await?;
@@ -435,7 +435,7 @@ impl Aggregator {
             .ok_or_else(|| BridgeError::Error("NonceGen response is empty".to_string()))?
         {
             clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => {
-                Ok(MusigPubNonce::from_slice(&pub_nonce)?)
+                Ok(MusigPubNonce::from_slice(&pub_nonce).wrap_err("Failed to parse pub nonce")?)
             }
             _ => Err(BridgeError::Error(
                 "Expected PubNonce in response".to_string(),

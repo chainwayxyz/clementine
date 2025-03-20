@@ -77,7 +77,7 @@ impl NofN {
         let idx = public_keys
             .iter()
             .position(|pk| pk == &self_pk)
-            .ok_or(BridgeError::PublicKeyNotFound)?;
+            .ok_or_else(|| eyre::eyre!("Could not find public key in list of verifiers"))?;
         let agg_xonly_pk =
             bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
         Ok(NofN {
@@ -183,7 +183,7 @@ where
             .verifiers_public_keys
             .iter()
             .position(|pk| pk == &signer.public_key)
-            .ok_or(BridgeError::PublicKeyNotFound)?;
+            .ok_or_else(|| eyre::eyre!("Could not find public key in list of verifiers"))?;
 
         let db = Database::new(&config).await?;
 
@@ -246,7 +246,7 @@ where
     ) -> Result<(), BridgeError> {
         // Check if verifiers are already set
         if self.nofn.read().await.clone().is_some() {
-            return Err(BridgeError::AlreadyInitialized);
+            return Err(eyre::eyre!("Verifier already initialized").into());
         }
 
         // Save verifiers public keys to db

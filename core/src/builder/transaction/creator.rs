@@ -237,7 +237,8 @@ impl ReimburseDbCache {
                                 deposit_data.deposit_outpoint,
                             )
                             .await?
-                            .ok_or(BridgeError::WatchtowerPublicHashesNotFound(
+                            .ok_or(eyre::eyre!(
+                                "Watchtower public hashes not found for operator {0} and deposit {1}",
                                 self.operator_idx as i32,
                                 deposit_data.deposit_outpoint.txid,
                             ))?,

@@ -32,7 +32,7 @@ impl HeaderChainProver {
         if let Some(proof_file) = &config.header_chain_proof_path {
             tracing::trace!("Starting prover with assumption file {:?}.", proof_file);
             let file = File::open(proof_file)
-                .map_err(|e| BridgeError::WrongProofAssumption(proof_file.clone(), e))?;
+                .wrap_err_with(|| format!("Failed to open proof assumption file {proof_file:?}"))?;
 
             let mut reader = BufReader::new(file);
             let mut assumption = Vec::new();

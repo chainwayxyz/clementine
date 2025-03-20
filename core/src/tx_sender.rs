@@ -1,4 +1,4 @@
-use eyre::eyre;
+use eyre::{eyre, OptionExt};
 use std::{collections::BTreeMap, env, time::Duration};
 
 use bitcoin::{
@@ -256,11 +256,7 @@ impl TxSender {
                     return Ok(FeeRate::from_sat_per_vb_unchecked(1));
                 }
 
-                Err(BridgeError::FeeEstimationError(
-                    fee_rate
-                        .errors
-                        .expect("Fee estimation errors should be present"),
-                ))
+                Err(eyre::eyre!("Fee estimation error: {:?}", fee_rate.errors).into())
             }
         }
     }
@@ -290,7 +286,8 @@ impl TxSender {
 
         fee_rate
             .checked_mul_by_weight(total_weight)
-            .ok_or(BridgeError::Overflow)
+            .ok_or_eyre("Fee calculation overflow")
+            .map_err(Into::into)
     }
 
     /// Creates a child tx that spends the p2a anchor using the fee payer utxos.
@@ -382,7 +379,7 @@ impl TxSender {
         if let Some((vout, _)) = p2a_anchor {
             Ok(vout)
         } else {
-            Err(BridgeError::P2AAnchorNotFound)
+            Err(eyre::eyre!("P2A anchor output not found in transaction").into())
         }
     }
 

@@ -153,7 +153,7 @@ impl HeaderChainProver {
             };
         }
 
-        Err(BridgeError::BlockgazerFork)
+        Err(eyre::eyre!("Fork has happened and it's not recoverable by blockgazer.").into())
     }
 
     /// Synchronizes current database to active blockchain. It starts fetching

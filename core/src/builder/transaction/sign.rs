@@ -186,7 +186,7 @@ impl Watchtower {
                 .watchtower_challenge_message_length
                 / 2
         {
-            return Err(BridgeError::InvalidWatchtowerChallengeData);
+            return Err(eyre::eyre!("Watchtower challenge data length mismatch").into());
         }
 
         let context = ContractContext::new_context_for_asserts(

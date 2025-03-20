@@ -72,7 +72,7 @@ impl ExtendedRpc {
             .await
             .wrap_err("Failed to get transaction info")?;
         let Some(blockhash) = raw_transaction_results.blockhash else {
-            return Err(BridgeError::TransactionNotConfirmed(*txid));
+            return Err(eyre::eyre!("Transaction not confirmed: {0}", txid).into());
         };
         Ok(blockhash)
     }

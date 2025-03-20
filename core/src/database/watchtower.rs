@@ -123,13 +123,14 @@ impl Database {
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((challenge_hash,)) => Ok(challenge_hash.try_into().map_err(|_| {
-                BridgeError::Error("Can't convert challenge hash in db to [u8; 32]".to_string())
-            })?),
-            None => Err(BridgeError::WatchtowerChallengeAddressesNotFound(
+            Some((challenge_hash,)) => Ok(challenge_hash
+                .try_into()
+                .map_err(|hash| eyre::eyre!("Can't convert challenge hash in db to [u8; 32]: hash = {:?}", hash))?),
+            None => Err(eyre::eyre!(
+                "Watchtower challenge addresses not found for watchtower {0} and operator {1}",
                 watchtower_id,
-                operator_id,
-            )),
+                operator_id
+            ).into()),
         }
     }
 

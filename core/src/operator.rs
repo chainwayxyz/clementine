@@ -131,15 +131,12 @@ where
             .operators_xonly_pks
             .iter()
             .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
-            .ok_or(BridgeError::ServerError(std::io::Error::other(format!(
-                "{} is not found in operator x-only public keys",
-                signer.xonly_public_key
-            ))))?;
+            .ok_or_else(|| eyre::eyre!("Operator's key not found in list of operator x-only public keys, operator's key: {0}", signer.xonly_public_key))?;
 
         let tx_sender = TxSenderClient::new(db.clone(), format!("operator_{}", idx).to_string());
 
         if config.operator_withdrawal_fee_sats.is_none() {
-            return Err(BridgeError::OperatorWithdrawalFeeNotSet);
+            return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
         }
 
         // TODO: Fix this where the config will only have one address. also check??
@@ -409,16 +406,15 @@ where
         match withdrawal_utxo {
             Some(withdrawal_utxo) => {
                 if withdrawal_utxo != input_utxo.outpoint {
-                    return Err(BridgeError::InvalidInputUTXO(
-                        input_utxo.outpoint.txid,
-                        withdrawal_utxo.txid,
-                    ));
+                    return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
                 }
             }
             None => {
-                return Err(BridgeError::UsersWithdrawalUtxoNotSetForWithdrawalIndex(
-                    withdrawal_index,
-                ));
+                return Err(eyre::eyre!(
+                    "User's withdrawal UTXO is not set for withdrawal index: {0}",
+                    withdrawal_index
+                )
+                .into());
             }
         }
 

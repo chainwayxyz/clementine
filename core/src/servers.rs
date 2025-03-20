@@ -83,21 +83,13 @@ where
         |path| Path::new(&path).to_path_buf(),
     );
 
-    let descriptor_bytes = fs::read(&descriptor_path).map_err(|e| {
-        BridgeError::ServerError(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Failed to read descriptor file: {}", e),
-        ))
-    })?;
+    let descriptor_bytes = fs::read(&descriptor_path).wrap_err("Failed to read descriptor file")?;
 
     let reflection_service = Builder::configure()
         .register_encoded_file_descriptor_set(&descriptor_bytes)
         .build_v1()
         .map_err(|e| {
-            BridgeError::ServerError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to build reflection service: {}", e),
-            ))
+            eyre::eyre!("Failed to build reflection service: {}", e)
         })?;
 
     let server_builder = tonic::transport::Server::builder()
@@ -137,12 +129,12 @@ where
 
             // Remove socket file if it already exists
             if socket_path.exists() {
-                std::fs::remove_file(socket_path).map_err(BridgeError::ServerError)?;
+                std::fs::remove_file(socket_path).wrap_err("Failed to remove existing gRPC unix socket file")?;
             }
 
             // Create Unix socket listener
             let uds =
-                tokio::net::UnixListener::bind(socket_path).map_err(BridgeError::ServerError)?;
+                tokio::net::UnixListener::bind(socket_path).wrap_err("Failed to bind to Unix socket")?;
             let incoming = tokio_stream::wrappers::UnixListenerStream::new(uds);
 
             let server_name_str = server_name.to_string();
@@ -181,7 +173,7 @@ pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
+    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse().wrap_err("Failed to parse address")?;
     let verifier = VerifierServer::<C>::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
@@ -201,7 +193,7 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
         config.host,
         config.port
     );
-    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
+    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse().wrap_err("Failed to parse address")?;
     let operator = OperatorServer::<C>::new(config).await?;
     tracing::info!("Operator gRPC server created");
     let svc = ClementineOperatorServer::new(operator);
@@ -217,7 +209,7 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
 pub async fn create_aggregator_grpc_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
-    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
+    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse().wrap_err("Failed to parse address")?;
     let aggregator = Aggregator::new(config).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
 
@@ -232,7 +224,7 @@ pub async fn create_aggregator_grpc_server(
 pub async fn create_watchtower_grpc_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
-    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
+    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse().wrap_err("Failed to parse address")?;
     let watchtower = Watchtower::new(config).await?;
     let svc = ClementineWatchtowerServer::new(watchtower);
 

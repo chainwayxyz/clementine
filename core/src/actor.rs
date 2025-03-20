@@ -166,7 +166,7 @@ impl Actor {
     ) -> Result<winternitz::SecretKey, BridgeError> {
         let wsk = self
             .winternitz_secret_key
-            .ok_or(BridgeError::NoWinternitzSecretKey)?;
+            .ok_or_eyre("Root Winternitz secret key is not provided in configuration file")?;
         Ok([wsk.as_ref().to_vec(), path.to_bytes()].concat())
     }
 
@@ -339,7 +339,7 @@ impl Actor {
                     };
 
                     if signed_preimage {
-                        return Err(BridgeError::MultiplePreimageRevealScripts);
+                        return Err(eyre::eyre!("Encountered multiple preimage reveal scripts when attempting to commit to only one.").into());
                     }
 
                     signed_preimage = true;
@@ -419,7 +419,7 @@ impl Actor {
                     };
 
                     if signed_winternitz {
-                        return Err(BridgeError::MultipleWinternitzScripts);
+                        return Err(eyre::eyre!("Encountered multiple winternitz scripts when attempting to commit to only one.").into());
                     }
 
                     signed_winternitz = true;
