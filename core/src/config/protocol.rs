@@ -61,15 +61,19 @@ impl Display for ProtocolParamsetName {
 
 impl From<ProtocolParamsetName> for &'static ProtocolParamset {
     fn from(name: ProtocolParamsetName) -> Self {
-        if ProtocolParamset::from_env().is_ok() {
-            tracing::debug!("Using protocol params from env...");
+        let from_env = ProtocolParamset::from_env();
+        if from_env.is_ok() {
+            tracing::info!("Using protocol params from env...");
             return &ENV_PARAMSET;
         }
+        tracing::info!("Can't read protocol params from env: {from_env:?}. Trying to read from external config...");
 
-        if std::env::var("PROTOCOL_CONFIG_PATH").is_ok() {
-            tracing::debug!("Using protocol params from external config file...");
+        let from_external_config = std::env::var("PROTOCOL_CONFIG_PATH");
+        if from_external_config.is_ok() {
+            tracing::info!("Using protocol params from external config file...");
             return &RUNTIME_PARAMSET;
         }
+        tracing::info!("Can't read protocol params from external config file: {from_external_config:?}. Using config file's value...");
 
         match name {
             ProtocolParamsetName::Mainnet => &MAINNET_PARAMSET,
