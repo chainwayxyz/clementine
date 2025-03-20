@@ -372,6 +372,34 @@ pub async fn run_replacement_deposit(
     let (verifiers, operators, mut aggregator, watchtowers, cleanup, dep_params, move_txid, _) =
         run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
 
+    // Send deposit to Citrea
+    let tx = rpc
+        .client
+        .get_raw_transaction(&move_txid, None)
+        .await
+        .unwrap();
+    let tx_info = rpc
+        .client
+        .get_raw_transaction_info(&move_txid, None)
+        .await
+        .unwrap();
+    let block = rpc
+        .client
+        .get_block(&tx_info.blockhash.unwrap())
+        .await
+        .unwrap();
+    let block_height = rpc
+        .client
+        .get_block_info(&block.block_hash())
+        .await
+        .unwrap()
+        .height as u64;
+
+    // get_transaction_params
+    let params = get_transaction_params(tx, block, block_height as u32, move_txid)?;
+
+    tracing::info!("Params of old deposit: {:?}", params);
+
     tracing::info!(
         "First deposit {} completed, starting replacement deposit",
         DepositData::try_from(dep_params)?
@@ -433,6 +461,7 @@ pub async fn run_replacement_deposit(
         .try_into()?;
 
     tracing::info!("New move txid: {:?}", move_txid);
+
     // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     rpc.mine_blocks(1).await?;
@@ -445,6 +474,7 @@ pub async fn run_replacement_deposit(
         .get_raw_transaction(&move_txid, None)
         .await
         .unwrap();
+
     let tx_info = rpc
         .client
         .get_raw_transaction_info(&move_txid, None)
@@ -464,8 +494,7 @@ pub async fn run_replacement_deposit(
 
     // get_transaction_params
     let params = get_transaction_params(tx, block, block_height as u32, move_txid)?;
-    use alloy::sol_types::SolValue;
-    tracing::info!("Params: {:?}", hex::encode(params.abi_encode()));
+    tracing::info!("Params of replacement deposit: {:?}", params);
 
     Ok((
         verifiers,
