@@ -994,7 +994,7 @@ mod tests {
         let network = bitcoin::Network::Regtest;
         let actor = Actor::new(sk, None, network);
 
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
 
         let db = Database::new(&config).await.unwrap();
 
@@ -1073,7 +1073,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_try_to_send() -> Result<(), BridgeError> {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -1189,7 +1189,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_fee_rate() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc: ExtendedRpc = regtest.rpc().clone();
         let db = Database::new(&config).await.unwrap();

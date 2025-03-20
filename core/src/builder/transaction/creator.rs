@@ -732,7 +732,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_deposit_and_sign_txs() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
         let (

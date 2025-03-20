@@ -121,8 +121,21 @@ where
         let state_manager =
             StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
 
-        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-        background_tasks.loop_and_monitor(state_manager.into_task());
+        let should_run_state_mgr = {
+            #[cfg(test)]
+            {
+                config.test_params.should_run_state_manager
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        };
+
+        if should_run_state_mgr {
+            background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+            background_tasks.loop_and_monitor(state_manager.into_task());
+        }
 
         let syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).await?;
 

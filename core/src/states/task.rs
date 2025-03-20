@@ -282,7 +282,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_state_manager() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let (handle, shutdown) = create_state_manager(&mut config).await;
 
         drop(shutdown);
@@ -296,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_state_mgr_does_not_shutdown() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let (handle, shutdown) = create_state_manager(&mut config).await;
 
         timeout(Duration::from_secs(1), handle).await.expect_err(

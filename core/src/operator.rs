@@ -70,15 +70,28 @@ where
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let paramset = config.protocol_paramset();
-        let operator = Operator::new(config).await?;
+        let operator = Operator::new(config.clone()).await?;
         let mut background_tasks = BackgroundTaskManager::default();
 
         // initialize and run state manager
         let state_manager =
             StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
 
-        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-        background_tasks.loop_and_monitor(state_manager.into_task());
+        let should_run_state_mgr = {
+            #[cfg(test)]
+            {
+                config.test_params.should_run_state_manager
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        };
+
+        if should_run_state_mgr {
+            background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+            background_tasks.loop_and_monitor(state_manager.into_task());
+        }
 
         // run payout checker task
         background_tasks.loop_and_monitor(
@@ -1071,7 +1084,7 @@ mod tests {
     use bitcoin::Txid;
     // #[tokio::test]
     // async fn set_funding_utxo() {
-    //     let mut config = create_test_config_with_thread_name(None).await;
+    //     let mut config = create_test_config_with_thread_name().await;
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -1104,7 +1117,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn is_profitable() {
-    //     let mut config = create_test_config_with_thread_name(None).await;
+    //     let mut config = create_test_config_with_thread_name().await;
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -1141,7 +1154,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::<MockCitreaClient>::new(config.clone())
@@ -1160,7 +1173,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::<MockCitreaClient>::new(config.clone())
@@ -1175,7 +1188,7 @@ mod tests {
 
     #[tokio::test]
     async fn operator_get_params() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::<MockCitreaClient>::new(config.clone())
