@@ -136,13 +136,11 @@ impl BridgeConfig {
         let operator_withdrawal_fee_sats = if let Ok(operator_withdrawal_fee_sats) =
             std::env::var("OPERATOR_WITHDRAWAL_FEE_SATS")
         {
-            Some(
-                operator_withdrawal_fee_sats
-                    .parse::<Amount>()
-                    .map_err(|e| {
-                        BridgeError::EnvVarMalformed("OPERATOR_WITHDRAWAL_FEE_SATS", e.to_string())
-                    })?,
-            )
+            Some(Amount::from_sat(
+                operator_withdrawal_fee_sats.parse::<u64>().map_err(|e| {
+                    BridgeError::EnvVarMalformed("OPERATOR_WITHDRAWAL_FEE_SATS", e.to_string())
+                })?,
+            ))
         } else {
             None
         };
@@ -204,15 +202,19 @@ impl ProtocolParamset {
                 "NUM_KICKOFFS_PER_ROUND",
             )?,
             num_signed_kickoffs: read_string_from_env_then_parse::<usize>("NUM_SIGNED_KICKOFFS")?,
-            bridge_amount: read_string_from_env_then_parse::<Amount>("BRIDGE_AMOUNT")?,
+            bridge_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "BRIDGE_AMOUNT",
+            )?),
             num_watchtowers: read_string_from_env_then_parse::<usize>("NUM_WATCHTOWERS")?,
-            kickoff_amount: read_string_from_env_then_parse::<Amount>("KICKOFF_AMOUNT")?,
-            operator_challenge_amount: read_string_from_env_then_parse::<Amount>(
+            kickoff_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "KICKOFF_AMOUNT",
+            )?),
+            operator_challenge_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
                 "OPERATOR_CHALLENGE_AMOUNT",
-            )?,
-            collateral_funding_amount: read_string_from_env_then_parse::<Amount>(
+            )?),
+            collateral_funding_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
                 "COLLATERAL_FUNDING_AMOUNT",
-            )?,
+            )?),
             kickoff_blockhash_commit_length: read_string_from_env_then_parse::<u32>(
                 "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
             )?,
@@ -307,7 +309,7 @@ mod tests {
         {
             std::env::set_var(
                 "OPERATOR_WITHDRAWAL_FEE_SATS",
-                operator_withdrawal_fee_sats.to_string(),
+                operator_withdrawal_fee_sats.to_sat().to_string(),
             );
         }
         std::env::set_var("BITCOIN_RPC_URL", &default_config.bitcoin_rpc_url);
