@@ -1009,7 +1009,7 @@ where
             )
             .await?;
         dbtx.commit().await?;
-        tracing::warn!("Commited watchtower challenge for verifier {}", self.idx);
+        tracing::warn!("Commited watchtower challenge for watchtower {}", self.idx);
         Ok(())
     }
 

@@ -160,7 +160,7 @@ impl Default for BridgeConfig {
             )
             .expect("known valid input"),
 
-            num_verifiers: 3,
+            num_verifiers: 4,
             verifiers_public_keys: vec![
                 PublicKey::from_str(
                     "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
@@ -172,6 +172,10 @@ impl Default for BridgeConfig {
                 .expect("known valid input"),
                 PublicKey::from_str(
                     "023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
+                )
+                .expect("known valid input"),
+                PublicKey::from_str(
+                    "032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991",
                 )
                 .expect("known valid input"),
             ],
@@ -221,6 +225,10 @@ impl Default for BridgeConfig {
                     "3333333333333333333333333333333333333333333333333333333333333333",
                 )
                 .expect("known valid input"),
+                SecretKey::from_str(
+                    "4444444444444444444444444444444444444444444444444444444444444444",
+                )
+                .expect("known valid input"),
             ]),
             all_operators_secret_keys: Some(vec![
                 SecretKey::from_str(
@@ -239,6 +247,7 @@ impl Default for BridgeConfig {
                 )
                 .expect("known valid input"),
             ),
+            // socket_path: "/".to_string(),
             verifier_endpoints: None,
             operator_endpoints: None,
 
