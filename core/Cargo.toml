@@ -50,13 +50,15 @@ pgmq = { workspace = true }
 serde_with = { workspace = true }
 sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
-tonic-reflection = "0.12.3"
 
 [dev-dependencies]
 serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
 citrea-e2e = { workspace = true }
-base64 = "0.22.1"
+
+[[bin]]
+name = "clementine-cli"
+path = "src/bin/cli.rs"
 
 [lints.clippy]
 unwrap_used = { level = "deny" }
