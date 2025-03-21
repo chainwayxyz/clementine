@@ -45,6 +45,8 @@ enum OperatorCommands {
         deposit_outpoint_txid: String,
         #[arg(long)]
         deposit_outpoint_vout: u32,
+        #[arg(long)]
+        num_verifiers: u64,
     },
     /// Get operator parameters
     GetParams,
@@ -99,6 +101,8 @@ enum AggregatorCommands {
         recovery_taproot_address: String,
         #[arg(long)]
         nofn_xonly_pk: String,
+        #[arg(long)]
+        num_verifiers: u64,
     },
     // Add other aggregator commands as needed
 }
@@ -115,6 +119,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
         OperatorCommands::GetDepositKeys {
             deposit_outpoint_txid,
             deposit_outpoint_vout,
+            num_verifiers,
         } => {
             println!(
                 "Getting deposit keys for outpoint {}:{}",
@@ -129,6 +134,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                     evm_address: vec![1; 20],
                     recovery_taproot_address: String::new(),
                     nofn_xonly_pk: vec![1; 32],
+                    num_verifiers,
                 })),
             };
             let response = operator
@@ -233,6 +239,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             evm_address,
             recovery_taproot_address,
             nofn_xonly_pk,
+            num_verifiers,
         } => {
             let deposit = aggregator
                 .new_deposit(DepositParams {
@@ -244,6 +251,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                         evm_address: evm_address.as_bytes().to_vec(),
                         recovery_taproot_address,
                         nofn_xonly_pk: nofn_xonly_pk.as_bytes().to_vec(),
+                        num_verifiers,
                     })),
                 })
                 .await
