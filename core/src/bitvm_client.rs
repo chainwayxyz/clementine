@@ -435,7 +435,7 @@ impl ClementineBitVMPublicKeys {
             4,
         ));
         scripts.push(first_script);
-        // iterate NUM_U256 5 by 5
+        // iterate NUM_U256 6 by 6
         for i in (0..NUM_U256 - 2).step_by(6) {
             let last_idx = std::cmp::min(i + 6, NUM_U256);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
@@ -448,7 +448,7 @@ impl ClementineBitVMPublicKeys {
             ));
             scripts.push(script);
         }
-        // iterate NUM_HASH 9 by 9
+        // iterate NUM_HASH 12 by 12
         for i in (0..NUM_HASH - 3).step_by(12) {
             let last_idx = std::cmp::min(i + 12, NUM_HASH);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
@@ -481,9 +481,8 @@ impl ClementineBitVMPublicKeys {
                 WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 362, txid, paramset),
             ]
         } else if (1..=2).contains(&mini_assert_idx) {
-            // for 1, we will have 5 derivations index starting from 0 to 4
-            // for 2, we will have 5 derivations index starting from 5 to 9
-            // for 3, we will have 5 derivations index starting from 10 to 13
+            // for 1, we will have 6 derivations index starting from 0 to 5
+            // for 2, we will have 6 derivations index starting from 6 to 11
             let derivations: u32 = (mini_assert_idx as u32 - 1) * 6;
 
             let mut derivations_vec = vec![];
