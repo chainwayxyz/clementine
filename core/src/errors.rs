@@ -9,6 +9,39 @@ use hex::FromHexError;
 use jsonrpsee::types::ErrorObject;
 use thiserror::Error;
 
+#[derive(Debug, Error)]
+pub enum TxError {
+    /// TxInputNotFound is returned when the input is not found in the transaction
+    #[error("Could not find input of transaction")]
+    TxInputNotFound,
+    #[error("Could not find output of transaction")]
+    TxOutputNotFound,
+    #[error("Attempted to set witness when it's already set")]
+    WitnessAlreadySet,
+    #[error("Script with index {0} not found for transaction")]
+    ScriptNotFound(usize),
+    #[error("Insufficient Context data for the requested TxHandler")]
+    InsufficientContext,
+    #[error("No scripts in TxHandler for the TxIn with index {0}")]
+    NoScriptsForTxIn(usize),
+    #[error("No script in TxHandler for the index {0}")]
+    NoScriptAtIndex(usize),
+    #[error("Spend Path in SpentTxIn in TxHandler not specified")]
+    SpendPathNotSpecified,
+    #[error("Actor does not own the key needed in P2TR keypath")]
+    NotOwnKeyPath,
+    #[error("public key of Checksig in script is not owned by Actor")]
+    NotOwnedScriptPath,
+    #[error("Couldn't find needed signature from database for tx: {:?}", _0)]
+    SignatureNotFound(TransactionType),
+    #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
+    TxHandlerNotFound(TransactionType),
+    #[error("BitvmSetupNotFound for operator {0}, deposit_txid {1}")]
+    BitvmSetupNotFound(i32, Txid),
+    #[error("Transaction input is missing spend info")]
+    MissingSpendInfo,
+}
+
 /// Errors returned by the bridge.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -16,6 +49,7 @@ pub enum BridgeError {
     /// ConfigError is returned when the configuration is invalid
     #[error("Invalid configuration: {0}")]
     ConfigError(String),
+
     #[error("Operator idx {0} was not found in the DB")]
     OperatorNotFound(u32),
 
@@ -42,6 +76,8 @@ pub enum BridgeError {
     #[error("Can't encode/decode data using borsh: {0}")]
     BorshError(std::io::Error),
 
+    #[error("Failed to build transactions: {0}")]
+    Transaction(#[from] TxError),
     // TxHandler errors
     /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]

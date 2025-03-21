@@ -8,7 +8,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, TxError};
 use crate::operator::Operator;
 use crate::rpc::clementine::KickoffId;
 use crate::watchtower::Watchtower;
@@ -211,7 +211,7 @@ impl Watchtower {
 
         let mut requested_txhandler = txhandlers
             .remove(&transaction_data.transaction_type)
-            .ok_or(BridgeError::TxHandlerNotFound(
+            .ok_or(TxError::TxHandlerNotFound(
                 transaction_data.transaction_type,
             ))?;
 
@@ -263,10 +263,9 @@ where
         let mut signed_txhandlers = Vec::new();
 
         for idx in 0..ClementineBitVMPublicKeys::number_of_assert_txs() {
-            let mut mini_assert_txhandler =
-                txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
-                    BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),
-                )?;
+            let mut mini_assert_txhandler = txhandlers
+                .remove(&TransactionType::MiniAssert(idx))
+                .ok_or(TxError::TxHandlerNotFound(TransactionType::MiniAssert(idx)))?;
             let derivations = ClementineBitVMPublicKeys::get_assert_derivations(
                 idx,
                 assert_data.deposit_data.deposit_outpoint.txid,

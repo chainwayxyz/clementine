@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+
 use crate::actor::WinternitzDerivationPath::WatchtowerChallenge;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -10,7 +11,7 @@ use crate::builder::transaction::{
 };
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
@@ -25,7 +26,7 @@ fn get_txhandler(
 ) -> Result<&TxHandler, BridgeError> {
     txhandlers
         .get(&tx_type)
-        .ok_or(BridgeError::TxHandlerNotFound(tx_type))
+        .ok_or(TxError::TxHandlerNotFound(tx_type).into())
 }
 
 #[derive(Debug, Clone)]
@@ -173,7 +174,7 @@ impl ReimburseDbCache {
                 }
             }
         } else {
-            Err(BridgeError::InsufficientContext)
+            Err(TxError::InsufficientContext.into())
         }
     }
 
@@ -210,7 +211,7 @@ impl ReimburseDbCache {
                             deposit_data.deposit_outpoint,
                         )
                         .await?
-                        .ok_or(BridgeError::BitvmSetupNotFound(
+                        .ok_or(TxError::BitvmSetupNotFound(
                             self.operator_idx as i32,
                             deposit_data.deposit_outpoint.txid,
                         ))?;
@@ -220,7 +221,7 @@ impl ReimburseDbCache {
                 }
             }
         } else {
-            Err(BridgeError::InsufficientContext)
+            Err(TxError::InsufficientContext.into())
         }
     }
 
@@ -247,7 +248,7 @@ impl ReimburseDbCache {
                 }
             }
         } else {
-            Err(BridgeError::InsufficientContext)
+            Err(TxError::InsufficientContext.into())
         }
     }
 
@@ -264,7 +265,7 @@ impl ReimburseDbCache {
                             deposit_data.deposit_outpoint,
                         )
                         .await?
-                        .ok_or(BridgeError::BitvmSetupNotFound(
+                        .ok_or(TxError::BitvmSetupNotFound(
                             self.operator_idx as i32,
                             deposit_data.deposit_outpoint.txid,
                         ))?;
@@ -276,7 +277,7 @@ impl ReimburseDbCache {
                 }
             }
         } else {
-            Err(BridgeError::InsufficientContext)
+            Err(TxError::InsufficientContext.into())
         }
     }
 }
@@ -381,7 +382,7 @@ impl TxHandlerCache {
         {
             let txhandler = txhandlers
                 .remove(tx_type)
-                .ok_or(BridgeError::TxHandlerNotFound(*tx_type))?;
+                .ok_or(TxError::TxHandlerNotFound(*tx_type))?;
             self.saved_txs.insert(*tx_type, txhandler);
         }
         Ok(())
@@ -466,13 +467,9 @@ pub async fn create_txhandlers(
     let kickoff_id = KickoffId {
         operator_idx,
         round_idx,
-        kickoff_idx: context
-            .kickoff_idx
-            .ok_or(BridgeError::InsufficientContext)?,
+        kickoff_idx: context.kickoff_idx.ok_or(TxError::InsufficientContext)?,
     };
-    let deposit_data = context
-        .deposit_data
-        .ok_or(BridgeError::InsufficientContext)?;
+    let deposit_data = context.deposit_data.ok_or(TxError::InsufficientContext)?;
 
     if !txhandlers.contains_key(&TransactionType::MoveToVault) {
         // if not cached create move_txhandler
@@ -496,10 +493,7 @@ pub async fn create_txhandlers(
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
         // the actual scripts to be able to spend
-        let actor = context
-            .signer
-            .clone()
-            .ok_or(BridgeError::InsufficientContext)?;
+        let actor = context.signer.clone().ok_or(TxError::InsufficientContext)?;
 
         // deposit_data.deposit_outpoint.txid
 
@@ -628,7 +622,7 @@ pub async fn create_txhandlers(
             paramset,
         );
 
-        let actor = context.signer.ok_or(BridgeError::InsufficientContext)?;
+        let actor = context.signer.ok_or(TxError::InsufficientContext)?;
         let public_key = actor.derive_winternitz_pk(path)?;
 
         let watchtower_challenge_txhandler =

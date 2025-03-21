@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     builder::transaction::{ContractContext, OperatorData, TransactionType},
-    errors::BridgeError,
+    errors::{BridgeError, TxError},
 };
 use bitcoin::OutPoint;
 use serde_with::serde_as;
@@ -252,10 +252,10 @@ impl<T: Owner> RoundStateMachine<T> {
                         .await?;
                     let round_txhandler = txhandlers
                         .remove(&TransactionType::Round)
-                        .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Round))?;
+                        .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?;
                     let ready_to_reimburse_txhandler = txhandlers
                         .remove(&TransactionType::ReadyToReimburse)
-                        .ok_or(BridgeError::TxHandlerNotFound(
+                        .ok_or(TxError::TxHandlerNotFound(
                             TransactionType::ReadyToReimburse,
                         ))?;
                     self.matchers.insert(
@@ -325,7 +325,7 @@ impl<T: Owner> RoundStateMachine<T> {
                         .await?;
                     let next_round_txid = next_round_txhandlers
                         .get(&TransactionType::Round)
-                        .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Round))?
+                        .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
                         .get_txid();
                     self.matchers.insert(
                         matcher::Matcher::SentTx(*next_round_txid),
