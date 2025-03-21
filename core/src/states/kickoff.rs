@@ -7,6 +7,7 @@ use statig::prelude::*;
 
 use crate::{
     builder::transaction::{
+        input::{get_challenge_ack_vout, get_watchtower_challenge_utxo_vout},
         remove_txhandler_from_map, ContractContext, DepositData, TransactionType,
     },
     errors::BridgeError,
@@ -427,7 +428,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         for watchtower_idx in 0..self.deposit_data.get_num_verifiers() {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
-            let watchtower_challenge_vout = 4 + num_asserts + watchtower_idx * 2;
+            let watchtower_challenge_vout = get_watchtower_challenge_utxo_vout(watchtower_idx);
             let watchtower_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::WatchtowerChallengeTimeout(watchtower_idx),
@@ -456,7 +457,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 },
             );
             // add operator challenge ack
-            let operator_challenge_ack_vout = watchtower_challenge_vout + 1;
+            let operator_challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
             let operator_challenge_nack_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::OperatorChallengeNack(watchtower_idx),

@@ -1,5 +1,7 @@
 use super::common::{create_actors, create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
+use crate::bitvm_client::{self};
+use crate::builder::transaction::input::get_watchtower_challenge_utxo_vout;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{BaseDepositData, DepositData, TransactionType as TxType};
 use crate::citrea::mock::MockCitreaClient;
@@ -18,6 +20,7 @@ use crate::tx_sender::TxSenderClient;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use bitcoincore_rpc::RpcApi;
 use eyre::{Context, Result};
 use tonic::Request;
 
@@ -606,7 +609,7 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 
     let (
         _operators,
-        _watchtowers,
+        _verifiers,
         tx_sender,
         _dep_params,
         _kickoff_idx,
@@ -652,7 +655,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
 
     let (
         _operators,
-        _watchtowers,
+        _verifiers,
         tx_sender,
         _dep_params,
         _kickoff_idx,
@@ -714,6 +717,121 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Disprove).await?;
 
     tracing::info!("Bad Path 3 test completed successfully");
+    Ok(())
+}
+
+fn get_tx_from_signed_txs_with_type(
+    txs: &SignedTxsWithType,
+    tx_type: TxType,
+) -> Result<bitcoin::Transaction> {
+    let tx = txs
+        .signed_txs
+        .iter()
+        .find(|tx| tx.transaction_type == Some(tx_type.into()))
+        .to_owned()
+        .unwrap_or_else(|| panic!("expected tx of type: {:?} not found", tx_type))
+        .to_owned()
+        .raw_tx;
+    bitcoin::consensus::deserialize(&tx).context("expected valid tx")
+}
+
+// After a challenge, state machine should automatically send:
+// Watchtower challenges and operator asserts
+pub async fn run_challenge_with_state_machine(
+    config: &mut BridgeConfig,
+    rpc: ExtendedRpc,
+) -> Result<()> {
+    let (
+        mut operators,
+        _verifiers,
+        tx_sender,
+        dep_params,
+        kickoff_idx,
+        _base_tx_req,
+        all_txs,
+        _cleanup,
+    ) = base_setup(config, &rpc).await?;
+
+    // Send Round Transaction
+    tracing::info!("Sending round transaction");
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
+
+    // Send Kickoff Transaction
+    tracing::info!("Sending kickoff transaction");
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
+
+    // Send Challenge Transaction
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
+
+    let deposit_data: DepositData = dep_params.clone().try_into()?;
+    let kickoff_tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::Kickoff)?;
+    let kickoff_txid = kickoff_tx.compute_txid();
+
+    let watchtower_challenge_utxos = (0..deposit_data.get_num_verifiers()).map(|i| OutPoint {
+        txid: kickoff_txid,
+        vout: get_watchtower_challenge_utxo_vout(i) as u32,
+    });
+
+    let watchtower_challenge_timeout_txids = (0..deposit_data.get_num_verifiers())
+        .map(|i| {
+            let wtc =
+                get_tx_from_signed_txs_with_type(&all_txs, TxType::WatchtowerChallengeTimeout(i))
+                    .unwrap();
+            wtc.compute_txid()
+        })
+        .collect::<Vec<Txid>>();
+
+    // wait for necessary amount of blocks
+    rpc.mine_blocks(config.protocol_paramset().time_to_send_watchtower_challenge as u64)
+        .await?;
+
+    // check if watchtower challenge utxos were spent
+    for outpoint in watchtower_challenge_utxos {
+        ensure_outpoint_spent(&rpc, outpoint).await?;
+    }
+
+    // check if watchtower challenge timeouts were not sent
+    for txid in watchtower_challenge_timeout_txids {
+        assert!(rpc
+            .client
+            .get_raw_transaction_info(&txid, None)
+            .await
+            .ok()
+            .and_then(|s| s.blockhash)
+            .is_none());
+    }
+
+    // check if operator asserts are sent by state machine
+    // Get deposit data and kickoff ID for assert creation
+    let kickoff_id = KickoffId {
+        operator_idx: 0,
+        round_idx: 0,
+        kickoff_idx,
+    };
+
+    // Create assert transactions for operator 0
+    let assert_txs = operators[0]
+        .internal_create_assert_commitment_txs(TransactionRequest {
+            kickoff_id: Some(kickoff_id),
+            deposit_params: Some(dep_params.clone()),
+        })
+        .await?
+        .into_inner();
+
+    let operator_assert_txids =
+        (0..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
+            .map(|i| {
+                let assert_tx =
+                    get_tx_from_signed_txs_with_type(&assert_txs, TxType::MiniAssert(i)).unwrap();
+                assert_tx.compute_txid()
+            })
+            .collect::<Vec<Txid>>();
+
+    // check if operator asserts were sent
+    for txid in operator_assert_txids {
+        ensure_tx_onchain(&rpc, txid).await?;
+    }
+
     Ok(())
 }
 
@@ -796,5 +914,16 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         run_operator_end_round(config, rpc, true).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_challenge_with_state_machine() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        run_challenge_with_state_machine(&mut config, rpc)
+            .await
+            .unwrap();
     }
 }
