@@ -512,19 +512,12 @@ impl Aggregator {
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -> Result<TxHandler<Signed>, Status> {
-        let deposit_data = parser::parse_deposit_params(deposit_params)?;
+        let deposit_data: crate::builder::transaction::DepositData = deposit_params.try_into()?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
-        let mut move_txhandler = create_move_to_vault_txhandler(
-            deposit_data.deposit_outpoint,
-            deposit_data.evm_address,
-            &deposit_data.recovery_taproot_address,
-            self.nofn_xonly_pk,
-            self.config.protocol_paramset().user_takes_after,
-            self.config.protocol_paramset().bridge_amount,
-            self.config.protocol_paramset().network,
-        )?;
+        let mut move_txhandler =
+            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?;
 
         let sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
@@ -552,7 +545,7 @@ impl Aggregator {
             .insert_try_to_send(
                 &mut dbtx,
                 Some(TxMetadata {
-                    deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     operator_idx: None,
                     verifier_idx: None,
                     round_idx: None,
@@ -578,6 +571,34 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for Aggregator {
+    async fn internal_send_tx(
+        &self,
+        request: Request<clementine::SendTxRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        let send_tx_req = request.into_inner();
+        let fee_type = send_tx_req.fee_type();
+        let signed_tx: bitcoin::Transaction = send_tx_req
+            .raw_tx
+            .ok_or(Status::invalid_argument("Missing raw_tx"))?
+            .try_into()?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &signed_tx,
+                fee_type.try_into()?,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+        Ok(Response::new(Empty {}))
+    }
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
         tracing::info!("Collecting verifier public keys...");
@@ -847,11 +868,12 @@ impl ClementineAggregator for Aggregator {
                 })?;
         }
 
-        let deposit_data = parser::parse_deposit_params(deposit_params.clone())?;
+        let deposit_data: crate::builder::transaction::DepositData =
+            deposit_params.clone().try_into()?;
 
         let deposit_blockhash = self
             .rpc
-            .get_blockhash_of_tx(&deposit_data.deposit_outpoint.txid)
+            .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
         // Create sighash stream for transaction signing
@@ -985,6 +1007,7 @@ impl ClementineAggregator for Aggregator {
 #[cfg(test)]
 mod tests {
     use crate::actor::Actor;
+    use crate::builder::transaction::{BaseDepositData, DepositData};
     use crate::citrea::mock::MockCitreaClient;
     use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{self};
@@ -992,13 +1015,12 @@ mod tests {
     use crate::{rpc::clementine::DepositParams, test::common::*};
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
-    use std::str::FromStr;
     use std::time::Duration;
     use tokio::time::sleep;
 
     #[tokio::test]
     async fn aggregator_double_setup_fail() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let (_, _, mut aggregator, _, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
@@ -1014,53 +1036,9 @@ mod tests {
             .is_err());
     }
 
-    #[tokio::test]
-    #[ignore = "This test is also done during the deposit phase of test_deposit_and_sign_txs test"]
-    async fn aggregator_setup_and_deposit() {
-        let config = create_test_config_with_thread_name(None).await;
-
-        let (_, _, mut aggregator, _, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
-
-        tracing::info!("Setting up aggregator");
-        let start = std::time::Instant::now();
-
-        aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .unwrap();
-
-        let nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-                .unwrap();
-
-        tracing::info!("Setup completed in {:?}", start.elapsed());
-        tracing::info!("Depositing");
-        let deposit_start = std::time::Instant::now();
-        aggregator
-            .new_deposit(DepositParams {
-                deposit_outpoint: Some(
-                    bitcoin::OutPoint {
-                        txid: Txid::from_str(
-                            "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
-                        )
-                        .unwrap(),
-                        vout: 0,
-                    }
-                    .into(),
-                ),
-                evm_address: [1u8; 20].to_vec(),
-                recovery_taproot_address:
-                    "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
-                nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-            })
-            .await
-            .unwrap();
-        tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
-    }
-
     #[tokio::test(flavor = "multi_thread")]
     async fn aggregator_deposit_movetx_lands_onchain() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
         let (_verifiers, _operators, mut aggregator, _watchtowers, _cleanup) =
@@ -1100,13 +1078,15 @@ mod tests {
             .unwrap();
         sleep(Duration::from_secs(3)).await;
 
+        let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address: signer.address.as_unchecked().clone(),
+            nofn_xonly_pk,
+        });
+
         let movetx_txid: Txid = aggregator
-            .new_deposit(DepositParams {
-                deposit_outpoint: Some(deposit_outpoint.into()),
-                evm_address: evm_address.0.to_vec(),
-                recovery_taproot_address: signer.address.to_string(),
-                nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-            })
+            .new_deposit(DepositParams::from(deposit_data))
             .await
             .unwrap()
             .into_inner()

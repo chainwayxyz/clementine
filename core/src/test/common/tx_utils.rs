@@ -10,6 +10,8 @@ use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
 
+use super::mine_once_after_in_mempool;
+
 pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     rpc: &ExtendedRpc,
     lc_prover: &Node<LightClientProverConfig>,
@@ -92,9 +94,6 @@ pub async fn send_tx(
 
     dbtx.commit().await?;
 
-    // Mine blocks to confirm the transaction
-    rpc.mine_blocks(3).await?;
-
     if tx_type == TxType::Challenge {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
     } else {
@@ -102,6 +101,26 @@ pub async fn send_tx(
     }
 
     Ok(())
+}
+
+/// Helper function that ensures that utxo is spent then gets the txid where it was spent
+/// Be careful that this function will only work if utxo is not already spent.
+pub async fn get_txid_where_utxo_is_spent(
+    rpc: &ExtendedRpc,
+    utxo: OutPoint,
+) -> Result<Txid, eyre::Error> {
+    ensure_outpoint_spent(rpc, utxo).await?;
+    let current_height = rpc.client.get_block_count().await?;
+    let hash = rpc.client.get_block_hash(current_height).await?;
+    let block = rpc.client.get_block(&hash).await?;
+    let tx = block
+        .txdata
+        .iter()
+        .find(|txid| txid.input.iter().any(|input| input.previous_output == utxo))
+        .ok_or(eyre::eyre!(
+            "utxo not found in block where utxo was supposedly spent"
+        ))?;
+    Ok(tx.compute_txid())
 }
 
 pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
@@ -114,10 +133,12 @@ pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::
         .and_then(|s| s.blockhash)
         .is_none()
     {
-        // Mine more blocks and wait longer between checks
-        rpc.mine_blocks(2).await?;
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        // Mine more blocks and wait longer between checks - wait for fee payer tx to be sent to mempool
+        rpc.mine_blocks(1).await?;
         timeout_counter -= 1;
+        // mine after tx is sent to mempool - with a timeout
+        let _ = mine_once_after_in_mempool(rpc, tx, Some("ensure_tx_onchain"), Some(1)).await;
 
         if timeout_counter == 0 {
             bail!("timeout while trying to send tx with txid {:?}", tx);
@@ -131,13 +152,7 @@ pub async fn ensure_outpoint_spent(
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
     let mut timeout_counter = 3000;
-    while rpc
-        .client
-        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
-        .await
-        .unwrap()
-        .is_some()
-    {
+    while !(rpc.is_utxo_spent(&outpoint).await?) {
         // Mine more blocks and wait longer between checks
         rpc.mine_blocks(1).await?;
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;

@@ -273,7 +273,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_verifiers_public_keys() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
         let pks = vec![
@@ -297,7 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_payout_txs_from_citrea_withdrawal() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
         let txid = Txid::from_byte_array([0x45; 32]);

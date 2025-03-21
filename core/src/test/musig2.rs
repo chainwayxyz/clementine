@@ -69,7 +69,7 @@ fn get_nonces(
 
 #[tokio::test]
 async fn key_spend() {
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
@@ -167,7 +167,7 @@ async fn key_spend() {
 #[tokio::test]
 
 async fn key_spend_with_script() {
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
@@ -272,7 +272,7 @@ async fn key_spend_with_script() {
 #[tokio::test]
 
 async fn script_spend() {
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 
@@ -381,7 +381,7 @@ async fn key_and_script_spend() {
     use bitcoin::{Network::*, *};
 
     // Arrange
-    let mut config = create_test_config_with_thread_name(None).await;
+    let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
 

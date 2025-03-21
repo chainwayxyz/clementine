@@ -78,6 +78,19 @@ impl ExtendedRpc {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_tx_of_txid(
+        &self,
+        txid: &bitcoin::Txid,
+    ) -> Result<bitcoin::Transaction, BridgeError> {
+        let raw_transaction = self
+            .client
+            .get_raw_transaction(txid, None)
+            .await
+            .wrap_err("Failed to get raw transaction")?;
+        Ok(raw_transaction)
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn check_utxo_address_and_amount(
         &self,
         outpoint: &OutPoint,

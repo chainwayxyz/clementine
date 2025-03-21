@@ -61,7 +61,7 @@ where
             .operator
             .handle_finalized_payout(
                 &mut dbtx,
-                deposit_data.deposit_outpoint,
+                deposit_data.get_deposit_outpoint(),
                 payout_tx_blockhash,
             )
             .await?;

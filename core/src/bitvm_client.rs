@@ -616,7 +616,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_vec_to_array_with_actor_values() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
 
         let sk = bitcoin::secp256k1::SecretKey::new(&mut thread_rng());
         let signer = Actor::new(sk, Some(sk), config.protocol_paramset().network);

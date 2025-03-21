@@ -1,5 +1,6 @@
+use crate::builder::transaction::DepositData;
 use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit, WatchtowerKeysWithDeposit};
+use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
 use crate::tx_sender::TxSenderClient;
 use crate::{
     builder::{self},
@@ -15,13 +16,11 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
-    EVMAddress,
 };
 use bitcoin::hashes::Hash;
 use bitcoin::{
-    address::NetworkUnchecked,
     secp256k1::{schnorr, Message},
-    Address, OutPoint, XOnlyPublicKey,
+    XOnlyPublicKey,
 };
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
@@ -40,7 +39,7 @@ pub struct Aggregator {
     pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    pub(crate) nofn_xonly_pk: XOnlyPublicKey,
+    pub(crate) _nofn_xonly_pk: XOnlyPublicKey,
     pub(crate) tx_sender: TxSenderClient,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
@@ -105,7 +104,7 @@ impl Aggregator {
             rpc,
             db,
             config,
-            nofn_xonly_pk,
+            _nofn_xonly_pk: nofn_xonly_pk,
             tx_sender,
             verifier_clients,
             operator_clients,
@@ -223,102 +222,12 @@ impl Aggregator {
             try_join_all(distribution_futures).await
         });
 
-        tracing::info!("Starting watchtower key collection");
-        let (watchtower_keys_tx, watchtower_keys_rx) =
-            tokio::sync::broadcast::channel(self.config.protocol_paramset().num_watchtowers * 2);
-        let watchtower_rx_handles = (0..self.config.num_verifiers)
-            .map(|_| watchtower_keys_rx.resubscribe())
-            .collect::<Vec<_>>();
-
-        let mut watchtowers = self.watchtower_clients.clone();
-        let num_watchtowers = watchtowers.len();
-        let deposit = deposit_params.clone();
-
-        let get_watchtowers_keys_handle = tokio::spawn(async move {
-            let watchtower_futures =
-                watchtowers
-                    .iter_mut()
-                    .enumerate()
-                    .map(|(idx, watchtower_client)| {
-                        let deposit_params = deposit.clone();
-                        let tx = watchtower_keys_tx.clone();
-                        async move {
-                            tracing::debug!("Requesting keys from watchtower {}", idx);
-                            let start = std::time::Instant::now();
-                            let watchtower_keys = timeout(
-                                OPERATION_TIMEOUT,
-                                watchtower_client.get_challenge_keys(deposit_params.clone()),
-                            )
-                            .await
-                            .map_err(|_| {
-                                Status::deadline_exceeded("Watchtower key retrieval timed out")
-                            })??
-                            .into_inner();
-                            tracing::debug!(
-                                "Got keys from watchtower {} in {:?}",
-                                idx,
-                                start.elapsed()
-                            );
-
-                            tx.send(WatchtowerKeysWithDeposit {
-                                deposit_params: Some(deposit_params),
-                                watchtower_keys: Some(watchtower_keys),
-                                watchtower_idx: idx as u32,
-                            })
-                            .map_err(|_| Status::internal("Failed to send watchtower keys"))?;
-                            Ok::<_, Status>(())
-                        }
-                    });
-            try_join_all(watchtower_futures).await
-        });
-
-        tracing::info!("Starting watchtower key distribution to verifiers");
-        let mut verifiers = self.verifier_clients.clone();
-        let distribute_watchtowers_keys_handle = tokio::spawn(async move {
-            let distribution_futures = verifiers.iter_mut().zip(watchtower_rx_handles).map(
-                |(verifier, mut rx)| async move {
-                    // Only wait for expected number of messages
-                    for i in 0..num_watchtowers {
-                        tracing::debug!("Waiting for watchtower key {}", i);
-                        let start = std::time::Instant::now();
-                        match timeout(OPERATION_TIMEOUT, rx.recv()).await {
-                            Ok(Ok(watchtower_keys)) => {
-                                tracing::debug!(
-                                    "Received watchtower key {} in {:?}",
-                                    i,
-                                    start.elapsed()
-                                );
-                                timeout(
-                                    OPERATION_TIMEOUT,
-                                    verifier.set_watchtower_keys(watchtower_keys),
-                                )
-                                .await
-                                .map_err(|_| {
-                                    Status::deadline_exceeded("Setting watchtower keys timed out")
-                                })??;
-                            }
-                            Ok(Err(_)) => break, // Channel closed
-                            Err(_) => {
-                                return Err(Status::deadline_exceeded(
-                                    "Timeout waiting for watchtower keys",
-                                ))
-                            }
-                        }
-                    }
-                    Ok::<_, Status>(())
-                },
-            );
-            try_join_all(distribution_futures).await
-        });
-
         // Wait for all tasks with a timeout
         let result = match timeout(
             OPERATION_TIMEOUT,
             try_join_all(vec![
                 get_operators_keys_handle,
                 distribute_operators_keys_handle,
-                get_watchtowers_keys_handle,
-                distribute_watchtowers_keys_handle,
             ]),
         )
         .await
@@ -344,20 +253,13 @@ impl Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     fn aggregate_move_partial_sigs(
         &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
+        deposit_data: DepositData,
         agg_nonce: &MusigAggNonce,
         partial_sigs: Vec<MusigPartialSignature>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let tx = builder::transaction::create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-            self.nofn_xonly_pk,
-            self.config.protocol_paramset().user_takes_after,
-            self.config.protocol_paramset().bridge_amount,
-            self.config.protocol_paramset().network,
+            deposit_data,
+            self.config.protocol_paramset(),
         )?;
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());

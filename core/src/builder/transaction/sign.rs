@@ -1,3 +1,4 @@
+use super::challenge::create_watchtower_challenge_txhandler;
 use super::{ContractContext, TxHandlerCache};
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
@@ -5,7 +6,7 @@ use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::citrea::CitreaClientT;
-use crate::config::protocol::ProtocolParamset;
+use crate::config::protocol::{ProtocolParamset, WATCHTOWER_CHALLENGE_BYTES};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
@@ -20,13 +21,6 @@ use secp256k1::rand::seq::SliceRandom;
 
 #[derive(Debug, Clone)]
 pub struct TransactionRequestData {
-    pub deposit_data: DepositData,
-    pub transaction_type: TransactionType,
-    pub kickoff_id: KickoffId,
-}
-
-#[derive(Debug, Clone)]
-pub struct AssertRequestData {
     pub deposit_data: DepositData,
     pub kickoff_id: KickoffId,
 }
@@ -90,13 +84,13 @@ pub async fn create_and_sign_txs(
     );
 
     let txhandlers = builder::transaction::create_txhandlers(
-        transaction_data.transaction_type,
+        TransactionType::AllNeededForDeposit,
         context,
         &mut TxHandlerCache::new(),
         &mut ReimburseDbCache::new_for_deposit(
             db.clone(),
             transaction_data.kickoff_id.operator_idx,
-            transaction_data.deposit_data.clone(),
+            transaction_data.deposit_data.get_deposit_outpoint(),
             config.protocol_paramset(),
         ),
     )
@@ -106,7 +100,7 @@ pub async fn create_and_sign_txs(
     let deposit_sigs_query = db
         .get_deposit_signatures(
             None,
-            transaction_data.deposit_data.deposit_outpoint,
+            transaction_data.deposit_data.get_deposit_outpoint(),
             transaction_data.kickoff_id.operator_idx as usize,
             transaction_data.kickoff_id.round_idx as usize,
             transaction_data.kickoff_id.kickoff_idx as usize,
@@ -133,7 +127,7 @@ pub async fn create_and_sign_txs(
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 watchtower_idx as u32,
-                transaction_data.deposit_data.deposit_outpoint.txid,
+                transaction_data.deposit_data.get_deposit_outpoint().txid,
                 config.protocol_paramset(),
             );
             let preimage = signer.generate_preimage_from_path(path)?;
@@ -179,13 +173,7 @@ impl Watchtower {
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
     ) -> Result<(TransactionType, Transaction), BridgeError> {
-        if commit_data.len()
-            != self
-                .config
-                .protocol_paramset()
-                .watchtower_challenge_message_length
-                / 2
-        {
+        if commit_data.len() != WATCHTOWER_CHALLENGE_BYTES {
             return Err(eyre::eyre!("Watchtower challenge data length mismatch").into());
         }
 
@@ -197,33 +185,32 @@ impl Watchtower {
         );
 
         let mut txhandlers = builder::transaction::create_txhandlers(
-            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            TransactionType::AllNeededForDeposit,
             context,
             &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 transaction_data.kickoff_id.operator_idx,
-                transaction_data.deposit_data.clone(),
+                transaction_data.deposit_data.get_deposit_outpoint(),
                 self.config.protocol_paramset(),
             ),
         )
         .await?;
 
-        let mut requested_txhandler = txhandlers
-            .remove(&transaction_data.transaction_type)
-            .ok_or(TxError::TxHandlerNotFound(
-                transaction_data.transaction_type,
-            ))?;
+        let kickoff_txhandler = txhandlers
+            .remove(&TransactionType::Kickoff)
+            .ok_or(TxError::TxHandlerNotFound(TransactionType::Kickoff))?;
 
-        let path = WinternitzDerivationPath::WatchtowerChallenge(
-            transaction_data.kickoff_id.operator_idx,
-            transaction_data.deposit_data.deposit_outpoint.txid,
-            self.config.protocol_paramset(),
-        );
+        let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
+            &kickoff_txhandler,
+            self.config.index as usize,
+            commit_data,
+        )?;
+
         self.signer
-            .tx_sign_winternitz(&mut requested_txhandler, &[(commit_data.to_vec(), path)])?;
+            .tx_sign_and_fill_sigs(&mut watchtower_challenge_txhandler, &[])?;
 
-        let checked_txhandler = requested_txhandler.promote()?;
+        let checked_txhandler = watchtower_challenge_txhandler.promote()?;
 
         Ok((
             TransactionType::WatchtowerChallenge(self.config.index as usize),
@@ -238,7 +225,7 @@ where
 {
     pub async fn create_assert_commitment_txs(
         &self,
-        assert_data: AssertRequestData,
+        assert_data: TransactionRequestData,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_asserts(
             assert_data.kickoff_id,
@@ -254,7 +241,7 @@ where
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
                 assert_data.kickoff_id.operator_idx,
-                assert_data.deposit_data.clone(),
+                assert_data.deposit_data.get_deposit_outpoint(),
                 self.config.protocol_paramset(),
             ),
         )
@@ -268,7 +255,7 @@ where
                 .ok_or(TxError::TxHandlerNotFound(TransactionType::MiniAssert(idx)))?;
             let derivations = ClementineBitVMPublicKeys::get_assert_derivations(
                 idx,
-                assert_data.deposit_data.deposit_outpoint.txid,
+                assert_data.deposit_data.get_deposit_outpoint().txid,
                 self.config.protocol_paramset(),
             );
             let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations

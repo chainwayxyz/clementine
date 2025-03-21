@@ -1,7 +1,7 @@
 use super::common::{create_actors, create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::TransactionType as TxType;
+use crate::builder::transaction::{BaseDepositData, DepositData, TransactionType as TxType};
 use crate::citrea::mock::MockCitreaClient;
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
@@ -11,14 +11,13 @@ use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::{
-    AssertRequest, DepositParams, Empty, FinalizedPayoutParams, KickoffId, SignedTxsWithType,
-    TransactionRequest,
+    DepositParams, Empty, FinalizedPayoutParams, KickoffId, SignedTxsWithType, TransactionRequest,
 };
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
-use bitcoin::{consensus, OutPoint, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use eyre::{Context, Result};
 use tonic::Request;
 
@@ -77,12 +76,13 @@ async fn base_setup(
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
-    let dep_params = DepositParams {
-        deposit_outpoint: Some(deposit_outpoint.into()),
-        evm_address: evm_address.0.to_vec(),
-        recovery_taproot_address: recovery_taproot_address.to_string(),
-        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-    };
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
+        nofn_xonly_pk,
+    });
+    let dep_params: DepositParams = deposit_data.into();
     tracing::info!("Creating move transaction");
     let move_tx_response = aggregator
         .new_deposit(dep_params.clone())
@@ -108,7 +108,6 @@ async fn base_setup(
         deposit_outpoint,
     )[0] as u32;
     let base_tx_req = TransactionRequest {
-        transaction_type: Some(TxType::AllNeededForDeposit.into()),
         kickoff_id: Some(KickoffId {
             operator_idx: 0,
             round_idx: 0,
@@ -167,12 +166,14 @@ pub async fn run_operator_end_round(
     let nofn_xonly_pk =
         XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
-    let dep_params = DepositParams {
-        deposit_outpoint: Some(deposit_outpoint.into()),
-        evm_address: evm_address.0.to_vec(),
-        recovery_taproot_address: recovery_taproot_address.to_string(),
-        nofn_xonly_pk: nofn_xonly_pk.serialize().to_vec(),
-    };
+    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
+        nofn_xonly_pk,
+    });
+
+    let dep_params: DepositParams = deposit_data.into();
 
     tracing::info!("Creating move transaction");
     let move_tx_response = aggregator
@@ -264,7 +265,6 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     tracing::info!("Sending round 2 transaction");
     let all_txs_2 = operators[0]
         .internal_create_signed_txs(TransactionRequest {
-            transaction_type: Some(TxType::Round.into()),
             kickoff_id: Some(KickoffId {
                 operator_idx: 0,
                 round_idx: 1,
@@ -326,10 +326,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // Send Watchtower Challenge Transactions
     for (watchtower_idx, watchtower) in watchtowers.iter_mut().enumerate() {
         let watchtower_challenge_tx = watchtower
-            .internal_create_watchtower_challenge(TransactionRequest {
-                transaction_type: Some(TxType::WatchtowerChallenge(watchtower_idx).into()),
-                ..base_tx_req.clone()
-            })
+            .internal_create_watchtower_challenge(base_tx_req.clone())
             .await?
             .into_inner();
         tracing::info!(
@@ -357,10 +354,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             watchtower_idx
         );
         let operator_challenge_ack_txs = operators[0]
-            .internal_create_signed_txs(TransactionRequest {
-                transaction_type: Some(TxType::OperatorChallengeAck(watchtower_idx).into()),
-                ..base_tx_req.clone()
-            })
+            .internal_create_signed_txs(base_tx_req.clone())
             .await?
             .into_inner();
         send_tx_with_type(
@@ -373,9 +367,8 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     }
 
     // Send Assert Transactions
-    // these are already sent by the state machine
     let assert_txs = operators[0]
-        .internal_create_assert_commitment_txs(AssertRequest {
+        .internal_create_assert_commitment_txs(TransactionRequest {
             deposit_params: Some(dep_params.clone()),
             kickoff_id: Some(KickoffId {
                 operator_idx: 0,
@@ -415,11 +408,10 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     tracing::info!("Sending round 2 transaction");
     let all_txs_2 = operators[0]
         .internal_create_signed_txs(TransactionRequest {
-            transaction_type: Some(TxType::Round.into()),
             kickoff_id: Some(KickoffId {
                 operator_idx: 0,
                 round_idx: 1,
-                kickoff_idx,
+                kickoff_idx: 0,
             }),
             ..base_tx_req.clone()
         })
@@ -487,21 +479,9 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
 
     rpc.mine_blocks(8 * BLOCKS_PER_HOUR as u64).await?;
 
-    for i in 0..config.protocol_paramset().num_watchtowers {
-        send_tx_with_type(
-            &rpc,
-            &tx_sender,
-            &all_txs,
-            TxType::WatchtowerChallengeTimeout(i),
-        )
-        .await?;
-    }
-
-    // Sending all timeouts should trigger the state machine to send the assert transactions
-
     // Create assert transactions for operator 0
     let assert_txs = operators[0]
-        .internal_create_assert_commitment_txs(AssertRequest {
+        .internal_create_assert_commitment_txs(TransactionRequest {
             kickoff_id: Some(kickoff_id),
             deposit_params: Some(dep_params.clone()),
         })
@@ -511,17 +491,16 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
     // Ensure all assert transactions are sent in order
     for tx in assert_txs.signed_txs.iter() {
         tracing::info!(
-            "Waiting for assert transaction of type: {:?}",
+            "Sending assert transaction of type: {:?}",
             tx.transaction_type
         );
-        let tx_type = tx.transaction_type.unwrap();
-        let tx = consensus::deserialize::<Transaction>(tx.raw_tx.as_slice()).unwrap();
-        ensure_outpoint_spent(&rpc, tx.input[0].previous_output)
-            .await
-            .context(format!(
-                "failed to ensure assert transaction of type {:?}",
-                tx_type
-            ))?;
+        send_tx(
+            &tx_sender,
+            &rpc,
+            tx.raw_tx.as_slice(),
+            tx.transaction_type.unwrap().try_into().unwrap(),
+        )
+        .await?;
     }
 
     // Mine blocks to confirm transactions
@@ -573,10 +552,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         watchtower_idx
     );
     let watchtower_challenge_tx = watchtowers[watchtower_idx]
-        .internal_create_watchtower_challenge(TransactionRequest {
-            transaction_type: Some(TxType::WatchtowerChallenge(watchtower_idx).into()),
-            ..base_tx_req.clone()
-        })
+        .internal_create_watchtower_challenge(base_tx_req.clone())
         .await?
         .into_inner();
     tracing::info!(
@@ -644,8 +620,6 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     // Send Kickoff Transaction
     tracing::info!("Sending kickoff transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
-
-    // Send Challenge Transaction
 
     // Send Challenge Transaction
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
@@ -747,7 +721,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_simple_assert_flow() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -757,7 +732,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     // #[ignore = "Design changes in progress"]
     async fn test_happy_path_1() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_happy_path_1(&mut config, rpc).await.unwrap();
@@ -765,7 +741,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_happy_path_2() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_happy_path_2(&mut config, rpc).await.unwrap();
@@ -773,7 +750,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bad_path_1() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_bad_path_1(&mut config, rpc).await.unwrap();
@@ -781,7 +759,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_bad_path_2() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_bad_path_2(&mut config, rpc).await.unwrap();
@@ -790,7 +769,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "Assert is not ready"]
     async fn test_bad_path_3() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         run_bad_path_3(&mut config, rpc).await.unwrap();
@@ -798,7 +778,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_operator_end_round() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -807,7 +788,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_operator_end_round_with_challenge() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
+        config.test_params.should_run_state_manager = false;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 

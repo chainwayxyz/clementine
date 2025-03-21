@@ -558,7 +558,7 @@ mod tests {
     use bitcoin::{Block, OutPoint, Txid};
 
     async fn setup_test_db() -> Database {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         Database::new(&config).await.unwrap()
     }
 

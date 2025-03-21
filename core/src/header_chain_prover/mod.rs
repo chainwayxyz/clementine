@@ -117,7 +117,7 @@ mod tests {
 
     #[tokio::test]
     async fn new() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -127,7 +127,7 @@ mod tests {
     #[tokio::test]
 
     async fn new_with_proof_assumption() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -151,7 +151,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())

@@ -2,7 +2,6 @@ use crate::actor::Actor;
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::address::taproot_builder_with_scripts;
-use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
@@ -24,16 +23,13 @@ use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc;
 use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::{
-    DepositParams, KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature,
-    TransactionRequest, WatchtowerKeys,
+    KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature, TransactionRequest,
 };
 use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
-use crate::EVMAddress;
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
@@ -123,8 +119,21 @@ where
         let state_manager =
             StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
 
-        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-        background_tasks.loop_and_monitor(state_manager.into_task());
+        let should_run_state_mgr = {
+            #[cfg(test)]
+            {
+                config.test_params.should_run_state_manager
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        };
+
+        if should_run_state_mgr {
+            background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+            background_tasks.loop_and_monitor(state_manager.into_task());
+        }
 
         let syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).await?;
 
@@ -451,16 +460,17 @@ where
 
     pub async fn deposit_sign(
         &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: Address<NetworkUnchecked>,
+        deposit_data: DepositData,
         session_id: u32,
         mut agg_nonce_rx: mpsc::Receiver<MusigAggNonce>,
     ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
 
-        let deposit_blockhash = self.rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+        let deposit_blockhash = self
+            .rpc
+            .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
+            .await?;
 
         tokio::spawn(async move {
             let mut session_map = verifier.nonces.lock().await;
@@ -474,12 +484,7 @@ where
             let mut sighash_stream = Box::pin(create_nofn_sighash_stream(
                 verifier.db.clone(),
                 verifier.config.clone(),
-                DepositData {
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
-                    nofn_xonly_pk: verifier.nofn_xonly_pk,
-                },
+                deposit_data,
                 deposit_blockhash,
                 false,
             ));
@@ -544,25 +549,21 @@ where
 
     pub async fn deposit_finalize(
         &self,
-        deposit_outpoint: OutPoint,
-        evm_address: EVMAddress,
-        recovery_taproot_address: Address<NetworkUnchecked>,
+        deposit_data: DepositData,
         session_id: u32,
         mut sig_receiver: mpsc::Receiver<Signature>,
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
     ) -> Result<MusigPartialSignature, BridgeError> {
-        let deposit_blockhash = self.rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
+        let deposit_blockhash = self
+            .rpc
+            .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
+            .await?;
 
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
-            DepositData {
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address: recovery_taproot_address.clone(),
-                nofn_xonly_pk: self.nofn_xonly_pk,
-            },
+            deposit_data.clone(),
             deposit_blockhash,
             true,
         ));
@@ -675,12 +676,7 @@ where
                 self.db.clone(),
                 operator_idx,
                 self.config.clone(),
-                DepositData {
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address: recovery_taproot_address.clone(),
-                    nofn_xonly_pk: self.nofn_xonly_pk,
-                },
+                deposit_data.clone(),
                 deposit_blockhash,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
@@ -745,15 +741,8 @@ where
         // ----- MOVE TX SIGNING
 
         // Generate partial signature for move transaction
-        let move_txhandler = create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            self.nofn_xonly_pk,
-            self.config.protocol_paramset().user_takes_after,
-            self.config.protocol_paramset().bridge_amount,
-            self.config.protocol_paramset().network,
-        )?;
+        let move_txhandler =
+            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?;
 
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
@@ -799,12 +788,7 @@ where
         self.db
             .set_deposit_data(
                 Some(&mut dbtx),
-                DepositData {
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address: recovery_taproot_address.clone(),
-                    nofn_xonly_pk: self.nofn_xonly_pk,
-                },
+                deposit_data.clone(),
                 *move_txhandler.get_txid(),
             )
             .await?;
@@ -831,7 +815,7 @@ where
                     self.db
                         .set_deposit_signatures(
                             Some(&mut dbtx),
-                            deposit_outpoint,
+                            deposit_data.get_deposit_outpoint(),
                             operator_idx,
                             round_idx,
                             *kickoff_idx,
@@ -849,7 +833,7 @@ where
 
     pub async fn set_operator_keys(
         &self,
-        deposit_id: DepositData,
+        deposit_data: DepositData,
         keys: OperatorKeys,
         operator_idx: u32,
     ) -> Result<(), BridgeError> {
@@ -884,7 +868,7 @@ where
             .set_operator_challenge_ack_hashes(
                 None,
                 operator_idx as i32,
-                deposit_id.deposit_outpoint,
+                deposit_data.get_deposit_outpoint(),
                 &hashes,
             )
             .await?;
@@ -935,72 +919,11 @@ where
             .set_bitvm_setup(
                 None,
                 operator_idx as i32,
-                deposit_id.deposit_outpoint,
+                deposit_data.get_deposit_outpoint(),
                 &assert_tx_addrs,
                 &root_hash_bytes,
             )
             .await?;
-
-        Ok(())
-    }
-
-    pub async fn set_watchtower_keys(
-        &self,
-        deposit_id: DepositData,
-        keys: WatchtowerKeys,
-        watchtower_idx: u32,
-    ) -> Result<(), BridgeError> {
-        let watchtower_xonly_pk = self
-            .db
-            .get_watchtower_xonly_pk(None, watchtower_idx)
-            .await?;
-
-        let winternitz_keys: Vec<winternitz::PublicKey> = keys
-            .winternitz_pubkeys
-            .into_iter()
-            .map(|x| x.try_into())
-            .collect::<Result<_, BridgeError>>()?;
-
-        for (operator_id, winternitz_key) in winternitz_keys.into_iter().enumerate() {
-            self.db
-                .set_watchtower_winternitz_public_keys(
-                    None,
-                    watchtower_idx,
-                    operator_id as u32,
-                    deposit_id.deposit_outpoint,
-                    &winternitz_key,
-                )
-                .await?;
-
-            let script = WinternitzCommit::new(
-                vec![(
-                    winternitz_key,
-                    self.config
-                        .protocol_paramset()
-                        .watchtower_challenge_message_length as u32,
-                )],
-                watchtower_xonly_pk,
-                self.config.protocol_paramset().winternitz_log_d,
-            )
-            .to_script_buf();
-
-            let taproot_builder = taproot_builder_with_scripts(&[script]);
-            let root_hash = taproot_builder
-                .try_into_taptree()
-                .expect("taproot builder always builds a full taptree")
-                .root_hash();
-            let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
-
-            self.db
-                .set_watchtower_challenge_hash(
-                    None,
-                    watchtower_idx,
-                    operator_id as u32,
-                    root_hash_bytes,
-                    deposit_id.deposit_outpoint,
-                )
-                .await?;
-        }
 
         Ok(())
     }
@@ -1031,7 +954,6 @@ where
 
         let transaction_data = TransactionRequestData {
             deposit_data: deposit_data.clone(),
-            transaction_type: TransactionType::AllNeededForDeposit,
             kickoff_id,
         };
         let signed_txs = create_and_sign_txs(
@@ -1049,7 +971,7 @@ where
             verifier_idx: Some(self.idx as u32),
             round_idx: Some(kickoff_id.round_idx),
             kickoff_idx: Some(kickoff_id.kickoff_idx),
-            deposit_outpoint: Some(deposit_data.deposit_outpoint),
+            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
         });
 
         // self._rpc.client.import_descriptors(vec!["tr("])
@@ -1097,16 +1019,7 @@ where
 
         let raw_challenge_tx = watchtower
             .internal_create_watchtower_challenge(TransactionRequest {
-                deposit_params: Some(DepositParams {
-                    deposit_outpoint: Some(deposit_data.deposit_outpoint.into()),
-                    evm_address: deposit_data.evm_address.0.to_vec(),
-                    recovery_taproot_address: deposit_data
-                        .recovery_taproot_address
-                        .assume_checked()
-                        .to_string(),
-                    nofn_xonly_pk: deposit_data.nofn_xonly_pk.serialize().to_vec(),
-                }),
-                transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
+                deposit_params: Some(deposit_data.clone().into()),
                 kickoff_id: Some(kickoff_id),
             })
             .await
@@ -1128,7 +1041,7 @@ where
                     verifier_idx: Some(self.idx as u32),
                     round_idx: Some(kickoff_id.round_idx),
                     kickoff_idx: Some(kickoff_id.kickoff_idx),
-                    deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                 }),
                 &self.config,
             )
@@ -1276,7 +1189,7 @@ where
             } => {
                 tracing::warn!(
                     "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                    payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash);
+                    payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
             }
             Duty::CheckIfKickoff {
                 txid,

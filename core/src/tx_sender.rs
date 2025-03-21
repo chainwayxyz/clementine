@@ -921,7 +921,6 @@ impl TxSenderClient {
             | TransactionType::Reimburse
             | TransactionType::Round
             | TransactionType::OperatorChallengeNack(_)
-            | TransactionType::WatchtowerChallenge(_)
             | TransactionType::UnspentKickoff(_)
             | TransactionType::Payout
             | TransactionType::MoveToVault
@@ -929,7 +928,8 @@ impl TxSenderClient {
             | TransactionType::Disprove
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
-            | TransactionType::MiniAssert(_) => {
+            | TransactionType::MiniAssert(_)
+            | TransactionType::WatchtowerChallenge(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
                     dbtx,
@@ -1015,9 +1015,12 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::AllNeededForDeposit => unreachable!(),
-            TransactionType::ReadyToReimburse => unimplemented!(),
-            TransactionType::YieldKickoffTxid => unreachable!(),
+            TransactionType::AllNeededForDeposit | TransactionType::YieldKickoffTxid => {
+                unreachable!()
+            }
+            TransactionType::ReadyToReimburse
+            | TransactionType::BaseDeposit
+            | TransactionType::ReplacementDeposit => unimplemented!(),
         }
     }
 }
@@ -1050,7 +1053,7 @@ mod tests {
         let network = bitcoin::Network::Regtest;
         let actor = Actor::new(sk, None, network);
 
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
 
         let db = Database::new(&config).await.unwrap();
 
@@ -1129,7 +1132,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_try_to_send() -> Result<(), BridgeError> {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
@@ -1245,7 +1248,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_fee_rate() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc: ExtendedRpc = regtest.rpc().clone();
         let db = Database::new(&config).await.unwrap();

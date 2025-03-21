@@ -227,6 +227,16 @@ impl_bytea_wrapper_custom!(
     }
 );
 
+use crate::rpc::clementine::DepositParams;
+impl_bytea_wrapper_custom!(
+    DepositParamsDB,
+    DepositParams,
+    |deposit_params: &DepositParams| { deposit_params.encode_to_vec() },
+    |x: &[u8]| -> Result<DepositParams, BoxDynError> {
+        DepositParams::decode(x).map_err(Into::into)
+    }
+);
+
 impl_bytea_wrapper_custom!(
     ScriptBufDB,
     ScriptBuf,
@@ -288,7 +298,7 @@ mod tests {
         ($db_type:ty, $inner:ty, $db_wrapper:expr, $table_name:expr, $column_type:expr) => {
             let db_wrapper = $db_wrapper;
 
-            let config = create_test_config_with_thread_name(None).await;
+            let config = create_test_config_with_thread_name().await;
             let database = Database::new(&config).await.unwrap();
 
             // Create table if it doesn't exist

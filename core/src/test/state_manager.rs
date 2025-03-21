@@ -20,7 +20,7 @@ async fn create_test_state_manager(
 }
 
 async fn create_test_config() -> BridgeConfig {
-    let config = create_test_config_with_thread_name(Some("state_manager_test")).await;
+    let config = create_test_config_with_thread_name().await;
     initialize_database(&config).await;
     config
 }

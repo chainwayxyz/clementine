@@ -6,9 +6,7 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
-use crate::builder::transaction::sign::{
-    create_and_sign_txs, AssertRequestData, TransactionRequestData,
-};
+use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
@@ -73,15 +71,28 @@ where
 {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let paramset = config.protocol_paramset();
-        let operator = Operator::new(config).await?;
+        let operator = Operator::new(config.clone()).await?;
         let mut background_tasks = BackgroundTaskManager::default();
 
         // initialize and run state manager
         let state_manager =
             StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
 
-        background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-        background_tasks.loop_and_monitor(state_manager.into_task());
+        let should_run_state_mgr = {
+            #[cfg(test)]
+            {
+                config.test_params.should_run_state_manager
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        };
+
+        if should_run_state_mgr {
+            background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+            background_tasks.loop_and_monitor(state_manager.into_task());
+        }
 
         // run payout checker task
         background_tasks.loop_and_monitor(
@@ -294,7 +305,7 @@ where
 
         let deposit_blockhash = self
             .rpc
-            .get_blockhash_of_tx(&deposit_data.deposit_outpoint.txid)
+            .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await?;
 
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
@@ -660,7 +671,6 @@ where
 
         let transaction_data = TransactionRequestData {
             deposit_data,
-            transaction_type: TransactionType::AllNeededForDeposit,
             kickoff_id,
         };
         let signed_txs = create_and_sign_txs(
@@ -919,11 +929,11 @@ where
         &self,
         kickoff_id: KickoffId,
         deposit_data: DepositData,
-        _watchtower_challenges: HashMap<usize, Witness>,
+        _watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
     ) -> Result<(), BridgeError> {
         let assert_txs = self
-            .create_assert_commitment_txs(AssertRequestData {
+            .create_assert_commitment_txs(TransactionRequestData {
                 kickoff_id,
                 deposit_data: deposit_data.clone(),
             })
@@ -942,7 +952,7 @@ where
                         verifier_idx: None,
                         round_idx: Some(kickoff_id.round_idx),
                         kickoff_idx: Some(kickoff_id.kickoff_idx),
-                        deposit_outpoint: Some(deposit_data.deposit_outpoint),
+                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     &self.config,
                 )
@@ -1008,7 +1018,7 @@ where
                 payout_blockhash,
             } => {
                 tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash);
+                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
             }
             Duty::CheckIfKickoff {
                 txid,
@@ -1082,7 +1092,7 @@ mod tests {
     use bitcoin::Txid;
     // #[tokio::test]
     // async fn set_funding_utxo() {
-    //     let mut config = create_test_config_with_thread_name(None).await;
+    //     let mut config = create_test_config_with_thread_name().await;
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -1115,7 +1125,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn is_profitable() {
-    //     let mut config = create_test_config_with_thread_name(None).await;
+    //     let mut config = create_test_config_with_thread_name().await;
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -1152,7 +1162,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::<MockCitreaClient>::new(config.clone())
@@ -1171,7 +1181,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::<MockCitreaClient>::new(config.clone())
@@ -1186,7 +1196,7 @@ mod tests {
 
     #[tokio::test]
     async fn operator_get_params() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
         let operator = Operator::<MockCitreaClient>::new(config.clone())

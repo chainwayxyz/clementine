@@ -109,6 +109,24 @@ pub enum BridgeError {
     // Base wrapper for eyre
     #[error("{0:?}")]
     Eyre(#[from] eyre::Report),
+
+    #[error("Error while calling EVM contract: {0}")]
+    AlloyContract(#[from] alloy::contract::Error),
+    #[error("Error while calling EVM RPC function: {0}")]
+    AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
+    #[error("Error while encoding/decoding EVM type: {0}")]
+    AlloySolTypes(#[from] alloy::sol_types::Error),
+
+    #[error("User's withdrawal UTXO not set for withdrawal index: {0}")]
+    UsersWithdrawalUtxoNotSetForWithdrawalIndex(u32),
+
+    #[error("Environment variable {1}: {0}")]
+    EnvVarNotSet(std::env::VarError, &'static str),
+    #[error("Environment variable {0} is malformed: {1}")]
+    EnvVarMalformed(&'static str, String),
+
+    #[error("{0}")]
+    TonicStatus(#[from] tonic::Status),
 }
 
 impl BridgeError {

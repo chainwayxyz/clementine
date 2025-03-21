@@ -1,16 +1,19 @@
+use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use std::fs;
+use std::str::FromStr;
 use std::sync::Arc;
-
-use crate::errors::BridgeError;
 
 pub const BLOCKS_PER_HOUR: u16 = 6;
 
 pub const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
 
 pub const BLOCKS_PER_WEEK: u16 = BLOCKS_PER_DAY * 7;
+
+pub const WATCHTOWER_CHALLENGE_BYTES: usize = 144;
 
 /// This is the log_d used across the codebase.
 ///
@@ -30,11 +33,50 @@ pub enum ProtocolParamsetName {
     Signet,
 }
 
+impl FromStr for ProtocolParamsetName {
+    type Err = BridgeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "mainnet" => Ok(ProtocolParamsetName::Mainnet),
+            "regtest" => Ok(ProtocolParamsetName::Regtest),
+            "testnet4" => Ok(ProtocolParamsetName::Testnet4),
+            "signet" => Ok(ProtocolParamsetName::Signet),
+            _ => Err(BridgeError::ConfigError(format!(
+                "Unknown paramset name: {}",
+                s
+            ))),
+        }
+    }
+}
+
+impl Display for ProtocolParamsetName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProtocolParamsetName::Mainnet => write!(f, "mainnet"),
+            ProtocolParamsetName::Regtest => write!(f, "regtest"),
+            ProtocolParamsetName::Testnet4 => write!(f, "testnet4"),
+            ProtocolParamsetName::Signet => write!(f, "signet"),
+        }
+    }
+}
+
 impl From<ProtocolParamsetName> for &'static ProtocolParamset {
     fn from(name: ProtocolParamsetName) -> Self {
-        if std::env::var("PROTOCOL_CONFIG_PATH").is_ok() {
+        let from_env = ProtocolParamset::from_env();
+        if from_env.is_ok() {
+            tracing::info!("Using protocol params from env...");
+            return &ENV_PARAMSET;
+        }
+        tracing::info!("Can't read protocol params from env: {from_env:?}. Trying to read from external config...");
+
+        let from_external_config = std::env::var("PROTOCOL_CONFIG_PATH");
+        if from_external_config.is_ok() {
+            tracing::info!("Using protocol params from external config file...");
             return &RUNTIME_PARAMSET;
         }
+        tracing::info!("Can't read protocol params from external config file: {from_external_config:?}. Using config file's value...");
+
         match name {
             ProtocolParamsetName::Mainnet => &MAINNET_PARAMSET,
             ProtocolParamsetName::Regtest => &REGTEST_PARAMSET,
@@ -74,8 +116,6 @@ pub struct ProtocolParamset {
     pub collateral_funding_amount: Amount,
     /// Length of the blockhash commitment in kickoff transactions.
     pub kickoff_blockhash_commit_length: u32,
-    /// Length of the message used in watchtower challenge transactions.
-    pub watchtower_challenge_message_length: usize,
     /// Winternitz derivation log_d (shared for all WOTS commitments)
     ///
     /// Currently used in statics and thus cannot be different from [`WINTERNITZ_LOG_D`].
@@ -116,7 +156,6 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_message_length: 380,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 3,
     user_takes_after: 200,
@@ -142,7 +181,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_message_length: 380,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 3,
     user_takes_after: 200,
@@ -168,7 +206,6 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_message_length: 380,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 3,
     user_takes_after: 200,
@@ -194,7 +231,6 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_message_length: 380,
     winternitz_log_d: WINTERNITZ_LOG_D,
     num_watchtowers: 3,
     user_takes_after: 200,
@@ -221,6 +257,18 @@ lazy_static! {
                 eprintln!(
                     "Failed to load protocol params from {}: {}. Using regtest defaults.",
                     config_path, e
+                );
+                Arc::new(REGTEST_PARAMSET)
+            }
+        }
+    };
+    pub static ref ENV_PARAMSET: Arc<ProtocolParamset> = {
+        match ProtocolParamset::from_env() {
+            Ok(params) => Arc::new(params),
+            Err(e) => {
+                eprintln!(
+                    "Failed to load protocol params from env: {}. Using regtest defaults.",
+                    e
                 );
                 Arc::new(REGTEST_PARAMSET)
             }

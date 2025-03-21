@@ -1,8 +1,7 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, PartialSig, SignedTxWithType, SignedTxsWithType, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerKeysWithDeposit,
-    WatchtowerParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use super::error;
 use super::parser::ParserError;
@@ -160,8 +159,7 @@ where
         // Send incoming data to deposit sign job.
         tokio::spawn(async move {
             let params = fetch_next_message_from_stream!(in_stream, params)?;
-            let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params
-            {
+            let (deposit_data, session_id) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
                 ) => parser::verifier::parse_deposit_sign_session(
@@ -171,12 +169,7 @@ where
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
             param_tx
-                .send((
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
-                    session_id,
-                ))
+                .send((deposit_data, session_id))
                 .await
                 .map_err(error::output_stream_ended_prematurely)?;
 
@@ -201,19 +194,13 @@ where
 
         // Start partial sig job and return partial sig responses.
         tokio::spawn(async move {
-            let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = param_rx
+            let (deposit_data, session_id) = param_rx
                 .recv()
                 .await
                 .ok_or(error::expected_msg_got_none("parameters")())?;
 
             let mut partial_sig_receiver = verifier
-                .deposit_sign(
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
-                    session_id,
-                    agg_nonce_rx,
-                )
+                .deposit_sign(deposit_data, session_id, agg_nonce_rx)
                 .await?;
 
             let mut nonce_idx = 0;
@@ -263,7 +250,7 @@ where
         let (operator_sig_tx, operator_sig_rx) = mpsc::channel(1280);
 
         let params = fetch_next_message_from_stream!(in_stream, params)?;
-        let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params {
+        let (deposit_data, session_id) = match params {
             Params::DepositSignFirstParam(deposit_sign_session) => {
                 parser::verifier::parse_deposit_sign_session(
                     deposit_sign_session,
@@ -282,9 +269,7 @@ where
         let deposit_finalize_handle = tokio::spawn(async move {
             verifier
                 .deposit_finalize(
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
+                    deposit_data,
                     session_id,
                     sig_rx,
                     agg_nonce_rx,
@@ -391,20 +376,6 @@ where
             parser::verifier::parse_op_keys_with_deposit(data)?;
         self.verifier
             .set_operator_keys(deposit_params, op_keys, operator_idx)
-            .await?;
-        Ok(Response::new(Empty {}))
-    }
-
-    async fn set_watchtower_keys(
-        &self,
-        request: Request<WatchtowerKeysWithDeposit>,
-    ) -> Result<Response<Empty>, Status> {
-        let data = request.into_inner();
-        let (deposit_params, wt_keys, watchtower_idx) =
-            parser::verifier::parse_wt_keys_with_deposit(data)?;
-
-        self.verifier
-            .set_watchtower_keys(deposit_params, wt_keys, watchtower_idx)
             .await?;
         Ok(Response::new(Empty {}))
     }

@@ -165,7 +165,8 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
             }): Option<Message<SystemEvent>> = self
                 .inner
                 .queue
-                .read_with_cxn(&self.queue_name, 1, &mut *dbtx)
+                // 2nd param of read_with_cxn is the visibility timeout, set to 0 as we only have 1 consumer of the queue, which is the state machine
+                .read_with_cxn(&self.queue_name, 0, &mut *dbtx)
                 .await
                 .wrap_err("Reading event from queue")?
             else {
@@ -281,7 +282,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_state_manager() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let (handle, shutdown) = create_state_manager(&mut config).await;
 
         drop(shutdown);
@@ -295,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_state_mgr_does_not_shutdown() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let (handle, shutdown) = create_state_manager(&mut config).await;
 
         timeout(Duration::from_secs(1), handle).await.expect_err(

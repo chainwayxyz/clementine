@@ -18,10 +18,24 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
 
+pub mod env;
 pub mod protocol;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TestParams {
+    pub should_run_state_manager: bool,
+}
+
+impl Default for TestParams {
+    fn default() -> Self {
+        Self {
+            should_run_state_manager: true,
+        }
+    }
+}
+
 /// Configuration options for any Clementine target (tests, binaries etc.).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BridgeConfig {
     /// Protocol paramset name
     /// One of:
@@ -94,6 +108,10 @@ pub struct BridgeConfig {
     pub all_operators_secret_keys: Option<Vec<SecretKey>>,
     /// All Secret keys. Just for testing purposes.
     pub all_watchtowers_secret_keys: Option<Vec<SecretKey>>,
+
+    #[cfg(test)]
+    #[serde(skip)]
+    pub test_params: TestParams,
 }
 
 impl BridgeConfig {
@@ -257,6 +275,9 @@ impl Default for BridgeConfig {
             verifier_endpoints: None,
             operator_endpoints: None,
             watchtower_endpoints: None,
+
+            #[cfg(test)]
+            test_params: TestParams::default(),
         }
     }
 }

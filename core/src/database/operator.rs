@@ -4,8 +4,7 @@
 
 use super::{
     wrapper::{
-        AddressDB, EVMAddressDB, OutPointDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
-        XOnlyPublicKeyDB,
+        DepositParamsDB, OutPointDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB,
     },
     Database, DatabaseTransaction,
 };
@@ -291,10 +290,10 @@ impl Database {
 
         let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        let watchtower_winternitz_public_keys: Vec<winternitz::PublicKey> =
+        let operator_winternitz_pks: Vec<winternitz::PublicKey> =
             borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
 
-        Ok(watchtower_winternitz_public_keys)
+        Ok(operator_winternitz_pks)
     }
 
     /// Sets public hashes for a specific operator, sequential collateral tx and
@@ -374,20 +373,16 @@ impl Database {
         move_to_vault_txid: Txid,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_as(
-            "INSERT INTO deposits (deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk, move_to_vault_txid)
-                VALUES ($1, $2, $3, $4, $5)
+            "INSERT INTO deposits (deposit_outpoint, deposit_params, move_to_vault_txid)
+                VALUES ($1, $2, $3)
                 ON CONFLICT (deposit_outpoint) DO UPDATE
-                SET recovery_taproot_address = EXCLUDED.recovery_taproot_address,
-                    evm_address = EXCLUDED.evm_address,
-                    nofn_xonly_pk = EXCLUDED.nofn_xonly_pk,
+                SET deposit_params = EXCLUDED.deposit_params,
                     move_to_vault_txid = EXCLUDED.move_to_vault_txid
                 RETURNING deposit_id;
             ",
         )
-        .bind(OutPointDB(deposit_data.deposit_outpoint))
-        .bind(AddressDB(deposit_data.recovery_taproot_address))
-        .bind(EVMAddressDB(deposit_data.evm_address))
-        .bind(XOnlyPublicKeyDB(deposit_data.nofn_xonly_pk))
+        .bind(OutPointDB(deposit_data.get_deposit_outpoint()))
+        .bind(DepositParamsDB(deposit_data.into()))
         .bind(TxidDB(move_to_vault_txid));
 
         let deposit_id: Result<(i32,), sqlx::Error> =
@@ -401,21 +396,21 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         move_to_vault_txid: Txid,
     ) -> Result<Option<DepositData>, BridgeError> {
-        let query = sqlx::query_as("SELECT deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk FROM deposits WHERE move_to_vault_txid = $1;")
-            .bind(TxidDB(move_to_vault_txid));
+        let query = sqlx::query_as::<_, (DepositParamsDB,)>(
+            "SELECT deposit_params FROM deposits WHERE move_to_vault_txid = $1;",
+        )
+        .bind(TxidDB(move_to_vault_txid));
 
-        let result: Option<(OutPointDB, AddressDB, EVMAddressDB, XOnlyPublicKeyDB)> =
+        let result: Option<(DepositParamsDB,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk)) => {
-                Ok(Some(DepositData {
-                    deposit_outpoint: deposit_outpoint.0,
-                    recovery_taproot_address: recovery_taproot_address.0,
-                    evm_address: evm_address.0,
-                    nofn_xonly_pk: nofn_xonly_pk.0,
-                }))
-            }
+            Some((deposit_params,)) => Ok(Some(
+                deposit_params
+                    .0
+                    .try_into()
+                    .map_err(|e| eyre::eyre!("Invalid deposit params {e}"))?,
+            )),
             None => Ok(None),
         }
     }
@@ -425,27 +420,21 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<(u32, DepositData)>, BridgeError> {
-        let query = sqlx::query_as("SELECT deposit_id, deposit_outpoint, recovery_taproot_address, evm_address, nofn_xonly_pk FROM deposits WHERE deposit_outpoint = $1;")
-            .bind(OutPointDB(deposit_outpoint));
+        let query = sqlx::query_as(
+            "SELECT deposit_id, deposit_params FROM deposits WHERE deposit_outpoint = $1;",
+        )
+        .bind(OutPointDB(deposit_outpoint));
 
-        let result: Option<(i32, OutPointDB, AddressDB, EVMAddressDB, XOnlyPublicKeyDB)> =
+        let result: Option<(i32, DepositParamsDB)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((
-                deposit_id,
-                deposit_outpoint,
-                recovery_taproot_address,
-                evm_address,
-                nofn_xonly_pk,
-            )) => Ok(Some((
+            Some((deposit_id, deposit_params)) => Ok(Some((
                 u32::try_from(deposit_id).wrap_err("Failed to convert deposit id to u32")?,
-                DepositData {
-                    deposit_outpoint: deposit_outpoint.0,
-                    recovery_taproot_address: recovery_taproot_address.0,
-                    evm_address: evm_address.0,
-                    nofn_xonly_pk: nofn_xonly_pk.0,
-                },
+                deposit_params
+                    .0
+                    .try_into()
+                    .map_err(|e| eyre::eyre!("Invalid deposit params {e}"))?,
             ))),
             None => Ok(None),
         }
@@ -542,33 +531,19 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         kickoff_txid: Txid,
     ) -> Result<Option<(DepositData, KickoffId, Vec<TaggedSignature>)>, BridgeError> {
-        let query = sqlx::query_as::<_, (OutPointDB, AddressDB, EVMAddressDB, XOnlyPublicKeyDB, i32, i32, i32, SignaturesDB)>(
-            "SELECT d.deposit_outpoint, d.recovery_taproot_address, d.evm_address, d.nofn_xonly_pk, ds.operator_idx, ds.round_idx, ds.kickoff_idx, ds.signatures
+        let query = sqlx::query_as::<_, (DepositParamsDB, i32, i32, i32, SignaturesDB)>(
+            "SELECT d.deposit_params, ds.operator_idx, ds.round_idx, ds.kickoff_idx, ds.signatures
              FROM deposit_signatures ds
              INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
-             WHERE ds.kickoff_txid = $1;"
+             WHERE ds.kickoff_txid = $1;",
         )
         .bind(TxidDB(kickoff_txid));
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((
-                deposit_outpoint,
-                recovery_taproot_address,
-                evm_address,
-                nofn_xonly_pk,
-                operator_idx,
-                round_idx,
-                kickoff_idx,
-                signatures,
-            )) => Ok(Some((
-                DepositData {
-                    deposit_outpoint: deposit_outpoint.0,
-                    recovery_taproot_address: recovery_taproot_address.0,
-                    evm_address: evm_address.0,
-                    nofn_xonly_pk: nofn_xonly_pk.0,
-                },
+            Some((deposit_params, operator_idx, round_idx, kickoff_idx, signatures)) => Ok(Some((
+                deposit_params.0.try_into()?,
                 KickoffId {
                     operator_idx: u32::try_from(operator_idx)
                         .wrap_err("Failed to convert operator idx to u32")?,
@@ -818,7 +793,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn save_get_operators() {
-    //     let config = create_test_config_with_thread_name(None).await;
+    //     let config = create_test_config_with_thread_name().await;
     //     let database = Database::new(&config).await.unwrap();
     //     let mut ops = Vec::new();
     //     for i in 0..2 {
@@ -863,7 +838,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_get_public_hashes() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;
@@ -903,7 +878,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_get_unspent_kickoff_sigs() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0x45;
@@ -956,7 +931,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_funding_utxo_1() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
         let utxo = UTXO {
@@ -978,7 +953,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_funding_utxo_2() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
         let db_utxo = db.get_funding_utxo(None).await.unwrap();
@@ -988,7 +963,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_get_bitvm_setup() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;
@@ -1040,7 +1015,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_operator_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name(None).await;
+        let mut config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
         let _regtest = create_regtest_rpc(&mut config).await;
 
@@ -1069,7 +1044,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_get_deposit_signatures() {
-        let config = create_test_config_with_thread_name(None).await;
+        let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0x45;
