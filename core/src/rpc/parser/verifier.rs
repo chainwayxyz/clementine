@@ -6,7 +6,6 @@ use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
     nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
     OperatorKeys, OperatorKeysWithDeposit, PartialSig, VerifierDepositSignParams, VerifierParams,
-    WatchtowerKeys, WatchtowerKeysWithDeposit,
 };
 use crate::verifier::Verifier;
 use crate::{
@@ -38,11 +37,6 @@ where
             num_verifiers: convert_int_to_another(
                 "num_verifiers",
                 verifier.config.num_verifiers,
-                u32::try_from,
-            )?,
-            num_watchtowers: convert_int_to_another(
-                "num_watchtowers",
-                verifier.config.protocol_paramset().num_watchtowers,
                 u32::try_from,
             )?,
             num_operators: convert_int_to_another(
@@ -240,20 +234,4 @@ pub async fn parse_nonce_gen_first_response(
     } else {
         Err(Status::invalid_argument("Expected first_response"))
     }
-}
-
-pub fn parse_wt_keys_with_deposit(
-    data: WatchtowerKeysWithDeposit,
-) -> Result<(DepositData, WatchtowerKeys, u32), Status> {
-    let deposit_params = data
-        .deposit_params
-        .ok_or(Status::invalid_argument("deposit_params is empty"))?;
-
-    let deposit_data: DepositData = deposit_params.try_into()?;
-
-    let watchtower_keys = data
-        .watchtower_keys
-        .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
-
-    Ok((deposit_data, watchtower_keys, data.watchtower_idx))
 }

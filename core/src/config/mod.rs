@@ -18,9 +18,10 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
 
+pub mod env;
 pub mod protocol;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestParams {
     pub should_run_state_manager: bool,
 }
@@ -34,7 +35,7 @@ impl Default for TestParams {
 }
 
 /// Configuration options for any Clementine target (tests, binaries etc.).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BridgeConfig {
     /// Protocol paramset name
     /// One of:
@@ -89,15 +90,10 @@ pub struct BridgeConfig {
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
 
-    // Trusted Watchtower endpoint
-    pub trusted_watchtower_endpoint: Option<String>,
-
     /// Verifier endpoints. For the aggregator only
     pub verifier_endpoints: Option<Vec<String>>,
     /// Operator endpoint. For the aggregator only
     pub operator_endpoints: Option<Vec<String>>,
-    /// Watchtower endpoint. For the aggregator only
-    pub watchtower_endpoints: Option<Vec<String>>,
 
     // /// Directory containing unix sockets
     // pub socket_path: String,
@@ -105,8 +101,6 @@ pub struct BridgeConfig {
     pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
     /// All Secret keys. Just for testing purposes.
     pub all_operators_secret_keys: Option<Vec<SecretKey>>,
-    /// All Secret keys. Just for testing purposes.
-    pub all_watchtowers_secret_keys: Option<Vec<SecretKey>>,
 
     #[cfg(test)]
     #[serde(skip)]
@@ -219,8 +213,6 @@ impl Default for BridgeConfig {
                 PathBuf::from_str("../core/tests/data/first_1.bin").expect("known valid input"),
             ),
 
-            trusted_watchtower_endpoint: None,
-
             all_verifiers_secret_keys: Some(vec![
                 SecretKey::from_str(
                     "1111111111111111111111111111111111111111111111111111111111111111",
@@ -249,20 +241,6 @@ impl Default for BridgeConfig {
                 )
                 .expect("known valid input"),
             ]),
-            all_watchtowers_secret_keys: Some(vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "3333333333333333333333333333333333333333333333333333333333333333",
-                )
-                .expect("known valid input"),
-            ]),
 
             winternitz_secret_key: Some(
                 SecretKey::from_str(
@@ -273,7 +251,6 @@ impl Default for BridgeConfig {
             // socket_path: "/".to_string(),
             verifier_endpoints: None,
             operator_endpoints: None,
-            watchtower_endpoints: None,
 
             #[cfg(test)]
             test_params: TestParams::default(),

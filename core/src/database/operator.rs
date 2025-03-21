@@ -288,10 +288,10 @@ impl Database {
 
         let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        let watchtower_winternitz_public_keys: Vec<winternitz::PublicKey> =
+        let operator_winternitz_pks: Vec<winternitz::PublicKey> =
             borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
 
-        Ok(watchtower_winternitz_public_keys)
+        Ok(operator_winternitz_pks)
     }
 
     /// Sets public hashes for a specific operator, sequential collateral tx and

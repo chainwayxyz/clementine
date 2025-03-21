@@ -20,13 +20,20 @@ The repository includes:
 Clementine requires a Bitcoin node up and running. Please install and configure
 Bitcoin Core if you haven't already.
 
-### Preparing a Configuration File
+### Preparing a Configuration File or Using Environment Variables to Configure Clementine
 
 Running the binary as a verifier, aggregator, operator or watchtower requires a
 configuration file. An example configuration file is located at
 [`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
+
+It is also possible to use environment variables, instead of a configuration
+file. [`.env.example`] file can be taken as a reference for this matter.
+
+Please note that configuration file and environment variables can't be mix used.
+If all the environment variables are specified, configuration file will be
+omitted even if it's given.
 
 ### Starting a Server
 

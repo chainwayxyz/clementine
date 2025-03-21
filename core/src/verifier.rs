@@ -2,7 +2,6 @@ use crate::actor::Actor;
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::address::taproot_builder_with_scripts;
-use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
@@ -21,12 +20,7 @@ use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
-use crate::rpc;
-use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
-use crate::rpc::clementine::{
-    KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature, TransactionRequest,
-    WatchtowerKeys,
-};
+use crate::rpc::clementine::{KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
@@ -411,19 +405,6 @@ where
         .await?;
 
         dbtx.commit().await?;
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self, xonly_pk), fields(verifier_idx = self.idx), ret)]
-    pub async fn set_watchtower(
-        &self,
-        watchtower_idx: u32,
-        xonly_pk: XOnlyPublicKey,
-    ) -> Result<(), BridgeError> {
-        self.db
-            .set_watchtower_xonly_pk(None, watchtower_idx, &xonly_pk)
-            .await?;
 
         Ok(())
     }
@@ -922,67 +903,6 @@ where
         Ok(())
     }
 
-    pub async fn set_watchtower_keys(
-        &self,
-        deposit_id: DepositData,
-        keys: WatchtowerKeys,
-        watchtower_idx: u32,
-    ) -> Result<(), BridgeError> {
-        let watchtower_xonly_pk = self
-            .db
-            .get_watchtower_xonly_pk(None, watchtower_idx)
-            .await?;
-
-        let winternitz_keys: Vec<winternitz::PublicKey> = keys
-            .winternitz_pubkeys
-            .into_iter()
-            .map(|x| x.try_into())
-            .collect::<Result<_, BridgeError>>()?;
-
-        for (operator_id, winternitz_key) in winternitz_keys.into_iter().enumerate() {
-            self.db
-                .set_watchtower_winternitz_public_keys(
-                    None,
-                    watchtower_idx,
-                    operator_id as u32,
-                    deposit_id.get_deposit_outpoint(),
-                    &winternitz_key,
-                )
-                .await?;
-
-            let script = WinternitzCommit::new(
-                vec![(
-                    winternitz_key,
-                    self.config
-                        .protocol_paramset()
-                        .watchtower_challenge_message_length as u32,
-                )],
-                watchtower_xonly_pk,
-                self.config.protocol_paramset().winternitz_log_d,
-            )
-            .to_script_buf();
-
-            let taproot_builder = taproot_builder_with_scripts(&[script]);
-            let root_hash = taproot_builder
-                .try_into_taptree()
-                .expect("taproot builder always builds a full taptree")
-                .root_hash();
-            let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
-
-            self.db
-                .set_watchtower_challenge_hash(
-                    None,
-                    watchtower_idx,
-                    operator_id as u32,
-                    root_hash_bytes,
-                    deposit_id.get_deposit_outpoint(),
-                )
-                .await?;
-        }
-
-        Ok(())
-    }
-
     // TODO: #402
     async fn is_kickoff_malicious(
         &self,
@@ -1009,7 +929,6 @@ where
 
         let transaction_data = TransactionRequestData {
             deposit_data: deposit_data.clone(),
-            transaction_type: TransactionType::AllNeededForDeposit,
             kickoff_id,
         };
         let signed_txs = create_and_sign_txs(
@@ -1062,36 +981,24 @@ where
         kickoff_id: KickoffId,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let watchtower_endpoint = self.config.trusted_watchtower_endpoint.clone();
-        if watchtower_endpoint.is_none() {
-            tracing::error!("No watchtower endpoint provided, cannot send challenge");
-            return Ok(());
-        }
-        let watchtower_endpoint =
-            watchtower_endpoint.expect("Watchtower endpoint must be provided");
-        let mut watchtower =
-            rpc::get_clients(vec![watchtower_endpoint], ClementineWatchtowerClient::new).await?[0]
-                .clone();
-
-        let raw_challenge_tx = watchtower
-            .internal_create_watchtower_challenge(TransactionRequest {
-                deposit_params: Some(deposit_data.clone().into()),
-                transaction_type: Some(TransactionType::WatchtowerChallenge(self.idx).into()),
-                kickoff_id: Some(kickoff_id),
-            })
-            .await?
-            .into_inner()
-            .raw_tx;
-        let challenge_tx = bitcoin::consensus::deserialize(&raw_challenge_tx)?;
+        let (tx_type, challenge_tx) = self
+            .create_and_sign_watchtower_challenge(
+                TransactionRequestData {
+                    deposit_data: deposit_data.clone(),
+                    kickoff_id,
+                },
+                &vec![0u8; self.config.protocol_paramset().watchtower_challenge_bytes], // dummy challenge
+            )
+            .await?;
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
                 &mut dbtx,
-                TransactionType::WatchtowerChallenge(self.idx),
+                tx_type,
                 &challenge_tx,
                 &[],
                 Some(TxMetadata {
-                    tx_type: TransactionType::WatchtowerChallenge(self.idx),
+                    tx_type,
                     operator_idx: None,
                     verifier_idx: Some(self.idx as u32),
                     round_idx: Some(kickoff_id.round_idx),

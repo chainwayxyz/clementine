@@ -865,7 +865,6 @@ impl TxSenderClient {
             | TransactionType::Reimburse
             | TransactionType::Round
             | TransactionType::OperatorChallengeNack(_)
-            | TransactionType::WatchtowerChallenge(_)
             | TransactionType::UnspentKickoff(_)
             | TransactionType::Payout
             | TransactionType::MoveToVault
@@ -873,7 +872,8 @@ impl TxSenderClient {
             | TransactionType::Disprove
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
-            | TransactionType::MiniAssert(_) => {
+            | TransactionType::MiniAssert(_)
+            | TransactionType::WatchtowerChallenge(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
                     dbtx,

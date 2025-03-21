@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::{OutPoint, Witness};
+use bitcoin::{OutPoint, Transaction, Witness};
 use eyre::Report;
 use serde_with::serde_as;
 use statig::prelude::*;
 
 use crate::{
     builder::transaction::{
+        input::{get_challenge_ack_vout, get_watchtower_challenge_utxo_vout},
         remove_txhandler_from_map, ContractContext, DepositData, TransactionType,
     },
     errors::BridgeError,
@@ -66,7 +67,7 @@ pub struct KickoffStateMachine<T: Owner> {
     kickoff_height: u32,
     payout_blockhash: Witness,
     spent_watchtower_utxos: HashSet<usize>,
-    watchtower_challenges: HashMap<usize, Witness>,
+    watchtower_challenges: HashMap<usize, Transaction>,
     operator_asserts: HashMap<usize, Witness>,
     operator_challenge_acks: HashMap<usize, Witness>,
     phantom: std::marker::PhantomData<T>,
@@ -162,7 +163,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent, its safe to send asserts
-                    if self.spent_watchtower_utxos.len() == context.paramset.num_watchtowers {
+                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_verifiers() {
                         context
                             .owner
                             .handle_duty(Duty::SendOperatorAsserts {
@@ -297,12 +298,13 @@ impl<T: Owner> KickoffStateMachine<T> {
                 challenge_outpoint,
             } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                let witness = context
+                let tx = context
                     .cache
-                    .get_witness_of_utxo(challenge_outpoint)
+                    .get_tx_of_utxo(challenge_outpoint)
                     .expect("Challenge outpoint that got matched should be in block");
                 // save challenge witness
-                self.watchtower_challenges.insert(*watchtower_idx, witness);
+                self.watchtower_challenges
+                    .insert(*watchtower_idx, tx.clone());
                 self.check_if_time_to_send_asserts(context).await;
                 Handled
             }
@@ -423,10 +425,10 @@ impl<T: Owner> KickoffStateMachine<T> {
             );
         }
         // add watchtower challenges and challenge acks
-        for watchtower_idx in 0..context.paramset.num_watchtowers {
+        for watchtower_idx in 0..self.deposit_data.get_num_verifiers() {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
-            let watchtower_challenge_vout = 4 + num_asserts + watchtower_idx * 2;
+            let watchtower_challenge_vout = get_watchtower_challenge_utxo_vout(watchtower_idx);
             let watchtower_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::WatchtowerChallengeTimeout(watchtower_idx),
@@ -455,7 +457,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 },
             );
             // add operator challenge ack
-            let operator_challenge_ack_vout = watchtower_challenge_vout + 1;
+            let operator_challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
             let operator_challenge_nack_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::OperatorChallengeNack(watchtower_idx),

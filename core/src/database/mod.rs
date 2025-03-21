@@ -15,7 +15,6 @@ mod operator;
 mod state_machine;
 mod tx_sender;
 mod verifier;
-mod watchtower;
 mod wrapper;
 
 #[cfg(test)]
