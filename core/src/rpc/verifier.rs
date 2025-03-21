@@ -6,7 +6,6 @@ use super::clementine::{
 use super::error;
 use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::citrea::CitreaClientT;
-use crate::config::protocol::WATCHTOWER_CHALLENGE_BYTES;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::parser::parse_transaction_request;
 use crate::verifier::VerifierServer;
@@ -38,7 +37,13 @@ where
             .verifier
             .create_and_sign_watchtower_challenge(
                 transaction_data,
-                &[0u8; WATCHTOWER_CHALLENGE_BYTES], // dummy challenge
+                &vec![
+                    0u8;
+                    self.verifier
+                        .config
+                        .protocol_paramset()
+                        .watchtower_challenge_bytes
+                ], // dummy challenge
             )
             .await?;
 

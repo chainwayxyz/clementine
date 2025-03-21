@@ -6,7 +6,7 @@ use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::citrea::CitreaClientT;
-use crate::config::protocol::{ProtocolParamset, WATCHTOWER_CHALLENGE_BYTES};
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
@@ -176,7 +176,7 @@ where
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
     ) -> Result<(TransactionType, Transaction), BridgeError> {
-        if commit_data.len() != WATCHTOWER_CHALLENGE_BYTES {
+        if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
             return Err(BridgeError::InvalidWatchtowerChallengeData);
         }
 
@@ -204,8 +204,12 @@ where
             .remove(&TransactionType::Kickoff)
             .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Kickoff))?;
 
-        let mut watchtower_challenge_txhandler =
-            create_watchtower_challenge_txhandler(&kickoff_txhandler, self.idx, commit_data)?;
+        let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
+            &kickoff_txhandler,
+            self.idx,
+            commit_data,
+            self.config.protocol_paramset(),
+        )?;
 
         self.signer
             .tx_sign_and_fill_sigs(&mut watchtower_challenge_txhandler, &[])?;

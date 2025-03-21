@@ -13,7 +13,7 @@ use crate::builder::transaction::{
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
-use crate::config::protocol::{ProtocolParamset, WATCHTOWER_CHALLENGE_BYTES};
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
@@ -987,7 +987,7 @@ where
                     deposit_data: deposit_data.clone(),
                     kickoff_id,
                 },
-                &[0u8; WATCHTOWER_CHALLENGE_BYTES], // dummy challenge
+                &vec![0u8; self.config.protocol_paramset().watchtower_challenge_bytes], // dummy challenge
             )
             .await?;
         let mut dbtx = self.db.begin_transaction().await?;

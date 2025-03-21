@@ -3,7 +3,7 @@ use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
-use crate::config::protocol::{ProtocolParamset, WATCHTOWER_CHALLENGE_BYTES};
+use crate::config::protocol::ProtocolParamset;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
@@ -20,8 +20,9 @@ pub fn create_watchtower_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
     commit_data: &[u8],
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    if commit_data.len() != WATCHTOWER_CHALLENGE_BYTES {
+    if commit_data.len() != paramset.watchtower_challenge_bytes {
         return Err(BridgeError::InvalidWatchtowerChallengeData);
     }
     let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
@@ -37,7 +38,7 @@ pub fn create_watchtower_challenge_txhandler(
             DEFAULT_SEQUENCE,
         );
     let mut current_idx = 0;
-    while current_idx + 80 < WATCHTOWER_CHALLENGE_BYTES {
+    while current_idx + 80 < paramset.watchtower_challenge_bytes {
         // encode next 32 bytes of data as script pubkey of taproot utxo
         let data = PushBytesBuf::try_from(commit_data[current_idx..current_idx + 32].to_vec())
             .map_err(|e| {
@@ -60,7 +61,7 @@ pub fn create_watchtower_challenge_txhandler(
     }
 
     // add the remaining data as an op_return output
-    if current_idx < WATCHTOWER_CHALLENGE_BYTES {
+    if current_idx < paramset.watchtower_challenge_bytes {
         let remaining_data =
             PushBytesBuf::try_from(commit_data[current_idx..].to_vec()).map_err(|e| {
                 BridgeError::Error(format!(

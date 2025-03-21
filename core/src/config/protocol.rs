@@ -13,8 +13,6 @@ pub const BLOCKS_PER_DAY: u16 = BLOCKS_PER_HOUR * 24;
 
 pub const BLOCKS_PER_WEEK: u16 = BLOCKS_PER_DAY * 7;
 
-pub const WATCHTOWER_CHALLENGE_BYTES: usize = 144;
-
 /// This is the log_d used across the codebase.
 ///
 /// All protocol paramsets should use this value since it's used in the BitVM static.
@@ -114,8 +112,9 @@ pub struct ProtocolParamset {
     pub collateral_funding_amount: Amount,
     /// Length of the blockhash commitment in kickoff transactions.
     pub kickoff_blockhash_commit_length: u32,
+    /// Total number of bytes of a watchtower challenge.
+    pub watchtower_challenge_bytes: usize,
     /// Winternitz derivation log_d (shared for all WOTS commitments)
-    ///
     /// Currently used in statics and thus cannot be different from [`WINTERNITZ_LOG_D`].
     pub winternitz_log_d: u32,
     /// Number of blocks after which user can take deposit back if deposit request fails.
@@ -154,6 +153,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
+    watchtower_challenge_bytes: 144,
     winternitz_log_d: WINTERNITZ_LOG_D,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
@@ -177,6 +177,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     kickoff_amount: Amount::from_sat(55_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
+    watchtower_challenge_bytes: 144,
     kickoff_blockhash_commit_length: 40,
     winternitz_log_d: WINTERNITZ_LOG_D,
     user_takes_after: 200,
@@ -202,6 +203,7 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
+    watchtower_challenge_bytes: 144,
     winternitz_log_d: WINTERNITZ_LOG_D,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
@@ -226,6 +228,7 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     operator_challenge_amount: Amount::from_sat(200_000_000),
     collateral_funding_amount: Amount::from_sat(200_000_000),
     kickoff_blockhash_commit_length: 40,
+    watchtower_challenge_bytes: 144,
     winternitz_log_d: WINTERNITZ_LOG_D,
     user_takes_after: 200,
     operator_challenge_timeout_timelock: BLOCKS_PER_DAY,
