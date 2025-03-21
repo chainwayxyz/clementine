@@ -488,7 +488,7 @@ impl ClementineBitVMPublicKeys {
 
             let mut derivations_vec = vec![];
             for i in 0..6 {
-                if derivations + i < NUM_U256 as u32 - 2{
+                if derivations + i < NUM_U256 as u32 - 2 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         32 * 2,
                         3,
