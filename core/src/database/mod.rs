@@ -84,6 +84,9 @@ impl Database {
         sqlx::raw_sql(include_str!("../../../scripts/schema.sql"))
             .execute(&database.connection)
             .await?;
+        sqlx::raw_sql(include_str!("../../../scripts/pgmq.sql"))
+            .execute(&database.connection)
+            .await?;
 
         database.close().await;
         Ok(())

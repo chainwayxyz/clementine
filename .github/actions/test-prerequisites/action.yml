@@ -40,8 +40,3 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
       run: cargo risczero install --version r0.1.81.0
-
-    - name: Install pgxn and pgmq in Postgres container
-      shell: bash
-      run: |
-        docker exec -i $(docker ps -q --filter "ancestor=postgres:latest") bash -c "apt update && apt install -y make && apt install -y pgxnclient && pgxn install pgmq"
