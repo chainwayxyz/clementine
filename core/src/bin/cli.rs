@@ -120,6 +120,22 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 "Getting deposit keys for outpoint {}:{}",
                 deposit_outpoint_txid, deposit_outpoint_vout
             );
+            let params = clementine_core::rpc::clementine::DepositParams {
+                deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                    deposit_outpoint: Some(Outpoint {
+                        txid: deposit_outpoint_txid.into(),
+                        vout: deposit_outpoint_vout,
+                    }),
+                    evm_address: vec![1; 20],
+                    recovery_taproot_address: String::new(),
+                    nofn_xonly_pk: vec![1; 32],
+                })),
+            };
+            let response = operator
+                .get_deposit_keys(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Get deposit keys response: {:?}", response);
         }
         OperatorCommands::GetParams => {
             let params = operator
