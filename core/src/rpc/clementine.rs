@@ -236,6 +236,26 @@ pub struct WithdrawResponse {
     pub txid: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WithdrawErrorResponse {
+    #[prost(string, tag = "1")]
+    pub error: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WithdrawResult {
+    #[prost(oneof = "withdraw_result::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<withdraw_result::Result>,
+}
+/// Nested message and enum types in `WithdrawResult`.
+pub mod withdraw_result {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Success(super::WithdrawResponse),
+        #[prost(message, tag = "2")]
+        Error(super::WithdrawErrorResponse),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WithdrawalFinalizedParams {
     #[prost(uint32, tag = "1")]
     pub withdrawal_id: u32,
@@ -361,6 +381,11 @@ pub struct SignedTxWithType {
 pub struct SignedTxsWithType {
     #[prost(message, repeated, tag = "1")]
     pub signed_txs: ::prost::alloc::vec::Vec<SignedTxWithType>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggregatorWithdrawResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub withdraw_responses: ::prost::alloc::vec::Vec<WithdrawResult>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1533,6 +1558,31 @@ pub mod clementine_aggregator_client {
                 .insert(
                     GrpcMethod::new("clementine.ClementineAggregator", "NewDeposit"),
                 );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Call's withdraw on all operators
+        pub async fn withdraw(
+            &mut self,
+            request: impl tonic::IntoRequest<super::WithdrawParams>,
+        ) -> std::result::Result<
+            tonic::Response<super::AggregatorWithdrawResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/Withdraw",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("clementine.ClementineAggregator", "Withdraw"));
             self.inner.unary(req, path, codec).await
         }
         /// send a pre-signed tx
@@ -2959,6 +3009,14 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
+        /// Call's withdraw on all operators
+        async fn withdraw(
+            &self,
+            request: tonic::Request<super::WithdrawParams>,
+        ) -> std::result::Result<
+            tonic::Response<super::AggregatorWithdrawResponse>,
+            tonic::Status,
+        >;
         /// send a pre-signed tx
         async fn internal_send_tx(
             &self,
@@ -3117,6 +3175,51 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = NewDepositSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/Withdraw" => {
+                    #[allow(non_camel_case_types)]
+                    struct WithdrawSvc<T: ClementineAggregator>(pub Arc<T>);
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::WithdrawParams>
+                    for WithdrawSvc<T> {
+                        type Response = super::AggregatorWithdrawResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::WithdrawParams>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::withdraw(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = WithdrawSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
