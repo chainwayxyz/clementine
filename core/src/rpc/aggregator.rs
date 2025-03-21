@@ -2,6 +2,7 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
+use super::clementine::{AggregatorWithdrawResponse, WithdrawParams};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
@@ -843,6 +844,39 @@ impl ClementineAggregator for Aggregator {
         let txid = *signed_movetx_handler.get_txid();
 
         Ok(Response::new(txid.into()))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn withdraw(
+        &self,
+        request: Request<WithdrawParams>,
+    ) -> Result<Response<AggregatorWithdrawResponse>, Status> {
+        let withdraw_params = request.into_inner();
+        let operators = self.operator_clients.clone();
+        let withdraw_futures = operators.iter().map(|operator| {
+            let mut operator = operator.clone();
+            let params = withdraw_params.clone();
+            async move { operator.withdraw(Request::new(params)).await }
+        });
+
+        let responses = futures::future::join_all(withdraw_futures).await;
+        Ok(Response::new(AggregatorWithdrawResponse {
+            withdraw_responses: responses
+                .into_iter()
+                .map(|r| clementine::WithdrawResult {
+                    result: Some(match r {
+                        Ok(response) => {
+                            clementine::withdraw_result::Result::Success(response.into_inner())
+                        }
+                        Err(e) => clementine::withdraw_result::Result::Error(
+                            clementine::WithdrawErrorResponse {
+                                error: e.to_string(),
+                            },
+                        ),
+                    }),
+                })
+                .collect(),
+        }))
     }
 }
 

@@ -239,6 +239,17 @@ message WithdrawResponse {
   bytes txid = 1;
 }
 
+message WithdrawErrorResponse {
+  string error = 1;
+}
+
+message WithdrawResult {
+  oneof result {
+    WithdrawResponse success = 1;
+    WithdrawErrorResponse error = 2;
+  }
+}
+
 message WithdrawalFinalizedParams {
   uint32 withdrawal_id = 1;
   Outpoint deposit_outpoint = 2;
@@ -446,6 +457,10 @@ message SignedTxsWithType {
   repeated SignedTxWithType signed_txs = 1;
 }
 
+message AggregatorWithdrawResponse {
+  repeated WithdrawResult withdraw_responses = 1;
+}
+
 service ClementineAggregator {
   // Sets up the system of verifiers, watchtowers and operators by:
   // 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
@@ -459,6 +474,11 @@ service ClementineAggregator {
   // DepositFinalize then it will collect the partial sigs and create the move
   // tx.
   rpc NewDeposit(DepositParams) returns (Txid) {}
+
+  // Call's withdraw on all operators
+  rpc Withdraw(WithdrawParams)
+    returns (AggregatorWithdrawResponse) {}
+
   // send a pre-signed tx
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 }
