@@ -4,6 +4,7 @@ use clementine_core::rpc::clementine::{
     clementine_operator_client::ClementineOperatorClient, deposit_params::DepositData, BaseDeposit,
     DepositParams, Empty, Outpoint,
 };
+use tonic::Request;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -101,100 +102,134 @@ enum AggregatorCommands {
     // Add other aggregator commands as needed
 }
 
+async fn handle_operator_call(url: String, command: OperatorCommands) {
+    let mut operator = clementine_core::rpc::get_clients(vec![url], |channel| {
+        ClementineOperatorClient::new(channel)
+    })
+    .await
+    .expect("Exists")[0]
+        .clone();
+
+    match command {
+        OperatorCommands::GetDepositKeys {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+        } => {
+            println!(
+                "Getting deposit keys for outpoint {}:{}",
+                deposit_outpoint_txid, deposit_outpoint_vout
+            );
+        }
+        OperatorCommands::GetParams => {
+            let params = operator.get_params(Empty {}).await.unwrap();
+            println!("Operator params: {:?}", params);
+        }
+        OperatorCommands::Withdraw {
+            withdrawal_id,
+            input_signature,
+            input_outpoint_txid,
+            input_outpoint_vout,
+            output_script_pubkey,
+            output_amount,
+        } => {
+            println!("Processing withdrawal with id {}", withdrawal_id);
+
+            let params = clementine_core::rpc::clementine::WithdrawParams {
+                withdrawal_id,
+                input_signature: input_signature.as_bytes().to_vec(),
+                input_outpoint: Some(Outpoint {
+                    txid: input_outpoint_txid.as_bytes().to_vec(),
+                    vout: input_outpoint_vout,
+                }),
+                output_script_pubkey: output_script_pubkey.as_bytes().to_vec(),
+                output_amount,
+            };
+            operator.withdraw(Request::new(params)).await.unwrap();
+        }
+    }
+}
+
+async fn handle_verifier_call(url: String, command: VerifierCommands) {
+    println!("Connecting to verifier at {}", url);
+    let mut verifier = clementine_core::rpc::get_clients(vec![url], |channel| {
+        ClementineOperatorClient::new(channel)
+    })
+    .await
+    .expect("Exists")[0]
+        .clone();
+
+    match command {
+        VerifierCommands::GetParams => {
+            let params = verifier.get_params(Empty {}).await.unwrap();
+            println!("Verifier params: {:?}", params);
+        }
+        VerifierCommands::NonceGen { num_nonces } => {
+            println!("Generating {} nonces", num_nonces);
+        }
+        VerifierCommands::SetVerifiers { public_keys } => {
+            println!("Setting verifier public keys: {:?}", public_keys);
+        }
+    }
+}
+
+async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
+    println!("Connecting to aggregator at {}", url);
+    let mut aggregator = clementine_core::rpc::get_clients(vec![url], |channel| {
+        ClementineAggregatorClient::new(channel)
+    })
+    .await
+    .expect("Exists")[0]
+        .clone();
+
+    match command {
+        AggregatorCommands::Setup => {
+            let setup = aggregator.setup(Empty {}).await.unwrap();
+            println!("{:?}", setup);
+        }
+        AggregatorCommands::NewDeposit {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            evm_address,
+            recovery_taproot_address,
+            nofn_xonly_pk,
+        } => {
+            println!(
+                "Processing new deposit for outpoint {}:{}",
+                deposit_outpoint_txid, deposit_outpoint_vout
+            );
+
+            let deposit = aggregator
+                .new_deposit(DepositParams {
+                    deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                        deposit_outpoint: Some(Outpoint {
+                            txid: deposit_outpoint_txid.as_bytes().to_vec(),
+                            vout: deposit_outpoint_vout,
+                        }),
+                        evm_address: evm_address.as_bytes().to_vec(),
+                        recovery_taproot_address,
+                        nofn_xonly_pk: nofn_xonly_pk.as_bytes().to_vec(),
+                    })),
+                })
+                .await
+                .unwrap();
+            println!("{:?}", deposit);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
-    // Here you would implement the actual gRPC client calls based on the parsed commands
     match cli.command {
         Commands::Operator { command } => {
-            let mut operator = clementine_core::rpc::get_clients(vec![cli.node_url], |channel| {
-                ClementineOperatorClient::new(channel)
-            })
-            .await
-            .unwrap()[0]
-                .clone();
-            match command {
-                OperatorCommands::GetDepositKeys {
-                    deposit_outpoint_txid,
-                    deposit_outpoint_vout,
-                } => {
-                    println!(
-                        "Getting deposit keys for outpoint {}:{}",
-                        deposit_outpoint_txid, deposit_outpoint_vout
-                    );
-                }
-                OperatorCommands::GetParams => {
-                    let params = operator.get_params(Empty {}).await.unwrap();
-                    println!("{:?}", params);
-                }
-                OperatorCommands::Withdraw {
-                    withdrawal_id,
-                    input_signature,
-                    input_outpoint_txid,
-                    input_outpoint_vout,
-                    output_script_pubkey,
-                    output_amount,
-                } => {
-                    println!("Processing withdrawal {}", withdrawal_id);
-                }
-            }
+            handle_operator_call(cli.node_url, command).await;
         }
         Commands::Verifier { command } => {
-            println!("Connecting to verifier at {}", cli.node_url);
-            match command {
-                VerifierCommands::GetParams => {
-                    println!("Getting verifier parameters");
-                }
-                VerifierCommands::NonceGen { num_nonces } => {
-                    println!("Generating {} nonces", num_nonces);
-                }
-                VerifierCommands::SetVerifiers { public_keys } => {
-                    println!("Setting verifier public keys: {:?}", public_keys);
-                }
-            }
+            handle_verifier_call(cli.node_url, command).await;
         }
         Commands::Aggregator { command } => {
-            println!("Connecting to aggregator at {}", cli.node_url);
-            let mut aggregator = clementine_core::rpc::get_clients(vec![cli.node_url], |channel| {
-                ClementineAggregatorClient::new(channel)
-            })
-            .await
-            .unwrap()[0]
-                .clone();
-            match command {
-                AggregatorCommands::Setup => {
-                    let setup = aggregator.setup(Empty {}).await.unwrap();
-                    println!("{:?}", setup);
-                }
-                AggregatorCommands::NewDeposit {
-                    deposit_outpoint_txid,
-                    deposit_outpoint_vout,
-                    evm_address,
-                    recovery_taproot_address,
-                    nofn_xonly_pk,
-                } => {
-                    println!(
-                        "Processing new deposit for outpoint {}:{}",
-                        deposit_outpoint_txid, deposit_outpoint_vout
-                    );
-                    let deposit = aggregator
-                        .new_deposit(DepositParams {
-                            deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
-                                deposit_outpoint: Some(Outpoint {
-                                    txid: deposit_outpoint_txid.as_bytes().to_vec(),
-                                    vout: deposit_outpoint_vout,
-                                }),
-                                evm_address: evm_address.as_bytes().to_vec(),
-                                recovery_taproot_address,
-                                nofn_xonly_pk: nofn_xonly_pk.as_bytes().to_vec(),
-                            })),
-                        })
-                        .await
-                        .unwrap();
-                    println!("{:?}", deposit);
-                }
-            }
+            handle_aggregator_call(cli.node_url, command).await;
         }
     }
 }
