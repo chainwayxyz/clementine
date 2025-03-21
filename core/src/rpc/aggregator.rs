@@ -2,7 +2,7 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
-use super::clementine::{AggregatorWithdrawResponse, WithdrawParams};
+use super::clementine::{AggregatorWithdrawResponse, VerifierPublicKeys, WithdrawParams};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
@@ -504,7 +504,10 @@ impl ClementineAggregator for Aggregator {
         Ok(Response::new(Empty {}))
     }
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
+    async fn setup(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<VerifierPublicKeys>, Status> {
         tracing::info!("Collecting verifier public keys...");
         let verifier_public_keys = try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
@@ -519,6 +522,7 @@ impl ClementineAggregator for Aggregator {
         .shared(); // share this future so all the spawned threads can poll on it.
 
         tracing::debug!("Verifier public keys: {:?}", verifier_public_keys);
+        let verifier_public_keys_clone = verifier_public_keys.clone();
 
         let set_verifier_keys_handle = tokio::spawn({
             let verifier_clients = self.verifier_clients.clone();
@@ -604,7 +608,9 @@ impl ClementineAggregator for Aggregator {
         .into_iter()
         .collect::<Result<Vec<_>, Status>>()?;
 
-        Ok(Response::new(Empty {}))
+        Ok(Response::new(VerifierPublicKeys {
+            verifier_public_keys: verifier_public_keys_clone.await?,
+        }))
     }
 
     /// Handles a new deposit request from a user. This function coordinates the signing process

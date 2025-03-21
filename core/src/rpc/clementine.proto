@@ -463,10 +463,15 @@ message AggregatorWithdrawResponse {
 
 service ClementineAggregator {
   // Sets up the system of verifiers, watchtowers and operators by:
-  // 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
-  // 2. Collecting all operator configs, and distributing them to all verifiers
-  // 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
-  rpc Setup(Empty) returns (Empty) {}
+  //
+  // 1. Collects verifier keys from each verifier
+  // 2. Distributes these verifier keys to all verifiers
+  // 3. Collects all operator configs from each operator
+  // 4. Distributes these operator configs to all verifiers
+  // 5. Collects all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from each watchtower
+  // 6. Distributes these Winternitz pubkeys to all verifiers
+  rpc Setup(Empty) returns (VerifierPublicKeys) {}
+
   // This will call, DepositNonceGen for every verifier,
   // then it will aggregate one by one and then send it to DepositSign,
   // then it will aggregate the partial sigs and send it to DepositFinalize,
