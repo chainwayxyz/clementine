@@ -82,8 +82,6 @@ enum SendTxError {
     UnconfirmedFeePayerUTXOsLeft,
     #[error("Insufficient fee payer amount")]
     InsufficientFeePayerAmount,
-    #[error("Failed to send tx: {0}")]
-    Other(#[from] eyre::Report),
 }
 
 #[derive(Debug)]
@@ -300,7 +298,7 @@ impl TxSender {
         parent_tx_size: Weight,
         fee_rate: FeeRate,
         change_address: Address,
-    ) -> Result<Transaction, SendTxError> {
+    ) -> Result<Transaction, eyre::Report> {
         let required_fee = Self::calculate_required_fee(
             parent_tx_size,
             fee_payer_utxos.len(),
@@ -317,7 +315,7 @@ impl TxSender {
 
         if change_address.script_pubkey().minimal_non_dust() + required_fee > total_fee_payer_amount
         {
-            return Err(SendTxError::InsufficientFeePayerAmount);
+            return Err(eyre::eyre!(SendTxError::InsufficientFeePayerAmount));
         }
 
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
@@ -397,38 +395,37 @@ impl TxSender {
         tx: Transaction,
         fee_rate: FeeRate,
         fee_payer_utxos: Vec<SpendableTxIn>,
-    ) -> Result<Vec<Transaction>, SendTxError> {
+    ) -> Result<Vec<Transaction>, eyre::Report> {
         let txid = tx.compute_txid();
 
         let p2a_vout = self
             .find_p2a_vout(&tx)
             .wrap_err("Failed to find p2a vout")?;
 
-        let child_tx = self
-            .create_child_tx(
-                OutPoint {
-                    txid,
-                    vout: p2a_vout as u32,
-                },
-                fee_payer_utxos,
-                tx.weight(),
-                fee_rate,
-                self.signer.address.clone(),
-            )
-            .wrap_err("Failed to create child tx")?;
+        let child_tx = self.create_child_tx(
+            OutPoint {
+                txid,
+                vout: p2a_vout as u32,
+            },
+            fee_payer_utxos,
+            tx.weight(),
+            fee_rate,
+            self.signer.address.clone(),
+        )
+        .wrap_err("Failed to create child tx")?;
 
         Ok(vec![tx, child_tx])
     }
 
     /// Sends the tx with the given fee_rate.
-    async fn send_tx(&self, id: u32, fee_rate: FeeRate) -> Result<(), SendTxError> {
+    async fn send_tx(&self, id: u32, fee_rate: FeeRate) -> Result<(), eyre::Report> {
         let unconfirmed_fee_payer_utxos = self
             .db
             .get_bumpable_fee_payer_txs(None, id)
             .await
             .wrap_err("Failed to get bumpable fee payer txs")?;
         if !unconfirmed_fee_payer_utxos.is_empty() {
-            return Err(SendTxError::UnconfirmedFeePayerUTXOsLeft);
+            return Err(eyre::eyre!(SendTxError::UnconfirmedFeePayerUTXOsLeft));
         }
 
         let fee_payer_utxos = self
@@ -557,7 +554,8 @@ impl TxSender {
             return Ok(());
         }
 
-        let package = self.create_package(tx, fee_rate, fee_payer_utxos)?;
+        let package = self.create_package(tx, fee_rate, fee_payer_utxos)
+            .wrap_err("Failed to create package")?;
         let package_refs: Vec<&Transaction> = package.iter().collect();
 
         // If the tx is RBF, we should note the txid of the package.
@@ -733,8 +731,8 @@ impl TxSender {
             let send_tx_result = self.send_tx(id, new_fee_rate).await;
             match send_tx_result {
                 Ok(_) => {}
-                Err(e) => match e {
-                    SendTxError::UnconfirmedFeePayerUTXOsLeft => {
+                Err(e) => match e.root_cause().downcast_ref::<SendTxError>() {
+                    Some(SendTxError::UnconfirmedFeePayerUTXOsLeft) => {
                         tracing::info!(
                             "{}: Bumping Tx {} : Unconfirmed fee payer UTXOs left, skipping",
                             self.btc_syncer_consumer_id,
@@ -742,7 +740,7 @@ impl TxSender {
                         );
                         continue;
                     }
-                    SendTxError::InsufficientFeePayerAmount => {
+                    Some(SendTxError::InsufficientFeePayerAmount) => {
                         tracing::info!("{}: Bumping Tx {} : Insufficient fee payer amount, creating new fee payer UTXO", self.btc_syncer_consumer_id, id);
                         let (_, tx, _, _) = self.db.get_tx(None, id).await?;
                         let fee_payer_utxos =
@@ -765,7 +763,7 @@ impl TxSender {
                     }
                     _ => {
                         tracing::error!(
-                            "{}: Bumping Tx {} : Error sending tx with CPFP: {:?}",
+                            "{}: Bumping Tx {} : Failed to send tx with CPFP: {:?}",
                             self.btc_syncer_consumer_id,
                             id,
                             e
