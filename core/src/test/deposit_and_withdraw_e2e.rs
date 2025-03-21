@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
@@ -14,7 +16,7 @@ use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     run_single_deposit,
 };
-use crate::{builder, EVMAddress};
+use crate::{builder, EVMAddress, UTXO};
 use crate::{
     extended_rpc::ExtendedRpc,
     test::common::{
@@ -531,19 +533,23 @@ async fn mock_citrea_run() {
         None,
         config.protocol_paramset().network,
     );
-    let (withdrawal_utxo_with_txout, payout_txout, sig) =
-        generate_withdrawal_transaction_and_signature(
-            &config,
-            &rpc,
-            &withdrawal_address,
-            config.protocol_paramset().bridge_amount
-                - config
-                    .operator_withdrawal_fee_sats
-                    .unwrap_or(Amount::from_sat(0)),
-        )
-        .await;
-
-    let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
+    let (
+        UTXO {
+            outpoint: withdrawal_utxo,
+            ..
+        },
+        payout_txout,
+        sig,
+    ) = generate_withdrawal_transaction_and_signature(
+        &config,
+        &rpc,
+        &withdrawal_address,
+        config.protocol_paramset().bridge_amount
+            - config
+                .operator_withdrawal_fee_sats
+                .unwrap_or(Amount::from_sat(0)),
+    )
+    .await;
 
     let withdrawal_response = operators[0]
         .withdraw(WithdrawParams {
@@ -578,6 +584,7 @@ async fn mock_citrea_run() {
 
     tracing::info!("Withdrawal tx sent");
 
+    let start = Instant::now();
     let payout_txid = loop {
         let withdrawal_response = operators[0]
             .withdraw(WithdrawParams {
@@ -606,6 +613,11 @@ async fn mock_citrea_run() {
         // wait 1000ms
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         rpc.mine_blocks(1).await.unwrap();
+
+        // timeout after 120 seconds
+        if start.elapsed() > std::time::Duration::from_secs(120) {
+            panic!("Withdrawal took too long");
+        }
     };
 
     tracing::info!("Payout txid: {:?}", payout_txid);

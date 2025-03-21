@@ -102,8 +102,9 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
     let standard_layer = fmt::layer()
         .with_test_writer()
         // .with_timer(time::UtcTime::rfc_3339())
-        .with_target(true)
-        .with_thread_ids(true);
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true);
 
     let filter = match level {
         Some(level) => EnvFilter::builder()
