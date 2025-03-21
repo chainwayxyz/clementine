@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
 use clementine_core::rpc::clementine::{
     clementine_aggregator_client::ClementineAggregatorClient,
-    clementine_operator_client::ClementineOperatorClient, deposit_params::DepositData, BaseDeposit,
+    clementine_operator_client::ClementineOperatorClient,
+    clementine_verifier_client::ClementineVerifierClient, deposit_params::DepositData, BaseDeposit,
     DepositParams, Empty, Outpoint,
 };
 use tonic::Request;
@@ -121,7 +122,10 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
             );
         }
         OperatorCommands::GetParams => {
-            let params = operator.get_params(Empty {}).await.unwrap();
+            let params = operator
+                .get_params(Empty {})
+                .await
+                .expect("Failed to make a request");
             println!("Operator params: {:?}", params);
         }
         OperatorCommands::Withdraw {
@@ -144,7 +148,10 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 output_script_pubkey: output_script_pubkey.as_bytes().to_vec(),
                 output_amount,
             };
-            operator.withdraw(Request::new(params)).await.unwrap();
+            operator
+                .withdraw(Request::new(params))
+                .await
+                .expect("Failed to make a request");
         }
     }
 }
@@ -152,7 +159,7 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
 async fn handle_verifier_call(url: String, command: VerifierCommands) {
     println!("Connecting to verifier at {}", url);
     let mut verifier = clementine_core::rpc::get_clients(vec![url], |channel| {
-        ClementineOperatorClient::new(channel)
+        ClementineVerifierClient::new(channel)
     })
     .await
     .expect("Exists")[0]
@@ -160,14 +167,29 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
 
     match command {
         VerifierCommands::GetParams => {
-            let params = verifier.get_params(Empty {}).await.unwrap();
+            let params = verifier
+                .get_params(Empty {})
+                .await
+                .expect("Failed to make a request");
             println!("Verifier params: {:?}", params);
         }
         VerifierCommands::NonceGen { num_nonces } => {
-            println!("Generating {} nonces", num_nonces);
+            let params = clementine_core::rpc::clementine::NonceGenRequest { num_nonces };
+            let response = verifier
+                .nonce_gen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Noncegen response: {:?}", response);
         }
         VerifierCommands::SetVerifiers { public_keys } => {
-            println!("Setting verifier public keys: {:?}", public_keys);
+            let params = clementine_core::rpc::clementine::VerifierPublicKeys {
+                verifier_public_keys: public_keys.iter().map(|k| k.as_bytes().to_vec()).collect(),
+            };
+            let response = verifier
+                .set_verifiers(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Set verifier public keys response: {:?}", response);
         }
     }
 }
@@ -183,7 +205,10 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
 
     match command {
         AggregatorCommands::Setup => {
-            let setup = aggregator.setup(Empty {}).await.unwrap();
+            let setup = aggregator
+                .setup(Empty {})
+                .await
+                .expect("Failed to make a request");
             println!("{:?}", setup);
         }
         AggregatorCommands::NewDeposit {
@@ -193,11 +218,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             recovery_taproot_address,
             nofn_xonly_pk,
         } => {
-            println!(
-                "Processing new deposit for outpoint {}:{}",
-                deposit_outpoint_txid, deposit_outpoint_vout
-            );
-
             let deposit = aggregator
                 .new_deposit(DepositParams {
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
@@ -211,7 +231,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     })),
                 })
                 .await
-                .unwrap();
+                .expect("Failed to make a request");
             println!("{:?}", deposit);
         }
     }
