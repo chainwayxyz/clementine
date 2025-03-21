@@ -221,6 +221,70 @@ where
             checked_txhandler.get_cached_tx().clone(),
         ))
     }
+
+    /// Creates and signs all the unspent kickoff connector (using the previously saved signatures from operator)
+    /// transactions for a single round of an operator
+    pub async fn create_and_sign_unspent_kickoff_connector_txs(
+        &self,
+        round_idx: u32,
+        operator_idx: u32,
+    ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
+        let context = ContractContext::new_context_for_rounds(
+            operator_idx,
+            round_idx,
+            self.config.protocol_paramset(),
+        );
+
+        let txhandlers = builder::transaction::create_txhandlers(
+            TransactionType::UnspentKickoff(0),
+            context,
+            &mut TxHandlerCache::new(),
+            &mut ReimburseDbCache::new_for_rounds(
+                self.db.clone(),
+                operator_idx,
+                self.config.protocol_paramset(),
+            ),
+        )
+        .await?;
+
+        // signatures saved during setup
+        let unspent_kickoff_sigs = self
+            .db
+            .get_unspent_kickoff_sigs(None, operator_idx as usize, round_idx as usize)
+            .await?
+            .ok_or(BridgeError::Error(format!(
+                "No unspent kickoff signatures found for operator {} and round {}",
+                operator_idx, round_idx
+            )))?;
+
+        let mut signed_txs = Vec::with_capacity(txhandlers.len());
+
+        for (tx_type, mut txhandler) in txhandlers.into_iter() {
+            if !matches!(tx_type, TransactionType::UnspentKickoff(_)) {
+                // do not try to sign unrelated txs
+                continue;
+            }
+            self.signer
+                .tx_sign_and_fill_sigs(&mut txhandler, &unspent_kickoff_sigs)?;
+
+            let checked_txhandler = txhandler.promote();
+
+            match checked_txhandler {
+                Ok(checked_txhandler) => {
+                    signed_txs.push((tx_type, checked_txhandler.get_cached_tx().clone()));
+                }
+                Err(e) => {
+                    tracing::trace!(
+                        "Couldn't sign transaction {:?} in create_and_sign_unspent_kickoff_connector_txs: {:?}",
+                        tx_type,
+                        e
+                    );
+                }
+            }
+        }
+
+        Ok(signed_txs)
+    }
 }
 
 impl<C> Operator<C>

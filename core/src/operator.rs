@@ -321,7 +321,10 @@ where
         tokio::spawn(async move {
             while let Some(sighash) = sighash_stream.next().await {
                 // None because utxos that operators need to sign do not have scripts
-                let sig = operator.signer.sign_with_tweak(sighash?.0, None)?;
+                let (sighash, sig_info) = sighash?;
+                let sig = operator
+                    .signer
+                    .sign_with_spend_data(sighash, sig_info.spend_data)?;
 
                 if sig_tx.send(sig).await.is_err() {
                     break;
@@ -587,11 +590,14 @@ where
                     };
                     let sighashes = txhandler
                         .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
-                    sigs.extend(
-                        sighashes
-                            .into_iter()
-                            .map(|sighash| self.signer.sign(sighash.0)),
-                    );
+                    let signed_sigs: Result<Vec<_>, _> = sighashes
+                        .into_iter()
+                        .map(|(sighash, sig_info)| {
+                            self.signer
+                                .sign_with_spend_data(sighash, sig_info.spend_data)
+                        })
+                        .collect();
+                    sigs.extend(signed_sigs?);
                 }
                 if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
                     prev_ready_to_reimburse = Some(txhandler);

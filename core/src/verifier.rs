@@ -33,7 +33,7 @@ use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -284,10 +284,10 @@ where
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for idx in 0..self.config.protocol_paramset().num_round_txs {
+        for round_idx in 0..self.config.protocol_paramset().num_round_txs {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
-                idx,
+                round_idx,
                 &operator_data,
                 kickoff_wpks,
                 prev_ready_to_reimburse.as_ref(),
@@ -298,7 +298,7 @@ where
                 {
                     let partial = PartialSignatureInfo {
                         operator_idx: operator_index as usize,
-                        round_idx: idx,
+                        round_idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };
                     let sighashes = txhandler
@@ -324,8 +324,7 @@ where
                         });
                         cur_sig_index += 1;
                     }
-                }
-                if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
+                } else if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
                     prev_ready_to_reimburse = Some(txhandler);
                 }
             }
@@ -589,6 +588,7 @@ where
                 round_idx,
                 kickoff_utxo_idx,
                 signature_id,
+                spend_data,
                 kickoff_txid,
             } = &sighash.1;
 
@@ -664,6 +664,8 @@ where
                     .await
                     .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
+                let spend_data = sighash.1.spend_data;
+
                 tracing::debug!(
                     "Verifying Final operator Signature {} for operator {}",
                     nonce_idx + 1,
@@ -690,6 +692,7 @@ where
                     round_idx,
                     kickoff_utxo_idx,
                     signature_id,
+                    spend_data,
                     kickoff_txid: _,
                 } = &sighash.1;
                 let tagged_sig = TaggedSignature {
@@ -1099,6 +1102,48 @@ where
 
         Ok(())
     }
+
+    async fn send_unspent_kickoff_connectors(
+        &self,
+        round_idx: u32,
+        operator_idx: u32,
+        used_kickoffs: HashSet<usize>,
+    ) -> Result<(), BridgeError> {
+        if used_kickoffs.len() == self.config.protocol_paramset().num_kickoffs_per_round {
+            // ok, every kickoff spent
+            return Ok(());
+        }
+        let unspent_kickoff_txs = self
+            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_idx)
+            .await?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        for (tx_type, tx) in unspent_kickoff_txs {
+            if let TransactionType::UnspentKickoff(kickoff_idx) = tx_type {
+                if used_kickoffs.contains(&kickoff_idx) {
+                    continue;
+                }
+                self.tx_sender
+                    .add_tx_to_queue(
+                        &mut dbtx,
+                        tx_type,
+                        &tx,
+                        &[],
+                        Some(TxMetadata {
+                            tx_type,
+                            operator_idx: Some(operator_idx),
+                            verifier_idx: Some(self.idx as u32),
+                            round_idx: Some(round_idx),
+                            kickoff_idx: Some(kickoff_idx as u32),
+                            deposit_outpoint: None,
+                        }),
+                        &self.config,
+                    )
+                    .await?;
+            }
+        }
+        dbtx.commit().await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1119,6 +1164,8 @@ where
                     "Verifier {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",
                     self.idx, round_idx, operator_idx, used_kickoffs
                 );
+                self.send_unspent_kickoff_connectors(round_idx, operator_idx, used_kickoffs)
+                    .await?;
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,

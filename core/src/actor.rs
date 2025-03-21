@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
+use crate::builder::sighash::SpendData;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
@@ -94,6 +97,7 @@ pub struct Actor {
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
     pub address: Address,
+    tweaked_key_cache: HashMap<(XOnlyPublicKey, Option<TapNodeHash>), XOnlyPublicKey>,
 }
 
 impl Actor {
@@ -114,11 +118,12 @@ impl Actor {
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
             address,
+            tweaked_key_cache: HashMap::new(),
         }
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn sign_with_tweak(
+    fn sign_with_tweak(
         &self,
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
@@ -133,11 +138,23 @@ impl Actor {
     }
 
     #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
-    pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
+    fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
         bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair,
         )
+    }
+
+    pub fn sign_with_spend_data(
+        &self,
+        sighash: TapSighash,
+        spend_data: SpendData,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        match spend_data {
+            SpendData::KeyPath(merkle_root) => self.sign_with_tweak(sighash, merkle_root),
+            SpendData::ScriptPath => Ok(self.sign(sighash)),
+            SpendData::Unknown => Err(BridgeError::Error("Spend Data Unknown".to_string())),
+        }
     }
 
     /// Returns derivied Winternitz secret key from given path.

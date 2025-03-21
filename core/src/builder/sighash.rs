@@ -5,6 +5,7 @@
 //! under which conditions the input is signed. For more, see:
 //! https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types
 
+use super::transaction::DepositData;
 use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
@@ -18,10 +19,8 @@ use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{KickoffId, NormalSignatureKind};
 use async_stream::try_stream;
 use bitcoin::hashes::Hash;
-use bitcoin::{OutPoint, TapSighash, XOnlyPublicKey};
+use bitcoin::{OutPoint, TapNodeHash, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
-
-use super::transaction::DepositData;
 
 impl BridgeConfig {
     /// Returns the number of required signatures for N-of-N signing session.
@@ -78,12 +77,23 @@ pub struct PartialSignatureInfo {
     pub kickoff_utxo_idx: usize,
 }
 
+/// Contains information about the spend path of the utxo.
+/// If it is KeyPath, it also includes the merkle root hash of the scripts as
+/// the hash is needed to tweak the key before signing.
+#[derive(Copy, Clone, Debug)]
+pub enum SpendData {
+    KeyPath(Option<TapNodeHash>),
+    ScriptPath,
+    Unknown,
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct SignatureInfo {
     pub operator_idx: usize,
     pub round_idx: usize,
     pub kickoff_utxo_idx: usize,
     pub signature_id: SignatureId,
+    pub spend_data: SpendData,
     pub kickoff_txid: Option<bitcoin::Txid>,
 }
 
@@ -99,12 +109,13 @@ impl PartialSignatureInfo {
             kickoff_utxo_idx,
         }
     }
-    pub fn complete(&self, signature_id: SignatureId) -> SignatureInfo {
+    pub fn complete(&self, signature_id: SignatureId, spend_data: SpendData) -> SignatureInfo {
         SignatureInfo {
             operator_idx: self.operator_idx,
             round_idx: self.round_idx,
             kickoff_utxo_idx: self.kickoff_utxo_idx,
             signature_id,
+            spend_data,
             kickoff_txid: None,
         }
     }
@@ -114,6 +125,7 @@ impl PartialSignatureInfo {
             round_idx: self.round_idx,
             kickoff_utxo_idx: self.kickoff_utxo_idx,
             signature_id: NormalSignatureKind::YieldKickoffTxid.into(),
+            spend_data: SpendData::ScriptPath,
             kickoff_txid: Some(kickoff_txid),
         }
     }
