@@ -72,6 +72,12 @@ impl DepositData {
             DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk,
         }
     }
+    pub fn get_num_verifiers(&self) -> usize {
+        match self {
+            DepositData::BaseDeposit(data) => data.num_verifiers,
+            DepositData::ReplacementDeposit(data) => data.num_verifiers,
+        }
+    }
 }
 
 /// Type to uniquely identify a deposit.
@@ -85,6 +91,8 @@ pub struct BaseDepositData {
     pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
     /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
+    /// Num of verifiers that will participate in the deposit. TODO: Change to verifier xonly pks?
+    pub num_verifiers: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -95,6 +103,8 @@ pub struct ReplacementDepositData {
     pub old_move_txid: Txid,
     /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
+    /// Num of verifiers that will participate in the deposit. TODO: Change to verifier xonly pks?
+    pub num_verifiers: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]

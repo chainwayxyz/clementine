@@ -36,7 +36,7 @@ pub enum SpendableTxInError {
     Error(String),
 }
 
-pub fn get_kickoff_utxo_vout(kickoff_idx: usize) -> usize {
+pub fn get_assert_utxo_vout(kickoff_idx: usize) -> usize {
     kickoff_idx + 4
 }
 
@@ -45,7 +45,7 @@ pub fn get_watchtower_challenge_utxo_vout(watchtower_idx: usize) -> usize {
 }
 
 pub fn get_challenge_ack_vout(watchtower_idx: usize) -> usize {
-    2 * watchtower_idx + 4 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() + 1
+    get_watchtower_challenge_utxo_vout(watchtower_idx) + 1
 }
 
 impl SpendableTxIn {

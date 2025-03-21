@@ -14,7 +14,6 @@ mod error;
 pub mod operator;
 mod parser;
 pub mod verifier;
-pub mod watchtower;
 
 impl From<NormalSignatureKind> for SignatureId {
     fn from(value: NormalSignatureKind) -> Self {

@@ -18,7 +18,6 @@ use tonic::Status;
 
 pub mod operator;
 pub mod verifier;
-pub mod watchtower;
 
 /// Converts an integer type in to another integer type. This is needed because
 /// tonic defaults to wrong integer types for some parameters.
@@ -172,6 +171,7 @@ impl From<BaseDepositData> for BaseDeposit {
             evm_address: data.evm_address.0.to_vec(),
             recovery_taproot_address: data.recovery_taproot_address.assume_checked().to_string(),
             nofn_xonly_pk: data.nofn_xonly_pk.serialize().to_vec(),
+            num_verifiers: data.num_verifiers as u64,
         }
     }
 }
@@ -182,6 +182,7 @@ impl From<ReplacementDepositData> for ReplacementDeposit {
             deposit_outpoint: Some(data.deposit_outpoint.into()),
             old_move_txid: Some(data.old_move_txid.into()),
             nofn_xonly_pk: data.nofn_xonly_pk.serialize().to_vec(),
+            num_verifiers: data.num_verifiers as u64,
         }
     }
 }
@@ -272,6 +273,7 @@ fn parse_base_deposit_data(data: BaseDeposit) -> Result<DepositData, Status> {
         evm_address,
         recovery_taproot_address,
         nofn_xonly_pk,
+        num_verifiers: data.num_verifiers as usize,
     }))
 }
 
@@ -298,6 +300,7 @@ fn parse_replacement_deposit_data(data: ReplacementDeposit) -> Result<DepositDat
         deposit_outpoint,
         old_move_txid: move_txid,
         nofn_xonly_pk,
+        num_verifiers: data.num_verifiers as usize,
     }))
 }
 

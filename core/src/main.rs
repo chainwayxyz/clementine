@@ -12,7 +12,6 @@ use clementine_core::{
     database::Database,
     servers::{
         create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
-        create_watchtower_grpc_server,
     },
 };
 
@@ -47,14 +46,6 @@ async fn main() {
             create_aggregator_grpc_server(config.clone())
                 .await
                 .expect("Can't create aggregator server")
-                .1
-        }
-        cli::Actors::Watchtower => {
-            println!("Starting watchtower server...");
-
-            create_watchtower_grpc_server(config.clone())
-                .await
-                .expect("Can't create watchtower server")
                 .1
         }
     };

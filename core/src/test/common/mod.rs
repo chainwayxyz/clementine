@@ -19,7 +19,6 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::{DepositParams, Empty, FeeType, RawSignedTx, SendTxRequest};
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
@@ -111,15 +110,13 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         Vec<ClementineVerifierClient<Channel>>,
         Vec<ClementineOperatorClient<Channel>>,
         ClementineAggregatorClient<Channel>,
-        Vec<ClementineWatchtowerClient<Channel>>,
         ActorsCleanup,
         Vec<OutPoint>,
         Vec<Txid>,
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers, cleanup) =
-        create_actors::<C>(config).await;
+    let (verifiers, operators, mut aggregator, cleanup) = create_actors::<C>(config).await;
 
     let evm_address = EVMAddress([1u8; 20]);
     let actor = Actor::new(
@@ -149,6 +146,7 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             evm_address,
             recovery_taproot_address: actor.address.as_unchecked().to_owned(),
             nofn_xonly_pk,
+            num_verifiers: config.num_verifiers,
         });
 
         let deposit_params: DepositParams = deposit_data.into();
@@ -190,7 +188,6 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         verifiers,
         operators,
         aggregator,
-        watchtowers,
         cleanup,
         deposit_outpoints,
         move_txids,
@@ -206,7 +203,6 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         Vec<ClementineVerifierClient<Channel>>,
         Vec<ClementineOperatorClient<Channel>>,
         ClementineAggregatorClient<Channel>,
-        Vec<ClementineWatchtowerClient<Channel>>,
         ActorsCleanup,
         DepositParams,
         Txid,
@@ -214,8 +210,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers, cleanup) =
-        create_actors::<C>(config).await;
+    let (verifiers, operators, mut aggregator, cleanup) = create_actors::<C>(config).await;
 
     let evm_address = evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
@@ -246,6 +241,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         evm_address,
         recovery_taproot_address: actor.address.as_unchecked().to_owned(),
         nofn_xonly_pk,
+        num_verifiers: config.num_verifiers,
     });
 
     let deposit_params: DepositParams = deposit_data.into();
@@ -267,7 +263,6 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         verifiers,
         operators,
         aggregator,
-        watchtowers,
         cleanup,
         deposit_params,
         move_txid,
@@ -364,7 +359,6 @@ pub async fn run_replacement_deposit(
         Vec<ClementineVerifierClient<Channel>>,
         Vec<ClementineOperatorClient<Channel>>,
         ClementineAggregatorClient<Channel>,
-        Vec<ClementineWatchtowerClient<Channel>>,
         ActorsCleanup,
         DepositParams,
         Txid,
@@ -372,7 +366,7 @@ pub async fn run_replacement_deposit(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, watchtowers, cleanup, dep_params, move_txid, _) =
+    let (verifiers, operators, mut aggregator, cleanup, dep_params, move_txid, _) =
         run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
 
     tracing::info!(
@@ -424,6 +418,7 @@ pub async fn run_replacement_deposit(
         },
         nofn_xonly_pk,
         old_move_txid: move_txid,
+        num_verifiers: config.num_verifiers,
     });
 
     let deposit_params: DepositParams = deposit_data.into();
@@ -438,7 +433,6 @@ pub async fn run_replacement_deposit(
         verifiers,
         operators,
         aggregator,
-        watchtowers,
         cleanup,
         deposit_params,
         move_txid,

@@ -98,6 +98,8 @@ message ReplacementDeposit {
   Txid old_move_txid = 2;
   // nofn public key used to sign the deposit
   bytes nofn_xonly_pk = 3;
+  // Num of verifiers that will participate in the deposit.
+  uint64 num_verifiers = 4;
 }
 
 // A new original deposit request's details.
@@ -110,6 +112,8 @@ message BaseDeposit {
   string recovery_taproot_address = 3;
   // nofn public key used to sign the deposit
   bytes nofn_xonly_pk = 4;
+  // Num of verifiers that will participate in the deposit.
+  uint64 num_verifiers = 5;
 }
 
 enum FeeType {
@@ -328,9 +332,8 @@ message VerifierParams {
   uint32 id = 1;
   bytes public_key = 2;
   uint32 num_verifiers = 3;
-  uint32 num_watchtowers = 4;
-  uint32 num_operators = 5;
-  uint32 num_round_txs = 6;
+  uint32 num_operators = 4;
+  uint32 num_round_txs = 5;
 }
 
 message PartialSig {
@@ -388,6 +391,8 @@ service ClementineVerifier {
   // # Returns
   // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
   rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
+  // Signs the verifiers own watchtower challenge tx in the corresponding kickoff and returns the signed raw tx
+  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (SignedTxWithType) {}
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
 
@@ -396,9 +401,6 @@ service ClementineVerifier {
 
   // Saves an operator.
   rpc SetOperator(stream OperatorParams) returns (Empty) {}
-
-  // Saves a watchtower.
-  rpc SetWatchtower(stream WatchtowerParams) returns (Empty) {}
 
   // Generates nonces for a deposit.
   //
@@ -418,35 +420,6 @@ service ClementineVerifier {
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
-}
-
-// Watchtower ------------------------------------------------------------------
-
-message WatchtowerParams {
-  oneof response {
-    uint32 watchtower_id = 1;
-    // xonly public key serialized to bytes
-    bytes xonly_pk = 2;
-  }
-}
-
-// Watchtowers are responsible for challenging the operator's kickoff txs.
-// Each watchtower also runs a verifier server connected to the same db. Thus,
-// they will have the operator's winternitz pubkeys.
-service ClementineWatchtower {
-  // Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-  // It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
-  //
-  // # Parameters
-  // - deposit_params: User's deposit information
-  // - transaction_type: Requested Transaction type
-  // - kickoff_id: Operator's kickoff ID
-  //
-  // # Returns
-  // - Raw signed transaction
-  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (SignedTxWithType) {}
-  // Returns every operator's winternitz public keys.
-  rpc GetParams(Empty) returns (stream WatchtowerParams) {}
 }
 
 // Aggregator ------------------------------------------------------------------

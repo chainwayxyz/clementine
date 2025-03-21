@@ -6,13 +6,13 @@ use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::{DepositData, TransactionType};
 use crate::citrea::CitreaClientT;
-use crate::config::protocol::{ProtocolParamset, WATCHTOWER_CHALLENGE_BYTES};
+use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::operator::Operator;
 use crate::rpc::clementine::KickoffId;
-use crate::watchtower::Watchtower;
+use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
 use rand_chacha::rand_core::SeedableRng;
@@ -166,14 +166,17 @@ pub async fn create_and_sign_txs(
     Ok(signed_txs)
 }
 
-impl Watchtower {
+impl<C> Verifier<C>
+where
+    C: CitreaClientT,
+{
     /// Creates and signs the watchtower challenge
     pub async fn create_and_sign_watchtower_challenge(
         &self,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
     ) -> Result<(TransactionType, Transaction), BridgeError> {
-        if commit_data.len() != WATCHTOWER_CHALLENGE_BYTES {
+        if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
             return Err(BridgeError::InvalidWatchtowerChallengeData);
         }
 
@@ -203,8 +206,9 @@ impl Watchtower {
 
         let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
             &kickoff_txhandler,
-            self.config.index as usize,
+            self.idx,
             commit_data,
+            self.config.protocol_paramset(),
         )?;
 
         self.signer
@@ -213,7 +217,7 @@ impl Watchtower {
         let checked_txhandler = watchtower_challenge_txhandler.promote()?;
 
         Ok((
-            TransactionType::WatchtowerChallenge(self.config.index as usize),
+            TransactionType::WatchtowerChallenge(self.idx),
             checked_txhandler.get_cached_tx().clone(),
         ))
     }

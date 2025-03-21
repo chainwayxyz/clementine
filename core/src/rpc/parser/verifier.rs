@@ -39,11 +39,6 @@ where
                 verifier.config.num_verifiers,
                 u32::try_from,
             )?,
-            num_watchtowers: convert_int_to_another(
-                "num_watchtowers",
-                verifier.config.protocol_paramset().num_watchtowers,
-                u32::try_from,
-            )?,
             num_operators: convert_int_to_another(
                 "num_operators",
                 verifier.config.num_operators,
