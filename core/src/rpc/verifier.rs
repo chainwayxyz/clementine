@@ -5,13 +5,13 @@ use super::clementine::{
     WatchtowerParams,
 };
 use super::error;
+use super::parser::ParserError;
 use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::citrea::CitreaClientT;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::parser::parse_transaction_request;
 use crate::verifier::VerifierServer;
 use crate::{
-    errors::BridgeError,
     fetch_next_message_from_stream,
     rpc::parser::{self},
 };
@@ -185,9 +185,8 @@ where
             {
                 let agg_nonce = match result {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
-                        MusigAggNonce::from_slice(agg_nonce.as_slice()).map_err(|e| {
-                            BridgeError::RPCParamMalformed("AggNonce".to_string(), e.to_string())
-                        })?
+                        MusigAggNonce::from_slice(agg_nonce.as_slice())
+                            .map_err(|_| ParserError::RPCParamMalformed("AggNonce".to_string()))?
                     }
                     _ => return Err(Status::invalid_argument("Expected AggNonce")),
                 };

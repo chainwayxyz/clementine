@@ -13,15 +13,6 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    // RPC errors
-    #[error("RPC function field {0} is required!")]
-    RPCRequiredParam(&'static str),
-    #[error("RPC function parameter {0} is malformed: {1}")]
-    RPCParamMalformed(String, String),
-    #[error("RPC stream ended unexpectedly: {0}")]
-    RPCStreamEndedUnexpectedly(String),
-    #[error("Failed to send broadcast message in internal stream: {0}")]
-    RPCBroadcastSendError(String),
     /// ConfigError is returned when the configuration is invalid
     #[error("Invalid configuration: {0}")]
     ConfigError(String),
@@ -115,7 +106,6 @@ pub enum BridgeError {
 }
 
 impl BridgeError {
-    #[track_caller]
     pub fn into_eyre(self) -> eyre::Report {
         match self {
             BridgeError::Eyre(report) => report,
@@ -132,12 +122,14 @@ impl From<BridgeError> for ErrorObject<'static> {
 
 impl From<BridgeError> for tonic::Status {
     fn from(val: BridgeError) -> Self {
+        // TODO: we need a better solution for user-facing errors.
+        // This exposes our internal errors to the user. What we want here is:
+        // 1. We don't want to expose internal errors to the user.
+        // 2. We want lower-level errors to be able to define whether and how they want to be exposed to the user.
+        tracing::error!(
+            "Casting BridgeError to Status message (possibly lossy): {:?}",
+            val
+        );
         tonic::Status::from_error(Box::new(val))
-    }
-}
-
-impl<T> From<tokio::sync::broadcast::error::SendError<T>> for BridgeError {
-    fn from(e: tokio::sync::broadcast::error::SendError<T>) -> Self {
-        BridgeError::RPCBroadcastSendError(e.to_string())
     }
 }

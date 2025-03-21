@@ -40,7 +40,7 @@ use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
-use eyre::Context;
+use eyre::{Context, OptionExt};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap};
 use std::pin::pin;
@@ -502,6 +502,7 @@ where
                     .nonces
                     .pop()
                     .ok_or(BridgeError::Error("No nonce available".to_string()))?;
+
                 let partial_sig = musig2::partial_sign(
                     verifier.config.verifiers_public_keys.clone(),
                     None,
@@ -510,6 +511,7 @@ where
                     verifier.signer.keypair,
                     Message::from_digest(*sighash.0.as_byte_array()),
                 )?;
+
                 partial_sig_tx
                     .send(partial_sig)
                     .await
@@ -599,7 +601,7 @@ where
         let mut nonce_idx: usize = 0;
 
         while let Some(sighash) = sighash_stream.next().await {
-            let sighash = sighash.map_err(|_| BridgeError::SighashStreamEndedPrematurely)?;
+            let typed_sighash = sighash.wrap_err("Failed to read from sighash stream")?;
 
             let &SignatureInfo {
                 operator_idx,
@@ -607,7 +609,7 @@ where
                 kickoff_utxo_idx,
                 signature_id,
                 kickoff_txid,
-            } = &sighash.1;
+            } = &typed_sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
                 kickoff_txids[operator_idx][round_idx].push((kickoff_txid, kickoff_utxo_idx));
@@ -617,17 +619,17 @@ where
             let sig = sig_receiver
                 .recv()
                 .await
-                .ok_or(BridgeError::Error("No signature received".to_string()))?;
+                .ok_or_eyre("No signature received")?;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
             bitvm_client::SECP
-                .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
-                .map_err(|x| {
-                    BridgeError::Error(format!(
-                        "Nofn Signature {} Verification Failed: {}.",
+                .verify_schnorr(&sig, &Message::from(typed_sighash.0), &self.nofn_xonly_pk)
+                .wrap_err_with(|| {
+                    format!(
+                        "Failed to verify nofn signature {} with signature info {:?}",
                         nonce_idx + 1,
-                        x
-                    ))
+                        typed_sighash.1
+                    )
                 })?;
 
             let tagged_sig = TaggedSignature {
@@ -635,16 +637,19 @@ where
                 signature_id: Some(signature_id),
             };
             verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
+
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
         }
 
         if nonce_idx != num_required_nofn_sigs {
-            return Err(BridgeError::Error(format!(
-                "Not received enough nofn signatures. Needed: {}, received: {}",
-                num_required_nofn_sigs, nonce_idx
-            )));
+            return Err(eyre::eyre!(
+                "Did not receive enough nofn signatures. Needed: {}, received: {}",
+                num_required_nofn_sigs,
+                nonce_idx
+            )
+            .into());
         }
 
         // ------ OPERATOR SIGNATURES VERIFICATION ------
@@ -663,9 +668,7 @@ where
             let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
             let tweaked_op_xonly_pk = op_xonly_pk
                 .add_tweak(&SECP, &scalar)
-                .map_err(|x| {
-                    BridgeError::Error(format!("Failed to tweak operator xonly public key: {}", x))
-                })?
+                .wrap_err("Failed to tweak operator xonly public key")?
                 .0;
             // generate the sighash stream for operator
             let mut sighash_stream = pin!(create_operator_sighash_stream(
@@ -681,30 +684,31 @@ where
                 deposit_blockhash,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
-                let sighash = sighash_stream
+                let typed_sighash = sighash_stream
                     .next()
                     .await
-                    .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
+                    .ok_or_eyre("Operator sighash stream ended prematurely")??;
 
                 tracing::debug!(
-                    "Verifying Final operator Signature {} for operator {}",
+                    "Verifying Final operator signature {} for operator {}, signature info {:?}",
                     nonce_idx + 1,
-                    operator_idx
+                    operator_idx,
+                    typed_sighash.1
                 );
 
                 bitvm_client::SECP
                     .verify_schnorr(
                         &operator_sig,
-                        &Message::from(sighash.0),
+                        &Message::from(typed_sighash.0),
                         &tweaked_op_xonly_pk,
                     )
-                    .map_err(|x| {
-                        BridgeError::Error(format!(
-                            "Operator {} Signature {}: verification failed: {}.",
+                    .wrap_err_with(|| {
+                        format!(
+                            "Operator {} Signature {}: verification failed. Signature info: {:?}.",
                             operator_idx,
                             op_sig_count + 1,
-                            x
-                        ))
+                            typed_sighash.1
+                        )
                     })?;
 
                 let &SignatureInfo {
@@ -713,7 +717,8 @@ where
                     kickoff_utxo_idx,
                     signature_id,
                     kickoff_txid: _,
-                } = &sighash.1;
+                } = &typed_sighash.1;
+
                 let tagged_sig = TaggedSignature {
                     signature: operator_sig.serialize().to_vec(),
                     signature_id: Some(signature_id),
@@ -729,10 +734,12 @@ where
         }
 
         if total_op_sig_count != num_required_total_op_sigs {
-            return Err(BridgeError::Error(format!(
-                "Not enough operator signatures. Needed: {}, received: {}",
-                num_required_total_op_sigs, total_op_sig_count
-            )));
+            return Err(eyre::eyre!(
+                "Did not receive enough operator signatures. Needed: {}, received: {}",
+                num_required_total_op_sigs,
+                total_op_sig_count
+            )
+            .into());
         }
 
         // ----- MOVE TX SIGNING

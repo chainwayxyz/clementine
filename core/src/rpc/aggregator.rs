@@ -217,8 +217,10 @@ async fn nonce_distributor(
         partial_sig_sender
             .send((partial_sigs, queue_item))
             .await
-            .map_err(|e| {
-                BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send partial sigs: {}", e))
+            .map_err(|_| {
+                eyre::eyre!(AggregatorError::OutputStreamEndedEarly {
+                    stream_name: "partial_sig_sender".into(),
+                })
             })?;
 
         tracing::debug!(
@@ -257,8 +259,10 @@ async fn signature_aggregator(
                 final_sig: final_sig.serialize().to_vec(),
             })
             .await
-            .map_err(|e| {
-                BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send final sigs: {}", e))
+            .wrap_err_with(|| {
+                eyre::eyre!(AggregatorError::OutputStreamEndedEarly {
+                    stream_name: "final_sig_sender".into(),
+                })
             })?;
         tracing::debug!(
             "Sent aggregated signature {} to signature_distributor in signature_aggregator",
@@ -419,10 +423,9 @@ where
                 f(params).await?;
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                break Err(BridgeError::RPCStreamEndedUnexpectedly(format!(
+                break Err(Status::internal(format!(
                     "lost {n} items due to lagging receiver"
-                ))
-                .into());
+                )));
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => break Ok(R::default()),
         }
@@ -434,15 +437,11 @@ impl Aggregator {
     fn extract_pub_nonce(
         response: Option<clementine::nonce_gen_response::Response>,
     ) -> Result<MusigPubNonce, BridgeError> {
-        match response
-            .ok_or_else(|| BridgeError::Error("NonceGen response is empty".to_string()))?
-        {
+        match response.ok_or_eyre("NonceGen response is empty")? {
             clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => {
                 Ok(MusigPubNonce::from_slice(&pub_nonce).wrap_err("Failed to parse pub nonce")?)
             }
-            _ => Err(BridgeError::Error(
-                "Expected PubNonce in response".to_string(),
-            )),
+            _ => Err(eyre::eyre!("Expected PubNonce in response").into()),
         }
     }
 
@@ -737,7 +736,8 @@ impl ClementineAggregator for Aggregator {
             set_watchtower_params_handle,
         ])
         .await
-        .map_err(|e| BridgeError::Error(format!("aggregator setup failed: {e}")))?
+        .wrap_err("aggregator setup failed")
+        .map_err(BridgeError::from)?
         .into_iter()
         .collect::<Result<Vec<_>, Status>>()?;
 
@@ -939,11 +939,10 @@ impl ClementineAggregator for Aggregator {
                     for sig in sigs.iter() {
                         let deposit_finalize_param: VerifierDepositFinalizeParams = sig.into();
 
-                        tx.send(deposit_finalize_param).await.map_err(|e| {
-                            BridgeError::RPCStreamEndedUnexpectedly(format!(
-                                "Can't send operator sigs to verifier: {}",
-                                e
-                            ))
+                        tx.send(deposit_finalize_param).await.wrap_err_with(|| {
+                            eyre::eyre!(AggregatorError::OutputStreamEndedEarly {
+                                stream_name: "deposit_finalize_sender".into(),
+                            })
                         })?;
                     }
                 }
