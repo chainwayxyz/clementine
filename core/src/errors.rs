@@ -9,9 +9,50 @@
 //! 5. BridgeError can be converted to tonic::Status to be returned to the client. Module-level errors can define Into<Status> to customize the returned status.
 //! 6. BridgeError can be used to share error messages across modules.
 //!
-//! ## Error wrapper
+//! ## Error wrapper example usage with `TxError`
+//! ```rust
+//! use thiserror::Error;
+//! use crate::errors::{BridgeError, TxError, ErrorExt, ResultExt};
+//!
+//! // Function with external crate signature
+//! pub fn external_crate() -> Result<(), hex::FromHexError> {
+//!     Err(hex::FromHexError::InvalidStringLength)
+//! }
+//!
+//! // Internal function failing with some error
+//! pub fn internal_function_in_another_module() -> Result<(), BridgeError> {
+//!     eyre::bail!("I just failed")
+//! }
 //!
 //!
+//! // This function returns module-level errors
+//! // It can wrap external crate errors, and other crate-level errors
+//! pub fn create_some_txs() -> Result<(), TxError> {
+//!     // Do external things
+//!     // This wraps the external crate error with BridgeError, then boxes inside an eyre::Report. The `?` will convert the eyre::Report into a TxError.
+//!     external_crate().map_to_eyre()?;
+//!
+//!     // Do internal things
+//!     // This will simply wrap in eyre::Report, then rewrap in TxError.
+//!     internal_function_in_another_module().map_to_eyre()?;
+//!
+//!     // Return a module-level error
+//!     Err(TxError::TxInputNotFound)
+//! }
+//!
+//! pub fn main() -> Result<(), BridgeError> {
+//!     create_some_txs()?;
+//!     // This will convert the TxError into a BridgeError, wrapping the error with the message "Failed to build transactions" regardless of the actual error.
+//!
+//!     // Chain will be:
+//!     // 1. External case: BridgeError -> TxError -> eyre::Report -> hex::FromHexError
+//!     // 2. Internal case: BridgeError -> TxError -> eyre::Report -> BridgeError -> eyre::Report (this could've been any other module-level error)
+//!     // 3. Module-level error: BridgeError -> TxError
+//!
+//!
+//!     // error(transparent) ensures that unnecessary error messages are not repeated.
+//! }
+//! ```
 
 use crate::{builder::transaction::TransactionType, header_chain_prover::HeaderChainProverError};
 use bitcoin::{BlockHash, FeeRate, OutPoint, Txid};
