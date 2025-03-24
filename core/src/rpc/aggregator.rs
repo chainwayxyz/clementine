@@ -559,7 +559,8 @@ impl Aggregator {
                 &[],
                 &[],
             )
-            .await?;
+            .await
+            .map_err(BridgeError::from)?;
         dbtx.commit()
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
@@ -593,7 +594,8 @@ impl ClementineAggregator for Aggregator {
                 &[],
                 &[],
             )
-            .await?;
+            .await
+            .map_err(BridgeError::from)?;
         dbtx.commit()
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;

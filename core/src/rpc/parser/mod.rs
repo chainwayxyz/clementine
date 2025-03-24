@@ -173,7 +173,7 @@ impl TryFrom<SchnorrSig> for Signature {
     fn try_from(value: SchnorrSig) -> Result<Self, Self::Error> {
         Signature::from_slice(&value.schnorr_sig)
             .wrap_err("Failed to parse schnorr signature")
-            .wrap_err_with(||ParserError::RPCParamMalformed("schnorr_sig".to_string()))
+            .wrap_err_with(|| ParserError::RPCParamMalformed("schnorr_sig".to_string()))
             .map_err(Into::into)
     }
 }

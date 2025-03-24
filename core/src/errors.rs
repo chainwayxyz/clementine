@@ -140,7 +140,6 @@ pub enum BridgeError {
     #[error("User's withdrawal UTXO not set for withdrawal index: {0}")]
     UsersWithdrawalUtxoNotSetForWithdrawalIndex(u32),
 
-
     #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
     BlockgazerTooDeep(u64),
 

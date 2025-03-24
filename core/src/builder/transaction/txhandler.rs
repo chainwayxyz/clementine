@@ -122,7 +122,9 @@ impl<T: State> TxHandler<T> {
                 continue;
             }
 
-            if let Some(witness) = signer(idx, &self.txins[idx], calc_sighash).wrap_err_with(|| format!("Failed to sign input {idx}"))? {
+            if let Some(witness) = signer(idx, &self.txins[idx], calc_sighash)
+                .wrap_err_with(|| format!("Failed to sign input {idx}"))?
+            {
                 self.cached_tx.input[idx].witness = witness.clone();
                 self.txins[idx].set_witness(witness);
             }

@@ -779,7 +779,7 @@ impl TxSender {
 
                         continue;
                     }
-                    _ => {
+                    e => {
                         tracing::error!(
                             "{}: Bumping Tx {} : Failed to send tx with CPFP: {:?}",
                             self.btc_syncer_consumer_id,
