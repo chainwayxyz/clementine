@@ -14,6 +14,7 @@ use std::{
     fs::File,
     io::{BufReader, Read},
 };
+use thiserror::Error;
 
 mod blockgazer;
 mod prover;
@@ -25,9 +26,27 @@ pub struct HeaderChainProver {
     network: bitcoin::Network,
 }
 
+#[derive(Debug, Error)]
+pub enum HeaderChainProverError {
+    // Header chain prover errors
+    #[error("Prover returned an error")]
+    ProverError,
+    #[error("Error while de/serializing object")]
+    ProverDeSerializationError,
+    #[error("No header chain proofs for hash {0}")]
+    NoHeaderChainProof(BlockHash),
+
+    #[error(transparent)]
+    Other(#[from] eyre::Report),
+}
+use crate::errors::ResultExt;
+
 impl HeaderChainProver {
-    pub async fn new(config: &BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
-        let db = Database::new(config).await?;
+    pub async fn new(
+        config: &BridgeConfig,
+        rpc: ExtendedRpc,
+    ) -> Result<Self, HeaderChainProverError> {
+        let db = Database::new(config).await.map_to_eyre()?;
 
         if let Some(proof_file) = &config.header_chain_proof_path {
             tracing::trace!("Starting prover with assumption file {:?}.", proof_file);
@@ -38,17 +57,17 @@ impl HeaderChainProver {
             let mut assumption = Vec::new();
             reader
                 .read_to_end(&mut assumption)
-                .map_err(BridgeError::BorshError)?; // TODO: Not borsh.
+                .wrap_err(BridgeError::BorshError)?; // TODO: Not borsh.
 
-            let proof: Receipt =
-                borsh::from_slice(&assumption).map_err(BridgeError::ProverDeSerializationError)?;
+            let proof: Receipt = borsh::from_slice(&assumption)
+                .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
             let proof_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
-                .map_err(BridgeError::ProverDeSerializationError)?;
+                .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
 
             // Create block entry, if not exists.
-            let block_hash = BlockHash::from_raw_hash(Hash::from_slice(
-                &proof_output.chain_state.best_block_hash,
-            )?);
+            let block_hash = BlockHash::from_raw_hash(
+                Hash::from_slice(&proof_output.chain_state.best_block_hash).map_to_eyre()?,
+            );
             let block_header = rpc
                 .client
                 .get_block_header(&block_hash)
@@ -65,7 +84,9 @@ impl HeaderChainProver {
                 .await;
 
             // Save proof receipt.
-            db.set_block_proof(None, block_hash, proof).await?;
+            db.set_block_proof(None, block_hash, proof)
+                .await
+                .map_to_eyre()?;
         };
 
         Ok(HeaderChainProver {
@@ -87,7 +108,7 @@ impl HeaderChainProver {
     pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
         match self.db.get_block_proof_by_hash(None, hash).await? {
             Some(r) => Ok(r),
-            None => Err(BridgeError::NoHeaderChainProof(hash)),
+            None => Err(HeaderChainProverError::NoHeaderChainProof(hash).into()),
         }
     }
 

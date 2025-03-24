@@ -181,7 +181,7 @@ pub async fn set_initial_block_info_if_not_exists(
             .await
             .wrap_err("Failed to get block count")?,
     )
-    .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+    .wrap_err(BridgeError::IntConversionError)?;
     let mut height = paramset.start_height;
     let mut dbtx = db.begin_transaction().await?;
     // first collect previous needed blocks according to paramset start height

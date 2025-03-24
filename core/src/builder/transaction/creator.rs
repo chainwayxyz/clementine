@@ -22,10 +22,10 @@ use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
 fn get_txhandler(
     txhandlers: &BTreeMap<TransactionType, TxHandler>,
     tx_type: TransactionType,
-) -> Result<&TxHandler, BridgeError> {
+) -> Result<&TxHandler, TxError> {
     txhandlers
         .get(&tx_type)
-        .ok_or(TxError::TxHandlerNotFound(tx_type).into())
+        .ok_or(TxError::TxHandlerNotFound(tx_type))
 }
 
 #[derive(Debug, Clone)]

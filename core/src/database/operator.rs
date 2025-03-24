@@ -263,7 +263,7 @@ impl Database {
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
-        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorshError)?;
+        let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
                 "INSERT INTO operator_winternitz_public_keys (operator_id, winternitz_public_keys) VALUES ($1, $2);",
@@ -291,7 +291,7 @@ impl Database {
         let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         let operator_winternitz_pks: Vec<winternitz::PublicKey> =
-            borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
+            borsh::from_slice(&wpks.0).wrap_err(BridgeError::BorshError)?;
 
         Ok(operator_winternitz_pks)
     }

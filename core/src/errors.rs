@@ -1,8 +1,19 @@
 //! # Errors
 //!
-//! This module defines errors, returned by the library.
+//! This module defines globally shared error messages, the crate-level error wrapper and extension traits for error/results.
+//! Our error paradigm is as follows:
+//! 1. Modules define their own error types when they need shared error messages. Module-level errors can wrap eyre::Report to capture arbitrary errors.
+//! 2. The crate-level error wrapper (BridgeError) is used to wrap errors from modules and attach extra context (ie. which module caused the error).
+//! 3. External crate errors are always wrapped by the BridgeError and never by module-level errors.
+//! 4. When using external crates inside modules, extension traits are used to convert external-crate errors into BridgeError. This is further wrapped in an eyre::Report to avoid a circular dependency.
+//! 5. BridgeError can be converted to tonic::Status to be returned to the client. Module-level errors can define Into<Status> to customize the returned status.
+//! 6. BridgeError can be used to share error messages across modules.
+//!
+//! ## Error wrapper
+//!
+//!
 
-use crate::builder::transaction::TransactionType;
+use crate::{builder::transaction::TransactionType, header_chain_prover::HeaderChainProverError};
 use bitcoin::{BlockHash, FeeRate, OutPoint, Txid};
 use core::fmt::Debug;
 use hex::FromHexError;
@@ -40,12 +51,20 @@ pub enum TxError {
     BitvmSetupNotFound(i32, Txid),
     #[error("Transaction input is missing spend info")]
     MissingSpendInfo,
+
+    #[error(transparent)]
+    Other(#[from] eyre::Report),
 }
 
 /// Errors returned by the bridge.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
+    // Header chain prover errors
+    #[error("Prover returned an error")]
+    ProverError(#[from] HeaderChainProverError),
+    #[error("Unsupported network")]
+    UnsupportedNetwork,
     /// ConfigError is returned when the configuration is invalid
     #[error("Invalid configuration: {0}")]
     ConfigError(String),
@@ -57,24 +76,17 @@ pub enum BridgeError {
     #[error("State machine received event that it doesn't know how to handle: {0}")]
     UnhandledEvent(String),
 
-    // Header chain prover errors
-    #[error("Prover returned an error: {0}")]
-    ProverError(String),
-    #[error("Error while de/serializing object: {0}")]
-    ProverDeSerializationError(std::io::Error),
-    #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
-    BlockgazerTooDeep(u64),
-    #[error("No header chain proofs for hash {0}")]
-    NoHeaderChainProof(BlockHash),
+    #[error("Failed to convert between integer types")]
+    IntConversionError,
 
-    #[error("ConversionError: {0}")]
-    ConversionError(String),
-
-    #[error("ERROR: {0}")]
+    #[error("{0}")]
     Error(String),
 
-    #[error("Can't encode/decode data using borsh: {0}")]
-    BorshError(std::io::Error),
+    #[error("Failed to encode/decode data using borsh")]
+    BorshError,
+
+    #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
+    BlockgazerTooDeep(u64),
 
     #[error("Failed to build transactions: {0}")]
     Transaction(#[from] TxError),
@@ -98,16 +110,16 @@ pub enum BridgeError {
     #[error("Error while sending {0} data: {1}")]
     SendError(&'static str, String),
 
-    // Wrappers
-    #[error("DatabaseError: {0}")]
+    // External error wrappers
+    #[error("Failed to call database: {0}")]
     DatabaseError(#[from] sqlx::Error),
-    #[error("FromHexError: {0}")]
+    #[error("Failed to convert hex string: {0}")]
     FromHexError(#[from] FromHexError),
-    #[error("FromSliceError: {0}")]
+    #[error("Failed to convert to hash from slice: {0}")]
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
 
     // Base wrapper for eyre
-    #[error("{0:?}")]
+    #[error(transparent)]
     Eyre(#[from] eyre::Report),
 
     #[error("Error while calling EVM contract: {0}")]
@@ -129,12 +141,29 @@ pub enum BridgeError {
     TonicStatus(#[from] tonic::Status),
 }
 
-impl BridgeError {
-    pub fn into_eyre(self) -> eyre::Report {
-        match self {
+pub trait ErrorExt: Sized {
+    fn into_eyre(self) -> eyre::Report;
+}
+
+pub trait ResultExt: Sized {
+    type Output;
+    fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
+}
+
+impl<T: Into<BridgeError>> ErrorExt for T {
+    fn into_eyre(self) -> eyre::Report {
+        match self.into() {
             BridgeError::Eyre(report) => report,
-            _ => eyre::Report::new(self),
+            other => eyre::eyre!(other),
         }
+    }
+}
+
+impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
+    type Output = U;
+
+    fn map_to_eyre(self) -> Result<Self::Output, eyre::Report> {
+        self.map_err(Into::into).map_err(BridgeError::into_eyre)
     }
 }
 

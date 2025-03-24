@@ -74,7 +74,7 @@ impl HeaderChainProver {
         let diff = active_tip_height.abs_diff(db_tip_height);
         if diff > MAX_ALLOWED_DISTANCE_TO_ACTIVE_TIP {
             tracing::error!(
-                "Current tip is fallen too far behind (difference is {} blocks)!",
+                "Current tip has fallen too far behind (difference is {} blocks)!",
                 diff
             );
 
