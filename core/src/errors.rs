@@ -12,7 +12,7 @@
 //! ## Error wrapper example usage with `TxError`
 //! ```rust
 //! use thiserror::Error;
-//! use crate::errors::{BridgeError, TxError, ErrorExt, ResultExt};
+//! use clementine_core::errors::{BridgeError, TxError, ErrorExt, ResultExt};
 //!
 //! // Function with external crate signature
 //! pub fn external_crate() -> Result<(), hex::FromHexError> {
@@ -21,7 +21,7 @@
 //!
 //! // Internal function failing with some error
 //! pub fn internal_function_in_another_module() -> Result<(), BridgeError> {
-//!     eyre::bail!("I just failed")
+//!     Err(eyre::eyre!("I just failed").into())
 //! }
 //!
 //!
@@ -40,7 +40,7 @@
 //!     Err(TxError::TxInputNotFound)
 //! }
 //!
-//! pub fn main() -> Result<(), BridgeError> {
+//! pub fn test() -> Result<(), BridgeError> {
 //!     create_some_txs()?;
 //!     // This will convert the TxError into a BridgeError, wrapping the error with the message "Failed to build transactions" regardless of the actual error.
 //!
@@ -51,6 +51,11 @@
 //!
 //!
 //!     // error(transparent) ensures that unnecessary error messages are not repeated.
+//!     Ok(())
+//! }
+//!
+//! pub fn main() {
+//!     assert!(test().is_err());
 //! }
 //! ```
 
