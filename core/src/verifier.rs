@@ -1,4 +1,4 @@
-use crate::actor::Actor;
+use crate::actor::{verify_schnorr, Actor, TweakCache};
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::taproot_builder_with_scripts;
@@ -276,6 +276,7 @@ where
         unspent_kickoff_sigs: Vec<Signature>,
         kickoff_wpks: &KickoffWinternitzKeys,
     ) -> Result<Vec<TaggedSignature>, BridgeError> {
+        let mut tweak_cache = TweakCache::default();
         let mut tagged_sigs = Vec::with_capacity(unspent_kickoff_sigs.len());
         let mut prev_ready_to_reimburse: Option<TxHandler> = None;
         let operator_data = OperatorData {
@@ -305,11 +306,12 @@ where
                         .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
                     for sighash in sighashes {
                         let message = Message::from_digest(sighash.0.to_byte_array());
-                        Actor::verify_schnorr(
+                        verify_schnorr(
                             &unspent_kickoff_sigs[cur_sig_index],
                             &message,
                             operator_xonly_pk,
                             sighash.1.tweak_data,
+                            Some(&mut tweak_cache),
                         )?;
                         tagged_sigs.push(TaggedSignature {
                             signature: unspent_kickoff_sigs[cur_sig_index].serialize().to_vec(),
@@ -527,6 +529,7 @@ where
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
     ) -> Result<MusigPartialSignature, BridgeError> {
+        let mut tweak_cache = TweakCache::default();
         let deposit_blockhash = self
             .rpc
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
@@ -597,22 +600,13 @@ where
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
 
-            Actor::verify_schnorr(
+            verify_schnorr(
                 &sig,
                 &Message::from(sighash.0),
                 self.nofn_xonly_pk,
                 tweak_data,
+                Some(&mut tweak_cache),
             )?;
-
-            // bitvm_client::SECP
-            //     .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
-            //     .map_err(|x| {
-            //         BridgeError::Error(format!(
-            //             "Nofn Signature {} Verification Failed: {}.",
-            //             nonce_idx + 1,
-            //             x
-            //         ))
-            //     })?;
 
             let tagged_sig = TaggedSignature {
                 signature: sig.serialize().to_vec(),
@@ -673,11 +667,12 @@ where
                     operator_idx
                 );
 
-                Actor::verify_schnorr(
+                verify_schnorr(
                     &operator_sig,
                     &Message::from(sighash.0),
                     *op_xonly_pk,
                     tweak_data,
+                    Some(&mut tweak_cache),
                 )?;
 
                 let &SignatureInfo {

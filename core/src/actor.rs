@@ -1,3 +1,6 @@
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
 use crate::builder::sighash::TapTweakData;
@@ -87,6 +90,82 @@ impl WinternitzDerivationPath {
     }
 }
 
+fn calc_tweaked_keypair(
+    keypair: &Keypair,
+    merkle_root: Option<TapNodeHash>,
+) -> Result<Keypair, BridgeError> {
+    Ok(keypair.add_xonly_tweak(
+        &SECP,
+        &TapTweakHash::from_key_and_tweak(keypair.x_only_public_key().0, merkle_root).to_scalar(),
+    )?)
+}
+
+fn calc_tweaked_xonly_pk(
+    pubkey: XOnlyPublicKey,
+    merkle_root: Option<TapNodeHash>,
+) -> Result<XOnlyPublicKey, BridgeError> {
+    Ok(pubkey
+        .add_tweak(
+            &SECP,
+            &TapTweakHash::from_key_and_tweak(pubkey, merkle_root).to_scalar(),
+        )?
+        .0)
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TweakCache {
+    // A cache that holds tweaked keys so that we do not need to repeatedly calculate them.
+    // This cache will hold data for only one deposit generally because we need to clone the holder of Actor(owner or verifier)
+    // to spawned threads during deposit. (Because all grpc functions have &self, we also need to clone Actor to a mutable instance
+    // to modify the caches)
+    tweaked_key_cache: HashMap<(XOnlyPublicKey, Option<TapNodeHash>), XOnlyPublicKey>,
+    // A cache to hold actors own tweaked keys.
+    tweaked_keypair_cache: HashMap<Option<TapNodeHash>, Keypair>,
+}
+
+impl TweakCache {
+    fn get_own_tweaked_keypair(
+        &mut self,
+        keypair: &Keypair,
+        merkle_root: Option<TapNodeHash>,
+    ) -> Result<&Keypair, BridgeError> {
+        match self.tweaked_keypair_cache.entry(merkle_root) {
+            Entry::Occupied(entry) => Ok(entry.into_mut()),
+            Entry::Vacant(entry) => Ok(entry.insert(calc_tweaked_keypair(keypair, merkle_root)?)),
+        }
+    }
+
+    fn get_tweaked_xonly_key(
+        &mut self,
+        pubkey: XOnlyPublicKey,
+        merkle_root: Option<TapNodeHash>,
+    ) -> Result<XOnlyPublicKey, BridgeError> {
+        match self.tweaked_key_cache.entry((pubkey, merkle_root)) {
+            Entry::Occupied(entry) => Ok(*entry.get()),
+            Entry::Vacant(entry) => Ok(*entry.insert(calc_tweaked_xonly_pk(pubkey, merkle_root)?)),
+        }
+    }
+}
+
+pub fn verify_schnorr(
+    signature: &schnorr::Signature,
+    sighash: &Message,
+    pubkey: XOnlyPublicKey,
+    tweak_data: TapTweakData,
+    tweak_cache: Option<&mut TweakCache>,
+) -> Result<(), BridgeError> {
+    let pubkey = match tweak_data {
+        TapTweakData::KeyPath(merkle_root) => match tweak_cache {
+            Some(cache) => cache.get_tweaked_xonly_key(pubkey, merkle_root)?,
+            None => calc_tweaked_xonly_pk(pubkey, merkle_root)?,
+        },
+        TapTweakData::ScriptPath => pubkey,
+        TapTweakData::Unknown => return Err(BridgeError::Error("Spend Path Unknown".to_string())),
+    };
+    SECP.verify_schnorr(signature, sighash, &pubkey)
+        .map_err(|_| BridgeError::Error("Failed to verify Schnorr signature".to_string()))
+}
+
 #[derive(Debug, Clone)]
 pub struct Actor {
     pub keypair: Keypair,
@@ -123,14 +202,19 @@ impl Actor {
         &self,
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
+        tweak_cache: Option<&mut TweakCache>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        Ok(bitvm_client::SECP.sign_schnorr(
-            &Message::from_digest(*sighash.as_byte_array()),
-            &self.keypair.add_xonly_tweak(
-                &SECP,
-                &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
-            )?,
-        ))
+        let keypair;
+        let keypair_ref = match tweak_cache {
+            Some(cache) => cache.get_own_tweaked_keypair(&self.keypair, merkle_root)?,
+            None => {
+                keypair = calc_tweaked_keypair(&self.keypair, merkle_root)?;
+                &keypair
+            }
+        };
+
+        Ok(bitvm_client::SECP
+            .sign_schnorr(&Message::from_digest(*sighash.as_byte_array()), keypair_ref))
     }
 
     #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
@@ -141,44 +225,19 @@ impl Actor {
         )
     }
 
-    pub fn sign_with_spend_data(
+    pub fn sign_with_tweak_data(
         &self,
         sighash: TapSighash,
         tweak_data: TapTweakData,
+        tweak_cache: Option<&mut TweakCache>,
     ) -> Result<schnorr::Signature, BridgeError> {
         match tweak_data {
-            TapTweakData::KeyPath(merkle_root) => self.sign_with_tweak(sighash, merkle_root),
+            TapTweakData::KeyPath(merkle_root) => {
+                self.sign_with_tweak(sighash, merkle_root, tweak_cache)
+            }
             TapTweakData::ScriptPath => Ok(self.sign(sighash)),
             TapTweakData::Unknown => Err(BridgeError::Error("Spend Data Unknown".to_string())),
         }
-    }
-
-    pub fn verify_schnorr(
-        signature: &schnorr::Signature,
-        sighash: &Message,
-        pubkey: XOnlyPublicKey,
-        tweak_data: TapTweakData,
-    ) -> Result<(), BridgeError> {
-        let pubkey = match tweak_data {
-            TapTweakData::KeyPath(merkle_root) => {
-                let scalar = TapTweakHash::from_key_and_tweak(pubkey, merkle_root).to_scalar();
-                pubkey
-                    .add_tweak(&SECP, &scalar)
-                    .map_err(|x| {
-                        BridgeError::Error(format!(
-                            "Failed to tweak operator xonly public key: {}",
-                            x
-                        ))
-                    })?
-                    .0
-            }
-            TapTweakData::ScriptPath => pubkey,
-            TapTweakData::Unknown => {
-                return Err(BridgeError::Error("Spend Path Unknown".to_string()))
-            }
-        };
-        SECP.verify_schnorr(signature, sighash, &pubkey)
-            .map_err(|_| BridgeError::Error("Failed to verify Schnorr signature".to_string()))
     }
 
     /// Returns derivied Winternitz secret key from given path.
@@ -469,6 +528,7 @@ impl Actor {
         &self,
         txhandler: &mut TxHandler,
         signatures: &[TaggedSignature],
+        mut tweak_cache: Option<&mut TweakCache>,
     ) -> Result<(), BridgeError> {
         let tx_type = txhandler.get_transaction_type();
         let signer = move |_,
@@ -573,7 +633,11 @@ impl Actor {
                         Some(sig) => sig,
                         None => {
                             if xonly_public_key == self.xonly_public_key {
-                                self.sign_with_tweak(sighash, spendinfo.merkle_root())?
+                                self.sign_with_tweak(
+                                    sighash,
+                                    spendinfo.merkle_root(),
+                                    tweak_cache.as_deref_mut(),
+                                )?
                             } else {
                                 return Err(BridgeError::NotOwnKeyPath);
                             }
@@ -717,7 +781,7 @@ mod tests {
 
         // Actor signs the key spend input.
         actor
-            .tx_sign_and_fill_sigs(&mut txhandler, &[])
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
             .expect("Key spend signature should succeed");
 
         // Retrieve the cached transaction from the txhandler.
@@ -737,7 +801,7 @@ mod tests {
         // Using an empty signature slice since our dummy CheckSig uses actor signature.
         let signatures: Vec<_> = vec![];
         actor
-            .tx_sign_and_fill_sigs(&mut txhandler, &signatures)
+            .tx_sign_and_fill_sigs(&mut txhandler, &signatures, None)
             .expect("Script spend partial sign should succeed");
 
         // Retrieve the cached transaction.
@@ -757,7 +821,7 @@ mod tests {
         // Using an empty signature slice since our dummy CheckSig uses actor signature.
         let signatures: Vec<_> = vec![];
         actor
-            .tx_sign_and_fill_sigs(&mut txhandler, &signatures)
+            .tx_sign_and_fill_sigs(&mut txhandler, &signatures, None)
             .expect("Script spend partial sign should succeed");
 
         // Retrieve the cached transaction.
@@ -848,7 +912,7 @@ mod tests {
         let x = tx_handler
             .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
             .unwrap();
-        actor.sign_with_tweak(x, None).unwrap();
+        actor.sign_with_tweak(x, None, None).unwrap();
     }
 
     #[tokio::test]

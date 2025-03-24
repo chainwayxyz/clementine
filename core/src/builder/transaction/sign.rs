@@ -1,6 +1,6 @@
 use super::challenge::create_watchtower_challenge_txhandler;
 use super::{ContractContext, TxHandlerCache};
-use crate::actor::{Actor, WinternitzDerivationPath};
+use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
@@ -120,9 +120,10 @@ pub async fn create_and_sign_txs(
     signatures.extend(setup_sigs_query.unwrap_or_default());
 
     let mut signed_txs = Vec::with_capacity(txhandlers.len());
+    let mut tweak_cache = TweakCache::default();
 
     for (tx_type, mut txhandler) in txhandlers.into_iter() {
-        let _ = signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures);
+        let _ = signer.tx_sign_and_fill_sigs(&mut txhandler, &signatures, Some(&mut tweak_cache));
 
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
@@ -212,7 +213,7 @@ where
         )?;
 
         self.signer
-            .tx_sign_and_fill_sigs(&mut watchtower_challenge_txhandler, &[])?;
+            .tx_sign_and_fill_sigs(&mut watchtower_challenge_txhandler, &[], None)?;
 
         let checked_txhandler = watchtower_challenge_txhandler.promote()?;
 
@@ -258,14 +259,18 @@ where
             )))?;
 
         let mut signed_txs = Vec::with_capacity(txhandlers.len());
+        let mut tweak_cache = TweakCache::default();
 
         for (tx_type, mut txhandler) in txhandlers.into_iter() {
             if !matches!(tx_type, TransactionType::UnspentKickoff(_)) {
                 // do not try to sign unrelated txs
                 continue;
             }
-            self.signer
-                .tx_sign_and_fill_sigs(&mut txhandler, &unspent_kickoff_sigs)?;
+            self.signer.tx_sign_and_fill_sigs(
+                &mut txhandler,
+                &unspent_kickoff_sigs,
+                Some(&mut tweak_cache),
+            )?;
 
             let checked_txhandler = txhandler.promote();
 
