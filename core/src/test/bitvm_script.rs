@@ -121,29 +121,29 @@ mod tests {
         let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &groth16_public_input_params,
             &groth16_public_input_wsk,
-            &TEST_GROTH16_PUBLIC_INPUT.to_vec(),
+            TEST_GROTH16_PUBLIC_INPUT.as_ref(),
         );
 
         let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &payout_tx_block_hash_params,
             &payout_tx_block_hash_wsk,
-            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
+            BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
                 .payout_tx_block_hash
-                .to_vec(),
+                .as_ref(),
         );
 
         let latest_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &latest_block_hash_params,
             &latest_block_hash_wsk,
-            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.latest_block_hash.to_vec(),
+            BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.latest_block_hash.as_ref(),
         );
 
         let challenge_sending_watchtowers_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &challenge_sending_watchtowers_params,
             &challenge_sending_watchtowers_wsk,
-            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
+            BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
                 .challenge_sending_watchtowers
-                .to_vec(),
+                .as_ref(),
         );
 
         let dummy_challenge_preimages_final: [Option<[u8; 20]>; 160] = [None; 160];
@@ -178,29 +178,29 @@ mod tests {
         let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &groth16_public_input_params,
             &groth16_public_input_wsk,
-            &TEST_GROTH16_PUBLIC_INPUT.to_vec(),
+            TEST_GROTH16_PUBLIC_INPUT.as_ref(),
         );
 
         let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &payout_tx_block_hash_params,
             &payout_tx_block_hash_wsk,
-            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
+            BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
                 .payout_tx_block_hash
-                .to_vec(),
+                .as_ref(),
         );
 
         let latest_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &latest_block_hash_params,
             &latest_block_hash_wsk,
-            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.latest_block_hash.to_vec(),
+            BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.latest_block_hash.as_ref(),
         );
 
         let challenge_sending_watchtowers_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &challenge_sending_watchtowers_params,
             &challenge_sending_watchtowers_wsk,
-            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
+            BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
                 .challenge_sending_watchtowers
-                .to_vec(),
+                .as_ref(),
         );
 
         let mut dummy_challenge_preimages_final: [Option<[u8; 20]>; 160] = [None; 160];
@@ -239,15 +239,14 @@ mod tests {
         let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &groth16_public_input_params,
             &groth16_public_input_wsk,
-            &TEST_GROTH16_PUBLIC_INPUT.to_vec(),
+            &TEST_GROTH16_PUBLIC_INPUT,
         );
 
         let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &payout_tx_block_hash_params,
             &payout_tx_block_hash_wsk,
             &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
-                .payout_tx_block_hash
-                .to_vec(),
+                .payout_tx_block_hash,
         );
 
         let mut latest_block_hash = BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.latest_block_hash.to_vec();
@@ -263,8 +262,7 @@ mod tests {
             &challenge_sending_watchtowers_params,
             &challenge_sending_watchtowers_wsk,
             &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
-                .challenge_sending_watchtowers
-                .to_vec(),
+                .challenge_sending_watchtowers,
         );
 
         let dummy_challenge_preimages_final: [Option<[u8; 20]>; 160] = [None; 160];
