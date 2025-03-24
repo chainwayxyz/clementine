@@ -71,9 +71,9 @@ jmt = "0.11.0"
 derive_more = "1.0.0"
 blake3 = "1.5.1"
 itertools = "0.14.0"
-header-chain = { git = "https://github.com/chainwayxyz/BitVM", rev = "d1cd5a7" }
-bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "d1cd5a7" }
-final-spv = { git = "https://github.com/chainwayxyz/BitVM", rev = "d1cd5a7" }
+header-chain = { git = "https://github.com/chainwayxyz/BitVM", rev = "a3d7230" }
+bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "a3d7230" }
+final-spv = { git = "https://github.com/chainwayxyz/BitVM", rev = "a3d7230" }
 risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "main" }
 
 ark-groth16 = { version = "0.5.0", default-features = false }
