@@ -461,14 +461,14 @@ impl ClementineBitVMPublicKeys {
 
     pub fn get_assert_derivations(
         mini_assert_idx: usize,
-        txid: bitcoin::Txid,
+        deposit_outpoint: bitcoin::OutPoint,
         paramset: &'static ProtocolParamset,
     ) -> Vec<WinternitzDerivationPath> {
         if mini_assert_idx == 0 {
             vec![
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, txid, paramset),
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, txid, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 2, 0, txid, paramset),
+                WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 2, 0, deposit_outpoint, paramset),
             ]
         } else if (1..=3).contains(&mini_assert_idx) {
             // for 1, we will have 5 derivations index starting from 0 to 4
@@ -483,7 +483,7 @@ impl ClementineBitVMPublicKeys {
                         32 * 2,
                         3,
                         derivations + i,
-                        txid,
+                        deposit_outpoint,
                         paramset,
                     ));
                 }
@@ -498,7 +498,7 @@ impl ClementineBitVMPublicKeys {
                         20 * 2,
                         4,
                         derivations + i,
-                        txid,
+                        deposit_outpoint,
                         paramset,
                     ));
                 }
@@ -620,8 +620,12 @@ mod tests {
 
         let sk = bitcoin::secp256k1::SecretKey::new(&mut thread_rng());
         let signer = Actor::new(sk, Some(sk), config.protocol_paramset().network);
+        let deposit_outpoint = bitcoin::OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0,
+        };
         let bitvm_pks = signer
-            .generate_bitvm_pks_for_deposit(Txid::all_zeros(), config.protocol_paramset())
+            .generate_bitvm_pks_for_deposit(deposit_outpoint, config.protocol_paramset())
             .unwrap();
 
         let flattened_vec = bitvm_pks.to_flattened_vec();

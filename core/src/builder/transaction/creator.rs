@@ -473,8 +473,8 @@ pub async fn create_txhandlers(
 
         // deposit_data.deposit_outpoint.txid
 
-        let bitvm_pks = actor
-            .generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint().txid, paramset)?;
+        let bitvm_pks =
+            actor.generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint(), paramset)?;
 
         let assert_scripts = bitvm_pks.get_assert_scripts(operator_data.xonly_pk);
 
