@@ -121,6 +121,8 @@ pub struct TweakCache {
     tweaked_key_cache: HashMap<(XOnlyPublicKey, Option<TapNodeHash>), XOnlyPublicKey>,
     // A cache to hold actors own tweaked keys.
     tweaked_keypair_cache: HashMap<Option<TapNodeHash>, Keypair>,
+    // Saved keypair so that user cannot accidentally call get_own_tweaked_keypair with a different keypair.
+    saved_keypair: Option<Keypair>,
 }
 
 impl TweakCache {
@@ -129,6 +131,16 @@ impl TweakCache {
         keypair: &Keypair,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<&Keypair, BridgeError> {
+        if let Some(saved_keypair) = self.saved_keypair {
+            if saved_keypair != *keypair {
+                return Err(BridgeError::Error(format!(
+                    "TweakCache used with a different keypair, saved: {:?}, given: {:?}",
+                    saved_keypair, keypair
+                )));
+            }
+        } else {
+            self.saved_keypair = Some(*keypair);
+        }
         match self.tweaked_keypair_cache.entry(merkle_root) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => Ok(entry.insert(calc_tweaked_keypair(keypair, merkle_root)?)),
@@ -933,6 +945,77 @@ mod tests {
         params = WinternitzDerivationPath::Kickoff(0, 1, paramset);
         let pk2 = actor.derive_winternitz_pk(params).unwrap();
         assert_ne!(pk0, pk2);
+    }
+
+    impl TweakCache {
+        fn get_tweaked_xonly_key_cache_size(&self) -> usize {
+            self.tweaked_key_cache.len()
+        }
+        fn get_tweaked_keypair_cache_size(&self) -> usize {
+            self.tweaked_keypair_cache.len()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tweak_cache() {
+        let mut tweak_cache = TweakCache::default();
+        let sk = SecretKey::new(&mut rand::thread_rng());
+        let keypair = Keypair::from_secret_key(&SECP, &sk);
+        let sk2 = SecretKey::new(&mut rand::thread_rng());
+        let keypair2 = Keypair::from_secret_key(&SECP, &sk2);
+        let sk3 = SecretKey::new(&mut rand::thread_rng());
+        let keypair3 = Keypair::from_secret_key(&SECP, &sk3);
+
+        tweak_cache.get_own_tweaked_keypair(&keypair, None).unwrap();
+        assert!(tweak_cache.get_tweaked_keypair_cache_size() == 1);
+        tweak_cache
+            .get_own_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x55; 32])))
+            .unwrap();
+        assert!(tweak_cache.get_tweaked_keypair_cache_size() == 2);
+        tweak_cache
+            .get_own_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x56; 32])))
+            .unwrap();
+        assert!(tweak_cache.get_tweaked_keypair_cache_size() == 3);
+        tweak_cache
+            .get_own_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x57; 32])))
+            .unwrap();
+        assert!(tweak_cache.get_tweaked_keypair_cache_size() == 4);
+        tweak_cache
+            .get_own_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x55; 32])))
+            .unwrap();
+        tweak_cache.get_own_tweaked_keypair(&keypair, None).unwrap();
+        assert!(tweak_cache.get_tweaked_keypair_cache_size() == 4);
+        assert!(tweak_cache
+            .get_own_tweaked_keypair(&keypair2, None)
+            .is_err());
+        let xonly_pk1 = keypair.x_only_public_key();
+        let xonly_pk2 = keypair2.x_only_public_key();
+        let xonly_pk3 = keypair3.x_only_public_key();
+
+        // Test for get_tweaked_xonly_key
+        tweak_cache
+            .get_tweaked_xonly_key(xonly_pk1.0, None)
+            .unwrap();
+        assert!(tweak_cache.get_tweaked_xonly_key_cache_size() == 1);
+        tweak_cache
+            .get_tweaked_xonly_key(xonly_pk1.0, Some(TapNodeHash::assume_hidden([0x55; 32])))
+            .unwrap();
+        assert!(tweak_cache.get_tweaked_xonly_key_cache_size() == 2);
+        tweak_cache
+            .get_tweaked_xonly_key(xonly_pk2.0, Some(TapNodeHash::assume_hidden([0x55; 32])))
+            .unwrap();
+        assert!(tweak_cache.get_tweaked_xonly_key_cache_size() == 3);
+        tweak_cache
+            .get_tweaked_xonly_key(xonly_pk3.0, Some(TapNodeHash::assume_hidden([0x55; 32])))
+            .unwrap();
+        assert!(tweak_cache.get_tweaked_xonly_key_cache_size() == 4);
+        tweak_cache
+            .get_tweaked_xonly_key(xonly_pk1.0, None)
+            .unwrap();
+        tweak_cache
+            .get_tweaked_xonly_key(xonly_pk3.0, Some(TapNodeHash::assume_hidden([0x55; 32])))
+            .unwrap();
+        assert!(tweak_cache.get_tweaked_xonly_key_cache_size() == 4);
     }
 
     #[tokio::test]
