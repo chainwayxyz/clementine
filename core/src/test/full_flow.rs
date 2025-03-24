@@ -840,6 +840,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
     async fn test_simple_assert_flow() {
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.should_run_state_manager = false;
@@ -850,6 +851,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
     // #[ignore = "Design changes in progress"]
     async fn test_happy_path_1() {
         let mut config = create_test_config_with_thread_name().await;
@@ -860,6 +862,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
     async fn test_happy_path_2() {
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.should_run_state_manager = false;
@@ -869,6 +872,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
     async fn test_bad_path_1() {
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.should_run_state_manager = false;
@@ -878,6 +882,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
     async fn test_bad_path_2() {
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.should_run_state_manager = false;
@@ -888,6 +893,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "Disprove is not ready"]
+    #[serial_test::serial]
     async fn test_bad_path_3() {
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.should_run_state_manager = false;
@@ -897,6 +903,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
     async fn test_operator_end_round() {
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.should_run_state_manager = false;
@@ -907,6 +914,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
     async fn test_operator_end_round_with_challenge() {
         let mut config = create_test_config_with_thread_name().await;
         config.test_params.should_run_state_manager = false;
@@ -917,6 +925,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
     async fn test_challenge_with_state_machine() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
