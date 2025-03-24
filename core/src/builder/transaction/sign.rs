@@ -204,9 +204,16 @@ where
             .remove(&TransactionType::Kickoff)
             .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Kickoff))?;
 
+        let verifier_index = self
+            .idx
+            .read()
+            .await
+            .clone()
+            .ok_or(BridgeError::Error(format!("Verifier index not set!")))?;
+
         let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
             &kickoff_txhandler,
-            self.idx,
+            verifier_index,
             commit_data,
             self.config.protocol_paramset(),
         )?;
@@ -217,7 +224,7 @@ where
         let checked_txhandler = watchtower_challenge_txhandler.promote()?;
 
         Ok((
-            TransactionType::WatchtowerChallenge(self.idx),
+            TransactionType::WatchtowerChallenge(verifier_index),
             checked_txhandler.get_cached_tx().clone(),
         ))
     }

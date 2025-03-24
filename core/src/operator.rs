@@ -19,7 +19,6 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
@@ -56,7 +55,6 @@ pub struct Operator<C: CitreaClientT> {
     pub db: Database,
     pub signer: Actor,
     pub config: BridgeConfig,
-    pub nofn_xonly_pk: XOnlyPublicKey,
     pub collateral_funding_outpoint: OutPoint,
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
@@ -135,8 +133,8 @@ where
         )
         .await?;
 
-        let nofn_xonly_pk =
-            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+        // let nofn_xonly_pk =
+        //     XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
         let idx = config
             .operators_xonly_pks
             .iter()
@@ -197,12 +195,14 @@ where
             config.db_name
         );
 
+        // let nofn_xonly_pk = Arc::new(tokio::sync::RwLock::new(None));
+
         Ok(Operator {
             rpc,
             db: db.clone(),
             signer,
             config,
-            nofn_xonly_pk,
+            // nofn_xonly_pk,
             idx,
             collateral_funding_outpoint,
             tx_sender,
@@ -1082,6 +1082,7 @@ mod tests {
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::Txid;
+
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name().await;

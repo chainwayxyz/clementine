@@ -1,7 +1,8 @@
 //! # Citrea Related Utilities
 
-use crate::musig2::AggregateFromPublicKeys;
-use crate::{config::BridgeConfig, errors::BridgeError};
+use crate::citrea::mock::MockCitreaClient;
+use crate::{config::BridgeConfig, errors::BridgeError, test::common::create_actors};
+use bitcoin::XOnlyPublicKey;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
@@ -15,6 +16,25 @@ pub use requests::*;
 mod bitcoin_merkle;
 mod parameters;
 mod requests;
+
+lazy_static::lazy_static! {
+    pub static ref NOFN: XOnlyPublicKey = {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let config = BridgeConfig::default();
+            let (verifiers, mut operators, mut aggregator, cleanup) =
+                create_actors::<MockCitreaClient>(&config).await;
+            let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+                .setup(Request::new(Empty {}))
+                .await
+                .unwrap()
+                .into_inner()
+                .try_into()
+                .unwrap();
+
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys, None).unwrap()
+        })
+    };
+}
 
 lazy_static::lazy_static! {
     /// Citrea bridge params. This string includes N-of-N public key for the current

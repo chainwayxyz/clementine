@@ -2,10 +2,7 @@
 
 use super::{protocol::ProtocolParamset, BridgeConfig};
 use crate::errors::BridgeError;
-use bitcoin::{
-    secp256k1::{PublicKey, SecretKey},
-    Amount, Network, XOnlyPublicKey,
-};
+use bitcoin::{secp256k1::SecretKey, Amount, Network, XOnlyPublicKey};
 use std::{path::PathBuf, str::FromStr};
 
 fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
@@ -25,13 +22,13 @@ where
 
 impl BridgeConfig {
     pub fn from_env() -> Result<Self, BridgeError> {
-        let verifiers_public_keys = read_string_from_env("VERIFIERS_PUBLIC_KEYS")?;
-        let verifiers_public_keys = verifiers_public_keys.split(",").collect::<Vec<&str>>();
-        let verifiers_public_keys = verifiers_public_keys
-            .iter()
-            .map(|x| PublicKey::from_str(x))
-            .collect::<Result<Vec<PublicKey>, _>>()
-            .map_err(|e| BridgeError::EnvVarMalformed("VERIFIERS_PUBLIC_KEYS", e.to_string()))?;
+        // let verifiers_public_keys = read_string_from_env("VERIFIERS_PUBLIC_KEYS")?;
+        // let verifiers_public_keys = verifiers_public_keys.split(",").collect::<Vec<&str>>();
+        // let verifiers_public_keys = verifiers_public_keys
+        //     .iter()
+        //     .map(|x| PublicKey::from_str(x))
+        //     .collect::<Result<Vec<PublicKey>, _>>()
+        //     .map_err(|e| BridgeError::EnvVarMalformed("VERIFIERS_PUBLIC_KEYS", e.to_string()))?;
 
         let operators_xonly_pks = read_string_from_env("OPERATOR_XONLY_PKS")?;
         let operators_xonly_pks = operators_xonly_pks.split(",").collect::<Vec<&str>>();
@@ -131,7 +128,7 @@ impl BridgeConfig {
             index: read_string_from_env_then_parse::<u32>("INDEX")?,
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
             winternitz_secret_key,
-            verifiers_public_keys,
+            // verifiers_public_keys,
             num_verifiers: read_string_from_env_then_parse::<usize>("NUM_VERIFIERS")?,
             operators_xonly_pks,
             num_operators: read_string_from_env_then_parse::<usize>("NUM_OPERATORS")?,
@@ -254,15 +251,15 @@ mod tests {
                 winternitz_secret_key.display_secret().to_string(),
             );
         }
-        std::env::set_var(
-            "VERIFIERS_PUBLIC_KEYS",
-            default_config
-                .verifiers_public_keys
-                .iter()
-                .map(|pk| pk.to_string())
-                .collect::<Vec<String>>()
-                .join(","),
-        );
+        // std::env::set_var(
+        //     "VERIFIERS_PUBLIC_KEYS",
+        //     default_config
+        //         .verifiers_public_keys
+        //         .iter()
+        //         .map(|pk| pk.to_string())
+        //         .collect::<Vec<String>>()
+        //         .join(","),
+        // );
         std::env::set_var("NUM_VERIFIERS", default_config.num_verifiers.to_string());
         std::env::set_var(
             "OPERATOR_XONLY_PKS",

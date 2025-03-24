@@ -164,11 +164,12 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
         config.port
     );
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let operator = OperatorServer::<C>::new(config).await?;
-    tracing::info!("Operator gRPC server created");
-    let svc = ClementineOperatorServer::new(operator);
 
+    let operator = OperatorServer::<C>::new(config).await?;
+
+    let svc = ClementineOperatorServer::new(operator);
     let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Operator").await?;
+    tracing::info!("Operator gRPC server created");
 
     match server_addr {
         ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),
@@ -180,7 +181,7 @@ pub async fn create_aggregator_grpc_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
-    let aggregator = Aggregator::new(config).await?;
+    let aggregator = Aggregator::new(config.clone()).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
 
     let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Aggregator").await?;

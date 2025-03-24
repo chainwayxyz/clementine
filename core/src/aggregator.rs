@@ -1,13 +1,16 @@
+use std::sync::Arc;
+
 use crate::builder::transaction::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
 use crate::tx_sender::TxSenderClient;
+use crate::verifier::NofN;
 use crate::{
     builder::{self},
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
-    musig2::{aggregate_partial_signatures, AggregateFromPublicKeys},
+    musig2::aggregate_partial_signatures,
     rpc::{
         self,
         clementine::{
@@ -17,10 +20,7 @@ use crate::{
     },
 };
 use bitcoin::hashes::Hash;
-use bitcoin::{
-    secp256k1::{schnorr, Message},
-    XOnlyPublicKey,
-};
+use bitcoin::secp256k1::{schnorr, Message};
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use tonic::Status;
@@ -38,7 +38,7 @@ pub struct Aggregator {
     pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    pub(crate) _nofn_xonly_pk: XOnlyPublicKey,
+    pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     pub(crate) tx_sender: TxSenderClient,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
@@ -47,9 +47,6 @@ pub struct Aggregator {
 impl Aggregator {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let db = Database::new(&config).await?;
-
-        let nofn_xonly_pk =
-            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
@@ -86,11 +83,13 @@ impl Aggregator {
             operator_clients.len(),
         );
 
+        let nofn = Arc::new(tokio::sync::RwLock::new(None));
+
         Ok(Aggregator {
             rpc,
             db,
             config,
-            _nofn_xonly_pk: nofn_xonly_pk,
+            nofn,
             tx_sender,
             verifier_clients,
             operator_clients,
@@ -236,7 +235,7 @@ impl Aggregator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    fn aggregate_move_partial_sigs(
+    async fn aggregate_move_partial_sigs(
         &self,
         deposit_data: DepositData,
         agg_nonce: &MusigAggNonce,
@@ -252,8 +251,15 @@ impl Aggregator {
             tx.calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)?
                 .to_byte_array(),
         );
+        let verifiers_public_keys = self
+            .nofn
+            .read()
+            .await
+            .clone()
+            .ok_or(BridgeError::Error(format!("N-of-N not set!")))?
+            .public_keys;
         let final_sig = aggregate_partial_signatures(
-            &self.config.verifiers_public_keys,
+            &verifiers_public_keys,
             None,
             *agg_nonce,
             &partial_sigs,

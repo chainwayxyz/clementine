@@ -31,8 +31,14 @@ where
     type Error = Status;
 
     fn try_from(verifier: &Verifier<C>) -> Result<Self, Self::Error> {
+        let idx = verifier
+            .idx
+            .blocking_read()
+            .clone()
+            .ok_or(BridgeError::Error(format!("Verifier index not set!")))?;
+
         Ok(VerifierParams {
-            id: convert_int_to_another("id", verifier.idx, u32::try_from)?,
+            id: convert_int_to_another("id", idx, u32::try_from)?,
             public_key: verifier.signer.public_key.serialize().to_vec(),
             num_verifiers: convert_int_to_another(
                 "num_verifiers",

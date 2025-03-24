@@ -476,6 +476,7 @@ pub async fn create_actors<C: CitreaClientT>(
 pub fn get_deposit_address(
     config: &BridgeConfig,
     evm_address: EVMAddress,
+    verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey>,
 ) -> Result<(bitcoin::Address, bitcoin::taproot::TaprootSpendInfo), BridgeError> {
     let signer = Actor::new(
         config.secret_key,
@@ -483,9 +484,8 @@ pub fn get_deposit_address(
         config.protocol_paramset().network,
     );
 
-    let nofn_xonly_pk =
-        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-            .expect("Failed to create xonly pk");
+    let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys, None)
+        .expect("Failed to create xonly pk");
 
     builder::address::generate_deposit_address(
         nofn_xonly_pk,

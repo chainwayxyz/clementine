@@ -430,8 +430,15 @@ impl Aggregator {
         )?;
 
         // aggregate partial signatures
+        let verifiers_public_keys = self
+            .nofn
+            .read()
+            .await
+            .clone()
+            .ok_or(BridgeError::Error(format!("N-of-N not set!")))?
+            .public_keys;
         let final_sig = crate::musig2::aggregate_partial_signatures(
-            &self.config.verifiers_public_keys,
+            &verifiers_public_keys,
             None,
             movetx_agg_nonce,
             &musig_partial_sigs,
@@ -503,6 +510,7 @@ impl ClementineAggregator for Aggregator {
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
         Ok(Response::new(Empty {}))
     }
+
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn setup(
         &self,
@@ -753,9 +761,16 @@ impl ClementineAggregator for Aggregator {
         ));
 
         // Start the signature aggregation pipe.
+        let verifiers_public_keys = self
+            .nofn
+            .read()
+            .await
+            .clone()
+            .ok_or(BridgeError::Error(format!("N-of-N not set!")))?
+            .public_keys;
         let sig_agg_handle = tokio::spawn(signature_aggregator(
             partial_sig_receiver,
-            self.config.verifiers_public_keys.clone(),
+            verifiers_public_keys,
             final_sig_sender,
         ));
 
@@ -933,9 +948,17 @@ mod tests {
             config.protocol_paramset().network,
         );
 
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
         let nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-                .unwrap();
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
 
         let deposit_address = builder::address::generate_deposit_address(
             nofn_xonly_pk,
@@ -953,12 +976,6 @@ mod tests {
             .await
             .unwrap();
         rpc.mine_blocks(18).await.unwrap();
-
-        aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
-            .await
-            .unwrap();
-        sleep(Duration::from_secs(3)).await;
 
         let deposit_data = DepositData::BaseDeposit(BaseDepositData {
             deposit_outpoint,

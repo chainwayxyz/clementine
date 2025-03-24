@@ -127,6 +127,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _deposit_params,
             move_txid,
             _deposit_blockhash,
+            _,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
 
         tracing::info!(
@@ -400,6 +401,7 @@ async fn mock_citrea_run() {
         _deposit_params,
         move_txid,
         _deposit_blockhash,
+        _,
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
         .await
         .unwrap();
