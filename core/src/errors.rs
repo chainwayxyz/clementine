@@ -54,7 +54,10 @@
 //! }
 //! ```
 
-use crate::{builder::transaction::TransactionType, header_chain_prover::HeaderChainProverError};
+use crate::{
+    builder::transaction::TransactionType, header_chain_prover::HeaderChainProverError,
+    tx_sender::SendTxError,
+};
 use bitcoin::{BlockHash, FeeRate, OutPoint, Txid};
 use core::fmt::Debug;
 use hex::FromHexError;
@@ -101,38 +104,47 @@ pub enum TxError {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    // Header chain prover errors
-    #[error("Prover returned an error")]
-    ProverError(#[from] HeaderChainProverError),
-    #[error("Unsupported network")]
-    UnsupportedNetwork,
-    /// ConfigError is returned when the configuration is invalid
-    #[error("Invalid configuration: {0}")]
-    ConfigError(String),
-
-    #[error("Operator idx {0} was not found in the DB")]
-    OperatorNotFound(u32),
-
+    // TODO: migrate
     // State Manager errors
     #[error("State machine received event that it doesn't know how to handle: {0}")]
     UnhandledEvent(String),
-
-    #[error("Failed to convert between integer types")]
-    IntConversionError,
-
     #[error("{0}")]
     Error(String),
 
+    // Module-level errors
+    // Header chain prover errors
+    #[error("Prover returned an error")]
+    Prover(#[from] HeaderChainProverError),
+    #[error("Failed to build transactions: {0}")]
+    Transaction(#[from] TxError),
+    #[error("Failed to send transactions: {0}")]
+    SendTx(#[from] SendTxError),
+
+    // Shared error messages
+    #[error("Unsupported network")]
+    UnsupportedNetwork,
+    #[error("Invalid configuration: {0}")]
+    ConfigError(String),
+    #[error("Environment variable {1}: {0}")]
+    EnvVarNotSet(std::env::VarError, &'static str),
+    #[error("Environment variable {0} is malformed: {1}")]
+    EnvVarMalformed(&'static str, String),
+
+    #[error("Failed to convert between integer types")]
+    IntConversionError,
     #[error("Failed to encode/decode data using borsh")]
     BorshError,
+
+    #[error("Operator idx {0} was not found in the DB")]
+    OperatorNotFound(u32),
+    #[error("User's withdrawal UTXO not set for withdrawal index: {0}")]
+    UsersWithdrawalUtxoNotSetForWithdrawalIndex(u32),
+
 
     #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
     BlockgazerTooDeep(u64),
 
-    #[error("Failed to build transactions: {0}")]
-    Transaction(#[from] TxError),
-
-    // TxSender errors
+    // RPC errors
     #[error("Can't bump fee for Txid of {0} and feerate of {1}: {2}")]
     BumpFeeError(Txid, FeeRate, String),
     #[error("Cannot bump fee - UTXO is already spent")]
@@ -158,28 +170,18 @@ pub enum BridgeError {
     FromHexError(#[from] FromHexError),
     #[error("Failed to convert to hash from slice: {0}")]
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
-
-    // Base wrapper for eyre
-    #[error(transparent)]
-    Eyre(#[from] eyre::Report),
-
     #[error("Error while calling EVM contract: {0}")]
     AlloyContract(#[from] alloy::contract::Error),
     #[error("Error while calling EVM RPC function: {0}")]
     AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
     #[error("Error while encoding/decoding EVM type: {0}")]
     AlloySolTypes(#[from] alloy::sol_types::Error),
-
-    #[error("User's withdrawal UTXO not set for withdrawal index: {0}")]
-    UsersWithdrawalUtxoNotSetForWithdrawalIndex(u32),
-
-    #[error("Environment variable {1}: {0}")]
-    EnvVarNotSet(std::env::VarError, &'static str),
-    #[error("Environment variable {0} is malformed: {1}")]
-    EnvVarMalformed(&'static str, String),
-
     #[error("{0}")]
     TonicStatus(#[from] tonic::Status),
+
+    // Base wrapper for eyre
+    #[error(transparent)]
+    Eyre(#[from] eyre::Report),
 }
 
 pub trait ErrorExt: Sized {
