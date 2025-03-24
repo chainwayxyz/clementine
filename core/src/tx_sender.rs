@@ -338,7 +338,7 @@ impl TxSender {
             tx_handler.calculate_pubkey_spend_sighash(1, bitcoin::TapSighashType::Default)?;
         let signature = self
             .signer
-            .sign_with_spend_data(sighash, builder::sighash::SpendData::KeyPath(None))?;
+            .sign_with_spend_data(sighash, builder::sighash::TapTweakData::KeyPath(None))?;
         tx_handler.set_p2tr_key_spend_witness(
             &bitcoin::taproot::Signature {
                 signature,
@@ -1064,7 +1064,7 @@ mod tests {
 
         let sighash = builder.calculate_pubkey_spend_sighash(0, sighash_type)?;
         let signature =
-            signer.sign_with_spend_data(sighash, builder::sighash::SpendData::KeyPath(None))?;
+            signer.sign_with_spend_data(sighash, builder::sighash::TapTweakData::KeyPath(None))?;
         builder.set_p2tr_key_spend_witness(
             &bitcoin::taproot::Signature {
                 signature,

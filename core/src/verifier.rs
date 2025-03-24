@@ -1,6 +1,6 @@
 use crate::actor::Actor;
 use crate::bitcoin_syncer::BitcoinSyncer;
-use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
+use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
@@ -30,7 +30,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
-use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
+use bitcoin::{Address, ScriptBuf, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -305,19 +305,12 @@ where
                         .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
                     for sighash in sighashes {
                         let message = Message::from_digest(sighash.0.to_byte_array());
-                        bitvm_client::SECP
-                            .verify_schnorr(
-                                &unspent_kickoff_sigs[cur_sig_index],
-                                &message,
-                                &operator_xonly_pk,
-                            )
-                            .map_err(|e| {
-                                BridgeError::Error(format!(
-                                    "Unspent kickoff signature verification failed for num sig {}: {}",
-                                    cur_sig_index + 1,
-                                    e
-                                ))
-                            })?;
+                        Actor::verify_schnorr(
+                            &unspent_kickoff_sigs[cur_sig_index],
+                            &message,
+                            operator_xonly_pk,
+                            sighash.1.tweak_data,
+                        )?;
                         tagged_sigs.push(TaggedSignature {
                             signature: unspent_kickoff_sigs[cur_sig_index].serialize().to_vec(),
                             signature_id: Some(sighash.1.signature_id),
@@ -588,7 +581,7 @@ where
                 round_idx,
                 kickoff_utxo_idx,
                 signature_id,
-                spend_data,
+                tweak_data,
                 kickoff_txid,
             } = &sighash.1;
 
@@ -603,15 +596,23 @@ where
                 .ok_or(BridgeError::Error("No signature received".to_string()))?;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
-            bitvm_client::SECP
-                .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
-                .map_err(|x| {
-                    BridgeError::Error(format!(
-                        "Nofn Signature {} Verification Failed: {}.",
-                        nonce_idx + 1,
-                        x
-                    ))
-                })?;
+
+            Actor::verify_schnorr(
+                &sig,
+                &Message::from(sighash.0),
+                self.nofn_xonly_pk,
+                tweak_data,
+            )?;
+
+            // bitvm_client::SECP
+            //     .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
+            //     .map_err(|x| {
+            //         BridgeError::Error(format!(
+            //             "Nofn Signature {} Verification Failed: {}.",
+            //             nonce_idx + 1,
+            //             x
+            //         ))
+            //     })?;
 
             let tagged_sig = TaggedSignature {
                 signature: sig.serialize().to_vec(),
@@ -642,14 +643,14 @@ where
         // get signatures of operators and verify them
         for (operator_idx, (op_xonly_pk, _, _)) in operators_data.iter().enumerate() {
             let mut op_sig_count = 0;
-            // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
-            let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
-            let tweaked_op_xonly_pk = op_xonly_pk
-                .add_tweak(&SECP, &scalar)
-                .map_err(|x| {
-                    BridgeError::Error(format!("Failed to tweak operator xonly public key: {}", x))
-                })?
-                .0;
+            // // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
+            // let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
+            // let tweaked_op_xonly_pk = op_xonly_pk
+            //     .add_tweak(&SECP, &scalar)
+            //     .map_err(|x| {
+            //         BridgeError::Error(format!("Failed to tweak operator xonly public key: {}", x))
+            //     })?
+            //     .0;
             // generate the sighash stream for operator
             let mut sighash_stream = pin!(create_operator_sighash_stream(
                 self.db.clone(),
@@ -664,7 +665,7 @@ where
                     .await
                     .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
-                let spend_data = sighash.1.spend_data;
+                let tweak_data = sighash.1.tweak_data;
 
                 tracing::debug!(
                     "Verifying Final operator Signature {} for operator {}",
@@ -672,28 +673,20 @@ where
                     operator_idx
                 );
 
-                bitvm_client::SECP
-                    .verify_schnorr(
-                        &operator_sig,
-                        &Message::from(sighash.0),
-                        &tweaked_op_xonly_pk,
-                    )
-                    .map_err(|x| {
-                        BridgeError::Error(format!(
-                            "Operator {} Signature {}: verification failed: {}.",
-                            operator_idx,
-                            op_sig_count + 1,
-                            x
-                        ))
-                    })?;
+                Actor::verify_schnorr(
+                    &operator_sig,
+                    &Message::from(sighash.0),
+                    *op_xonly_pk,
+                    tweak_data,
+                )?;
 
                 let &SignatureInfo {
                     operator_idx,
                     round_idx,
                     kickoff_utxo_idx,
                     signature_id,
-                    spend_data,
                     kickoff_txid: _,
+                    ..
                 } = &sighash.1;
                 let tagged_sig = TaggedSignature {
                     signature: operator_sig.serialize().to_vec(),

@@ -81,7 +81,7 @@ pub struct PartialSignatureInfo {
 /// If it is KeyPath, it also includes the merkle root hash of the scripts as
 /// the hash is needed to tweak the key before signing.
 #[derive(Copy, Clone, Debug)]
-pub enum SpendData {
+pub enum TapTweakData {
     KeyPath(Option<TapNodeHash>),
     ScriptPath,
     Unknown,
@@ -93,7 +93,7 @@ pub struct SignatureInfo {
     pub round_idx: usize,
     pub kickoff_utxo_idx: usize,
     pub signature_id: SignatureId,
-    pub spend_data: SpendData,
+    pub tweak_data: TapTweakData,
     pub kickoff_txid: Option<bitcoin::Txid>,
 }
 
@@ -109,13 +109,13 @@ impl PartialSignatureInfo {
             kickoff_utxo_idx,
         }
     }
-    pub fn complete(&self, signature_id: SignatureId, spend_data: SpendData) -> SignatureInfo {
+    pub fn complete(&self, signature_id: SignatureId, spend_data: TapTweakData) -> SignatureInfo {
         SignatureInfo {
             operator_idx: self.operator_idx,
             round_idx: self.round_idx,
             kickoff_utxo_idx: self.kickoff_utxo_idx,
             signature_id,
-            spend_data,
+            tweak_data: spend_data,
             kickoff_txid: None,
         }
     }
@@ -125,7 +125,7 @@ impl PartialSignatureInfo {
             round_idx: self.round_idx,
             kickoff_utxo_idx: self.kickoff_utxo_idx,
             signature_id: NormalSignatureKind::YieldKickoffTxid.into(),
-            spend_data: SpendData::ScriptPath,
+            tweak_data: TapTweakData::ScriptPath,
             kickoff_txid: Some(kickoff_txid),
         }
     }

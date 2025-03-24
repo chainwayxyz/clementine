@@ -324,7 +324,7 @@ where
                 let (sighash, sig_info) = sighash?;
                 let sig = operator
                     .signer
-                    .sign_with_spend_data(sighash, sig_info.spend_data)?;
+                    .sign_with_spend_data(sighash, sig_info.tweak_data)?;
 
                 if sig_tx.send(sig).await.is_err() {
                     break;
@@ -594,7 +594,7 @@ where
                         .into_iter()
                         .map(|(sighash, sig_info)| {
                             self.signer
-                                .sign_with_spend_data(sighash, sig_info.spend_data)
+                                .sign_with_spend_data(sighash, sig_info.tweak_data)
                         })
                         .collect();
                     sigs.extend(signed_sigs?);

@@ -1,6 +1,6 @@
 use crate::bitvm_client;
 use crate::builder::script::SpendableScript;
-use crate::builder::sighash::SpendData;
+use crate::builder::sighash::TapTweakData;
 use crate::builder::{address::create_taproot_address, script::SpendPath};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use bitcoin::{
@@ -211,17 +211,17 @@ impl SpentTxIn {
         self.spend_path
     }
 
-    pub fn get_spend_data(&self) -> SpendData {
+    pub fn get_tweak_data(&self) -> TapTweakData {
         match self.spend_path {
-            SpendPath::ScriptSpend(_) => SpendData::ScriptPath,
+            SpendPath::ScriptSpend(_) => TapTweakData::ScriptPath,
             SpendPath::KeySpend => {
                 let spendinfo = self.spendable.get_spend_info();
                 match spendinfo {
-                    Some(spendinfo) => SpendData::KeyPath(spendinfo.merkle_root()),
-                    None => SpendData::Unknown,
+                    Some(spendinfo) => TapTweakData::KeyPath(spendinfo.merkle_root()),
+                    None => TapTweakData::Unknown,
                 }
             }
-            SpendPath::Unknown => SpendData::Unknown,
+            SpendPath::Unknown => TapTweakData::Unknown,
         }
     }
 

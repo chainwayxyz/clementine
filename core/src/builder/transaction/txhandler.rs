@@ -228,7 +228,7 @@ impl<T: State> TxHandler<T> {
         let mut sighashes = Vec::with_capacity(self.txins.len());
         for idx in 0..self.txins.len() {
             let sig_id = self.txins[idx].get_signature_id();
-            let spend_data = self.txins[idx].get_spend_data();
+            let spend_data = self.txins[idx].get_tweak_data();
             let sig_owner = sig_id.get_deposit_sig_owner()?;
             match (sig_owner, needed_entity) {
                 (

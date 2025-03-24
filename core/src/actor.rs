@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
-use crate::builder::sighash::SpendData;
+use crate::builder::sighash::TapTweakData;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
@@ -97,7 +95,6 @@ pub struct Actor {
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
     pub address: Address,
-    tweaked_key_cache: HashMap<(XOnlyPublicKey, Option<TapNodeHash>), XOnlyPublicKey>,
 }
 
 impl Actor {
@@ -118,7 +115,6 @@ impl Actor {
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
             address,
-            tweaked_key_cache: HashMap::new(),
         }
     }
 
@@ -148,13 +144,41 @@ impl Actor {
     pub fn sign_with_spend_data(
         &self,
         sighash: TapSighash,
-        spend_data: SpendData,
+        tweak_data: TapTweakData,
     ) -> Result<schnorr::Signature, BridgeError> {
-        match spend_data {
-            SpendData::KeyPath(merkle_root) => self.sign_with_tweak(sighash, merkle_root),
-            SpendData::ScriptPath => Ok(self.sign(sighash)),
-            SpendData::Unknown => Err(BridgeError::Error("Spend Data Unknown".to_string())),
+        match tweak_data {
+            TapTweakData::KeyPath(merkle_root) => self.sign_with_tweak(sighash, merkle_root),
+            TapTweakData::ScriptPath => Ok(self.sign(sighash)),
+            TapTweakData::Unknown => Err(BridgeError::Error("Spend Data Unknown".to_string())),
         }
+    }
+
+    pub fn verify_schnorr(
+        signature: &schnorr::Signature,
+        sighash: &Message,
+        pubkey: XOnlyPublicKey,
+        tweak_data: TapTweakData,
+    ) -> Result<(), BridgeError> {
+        let pubkey = match tweak_data {
+            TapTweakData::KeyPath(merkle_root) => {
+                let scalar = TapTweakHash::from_key_and_tweak(pubkey, merkle_root).to_scalar();
+                pubkey
+                    .add_tweak(&SECP, &scalar)
+                    .map_err(|x| {
+                        BridgeError::Error(format!(
+                            "Failed to tweak operator xonly public key: {}",
+                            x
+                        ))
+                    })?
+                    .0
+            }
+            TapTweakData::ScriptPath => pubkey,
+            TapTweakData::Unknown => {
+                return Err(BridgeError::Error("Spend Path Unknown".to_string()))
+            }
+        };
+        SECP.verify_schnorr(signature, sighash, &pubkey)
+            .map_err(|_| BridgeError::Error("Failed to verify Schnorr signature".to_string()))
     }
 
     /// Returns derivied Winternitz secret key from given path.

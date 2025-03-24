@@ -560,7 +560,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .expect("Failed to calculate sighash");
 
     let sig = signer
-        .sign_with_spend_data(sighash, builder::sighash::SpendData::KeyPath(None))
+        .sign_with_spend_data(sighash, builder::sighash::TapTweakData::KeyPath(None))
         .expect("Failed to sign");
 
     (dust_utxo, txout, sig)

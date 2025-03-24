@@ -876,18 +876,29 @@ pub async fn run_unspent_kickoffs_with_state_machine(
     // tracing::info!("Sending challenge timeout transaction");
     // send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ChallengeTimeout).await?;
 
-    // Send Ready to Reimburse Reimburse Transaction
-    tracing::info!("Sending ready to reimburse transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ReadyToReimburse).await?;
-
-    // state machine should burn the collateral
+    // state machine should burn the collateral after ready to reimburse tx gets sent
     let ready_to_reimburse_tx =
         get_tx_from_signed_txs_with_type(&all_txs, TxType::ReadyToReimburse)?;
     let collateral_utxo = OutPoint {
         txid: ready_to_reimburse_tx.compute_txid(),
         vout: 0,
     };
-    ensure_outpoint_spent(&rpc, collateral_utxo).await?;
+
+    // Send Ready to Reimburse Reimburse Transaction
+    tracing::info!("Sending ready to reimburse transaction");
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ReadyToReimburse).await?;
+
+    let collateral_burn_txid = get_txid_where_utxo_is_spent(&rpc, collateral_utxo).await?;
+
+    // calculate unspent kickoff tx txids and check if any of them is where collateral was spent
+    let is_spent_by_unspent_kickoff_tx = (0..config.protocol_paramset().num_kickoffs_per_round)
+        .map(|i| {
+            let tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::UnspentKickoff(i)).unwrap();
+            tx.compute_txid()
+        })
+        .any(|txid| txid == collateral_burn_txid);
+
+    assert!(is_spent_by_unspent_kickoff_tx);
 
     Ok(())
 }
