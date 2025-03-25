@@ -641,8 +641,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "This test is too slow to run on every commit"]
     async fn test_generate_fresh_data() {
-        let _bitvm_cache = generate_fresh_data();
-        _bitvm_cache
+        let bitvm_cache = generate_fresh_data();
+        bitvm_cache
             .save_to_file("bitvm_cache.bin")
             .expect("Failed to save BitVM cache");
     }
