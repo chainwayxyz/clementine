@@ -271,8 +271,8 @@ pub struct FinalizedPayoutParams {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierParams {
-    #[prost(uint32, tag = "1")]
-    pub id: u32,
+    #[prost(uint32, optional, tag = "1")]
+    pub id: ::core::option::Option<u32>,
     #[prost(bytes = "vec", tag = "2")]
     pub public_key: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag = "3")]
