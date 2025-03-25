@@ -2,7 +2,7 @@
 //!
 //! This module includes wrappers for easy parsing of the foreign types.
 
-use crate::{errors::BridgeError, EVMAddress};
+use crate::EVMAddress;
 use bitcoin::{
     address::NetworkUnchecked,
     block,
@@ -11,6 +11,7 @@ use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey},
     Address, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
 };
+use eyre::eyre;
 use prost::Message as _;
 use secp256k1::musig;
 use serde::{Deserialize, Serialize};
@@ -203,11 +204,9 @@ impl_text_wrapper_custom!(
     |s: &str| -> Result<EVMAddress, BoxDynError> {
         let bytes = hex::decode(s).map_err(Box::new)?;
 
-        Ok(EVMAddress(
-            bytes
-                .try_into()
-                .map_err(|_| Box::new(BridgeError::TryFromSliceError))?,
-        ))
+        Ok(EVMAddress(bytes.try_into().map_err(|arr: Vec<u8>| {
+            eyre!("Failed to deserialize EVMAddress from {:?}", arr)
+        })?))
     }
 );
 

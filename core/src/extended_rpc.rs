@@ -6,7 +6,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::builder;
-use crate::errors::BridgeError;
+use crate::errors::ResultExt;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
@@ -21,6 +21,8 @@ use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
+use eyre::Context;
+use eyre::OptionExt;
 
 #[derive(Debug, Clone)]
 pub struct ExtendedRpc {
@@ -29,16 +31,29 @@ pub struct ExtendedRpc {
     pub client: Arc<Client>,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum BitcoinRPCError {
+    #[error("Can't bump fee for Txid of {0} and feerate of {1}: {2}")]
+    BumpFeeError(Txid, FeeRate, String),
+    #[error("Cannot bump fee - UTXO is already spent")]
+    BumpFeeUTXOSpent(OutPoint),
+    #[error("Transaction is already in block: {0}")]
+    TransactionAlreadyInBlock(BlockHash),
+
+    #[error(transparent)]
+    Other(#[from] eyre::Report),
+}
+
+type Result<T> = std::result::Result<T, BitcoinRPCError>;
+
 impl ExtendedRpc {
     /// Connects to Bitcoin RPC and returns a new `ExtendedRpc`.
-    pub async fn connect(
-        url: String,
-        user: String,
-        password: String,
-    ) -> Result<Self, bitcoincore_rpc::Error> {
+    pub async fn connect(url: String, user: String, password: String) -> Result<Self> {
         let auth = Auth::UserPass(user, password);
 
-        let rpc = Client::new(&url, auth.clone()).await?;
+        let rpc = Client::new(&url, auth.clone())
+            .await
+            .wrap_err("Failed to connect to Bitcoin RPC")?;
 
         Ok(Self {
             url,
@@ -48,32 +63,39 @@ impl ExtendedRpc {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
-        let raw_transaction_results = self.client.get_raw_transaction_info(txid, None).await?;
+    pub async fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32> {
+        let raw_transaction_results = self
+            .client
+            .get_raw_transaction_info(txid, None)
+            .await
+            .wrap_err("Failed to get transaction info")?;
 
         raw_transaction_results
             .confirmations
-            .ok_or(BridgeError::NoConfirmationData)
+            .ok_or_eyre("No confirmation data")
+            .map_err(Into::into)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_blockhash_of_tx(
-        &self,
-        txid: &bitcoin::Txid,
-    ) -> Result<bitcoin::BlockHash, BridgeError> {
-        let raw_transaction_results = self.client.get_raw_transaction_info(txid, None).await?;
+    pub async fn get_blockhash_of_tx(&self, txid: &bitcoin::Txid) -> Result<bitcoin::BlockHash> {
+        let raw_transaction_results = self
+            .client
+            .get_raw_transaction_info(txid, None)
+            .await
+            .wrap_err("Failed to get transaction info")?;
         let Some(blockhash) = raw_transaction_results.blockhash else {
-            return Err(BridgeError::TransactionNotConfirmed(*txid));
+            return Err(eyre::eyre!("Transaction not confirmed: {0}", txid).into());
         };
         Ok(blockhash)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_tx_of_txid(
-        &self,
-        txid: &bitcoin::Txid,
-    ) -> Result<bitcoin::Transaction, BridgeError> {
-        let raw_transaction = self.client.get_raw_transaction(txid, None).await?;
+    pub async fn get_tx_of_txid(&self, txid: &bitcoin::Txid) -> Result<bitcoin::Transaction> {
+        let raw_transaction = self
+            .client
+            .get_raw_transaction(txid, None)
+            .await
+            .wrap_err("Failed to get raw transaction")?;
         Ok(raw_transaction)
     }
 
@@ -83,11 +105,12 @@ impl ExtendedRpc {
         outpoint: &OutPoint,
         address: &ScriptBuf,
         amount_sats: Amount,
-    ) -> Result<bool, BridgeError> {
+    ) -> Result<bool> {
         let tx = self
             .client
             .get_raw_transaction(&outpoint.txid, None)
-            .await?;
+            .await
+            .wrap_err("Failed to get transaction")?;
 
         let current_output = tx.output[outpoint.vout as usize].clone();
 
@@ -100,28 +123,31 @@ impl ExtendedRpc {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
+    pub async fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool> {
         let res = self
             .client
             .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
-            .await?;
+            .await
+            .wrap_err("Failed to get transaction output")?;
 
         Ok(res.is_none())
     }
 
     /// Mines blocks to a new address.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>, BridgeError> {
+    pub async fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>> {
         let new_address = self
             .client
             .get_new_address(None, None)
-            .await?
+            .await
+            .wrap_err("Failed to get new address")?
             .assume_checked();
 
         Ok(self
             .client
             .generate_to_address(block_num, &new_address)
-            .await?)
+            .await
+            .wrap_err("Failed to generate to address")?)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -129,24 +155,30 @@ impl ExtendedRpc {
         &self,
         address: &Address,
         amount_sats: Amount,
-    ) -> Result<OutPoint, BridgeError> {
+    ) -> Result<OutPoint> {
         let txid = self
             .client
             .send_to_address(address, amount_sats, None, None, None, None, None, None)
-            .await?;
+            .await
+            .wrap_err("Failed to send to address")?;
 
-        let tx_result = self.client.get_transaction(&txid, None).await?;
+        let tx_result = self
+            .client
+            .get_transaction(&txid, None)
+            .await
+            .wrap_err("Failed to get transaction")?;
         let vout = tx_result.details[0].vout; // TODO: this might be incorrect
 
         Ok(OutPoint { txid, vout })
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_txout_from_outpoint(&self, outpoint: &OutPoint) -> Result<TxOut, BridgeError> {
+    pub async fn get_txout_from_outpoint(&self, outpoint: &OutPoint) -> Result<TxOut> {
         let tx = self
             .client
             .get_raw_transaction(&outpoint.txid, None)
-            .await?;
+            .await
+            .wrap_err("Failed to get transaction")?;
         let txout = tx.output[outpoint.vout as usize].clone();
 
         Ok(txout)
@@ -163,9 +195,9 @@ impl ExtendedRpc {
         confirmation_block_count: u32,
         network: bitcoin::Network,
         user_takes_after: u16,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<()> {
         if self.confirmation_blocks(&deposit_outpoint.txid).await? < confirmation_block_count {
-            return Err(BridgeError::DepositNotFinalized);
+            return Err(eyre::eyre!("Deposit not finalized").into());
         }
 
         let (deposit_address, _) = builder::address::generate_deposit_address(
@@ -175,7 +207,8 @@ impl ExtendedRpc {
             amount_sats,
             network,
             user_takes_after,
-        )?;
+        )
+        .map_to_eyre()?;
 
         if !self
             .check_utxo_address_and_amount(
@@ -185,11 +218,11 @@ impl ExtendedRpc {
             )
             .await?
         {
-            return Err(BridgeError::InvalidDepositUTXO);
+            return Err(eyre::eyre!("Invalid deposit UTXO").into());
         }
 
         if self.is_utxo_spent(deposit_outpoint).await? {
-            return Err(BridgeError::UTXOSpent);
+            return Err(eyre::eyre!("Deposit UTXO has already spent").into());
         }
 
         Ok(())
@@ -197,33 +230,40 @@ impl ExtendedRpc {
 
     /// Bumps the fee of a transaction with a given fee rate.
     /// Returns the txid of the bumped transaction.
-    pub async fn bump_fee_with_fee_rate(
-        &self,
-        txid: Txid,
-        fee_rate: FeeRate,
-    ) -> Result<Txid, BridgeError> {
-        let transaction_info = self.client.get_transaction(&txid, None).await?;
+    pub async fn bump_fee_with_fee_rate(&self, txid: Txid, fee_rate: FeeRate) -> Result<Txid> {
+        let transaction_info = self
+            .client
+            .get_transaction(&txid, None)
+            .await
+            .wrap_err("Failed to get transaction")?;
         if transaction_info.info.blockhash.is_some() {
-            return Err(BridgeError::TransactionAlreadyInBlock(
+            return Err(BitcoinRPCError::TransactionAlreadyInBlock(
                 transaction_info
                     .info
                     .blockhash
                     .expect("Blockhash should be present"),
             ));
         }
-        let tx = transaction_info.transaction()?;
+        let tx = transaction_info
+            .transaction()
+            .wrap_err("Failed to get transaction")?;
         let tx_size = tx.weight().to_vbytes_ceil();
         let current_fee_sat = u64::try_from(
             -transaction_info
                 .fee
                 .expect("Fee should be present")
                 .to_sat(),
-        )?;
+        )
+        .wrap_err("Failed to convert fee to sat")?;
         let current_fee_rate = FeeRate::from_sat_per_kwu(1000 * current_fee_sat / tx_size);
         if current_fee_rate >= fee_rate {
             return Ok(txid);
         }
-        let network_info = self.client.get_network_info().await?;
+        let network_info = self
+            .client
+            .get_network_info()
+            .await
+            .wrap_err("Failed to get network info")?;
         let incremental_fee = network_info.incremental_fee;
         let incremental_fee_rate: FeeRate = FeeRate::from_sat_per_kwu(incremental_fee.to_sat());
         let new_fee_rate = FeeRate::from_sat_per_kwu(
@@ -254,7 +294,7 @@ impl ExtendedRpc {
                                 .next()
                                 .expect("Outpoint string should be present");
                             let outpoint = OutPoint::from_str(outpoint_str).map_err(|e| {
-                                BridgeError::BumpFeeError(
+                                BitcoinRPCError::BumpFeeError(
                                     txid,
                                     fee_rate,
                                     format!(
@@ -264,25 +304,29 @@ impl ExtendedRpc {
                                 )
                             })?;
 
-                            return Err(BridgeError::BumpFeeUTXOSpent(outpoint));
+                            return Err(BitcoinRPCError::BumpFeeUTXOSpent(outpoint));
                         }
 
-                        return Err(BridgeError::BumpFeeError(txid, fee_rate, rpc_error.message));
+                        return Err(BitcoinRPCError::BumpFeeError(
+                            txid,
+                            fee_rate,
+                            rpc_error.message,
+                        ));
                     }
                     _ => {
-                        return Err(BridgeError::BumpFeeError(
+                        return Err(BitcoinRPCError::BumpFeeError(
                             txid,
                             fee_rate,
                             json_rpc_error.to_string(),
                         ))
                     }
                 },
-                _ => return Err(BridgeError::BumpFeeError(txid, fee_rate, e.to_string())),
+                _ => return Err(BitcoinRPCError::BumpFeeError(txid, fee_rate, e.to_string())),
             },
         };
 
         bump_fee_result.txid.ok_or({
-            BridgeError::BumpFeeError(
+            BitcoinRPCError::BumpFeeError(
                 txid,
                 fee_rate,
                 "Can't get Txid from bump_fee_result".to_string(),
@@ -290,7 +334,7 @@ impl ExtendedRpc {
         })
     }
 
-    pub async fn clone_inner(&self) -> Result<Self, bitcoincore_rpc::Error> {
+    pub async fn clone_inner(&self) -> std::result::Result<Self, bitcoincore_rpc::Error> {
         let new_client = Client::new(&self.url, self.auth.clone()).await?;
 
         Ok(Self {

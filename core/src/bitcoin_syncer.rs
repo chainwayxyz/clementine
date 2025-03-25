@@ -12,6 +12,7 @@ use crate::{
 };
 use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
+use eyre::Context;
 use std::time::Duration;
 use tonic::async_trait;
 
@@ -42,8 +43,16 @@ async fn fetch_block_info_from_height(
     rpc: &ExtendedRpc,
     height: u32,
 ) -> Result<BlockInfo, BridgeError> {
-    let hash = rpc.client.get_block_hash(height as u64).await?;
-    let header = rpc.client.get_block_header(&hash).await?;
+    let hash = rpc
+        .client
+        .get_block_hash(height as u64)
+        .await
+        .wrap_err("Failed to get block hash")?;
+    let header = rpc
+        .client
+        .get_block_header(&hash)
+        .await
+        .wrap_err("Failed to get block header")?;
 
     Ok(BlockInfo {
         hash,
@@ -94,11 +103,15 @@ async fn _get_block_info_from_hash(
     rpc: &ExtendedRpc,
     hash: BlockHash,
 ) -> Result<(BlockInfo, Vec<Vec<OutPoint>>), BridgeError> {
-    let block = rpc.client.get_block(&hash).await?;
+    let block = rpc
+        .client
+        .get_block(&hash)
+        .await
+        .wrap_err("Failed to get block")?;
     let block_height = db
         .get_block_info_from_hash(Some(dbtx), hash)
         .await?
-        .ok_or(BridgeError::BlockNotFound)?
+        .ok_or_else(|| eyre::eyre!("Block not found"))?
         .1;
 
     let mut block_utxos: Vec<Vec<OutPoint>> = Vec::new();
@@ -162,21 +175,34 @@ pub async fn set_initial_block_info_if_not_exists(
     }
 
     // TODO: save blocks starting from start_height in config paramset
-    let current_height = u32::try_from(rpc.client.get_block_count().await?)
-        .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+    let current_height = u32::try_from(
+        rpc.client
+            .get_block_count()
+            .await
+            .wrap_err("Failed to get block count")?,
+    )
+    .wrap_err(BridgeError::IntConversionError)?;
     let mut height = paramset.start_height;
     let mut dbtx = db.begin_transaction().await?;
     // first collect previous needed blocks according to paramset start height
     while height < current_height {
         let block_info = fetch_block_info_from_height(rpc, height).await?;
-        let block = rpc.client.get_block(&block_info.hash).await?;
+        let block = rpc
+            .client
+            .get_block(&block_info.hash)
+            .await
+            .wrap_err("Failed to get block")?;
         let block_id = save_block(db, &mut dbtx, &block, height).await?;
         db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
             .await?;
         height += 1;
     }
     let block_info = fetch_block_info_from_height(rpc, current_height).await?;
-    let block = rpc.client.get_block(&block_info.hash).await?;
+    let block = rpc
+        .client
+        .get_block(&block_info.hash)
+        .await
+        .wrap_err("Failed to get block")?;
 
     let block_id = save_block(db, &mut dbtx, &block, current_height).await?;
     db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
@@ -212,7 +238,11 @@ async fn fetch_new_blocks(
     tracing::debug!("New block hash: {:?}, height {}", block_hash, next_height);
 
     // Fetch its header.
-    let mut block_header = rpc.client.get_block_header(&block_hash).await?;
+    let mut block_header = rpc
+        .client
+        .get_block_header(&block_hash)
+        .await
+        .wrap_err("Failed to get block header")?;
     let mut new_blocks = vec![BlockInfo {
         hash: block_hash,
         _header: block_header,
@@ -226,7 +256,11 @@ async fn fetch_new_blocks(
         .is_none()
     {
         let prev_block_hash = block_header.prev_blockhash;
-        block_header = rpc.client.get_block_header(&prev_block_hash).await?;
+        block_header = rpc
+            .client
+            .get_block_header(&prev_block_hash)
+            .await
+            .wrap_err("Failed to get block header")?;
         let new_height = new_blocks.last().expect("new_blocks is empty").height - 1;
         new_blocks.push(BlockInfo {
             hash: prev_block_hash,
@@ -235,7 +269,11 @@ async fn fetch_new_blocks(
         });
 
         if new_blocks.len() >= 100 {
-            return Err(BridgeError::BlockgazerTooDeep(new_height as u64));
+            return Err(eyre::eyre!(
+                "Blockgazer can't synchronize database with active blockchain; Too deep {}",
+                new_height as u64
+            )
+            .into());
         }
     }
 
@@ -271,7 +309,11 @@ async fn process_new_blocks(
     new_blocks: &[BlockInfo],
 ) -> Result<(), BridgeError> {
     for block_info in new_blocks {
-        let block = rpc.client.get_block(&block_info.hash).await?;
+        let block = rpc
+            .client
+            .get_block(&block_info.hash)
+            .await
+            .wrap_err("Failed to get block")?;
 
         let block_id = save_block(db, dbtx, &block, block_info.height).await?;
         db.add_event(Some(dbtx), BitcoinSyncerEvent::NewBlock(block_id))
@@ -318,7 +360,7 @@ impl BitcoinSyncer {
         let current_height = db
             .get_max_height(None)
             .await?
-            .ok_or(BridgeError::BlockNotFound)?;
+            .ok_or_else(|| eyre::eyre!("Block not found"))?;
 
         Ok(Self {
             db,
