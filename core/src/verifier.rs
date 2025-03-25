@@ -105,7 +105,7 @@ where
             verifier.signer.clone(),
             rpc.clone(),
             verifier.db.clone(),
-            format!("verifier_").to_string(),
+            "verifier_".to_string(),
             config.protocol_paramset().network,
         );
 
@@ -218,7 +218,7 @@ where
         };
 
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
-        let tx_sender = TxSenderClient::new(db.clone(), format!("verifier_").to_string());
+        let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
         // tracing::info!(
         //     "Verifier {} created with nofn_xonly_pk: {}",
@@ -455,8 +455,7 @@ where
             .idx
             .read()
             .await
-            .clone()
-            .ok_or(BridgeError::Error(format!("Verifier index not set!")))?;
+            .ok_or(BridgeError::Error("Verifier index not set!".to_string()))?;
         let verifiers_public_keys = self.db.get_verifiers_public_keys(None).await?;
 
         let deposit_blockhash = self
@@ -962,7 +961,6 @@ where
             .idx
             .read()
             .await
-            .clone()
             .ok_or(BridgeError::Error("Verifier index not set".to_string()))?;
 
         let tx_metadata = Some(TxMetadata {
@@ -1021,7 +1019,6 @@ where
             .idx
             .read()
             .await
-            .clone()
             .ok_or(BridgeError::Error("Verifier index not set".to_string()))?;
 
         self.tx_sender
@@ -1151,7 +1148,6 @@ where
             .idx
             .read()
             .await
-            .clone()
             .ok_or(BridgeError::Error("Verifier index not set".to_string()))?;
 
         match duty {

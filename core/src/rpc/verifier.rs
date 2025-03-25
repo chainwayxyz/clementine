@@ -162,8 +162,7 @@ where
             .idx
             .read()
             .await
-            .clone()
-            .ok_or(BridgeError::Error(format!("Verifier index not set!")))?;
+            .ok_or(BridgeError::Error("Verifier index not set!".to_string()))?;
 
         let (tx, rx) = mpsc::channel(1280);
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
@@ -264,8 +263,7 @@ where
             .idx
             .read()
             .await
-            .clone()
-            .ok_or(BridgeError::Error(format!("Verifier index not set!")))?;
+            .ok_or(BridgeError::Error("Verifier index not set!".to_string()))?;
         tracing::trace!("In verifier {} deposit_finalize()", verifier_index);
 
         let (sig_tx, sig_rx) = mpsc::channel(1280);

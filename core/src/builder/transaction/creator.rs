@@ -996,7 +996,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash) =
+        let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash, _) =
             run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
                 .await
                 .unwrap();

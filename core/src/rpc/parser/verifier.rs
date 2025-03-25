@@ -34,8 +34,7 @@ where
         let idx = verifier
             .idx
             .blocking_read()
-            .clone()
-            .ok_or(BridgeError::Error(format!("Verifier index not set!")))?;
+            .ok_or(BridgeError::Error("Verifier index not set!".to_string()))?;
 
         Ok(VerifierParams {
             id: convert_int_to_another("id", idx, u32::try_from)?,

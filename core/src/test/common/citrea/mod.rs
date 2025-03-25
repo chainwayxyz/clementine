@@ -1,8 +1,10 @@
 //! # Citrea Related Utilities
 
 use crate::citrea::mock::MockCitreaClient;
+use crate::musig2::AggregateFromPublicKeys;
+use crate::rpc::clementine::Empty;
 use crate::{config::BridgeConfig, errors::BridgeError, test::common::create_actors};
-use bitcoin::XOnlyPublicKey;
+use bitcoin::secp256k1::PublicKey;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
@@ -12,48 +14,55 @@ use citrea_e2e::{
 use jsonrpsee::http_client::HttpClient;
 pub use parameters::*;
 pub use requests::*;
+use tonic::Request;
 
 mod bitcoin_merkle;
 mod parameters;
 mod requests;
 
-lazy_static::lazy_static! {
-    pub static ref NOFN: XOnlyPublicKey = {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let config = BridgeConfig::default();
-            let (verifiers, mut operators, mut aggregator, cleanup) =
-                create_actors::<MockCitreaClient>(&config).await;
-            let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
-                .setup(Request::new(Empty {}))
-                .await
-                .unwrap()
-                .into_inner()
-                .try_into()
-                .unwrap();
-
-            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys, None).unwrap()
-        })
-    };
-}
-
-lazy_static::lazy_static! {
-    /// Citrea bridge params. This string includes N-of-N public key for the current
-    /// test setup. If that setup changes, this string should be updated or needs to
-    /// calculated dynamically.
-    ///
-    /// CAUTION: This will create N-of-N public key using the default `BridgeConfig`!
-    pub static ref BRIDGE_PARAMS: String = {
+/// Calculates bridge params dynamically with a setup.
+///
+/// CAUTION: This will create N-of-N public key using the default `BridgeConfig`!
+pub fn get_bridge_params() -> String {
+    futures::executor::block_on(async move {
         let config = BridgeConfig::default();
-        let nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys, None)
-            .unwrap()
-            .to_string();
+        let (_, _, mut aggregator, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
 
-        "000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a20".to_owned() +
-        &nofn_xonly_pk +
-        "ac0063066369747265611400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000"
-    };
+        let verifiers_public_keys: Vec<PublicKey> = aggregator
+            .setup(Request::new(Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)
+                .unwrap()
+                .to_string();
+
+        format!("000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a20{}ac0063066369747265611400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000", nofn_xonly_pk)
+    })
 }
+
+// lazy_static::lazy_static! {
+//     /// Citrea bridge params. This string includes N-of-N public key for the current
+//     /// test setup. If that setup changes, this string should be updated or needs to
+//     /// calculated dynamically.
+//     ///
+//     /// CAUTION: This will create N-of-N public key using the default `BridgeConfig`!
+//     pub static ref BRIDGE_PARAMS: String = {
+//         let config = BridgeConfig::default();
+//         let nofn_xonly_pk =
+//             bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys, None)
+//             .unwrap()
+//             .to_string();
+
+//         "000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a20".to_owned() +
+//         &nofn_xonly_pk +
+//         "ac0063066369747265611400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000"
+//     };
+// }
 
 /// Citrea e2e hardcoded EVM secret keys.
 pub const SECRET_KEYS: [&str; 10] = [

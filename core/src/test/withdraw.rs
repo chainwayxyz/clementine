@@ -1,4 +1,3 @@
-use super::common::citrea::BRIDGE_PARAMS;
 use crate::bitvm_client::SECP;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::test::common::citrea::SECRET_KEYS;
@@ -22,6 +21,8 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
+
+use super::common::citrea::get_bridge_params;
 
 struct CitreaWithdrawAndGetUTXO;
 #[async_trait]
@@ -52,7 +53,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            bridge_initialize_params: BRIDGE_PARAMS.to_string(),
+            bridge_initialize_params: get_bridge_params(),
             ..Default::default()
         }
     }

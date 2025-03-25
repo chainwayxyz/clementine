@@ -435,7 +435,7 @@ impl Aggregator {
             .read()
             .await
             .clone()
-            .ok_or(BridgeError::Error(format!("N-of-N not set!")))?
+            .ok_or(BridgeError::Error("N-of-N not set!".to_string()))?
             .public_keys;
         let final_sig = crate::musig2::aggregate_partial_signatures(
             &verifiers_public_keys,
@@ -766,7 +766,7 @@ impl ClementineAggregator for Aggregator {
             .read()
             .await
             .clone()
-            .ok_or(BridgeError::Error(format!("N-of-N not set!")))?
+            .ok_or(BridgeError::Error("N-of-N not set!".to_string()))?
             .public_keys;
         let sig_agg_handle = tokio::spawn(signature_aggregator(
             partial_sig_receiver,
