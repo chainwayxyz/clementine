@@ -160,7 +160,10 @@ pub async fn ensure_outpoint_spent(
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
     ensure_async(
-        async || rpc.is_utxo_spent(&outpoint).await.map_err(Into::into),
+        async || {
+            rpc.mine_blocks(1).await?;
+            rpc.is_utxo_spent(&outpoint).await.map_err(Into::into)
+        },
         Some(Duration::from_secs(500)),
         None,
     )
