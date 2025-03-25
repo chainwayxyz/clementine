@@ -8,19 +8,13 @@ use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
-use crate::rpc::clementine::clementine_watchtower_server::ClementineWatchtowerServer;
 use crate::verifier::VerifierServer;
-use crate::watchtower::Watchtower;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
 use eyre::Context;
-use std::env;
-use std::fs;
-use std::path::Path;
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
-use tonic_reflection::server::Builder;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
 
@@ -72,27 +66,7 @@ where
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
-    // Create reflection service using the descriptor file
-    let descriptor_path = std::env::var("DESCRIPTOR_PATH").map_or_else(
-        |_| {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("src")
-                .join("rpc")
-                .join("descriptor.bin")
-        },
-        |path| Path::new(&path).to_path_buf(),
-    );
-
-    let descriptor_bytes = fs::read(&descriptor_path).wrap_err("Failed to read descriptor file")?;
-
-    let reflection_service = Builder::configure()
-        .register_encoded_file_descriptor_set(&descriptor_bytes)
-        .build_v1()
-        .map_err(|e| eyre::eyre!("Failed to build reflection service: {}", e))?;
-
-    let server_builder = tonic::transport::Server::builder()
-        .add_service(reflection_service)
-        .add_service(service);
+    let server_builder = tonic::transport::Server::builder().add_service(service);
 
     match addr {
         ServerAddr::Tcp(socket_addr) => {
@@ -226,23 +200,6 @@ pub async fn create_aggregator_grpc_server(
     }
 }
 
-pub async fn create_watchtower_grpc_server(
-    config: BridgeConfig,
-) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
-    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
-        .parse()
-        .wrap_err("Failed to parse address")?;
-    let watchtower = Watchtower::new(config).await?;
-    let svc = ClementineWatchtowerServer::new(watchtower);
-
-    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Watchtower").await?;
-
-    match server_addr {
-        ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),
-        _ => Err(BridgeError::ConfigError("Expected TCP address".into())),
-    }
-}
-
 // Functions for creating servers with Unix sockets (useful for tests)
 #[cfg(unix)]
 pub async fn create_verifier_unix_server<C: CitreaClientT>(
@@ -333,33 +290,6 @@ pub async fn create_aggregator_unix_server(
 
 #[cfg(not(unix))]
 pub async fn create_aggregator_unix_server(
-    _config: BridgeConfig,
-    _socket_path: std::path::PathBuf,
-) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
-    Err(BridgeError::ConfigError(
-        "Unix sockets are not supported on this platform".into(),
-    ))
-}
-
-#[cfg(unix)]
-pub async fn create_watchtower_unix_server(
-    config: BridgeConfig,
-    socket_path: std::path::PathBuf,
-) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
-    let watchtower = Watchtower::new(config).await?;
-    let svc = ClementineWatchtowerServer::new(watchtower);
-
-    let (server_addr, shutdown_tx) =
-        create_grpc_server(socket_path.into(), svc, "Watchtower").await?;
-
-    match server_addr {
-        ServerAddr::Unix(path) => Ok((path, shutdown_tx)),
-        _ => Err(BridgeError::ConfigError("Expected Unix socket path".into())),
-    }
-}
-
-#[cfg(not(unix))]
-pub async fn create_watchtower_unix_server(
     _config: BridgeConfig,
     _socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {

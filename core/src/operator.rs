@@ -622,9 +622,9 @@ where
     ) -> Result<Vec<PublicHash>, BridgeError> {
         let mut hashes = Vec::with_capacity(self.config.get_num_challenge_ack_hashes());
 
-        for watchtower_idx in 0..self.config.protocol_paramset().num_watchtowers {
+        for verifier_idx in 0..self.config.num_verifiers {
             let path = WinternitzDerivationPath::ChallengeAckHash(
-                watchtower_idx as u32,
+                verifier_idx as u32,
                 deposit_txid,
                 self.config.protocol_paramset(),
             );
@@ -1191,7 +1191,7 @@ mod tests {
         let preimages = operator
             .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
             .unwrap();
-        assert_eq!(preimages.len(), config.protocol_paramset().num_watchtowers);
+        assert_eq!(preimages.len(), config.num_verifiers as usize);
     }
 
     #[tokio::test]

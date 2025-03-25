@@ -86,6 +86,9 @@ pub struct ReplacementDeposit {
     /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "3")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
+    /// Num of verifiers that will participate in the deposit.
+    #[prost(uint64, tag = "4")]
+    pub num_verifiers: u64,
 }
 /// A new original deposit request's details.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -102,6 +105,9 @@ pub struct BaseDeposit {
     /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "4")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
+    /// Num of verifiers that will participate in the deposit.
+    #[prost(uint64, tag = "5")]
+    pub num_verifiers: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NumberedTransactionId {
@@ -230,6 +236,26 @@ pub struct WithdrawResponse {
     pub txid: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WithdrawErrorResponse {
+    #[prost(string, tag = "1")]
+    pub error: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WithdrawResult {
+    #[prost(oneof = "withdraw_result::Result", tags = "1, 2")]
+    pub result: ::core::option::Option<withdraw_result::Result>,
+}
+/// Nested message and enum types in `WithdrawResult`.
+pub mod withdraw_result {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Success(super::WithdrawResponse),
+        #[prost(message, tag = "2")]
+        Error(super::WithdrawErrorResponse),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WithdrawalFinalizedParams {
     #[prost(uint32, tag = "1")]
     pub withdrawal_id: u32,
@@ -252,10 +278,8 @@ pub struct VerifierParams {
     #[prost(uint32, tag = "3")]
     pub num_verifiers: u32,
     #[prost(uint32, tag = "4")]
-    pub num_watchtowers: u32,
-    #[prost(uint32, tag = "5")]
     pub num_operators: u32,
-    #[prost(uint32, tag = "6")]
+    #[prost(uint32, tag = "5")]
     pub num_round_txs: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -330,22 +354,6 @@ pub struct VerifierPublicKeys {
     pub verifier_public_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WatchtowerParams {
-    #[prost(oneof = "watchtower_params::Response", tags = "1, 2")]
-    pub response: ::core::option::Option<watchtower_params::Response>,
-}
-/// Nested message and enum types in `WatchtowerParams`.
-pub mod watchtower_params {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Response {
-        #[prost(uint32, tag = "1")]
-        WatchtowerId(u32),
-        /// xonly public key serialized to bytes
-        #[prost(bytes, tag = "2")]
-        XonlyPk(::prost::alloc::vec::Vec<u8>),
-    }
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedTx {
     #[prost(bytes = "vec", tag = "1")]
     pub raw_tx: ::prost::alloc::vec::Vec<u8>,
@@ -373,6 +381,11 @@ pub struct SignedTxWithType {
 pub struct SignedTxsWithType {
     #[prost(message, repeated, tag = "1")]
     pub signed_txs: ::prost::alloc::vec::Vec<SignedTxWithType>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggregatorWithdrawResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub withdraw_responses: ::prost::alloc::vec::Vec<WithdrawResult>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1192,6 +1205,36 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// Signs the verifiers own watchtower challenge tx in the corresponding kickoff and returns the signed raw tx
+        pub async fn internal_create_watchtower_challenge(
+            &mut self,
+            request: impl tonic::IntoRequest<super::TransactionRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxWithType>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/InternalCreateWatchtowerChallenge",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineVerifier",
+                        "InternalCreateWatchtowerChallenge",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// Returns verifiers' metadata. Needs to be called once per setup.
         pub async fn get_params(
             &mut self,
@@ -1258,30 +1301,6 @@ pub mod clementine_verifier_client {
             let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "SetOperator"));
-            self.inner.client_streaming(req, path, codec).await
-        }
-        /// Saves a watchtower.
-        pub async fn set_watchtower(
-            &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::WatchtowerParams>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineVerifier/SetWatchtower",
-            );
-            let mut req = request.into_streaming_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("clementine.ClementineVerifier", "SetWatchtower"),
-                );
             self.inner.client_streaming(req, path, codec).await
         }
         /// Generates nonces for a deposit.
@@ -1393,166 +1412,6 @@ pub mod clementine_verifier_client {
                     ),
                 );
             self.inner.unary(req, path, codec).await
-        }
-    }
-}
-/// Generated client implementations.
-pub mod clementine_watchtower_client {
-    #![allow(
-        unused_variables,
-        dead_code,
-        missing_docs,
-        clippy::wildcard_imports,
-        clippy::let_unit_value,
-    )]
-    use tonic::codegen::*;
-    use tonic::codegen::http::Uri;
-    /// Watchtowers are responsible for challenging the operator's kickoff txs.
-    /// Each watchtower also runs a verifier server connected to the same db. Thus,
-    /// they will have the operator's winternitz pubkeys.
-    #[derive(Debug, Clone)]
-    pub struct ClementineWatchtowerClient<T> {
-        inner: tonic::client::Grpc<T>,
-    }
-    impl ClementineWatchtowerClient<tonic::transport::Channel> {
-        /// Attempt to create a new client by connecting to a given endpoint.
-        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
-        where
-            D: TryInto<tonic::transport::Endpoint>,
-            D::Error: Into<StdError>,
-        {
-            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
-            Ok(Self::new(conn))
-        }
-    }
-    impl<T> ClementineWatchtowerClient<T>
-    where
-        T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::Error: Into<StdError>,
-        T::ResponseBody: Body<Data = Bytes> + std::marker::Send + 'static,
-        <T::ResponseBody as Body>::Error: Into<StdError> + std::marker::Send,
-    {
-        pub fn new(inner: T) -> Self {
-            let inner = tonic::client::Grpc::new(inner);
-            Self { inner }
-        }
-        pub fn with_origin(inner: T, origin: Uri) -> Self {
-            let inner = tonic::client::Grpc::with_origin(inner, origin);
-            Self { inner }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> ClementineWatchtowerClient<InterceptedService<T, F>>
-        where
-            F: tonic::service::Interceptor,
-            T::ResponseBody: Default,
-            T: tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-                Response = http::Response<
-                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
-                >,
-            >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
-        {
-            ClementineWatchtowerClient::new(InterceptedService::new(inner, interceptor))
-        }
-        /// Compress requests with the given encoding.
-        ///
-        /// This requires the server to support it otherwise it might respond with an
-        /// error.
-        #[must_use]
-        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.inner = self.inner.send_compressed(encoding);
-            self
-        }
-        /// Enable decompressing responses.
-        #[must_use]
-        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.inner = self.inner.accept_compressed(encoding);
-            self
-        }
-        /// Limits the maximum size of a decoded message.
-        ///
-        /// Default: `4MB`
-        #[must_use]
-        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
-            self.inner = self.inner.max_decoding_message_size(limit);
-            self
-        }
-        /// Limits the maximum size of an encoded message.
-        ///
-        /// Default: `usize::MAX`
-        #[must_use]
-        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
-            self.inner = self.inner.max_encoding_message_size(limit);
-            self
-        }
-        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-        /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
-        ///
-        /// # Parameters
-        /// - deposit_params: User's deposit information
-        /// - transaction_type: Requested Transaction type
-        /// - kickoff_id: Operator's kickoff ID
-        ///
-        /// # Returns
-        /// - Raw signed transaction
-        pub async fn internal_create_watchtower_challenge(
-            &mut self,
-            request: impl tonic::IntoRequest<super::TransactionRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineWatchtower/InternalCreateWatchtowerChallenge",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "clementine.ClementineWatchtower",
-                        "InternalCreateWatchtowerChallenge",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        /// Returns every operator's winternitz public keys.
-        pub async fn get_params(
-            &mut self,
-            request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::WatchtowerParams>>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineWatchtower/GetParams",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("clementine.ClementineWatchtower", "GetParams"));
-            self.inner.server_streaming(req, path, codec).await
         }
     }
 }
@@ -1699,6 +1558,31 @@ pub mod clementine_aggregator_client {
                 .insert(
                     GrpcMethod::new("clementine.ClementineAggregator", "NewDeposit"),
                 );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Call's withdraw on all operators
+        pub async fn withdraw(
+            &mut self,
+            request: impl tonic::IntoRequest<super::WithdrawParams>,
+        ) -> std::result::Result<
+            tonic::Response<super::AggregatorWithdrawResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/Withdraw",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("clementine.ClementineAggregator", "Withdraw"));
             self.inner.unary(req, path, codec).await
         }
         /// send a pre-signed tx
@@ -2437,6 +2321,14 @@ pub mod clementine_verifier_server {
             tonic::Response<super::SignedTxsWithType>,
             tonic::Status,
         >;
+        /// Signs the verifiers own watchtower challenge tx in the corresponding kickoff and returns the signed raw tx
+        async fn internal_create_watchtower_challenge(
+            &self,
+            request: tonic::Request<super::TransactionRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxWithType>,
+            tonic::Status,
+        >;
         /// Returns verifiers' metadata. Needs to be called once per setup.
         async fn get_params(
             &self,
@@ -2451,11 +2343,6 @@ pub mod clementine_verifier_server {
         async fn set_operator(
             &self,
             request: tonic::Request<tonic::Streaming<super::OperatorParams>>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// Saves a watchtower.
-        async fn set_watchtower(
-            &self,
-            request: tonic::Request<tonic::Streaming<super::WatchtowerParams>>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Server streaming response type for the NonceGen method.
         type NonceGenStream: tonic::codegen::tokio_stream::Stream<
@@ -2674,6 +2561,57 @@ pub mod clementine_verifier_server {
                     };
                     Box::pin(fut)
                 }
+                "/clementine.ClementineVerifier/InternalCreateWatchtowerChallenge" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalCreateWatchtowerChallengeSvc<T: ClementineVerifier>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::UnaryService<super::TransactionRequest>
+                    for InternalCreateWatchtowerChallengeSvc<T> {
+                        type Response = super::SignedTxWithType;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::TransactionRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineVerifier>::internal_create_watchtower_challenge(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalCreateWatchtowerChallengeSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/clementine.ClementineVerifier/GetParams" => {
                     #[allow(non_camel_case_types)]
                     struct GetParamsSvc<T: ClementineVerifier>(pub Arc<T>);
@@ -2796,54 +2734,6 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = SetOperatorSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.client_streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/clementine.ClementineVerifier/SetWatchtower" => {
-                    #[allow(non_camel_case_types)]
-                    struct SetWatchtowerSvc<T: ClementineVerifier>(pub Arc<T>);
-                    impl<
-                        T: ClementineVerifier,
-                    > tonic::server::ClientStreamingService<super::WatchtowerParams>
-                    for SetWatchtowerSvc<T> {
-                        type Response = super::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                tonic::Streaming<super::WatchtowerParams>,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ClementineVerifier>::set_watchtower(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = SetWatchtowerSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -3089,264 +2979,6 @@ pub mod clementine_verifier_server {
     }
 }
 /// Generated server implementations.
-pub mod clementine_watchtower_server {
-    #![allow(
-        unused_variables,
-        dead_code,
-        missing_docs,
-        clippy::wildcard_imports,
-        clippy::let_unit_value,
-    )]
-    use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with ClementineWatchtowerServer.
-    #[async_trait]
-    pub trait ClementineWatchtower: std::marker::Send + std::marker::Sync + 'static {
-        /// Creates a transaction denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-        /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
-        ///
-        /// # Parameters
-        /// - deposit_params: User's deposit information
-        /// - transaction_type: Requested Transaction type
-        /// - kickoff_id: Operator's kickoff ID
-        ///
-        /// # Returns
-        /// - Raw signed transaction
-        async fn internal_create_watchtower_challenge(
-            &self,
-            request: tonic::Request<super::TransactionRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
-            tonic::Status,
-        >;
-        /// Server streaming response type for the GetParams method.
-        type GetParamsStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::WatchtowerParams, tonic::Status>,
-            >
-            + std::marker::Send
-            + 'static;
-        /// Returns every operator's winternitz public keys.
-        async fn get_params(
-            &self,
-            request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<Self::GetParamsStream>, tonic::Status>;
-    }
-    /// Watchtowers are responsible for challenging the operator's kickoff txs.
-    /// Each watchtower also runs a verifier server connected to the same db. Thus,
-    /// they will have the operator's winternitz pubkeys.
-    #[derive(Debug)]
-    pub struct ClementineWatchtowerServer<T> {
-        inner: Arc<T>,
-        accept_compression_encodings: EnabledCompressionEncodings,
-        send_compression_encodings: EnabledCompressionEncodings,
-        max_decoding_message_size: Option<usize>,
-        max_encoding_message_size: Option<usize>,
-    }
-    impl<T> ClementineWatchtowerServer<T> {
-        pub fn new(inner: T) -> Self {
-            Self::from_arc(Arc::new(inner))
-        }
-        pub fn from_arc(inner: Arc<T>) -> Self {
-            Self {
-                inner,
-                accept_compression_encodings: Default::default(),
-                send_compression_encodings: Default::default(),
-                max_decoding_message_size: None,
-                max_encoding_message_size: None,
-            }
-        }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
-        where
-            F: tonic::service::Interceptor,
-        {
-            InterceptedService::new(Self::new(inner), interceptor)
-        }
-        /// Enable decompressing requests with the given encoding.
-        #[must_use]
-        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.accept_compression_encodings.enable(encoding);
-            self
-        }
-        /// Compress responses with the given encoding, if the client supports it.
-        #[must_use]
-        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
-            self.send_compression_encodings.enable(encoding);
-            self
-        }
-        /// Limits the maximum size of a decoded message.
-        ///
-        /// Default: `4MB`
-        #[must_use]
-        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
-            self.max_decoding_message_size = Some(limit);
-            self
-        }
-        /// Limits the maximum size of an encoded message.
-        ///
-        /// Default: `usize::MAX`
-        #[must_use]
-        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
-            self.max_encoding_message_size = Some(limit);
-            self
-        }
-    }
-    impl<T, B> tonic::codegen::Service<http::Request<B>>
-    for ClementineWatchtowerServer<T>
-    where
-        T: ClementineWatchtower,
-        B: Body + std::marker::Send + 'static,
-        B::Error: Into<StdError> + std::marker::Send + 'static,
-    {
-        type Response = http::Response<tonic::body::BoxBody>;
-        type Error = std::convert::Infallible;
-        type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(
-            &mut self,
-            _cx: &mut Context<'_>,
-        ) -> Poll<std::result::Result<(), Self::Error>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, req: http::Request<B>) -> Self::Future {
-            match req.uri().path() {
-                "/clementine.ClementineWatchtower/InternalCreateWatchtowerChallenge" => {
-                    #[allow(non_camel_case_types)]
-                    struct InternalCreateWatchtowerChallengeSvc<T: ClementineWatchtower>(
-                        pub Arc<T>,
-                    );
-                    impl<
-                        T: ClementineWatchtower,
-                    > tonic::server::UnaryService<super::TransactionRequest>
-                    for InternalCreateWatchtowerChallengeSvc<T> {
-                        type Response = super::SignedTxWithType;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::TransactionRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ClementineWatchtower>::internal_create_watchtower_challenge(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = InternalCreateWatchtowerChallengeSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/clementine.ClementineWatchtower/GetParams" => {
-                    #[allow(non_camel_case_types)]
-                    struct GetParamsSvc<T: ClementineWatchtower>(pub Arc<T>);
-                    impl<
-                        T: ClementineWatchtower,
-                    > tonic::server::ServerStreamingService<super::Empty>
-                    for GetParamsSvc<T> {
-                        type Response = super::WatchtowerParams;
-                        type ResponseStream = T::GetParamsStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::Empty>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ClementineWatchtower>::get_params(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = GetParamsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.server_streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                _ => {
-                    Box::pin(async move {
-                        let mut response = http::Response::new(empty_body());
-                        let headers = response.headers_mut();
-                        headers
-                            .insert(
-                                tonic::Status::GRPC_STATUS,
-                                (tonic::Code::Unimplemented as i32).into(),
-                            );
-                        headers
-                            .insert(
-                                http::header::CONTENT_TYPE,
-                                tonic::metadata::GRPC_CONTENT_TYPE,
-                            );
-                        Ok(response)
-                    })
-                }
-            }
-        }
-    }
-    impl<T> Clone for ClementineWatchtowerServer<T> {
-        fn clone(&self) -> Self {
-            let inner = self.inner.clone();
-            Self {
-                inner,
-                accept_compression_encodings: self.accept_compression_encodings,
-                send_compression_encodings: self.send_compression_encodings,
-                max_decoding_message_size: self.max_decoding_message_size,
-                max_encoding_message_size: self.max_encoding_message_size,
-            }
-        }
-    }
-    /// Generated gRPC service name
-    pub const SERVICE_NAME: &str = "clementine.ClementineWatchtower";
-    impl<T> tonic::server::NamedService for ClementineWatchtowerServer<T> {
-        const NAME: &'static str = SERVICE_NAME;
-    }
-}
-/// Generated server implementations.
 pub mod clementine_aggregator_server {
     #![allow(
         unused_variables,
@@ -3377,6 +3009,14 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::DepositParams>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
+        /// Call's withdraw on all operators
+        async fn withdraw(
+            &self,
+            request: tonic::Request<super::WithdrawParams>,
+        ) -> std::result::Result<
+            tonic::Response<super::AggregatorWithdrawResponse>,
+            tonic::Status,
+        >;
         /// send a pre-signed tx
         async fn internal_send_tx(
             &self,
@@ -3535,6 +3175,51 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = NewDepositSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/Withdraw" => {
+                    #[allow(non_camel_case_types)]
+                    struct WithdrawSvc<T: ClementineAggregator>(pub Arc<T>);
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::WithdrawParams>
+                    for WithdrawSvc<T> {
+                        type Response = super::AggregatorWithdrawResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::WithdrawParams>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::withdraw(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = WithdrawSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

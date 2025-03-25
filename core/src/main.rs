@@ -12,7 +12,6 @@ use clementine_core::{
     database::Database,
     servers::{
         create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
-        create_watchtower_grpc_server,
     },
 };
 
@@ -20,7 +19,7 @@ use clementine_core::{
 async fn main() {
     let (config, args) = get_configuration_from_cli();
 
-    Database::run_schema_script(&config)
+    Database::run_schema_script(&config, args.actor == cli::Actors::Verifier)
         .await
         .expect("Can't run schema script");
 
@@ -47,14 +46,6 @@ async fn main() {
             create_aggregator_grpc_server(config.clone())
                 .await
                 .expect("Can't create aggregator server")
-                .1
-        }
-        cli::Actors::Watchtower => {
-            println!("Starting watchtower server...");
-
-            create_watchtower_grpc_server(config.clone())
-                .await
-                .expect("Can't create watchtower server")
                 .1
         }
     };

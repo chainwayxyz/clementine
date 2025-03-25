@@ -2,6 +2,7 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
+use super::clementine::{AggregatorWithdrawResponse, WithdrawParams};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
@@ -693,71 +694,10 @@ impl ClementineAggregator for Aggregator {
             Ok::<_, Status>(())
         });
 
-        // Propagate Watchtowers configuration to all verifier clients
-
-        let (watchtower_params_tx, watchtower_params_rx) =
-            tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
-        let watchtower_params_rx_handles = (0..self.config.num_verifiers)
-            .map(|_| watchtower_params_rx.resubscribe())
-            .collect::<Vec<_>>();
-
-        let get_watchtower_params_chunked_handle = tokio::spawn({
-            let watchtowers = self.watchtower_clients.clone();
-            async move {
-                tracing::info!("Collecting Winternitz public keys from watchtowers...");
-                try_join_all(watchtowers.iter().map(|watchtower| {
-                    let mut watchtower = watchtower.clone();
-                    let tx = watchtower_params_tx.clone();
-                    async move {
-                        let stream = watchtower
-                            .get_params(Request::new(Empty {}))
-                            .await?
-                            .into_inner();
-                        tx.send(stream.try_collect::<Vec<_>>().await?)
-                            .map_err(|e| {
-                                BridgeError::Error(format!("failed to read watchtower params: {e}"))
-                            })?;
-                        Ok::<_, Status>(())
-                    }
-                }))
-                .await?;
-                Ok::<_, Status>(())
-            }
-        });
-
-        let set_watchtower_params_handle = tokio::spawn({
-            let verifiers = self.verifier_clients.clone();
-            async move {
-                tracing::info!("Sending Winternitz public keys to verifiers...");
-                try_join_all(verifiers.iter().zip(watchtower_params_rx_handles).map(
-                    |(verifier, mut rx)| {
-                        let verifier = verifier.clone();
-                        async move {
-                            collect_and_call(&mut rx, |params| {
-                                let mut verifier = verifier.clone();
-                                async move {
-                                    verifier
-                                        .set_watchtower(futures::stream::iter(params))
-                                        .await?;
-                                    Ok::<_, Status>(())
-                                }
-                            })
-                            .await?;
-                            Ok::<_, Status>(())
-                        }
-                    },
-                ))
-                .await?;
-                Ok::<_, Status>(())
-            }
-        });
-
         try_join_all([
             set_verifier_keys_handle,
             get_operator_params_chunked_handle,
             set_operator_params_handle,
-            get_watchtower_params_chunked_handle,
-            set_watchtower_params_handle,
         ])
         .await
         .wrap_err("aggregator setup failed")
@@ -1006,6 +946,39 @@ impl ClementineAggregator for Aggregator {
 
         Ok(Response::new(txid.into()))
     }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn withdraw(
+        &self,
+        request: Request<WithdrawParams>,
+    ) -> Result<Response<AggregatorWithdrawResponse>, Status> {
+        let withdraw_params = request.into_inner();
+        let operators = self.operator_clients.clone();
+        let withdraw_futures = operators.iter().map(|operator| {
+            let mut operator = operator.clone();
+            let params = withdraw_params.clone();
+            async move { operator.withdraw(Request::new(params)).await }
+        });
+
+        let responses = futures::future::join_all(withdraw_futures).await;
+        Ok(Response::new(AggregatorWithdrawResponse {
+            withdraw_responses: responses
+                .into_iter()
+                .map(|r| clementine::WithdrawResult {
+                    result: Some(match r {
+                        Ok(response) => {
+                            clementine::withdraw_result::Result::Success(response.into_inner())
+                        }
+                        Err(e) => clementine::withdraw_result::Result::Error(
+                            clementine::WithdrawErrorResponse {
+                                error: e.to_string(),
+                            },
+                        ),
+                    }),
+                })
+                .collect(),
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -1027,7 +1000,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let (_, _, mut aggregator, _, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
+        let (_, _, mut aggregator, _cleanup) = create_actors::<MockCitreaClient>(&config).await;
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -1045,7 +1018,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _watchtowers, _cleanup) =
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
             create_actors::<MockCitreaClient>(&config).await;
 
         let evm_address = EVMAddress([1u8; 20]);
@@ -1087,6 +1060,7 @@ mod tests {
             evm_address,
             recovery_taproot_address: signer.address.as_unchecked().clone(),
             nofn_xonly_pk,
+            num_verifiers: config.num_verifiers,
         });
 
         let movetx_txid: Txid = aggregator

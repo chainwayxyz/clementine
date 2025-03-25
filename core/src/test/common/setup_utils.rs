@@ -8,12 +8,10 @@ use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::rpc::get_clients;
 use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
-    create_watchtower_unix_server,
 };
 use crate::states::{block_cache, Duty, Owner};
 use crate::utils::initialize_logger;
@@ -296,7 +294,7 @@ pub async fn initialize_database(config: &BridgeConfig) {
 
     conn.close().await;
 
-    Database::run_schema_script(config)
+    Database::run_schema_script(config, true)
         .await
         .expect("Failed to run schema script");
 }
@@ -315,19 +313,11 @@ pub async fn create_actors<C: CitreaClientT>(
     Vec<ClementineVerifierClient<Channel>>,
     Vec<ClementineOperatorClient<Channel>>,
     ClementineAggregatorClient<Channel>,
-    Vec<ClementineWatchtowerClient<Channel>>,
     ActorsCleanup,
 ) {
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
     });
-    let all_watchtowers_secret_keys =
-        config
-            .all_watchtowers_secret_keys
-            .clone()
-            .unwrap_or_else(|| {
-                panic!("All secret keys of the watchtowers are required for testing");
-            });
 
     // Collect all shutdown channels
     let mut shutdown_channels = Vec::new();
@@ -414,32 +404,6 @@ pub async fn create_actors<C: CitreaClientT>(
 
     let verifier_configs = verifier_configs.clone();
 
-    let watchtower_futures = all_watchtowers_secret_keys
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| {
-            let socket_path = socket_dir.path().join(format!("watchtower_{}.sock", i));
-            create_watchtower_unix_server(
-                BridgeConfig {
-                    index: i as u32,
-                    secret_key: *sk,
-                    ..verifier_configs[i].clone()
-                },
-                socket_path,
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let watchtower_results = futures::future::try_join_all(watchtower_futures)
-        .await
-        .expect("Failed to join watchtower futures");
-
-    let (watchtower_paths, watchtower_shutdown_channels) = watchtower_results
-        .into_iter()
-        .unzip::<_, _, Vec<_>, Vec<_>>();
-
-    shutdown_channels.extend(watchtower_shutdown_channels);
-
     let aggregator_socket_path = socket_dir.path().join("aggregator.sock");
 
     let (aggregator_path, aggregator_shutdown_tx) = create_aggregator_unix_server(
@@ -452,12 +416,6 @@ pub async fn create_actors<C: CitreaClientT>(
             ),
             operator_endpoints: Some(
                 operator_paths
-                    .iter()
-                    .map(|path| format!("unix://{}", path.display()))
-                    .collect(),
-            ),
-            watchtower_endpoints: Some(
-                watchtower_paths
                     .iter()
                     .map(|path| format!("unix://{}", path.display()))
                     .collect(),
@@ -502,21 +460,10 @@ pub async fn create_actors<C: CitreaClientT>(
     .pop()
     .expect("could not connect to aggregator");
 
-    let watchtowers = get_clients(
-        watchtower_paths
-            .iter()
-            .map(|path| format!("unix://{}", path.display()))
-            .collect::<Vec<_>>(),
-        ClementineWatchtowerClient::new,
-    )
-    .await
-    .expect("could not connect to watchtowers");
-
     (
         verifiers,
         operators,
         aggregator,
-        watchtowers,
         ActorsCleanup((shutdown_channels, socket_dir)),
     )
 }

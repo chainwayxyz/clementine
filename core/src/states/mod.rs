@@ -112,10 +112,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         paramset: &'static ProtocolParamset,
     ) -> eyre::Result<Self> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
-        queue
-            .init()
-            .await
-            .wrap_err("Error initializing pqmq queue")?;
 
         queue.create(&Self::queue_name()).await.wrap_err_with(|| {
             format!("Error creating pqmq queue with name {}", Self::queue_name())

@@ -1,7 +1,7 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, PartialSig, SignedTxWithType, SignedTxsWithType, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys,
 };
 use super::error;
 use super::parser::ParserError;
@@ -26,6 +26,32 @@ impl<C> ClementineVerifier for VerifierServer<C>
 where
     C: CitreaClientT,
 {
+    async fn internal_create_watchtower_challenge(
+        &self,
+        request: tonic::Request<super::TransactionRequest>,
+    ) -> std::result::Result<tonic::Response<super::SignedTxWithType>, tonic::Status> {
+        let transaction_request = request.into_inner();
+        let transaction_data = parse_transaction_request(transaction_request)?;
+
+        let (tx_type, signed_tx) = self
+            .verifier
+            .create_and_sign_watchtower_challenge(
+                transaction_data,
+                &vec![
+                    0u8;
+                    self.verifier
+                        .config
+                        .protocol_paramset()
+                        .watchtower_challenge_bytes
+                ], // dummy challenge
+            )
+            .await?;
+
+        Ok(Response::new(SignedTxWithType {
+            transaction_type: Some(tx_type.into()),
+            raw_tx: bitcoin::consensus::serialize(&signed_tx),
+        }))
+    }
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
@@ -90,24 +116,6 @@ where
                 operator_kickoff_winternitz_public_keys,
                 unspent_kickoff_sigs,
             )
-            .await?;
-
-        Ok(Response::new(Empty {}))
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn set_watchtower(
-        &self,
-        request: Request<Streaming<WatchtowerParams>>,
-    ) -> Result<Response<Empty>, Status> {
-        let mut in_stream = request.into_inner();
-
-        let watchtower_id = parser::watchtower::parse_id(&mut in_stream).await?;
-
-        let xonly_pk = parser::watchtower::parse_xonly_pk(&mut in_stream).await?;
-
-        self.verifier
-            .set_watchtower(watchtower_id, xonly_pk)
             .await?;
 
         Ok(Response::new(Empty {}))

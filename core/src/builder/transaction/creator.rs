@@ -75,7 +75,7 @@ pub struct ReimburseDbCache {
     /// operator data
     operator_data: Option<OperatorData>,
     /// watchtower xonly pks
-    watchtower_xonly_pks: Option<Vec<XOnlyPublicKey>>,
+    verifier_xonly_pks: Option<Vec<XOnlyPublicKey>>,
 }
 
 impl ReimburseDbCache {
@@ -96,7 +96,7 @@ impl ReimburseDbCache {
             bitvm_disprove_root_hash: None,
             challenge_ack_hashes: None,
             operator_data: None,
-            watchtower_xonly_pks: None,
+            verifier_xonly_pks: None,
         }
     }
 
@@ -116,7 +116,7 @@ impl ReimburseDbCache {
             bitvm_disprove_root_hash: None,
             challenge_ack_hashes: None,
             operator_data: None,
-            watchtower_xonly_pks: None,
+            verifier_xonly_pks: None,
         }
     }
 
@@ -151,13 +151,17 @@ impl ReimburseDbCache {
         }
     }
 
-    pub async fn get_watchtower_xonly_pks(&mut self) -> Result<&[XOnlyPublicKey], BridgeError> {
-        match self.watchtower_xonly_pks {
+    pub async fn get_verifier_xonly_pks(&mut self) -> Result<&[XOnlyPublicKey], BridgeError> {
+        match self.verifier_xonly_pks {
             Some(ref pks) => Ok(pks),
             None => {
-                self.watchtower_xonly_pks =
-                    Some(self.db.get_all_watchtowers_xonly_pks(None).await?);
-                Ok(self.watchtower_xonly_pks.as_ref().expect("Inserted before"))
+                let verifier_pks = self.db.get_verifiers_public_keys(None).await?;
+                let xonly_pks = verifier_pks
+                    .iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect::<Vec<_>>();
+                self.verifier_xonly_pks = Some(xonly_pks);
+                Ok(self.verifier_xonly_pks.as_ref().expect("Inserted before"))
             }
         }
     }
@@ -455,7 +459,7 @@ pub async fn create_txhandlers(
 
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
-    let watchtower_xonly_pks = db_cache.get_watchtower_xonly_pks().await?.to_vec();
+    let verifier_xonly_pks = db_cache.get_verifier_xonly_pks().await?.to_vec();
 
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
@@ -473,11 +477,11 @@ pub async fn create_txhandlers(
             kickoff_id,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-            deposit_data.get_nofn_xonly_pk(),
+            deposit_data.clone(),
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
-            &watchtower_xonly_pks,
+            &verifier_xonly_pks,
             &public_hashes,
             paramset,
         )?;
@@ -497,11 +501,11 @@ pub async fn create_txhandlers(
             kickoff_id,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-            deposit_data.get_nofn_xonly_pk(),
+            deposit_data.clone(),
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
-            &watchtower_xonly_pks,
+            &verifier_xonly_pks,
             &public_hashes,
             paramset,
         )?
@@ -541,14 +545,14 @@ pub async fn create_txhandlers(
     );
 
     // create watchtower tx's except WatchtowerChallenges
-    for watchtower_idx in 0..paramset.num_watchtowers {
+    for verifier_idx in 0..deposit_data.get_num_verifiers() {
         // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
         // - acknowledge the challenge by sending the operator_challenge_ACK_tx, otherwise their burn connector
         // will get burned by operator_challenge_nack
         let watchtower_challenge_timeout_txhandler =
             builder::transaction::create_watchtower_challenge_timeout_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                watchtower_idx,
+                verifier_idx,
                 paramset,
             )?;
         txhandlers.insert(
@@ -559,7 +563,7 @@ pub async fn create_txhandlers(
         let operator_challenge_nack_txhandler =
             builder::transaction::create_operator_challenge_nack_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                watchtower_idx,
+                verifier_idx,
                 get_txhandler(&txhandlers, TransactionType::Round)?,
                 paramset,
             )?;
@@ -571,7 +575,7 @@ pub async fn create_txhandlers(
         let operator_challenge_ack_txhandler =
             builder::transaction::create_operator_challenge_ack_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                watchtower_idx,
+                verifier_idx,
                 paramset,
             )?;
         txhandlers.insert(
@@ -713,7 +717,6 @@ mod tests {
     use crate::config::BridgeConfig;
     use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-    use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
     use crate::rpc::clementine::{DepositParams, KickoffId, SignedTxsWithType, TransactionRequest};
     use crate::test::common::*;
     use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
@@ -738,12 +741,13 @@ mod tests {
     async fn check_if_signable(
         mut verifiers: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
         mut operators: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
-        mut watchtowers: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
         deposit_params: DepositParams,
         deposit_blockhash: BlockHash,
         config: BridgeConfig,
     ) {
         let paramset = config.protocol_paramset();
+        let deposit_data: DepositData = deposit_params.clone().try_into().unwrap();
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
 
         let mut txs_operator_can_sign = vec![
             TransactionType::Round,
@@ -756,18 +760,21 @@ mod tests {
             TransactionType::Reimburse,
             TransactionType::ChallengeTimeout,
         ];
-        txs_operator_can_sign
-            .extend((0..paramset.num_watchtowers).map(TransactionType::OperatorChallengeNack));
-        txs_operator_can_sign
-            .extend((0..paramset.num_watchtowers).map(TransactionType::OperatorChallengeAck));
+        txs_operator_can_sign.extend(
+            (0..deposit_data.get_num_verifiers()).map(TransactionType::OperatorChallengeNack),
+        );
+        txs_operator_can_sign.extend(
+            (0..deposit_data.get_num_verifiers()).map(TransactionType::OperatorChallengeAck),
+        );
         txs_operator_can_sign.extend(
             (0..ClementineBitVMPublicKeys::number_of_assert_txs())
                 .map(TransactionType::AssertTimeout),
         );
         txs_operator_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_operator_can_sign
-            .extend((0..paramset.num_watchtowers).map(TransactionType::WatchtowerChallengeTimeout));
+        txs_operator_can_sign.extend(
+            (0..deposit_data.get_num_verifiers()).map(TransactionType::WatchtowerChallengeTimeout),
+        );
 
         let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap();
         let operator_xonly_pks: Vec<XOnlyPublicKey> = all_operators_secret_keys
@@ -782,8 +789,6 @@ mod tests {
             })
             .collect();
         let mut utxo_idxs: Vec<Vec<usize>> = Vec::with_capacity(operator_xonly_pks.len());
-        let deposit_data: DepositData = deposit_params.clone().try_into().unwrap();
-        let deposit_outpoint = deposit_data.get_deposit_outpoint();
 
         for op_xonly_pk in operator_xonly_pks {
             utxo_idxs.push(get_kickoff_utxos_to_sign(
@@ -864,66 +869,23 @@ mod tests {
             .map(tokio::task::spawn)
             .collect();
 
-        // try signing watchtower challenges for all watchtowers
-        let watchtower_task_handles: Vec<_> = watchtowers
-            .iter_mut()
-            .enumerate()
-            .map(|(watchtower_idx, watchtower_rpc)| {
-                let deposit_params = deposit_params.clone();
-                let mut watchtower_rpc = watchtower_rpc.clone();
-                let utxo_idxs = utxo_idxs.clone();
-                let tx = tx.clone();
-                async move {
-                    for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
-                        for round_idx in 0..paramset.num_round_txs {
-                            for &kickoff_idx in utxo_idx {
-                                let kickoff_id = KickoffId {
-                                    operator_idx: operator_idx as u32,
-                                    round_idx: round_idx as u32,
-                                    kickoff_idx: kickoff_idx as u32,
-                                };
-                                let raw_tx = watchtower_rpc
-                                    .internal_create_watchtower_challenge(TransactionRequest {
-                                        deposit_params: deposit_params.clone().into(),
-                                        kickoff_id: Some(kickoff_id),
-                                    })
-                                    .await
-                                    .unwrap()
-                                    .into_inner();
-                                tx.send((
-                                    kickoff_id,
-                                    signed_txs_to_txid(SignedTxsWithType {
-                                        signed_txs: vec![raw_tx],
-                                    }),
-                                ))
-                                .unwrap();
-                                tracing::info!(
-                                    "Watchtower Signed tx: {:?}",
-                                    TransactionType::WatchtowerChallenge(watchtower_idx)
-                                );
-                            }
-                        }
-                    }
-                }
-            })
-            .map(tokio::task::spawn)
-            .collect();
-
         let mut txs_verifier_can_sign = vec![
             TransactionType::Challenge,
             TransactionType::KickoffNotFinalized,
             //TransactionType::Disprove,
         ];
-        txs_verifier_can_sign
-            .extend((0..paramset.num_watchtowers).map(TransactionType::OperatorChallengeNack));
+        txs_verifier_can_sign.extend(
+            (0..deposit_data.get_num_verifiers()).map(TransactionType::OperatorChallengeNack),
+        );
         txs_verifier_can_sign.extend(
             (0..ClementineBitVMPublicKeys::number_of_assert_txs())
                 .map(TransactionType::AssertTimeout),
         );
         txs_verifier_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_verifier_can_sign
-            .extend((0..paramset.num_watchtowers).map(TransactionType::WatchtowerChallengeTimeout));
+        txs_verifier_can_sign.extend(
+            (0..deposit_data.get_num_verifiers()).map(TransactionType::WatchtowerChallengeTimeout),
+        );
 
         // try to sign everything for all verifiers
         // try signing verifier transactions
@@ -971,6 +933,21 @@ mod tests {
                                     start_time.elapsed()
                                 );
                                 tx.send((kickoff_id, signed_txs_to_txid(raw_txs))).unwrap();
+                                let watchtower_challenge_tx = verifier_rpc
+                                    .internal_create_watchtower_challenge(TransactionRequest {
+                                        deposit_params: deposit_params.clone().into(),
+                                        kickoff_id: Some(kickoff_id),
+                                    })
+                                    .await
+                                    .unwrap()
+                                    .into_inner();
+                                tx.send((
+                                    kickoff_id,
+                                    signed_txs_to_txid(SignedTxsWithType {
+                                        signed_txs: vec![watchtower_challenge_tx],
+                                    }),
+                                ))
+                                .unwrap();
                             }
                         }
                     }
@@ -1006,7 +983,6 @@ mod tests {
         assert!(!incorrect);
 
         try_join_all(operator_task_handles).await.unwrap();
-        try_join_all(watchtower_task_handles).await.unwrap();
         try_join_all(verifier_task_handles).await.unwrap();
     }
 
@@ -1015,7 +991,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (verifiers, operators, _, watchtowers, _cleanup, deposit_params, _, deposit_blockhash) =
+        let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash) =
             run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
                 .await
                 .unwrap();
@@ -1023,7 +999,6 @@ mod tests {
         check_if_signable(
             verifiers,
             operators,
-            watchtowers,
             deposit_params,
             deposit_blockhash,
             config.clone(),
@@ -1036,7 +1011,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (verifiers, operators, _, watchtowers, _cleanup, deposit_params, _, deposit_blockhash) =
+        let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash) =
             run_replacement_deposit(&mut config, rpc.clone(), None)
                 .await
                 .unwrap();
@@ -1044,7 +1019,6 @@ mod tests {
         check_if_signable(
             verifiers,
             operators,
-            watchtowers,
             deposit_params,
             deposit_blockhash,
             config.clone(),

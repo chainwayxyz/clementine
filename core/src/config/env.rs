@@ -63,17 +63,6 @@ impl BridgeConfig {
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>()
                 });
-        let watchtower_endpoints =
-            std::env::var("WATCHTOWER_ENDPOINTS")
-                .ok()
-                .map(|watchtower_endpoints| {
-                    watchtower_endpoints
-                        .split(",")
-                        .collect::<Vec<&str>>()
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<String>>()
-                });
 
         let all_verifiers_secret_keys =
             if let Ok(all_verifiers_secret_keys) = std::env::var("ALL_VERIFIERS_SECRET_KEYS") {
@@ -107,23 +96,6 @@ impl BridgeConfig {
             } else {
                 None
             };
-        let all_watchtowers_secret_keys = if let Ok(all_watchtowers_secret_keys) =
-            std::env::var("ALL_WATCHTOWERS_SECRET_KEYS")
-        {
-            Some(
-                all_watchtowers_secret_keys
-                    .split(",")
-                    .collect::<Vec<&str>>()
-                    .iter()
-                    .map(|x| SecretKey::from_str(x))
-                    .collect::<Result<Vec<SecretKey>, _>>()
-                    .map_err(|e| {
-                        BridgeError::EnvVarMalformed("ALL_WATCHTOWERS_SECRET_KEYS", e.to_string())
-                    })?,
-            )
-        } else {
-            None
-        };
 
         let winternitz_secret_key = if let Ok(sk) = std::env::var("WINTERNITZ_SECRET_KEY") {
             Some(sk.parse::<SecretKey>().map_err(|e| {
@@ -176,13 +148,10 @@ impl BridgeConfig {
             citrea_light_client_prover_url: read_string_from_env("CITREA_LIGHT_CLIENT_PROVER_URL")?,
             bridge_contract_address: read_string_from_env("BRIDGE_CONTRACT_ADDRESS")?,
             header_chain_proof_path,
-            trusted_watchtower_endpoint: std::env::var("TRUSTED_WATCHTOWER_ENDPOINT").ok(),
             verifier_endpoints,
             operator_endpoints,
-            watchtower_endpoints,
             all_verifiers_secret_keys,
             all_operators_secret_keys,
-            all_watchtowers_secret_keys,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
@@ -205,7 +174,6 @@ impl ProtocolParamset {
             bridge_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
                 "BRIDGE_AMOUNT",
             )?),
-            num_watchtowers: read_string_from_env_then_parse::<usize>("NUM_WATCHTOWERS")?,
             kickoff_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
                 "KICKOFF_AMOUNT",
             )?),
@@ -217,6 +185,9 @@ impl ProtocolParamset {
             )?),
             kickoff_blockhash_commit_length: read_string_from_env_then_parse::<u32>(
                 "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
+            )?,
+            watchtower_challenge_bytes: read_string_from_env_then_parse::<usize>(
+                "WATCHTOWER_CHALLENGE_BYTES",
             )?,
             winternitz_log_d: read_string_from_env_then_parse::<u32>("WINTERNITZ_LOG_D")?,
             user_takes_after: read_string_from_env_then_parse::<u16>("USER_TAKES_AFTER")?,
@@ -330,17 +301,11 @@ mod tests {
         if let Some(ref header_chain_proof_path) = default_config.header_chain_proof_path {
             std::env::set_var("HEADER_CHAIN_PROOF_PATH", header_chain_proof_path);
         }
-        if let Some(ref trusted_watchtower_endpoint) = default_config.trusted_watchtower_endpoint {
-            std::env::set_var("TRUSTED_WATCHTOWER_ENDPOINT", trusted_watchtower_endpoint);
-        }
         if let Some(ref verifier_endpoints) = default_config.verifier_endpoints {
             std::env::set_var("VERIFIER_ENDPOINTS", verifier_endpoints.join(","));
         }
         if let Some(ref operator_endpoints) = default_config.operator_endpoints {
             std::env::set_var("OPERATOR_ENDPOINTS", operator_endpoints.join(","));
-        }
-        if let Some(ref watchtower_endpoints) = default_config.watchtower_endpoints {
-            std::env::set_var("WATCHTOWER_ENDPOINTS", watchtower_endpoints.join(","));
         }
         if let Some(ref all_verifiers_secret_keys) = default_config.all_verifiers_secret_keys {
             std::env::set_var(
@@ -356,16 +321,6 @@ mod tests {
             std::env::set_var(
                 "ALL_OPERATORS_SECRET_KEYS",
                 all_operators_secret_keys
-                    .iter()
-                    .map(|sk| sk.display_secret().to_string())
-                    .collect::<Vec<String>>()
-                    .join(","),
-            );
-        }
-        if let Some(ref all_watchtowers_secret_keys) = default_config.all_watchtowers_secret_keys {
-            std::env::set_var(
-                "ALL_WATCHTOWERS_SECRET_KEYS",
-                all_watchtowers_secret_keys
                     .iter()
                     .map(|sk| sk.display_secret().to_string())
                     .collect::<Vec<String>>()
@@ -395,10 +350,6 @@ mod tests {
             default_config.bridge_amount.to_sat().to_string(),
         );
         std::env::set_var(
-            "NUM_WATCHTOWERS",
-            default_config.num_watchtowers.to_string(),
-        );
-        std::env::set_var(
             "KICKOFF_AMOUNT",
             default_config.kickoff_amount.to_sat().to_string(),
         );
@@ -419,6 +370,10 @@ mod tests {
         std::env::set_var(
             "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
             default_config.kickoff_blockhash_commit_length.to_string(),
+        );
+        std::env::set_var(
+            "WATCHTOWER_CHALLENGE_BYTES",
+            default_config.watchtower_challenge_bytes.to_string(),
         );
         std::env::set_var(
             "WINTERNITZ_LOG_D",
