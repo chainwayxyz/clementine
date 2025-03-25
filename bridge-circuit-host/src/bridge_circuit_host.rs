@@ -500,12 +500,6 @@ mod tests {
 
         let (ark_groth16_proof, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
-        println!("ARK_GROTH16_PROOF: {:?}", ark_groth16_proof);
-        println!("OUTPUT_SCALAR_BYTES: {:?}", output_scalar_bytes_trimmed);
-        println!(
-            "BRIDGE_CIRCUIT_BITVM_INPUTS: {:?}",
-            bridge_circuit_bitvm_inputs
-        );
 
         let blake3_digest = bridge_circuit_bitvm_inputs.calculate_groth16_public_input();
         let g16_pi_calculated_outside = blake3_digest.as_bytes();
