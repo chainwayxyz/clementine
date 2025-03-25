@@ -31,7 +31,10 @@ where
     type Error = Status;
 
     fn try_from(verifier: &Verifier<C>) -> Result<Self, Self::Error> {
-        let idx = verifier.idx.try_read().unwrap();
+        let idx = verifier
+            .idx
+            .try_read()
+            .map_err(|_| Status::internal("Failed to read verifier index from RwLock"))?;
         let id = match *idx {
             Some(idx) => Some(convert_int_to_another("id", idx, u32::try_from)?),
             None => None,

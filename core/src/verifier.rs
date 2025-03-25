@@ -246,7 +246,7 @@ where
         verifiers_public_keys: Vec<PublicKey>,
     ) -> Result<(), BridgeError> {
         // Check if verifiers are already set
-        if self.nofn.read().await.clone().is_some() {
+        if self.nofn.read().await.clone().is_some() && self.idx.read().await.is_some() {
             return Err(BridgeError::AlreadyInitialized);
         }
 
@@ -255,15 +255,16 @@ where
             .set_verifiers_public_keys(None, &verifiers_public_keys)
             .await?;
 
-        // Save the nofn to memory for fast access
-        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
-        self.nofn.write().await.replace(nofn);
-
         let idx = verifiers_public_keys
             .iter()
             .position(|pk| pk == &self.signer.public_key)
             .ok_or(BridgeError::PublicKeyNotFound)?;
         self.idx.write().await.replace(idx);
+
+        // Save the nofn to memory for fast access
+        tracing::info!("setting nofn {}", idx);
+        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
+        self.nofn.write().await.replace(nofn);
 
         Ok(())
     }

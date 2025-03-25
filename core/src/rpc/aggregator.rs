@@ -3,6 +3,7 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{AggregatorWithdrawResponse, VerifierPublicKeys, WithdrawParams};
+use crate::actor::Actor;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
@@ -14,6 +15,7 @@ use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::error::output_stream_ended_prematurely;
 use crate::rpc::parser;
 use crate::tx_sender::{FeePayingType, TxMetadata};
+use crate::verifier::NofN;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -534,10 +536,13 @@ impl ClementineAggregator for Aggregator {
 
         let set_verifier_keys_handle = tokio::spawn({
             let verifier_clients = self.verifier_clients.clone();
+
             async move {
                 tracing::info!("Setting up verifiers...");
+
                 try_join_all(verifier_clients.into_iter().map(|mut verifier| {
                     let verifier_public_keys = verifier_public_keys.clone();
+
                     async move {
                         let verifier_public_keys = clementine::VerifierPublicKeys {
                             verifier_public_keys: verifier_public_keys.await?.clone(),
@@ -545,10 +550,12 @@ impl ClementineAggregator for Aggregator {
                         verifier
                             .set_verifiers(Request::new(verifier_public_keys))
                             .await?;
+
                         Ok::<_, Status>(())
                     }
                 }))
                 .await?;
+
                 Ok::<_, Status>(())
             }
         });
@@ -615,6 +622,21 @@ impl ClementineAggregator for Aggregator {
         .map_err(|e| BridgeError::Error(format!("aggregator setup failed: {e}")))?
         .into_iter()
         .collect::<Result<Vec<_>, Status>>()?;
+
+        // Save N-of-N public key.
+        let verifier_public_keys: Vec<PublicKey> = verifier_public_keys_clone
+            .clone()
+            .await?
+            .iter()
+            .map(|vpk| PublicKey::from_slice(&vpk).unwrap())
+            .collect();
+        let signer = Actor::new(
+            self.config.secret_key,
+            self.config.winternitz_secret_key,
+            self.config.protocol_paramset().network,
+        );
+        let nofn = NofN::new(signer.public_key, verifier_public_keys.clone())?;
+        self.nofn.write().await.replace(nofn);
 
         Ok(Response::new(VerifierPublicKeys {
             verifier_public_keys: verifier_public_keys_clone.await?,
