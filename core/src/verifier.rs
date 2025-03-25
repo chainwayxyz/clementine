@@ -317,11 +317,11 @@ where
                                 &operator_xonly_pk,
                             )
                             .map_err(|e| {
-                                BridgeError::Error(format!(
+                                eyre::eyre!(
                                     "Unspent kickoff signature verification failed for num sig {}: {}",
                                     cur_sig_index + 1,
                                     e
-                                ))
+                                )
                             })?;
                         tagged_sigs.push(TaggedSignature {
                             signature: unspent_kickoff_sigs[cur_sig_index].serialize().to_vec(),
@@ -474,9 +474,10 @@ where
 
         tokio::spawn(async move {
             let mut session_map = verifier.nonces.lock().await;
-            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
-                BridgeError::Error(format!("Could not find session id {session_id}"))
-            })?;
+            let session = session_map
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
@@ -500,13 +501,13 @@ where
                 let sighash = sighash_stream
                     .next()
                     .await
-                    .ok_or(BridgeError::Error("No sighash received".to_string()))??;
+                    .ok_or(eyre::eyre!("No sighash received"))??;
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
                 let nonce = session
                     .nonces
                     .pop()
-                    .ok_or(BridgeError::Error("No nonce available".to_string()))?;
+                    .ok_or(eyre::eyre!("No nonce available"))?;
 
                 let partial_sig = musig2::partial_sign(
                     verifier.config.verifiers_public_keys.clone(),
@@ -537,7 +538,7 @@ where
             let last_nonce = session
                 .nonces
                 .pop()
-                .ok_or(BridgeError::Error("No last nonce available".to_string()))?;
+                .ok_or(eyre::eyre!("No last nonce available"))?;
             session.nonces.clear();
             session.nonces.push(last_nonce);
 
@@ -757,16 +758,14 @@ where
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
-            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
-                BridgeError::Error(format!(
-                    "could not find session with id {} in session cache",
-                    session_id
-                ))
-            })?;
+            let session = session_map
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
             session
                 .nonces
                 .pop()
-                .ok_or_else(|| BridgeError::Error("No move tx secnonce in session".to_string()))?
+                .ok_or_eyre("No move tx secnonce in session")?
         };
 
         // sign move tx and save everything to db if everything is correct
@@ -795,17 +794,20 @@ where
                 if kickoff_txids[operator_idx][round_idx].len()
                     != self.config.protocol_paramset().num_signed_kickoffs
                 {
-                    return Err(BridgeError::Error(format!(
+                    return Err(eyre::eyre!(
                         "Number of signed kickoff utxos for operator: {}, round: {} is wrong. Expected: {}, got: {}",
                         operator_idx, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
-                    )));
+                    ).into());
                 }
                 for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
                     if kickoff_txid.is_none() {
-                        return Err(BridgeError::Error(format!(
+                        return Err(eyre::eyre!(
                             "Kickoff txid not found for {}, {}, {}",
-                            operator_idx, round_idx, kickoff_idx
-                        )));
+                            operator_idx,
+                            round_idx,
+                            kickoff_idx
+                        )
+                        .into());
                     }
 
                     self.db
@@ -837,21 +839,19 @@ where
             .challenge_ack_digests
             .into_iter()
             .map(|x| {
-                x.hash
-                    .try_into()
-                    .map_err(|_| BridgeError::Error("Invalid hash length".to_string()))
+                x.hash.try_into().map_err(|e: Vec<u8>| {
+                    eyre::eyre!("Invalid hash length, expected 20 bytes, got {}", e.len())
+                })
             })
-            .collect::<Result<Vec<[u8; 20]>, BridgeError>>()?;
+            .collect::<Result<Vec<[u8; 20]>, eyre::Report>>()?;
 
         if hashes.len() != self.config.get_num_challenge_ack_hashes() {
-            return Err(BridgeError::Error(
-                format!(
-                    "Invalid number of challenge ack hashes received from operator {}: got: {} expected: {}",
-                    operator_idx,
-                    hashes.len(),
-                    self.config.get_num_challenge_ack_hashes()
-                )
-            ));
+            return Err(eyre::eyre!(
+                "Invalid number of challenge ack hashes received from operator {}: got: {} expected: {}",
+                operator_idx,
+                hashes.len(),
+                self.config.get_num_challenge_ack_hashes()
+            ).into());
         }
 
         let operator_data = self
@@ -882,12 +882,13 @@ where
                 winternitz_keys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
             );
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
                 operator_idx,
                 winternitz_keys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
-            )));
+            )
+            .into());
         }
 
         let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
@@ -946,7 +947,7 @@ where
             .db
             .get_deposit_signatures_with_kickoff_txid(None, kickoff_txid)
             .await?
-            .ok_or(BridgeError::Error("Kickoff txid not found".to_string()))?;
+            .ok_or(eyre::eyre!("Kickoff txid not found"))?;
 
         let transaction_data = TransactionRequestData {
             deposit_data: deposit_data.clone(),
@@ -1102,7 +1103,7 @@ where
         let block = block_cache
             .block
             .as_ref()
-            .ok_or(BridgeError::Error("Block not found".to_string()))?;
+            .ok_or(eyre::eyre!("Block not found"))?;
 
         let block_hash = block.block_hash();
 
@@ -1111,7 +1112,7 @@ where
             let payout_tx_idx = block_cache
                 .txids
                 .get(&payout_txid)
-                .ok_or(BridgeError::Error("Payout tx not found".to_string()))?;
+                .ok_or(eyre::eyre!("Payout tx not found"))?;
             let payout_tx = &block.txdata[*payout_tx_idx];
             let last_output = &payout_tx.output[payout_tx.output.len() - 1]
                 .script_pubkey

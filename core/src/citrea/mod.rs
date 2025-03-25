@@ -186,10 +186,9 @@ impl CitreaClientT for CitreaClient {
         light_client_prover_url: String,
         secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError> {
-        let citrea_rpc_url = Url::parse(&citrea_rpc_url)
-            .map_err(|e| BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e)))?;
-        let light_client_prover_url = Url::parse(&light_client_prover_url)
-            .map_err(|e| BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e)))?;
+        let citrea_rpc_url = Url::parse(&citrea_rpc_url).wrap_err("Can't parse Citrea RPC URL")?;
+        let light_client_prover_url =
+            Url::parse(&light_client_prover_url).wrap_err("Can't parse Citrea LCP RPC URL")?;
         let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
 
         let key = secret_key.with_chain_id(Some(CITREA_CHAIN_ID));
@@ -327,9 +326,7 @@ impl CitreaClientT for CitreaClient {
                     .light_client_proof_output
                     .last_l2_height
                     .try_into()
-                    .map_err(|e| {
-                        BridgeError::Error(format!("Can't convert last_l2_height to u64: {}", e))
-                    })?,
+                    .wrap_err("Can't convert last_l2_height to u64")?,
                 proof_result.proof,
             ))
         } else {
@@ -351,11 +348,12 @@ impl CitreaClientT for CitreaClient {
             }
 
             if start.elapsed() > timeout {
-                return Err(BridgeError::Error(format!(
+                return Err(eyre::eyre!(
                     "Light client proof not found for block height {} after {} seconds",
                     block_height,
                     timeout.as_secs()
-                )));
+                )
+                .into());
             }
 
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -364,10 +362,10 @@ impl CitreaClientT for CitreaClient {
         let proof_previous =
             self.get_light_client_proof(block_height - 1)
                 .await?
-                .ok_or(BridgeError::Error(format!(
+                .ok_or(eyre::eyre!(
                     "Light client proof not found for block height: {}",
                     block_height - 1
-                )))?;
+                ))?;
 
         let l2_height_end: u64 = proof_current.0;
         let l2_height_start: u64 = proof_previous.0;

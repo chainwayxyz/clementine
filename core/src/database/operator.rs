@@ -71,19 +71,16 @@ impl Database {
         let expected_indices: Vec<i32> = (0..indices.len() as i32).collect();
 
         if indices != expected_indices {
-            return Err(BridgeError::Error(
-                "Operator index is not sequential".to_string(),
-            ));
+            return Err(eyre::eyre!("Operator index is not sequential").into());
         }
 
         // Convert the result to the desired format
         let data = operators
             .into_iter()
             .map(|(_, pk, addr, outpoint_db)| {
-                let xonly_pk = XOnlyPublicKey::from_str(&pk)
-                    .map_err(|e| BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e)))?;
+                let xonly_pk = XOnlyPublicKey::from_str(&pk).wrap_err("Invalid XOnlyPublicKey")?;
                 let addr = bitcoin::Address::from_str(&addr)
-                    .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
+                    .wrap_err("Invalid Address")?
                     .assume_checked();
                 let outpoint = outpoint_db.0; // Extract the Txid from TxidDB
                 Ok((xonly_pk, addr, outpoint))
@@ -108,10 +105,9 @@ impl Database {
             None => Ok(None),
             Some((_, pk, addr, outpoint_db)) => {
                 // Convert the result to the desired format
-                let xonly_pk = XOnlyPublicKey::from_str(&pk)
-                    .map_err(|e| BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e)))?;
+                let xonly_pk = XOnlyPublicKey::from_str(&pk).wrap_err("Invalid XOnlyPublicKey")?;
                 let addr = bitcoin::Address::from_str(&addr)
-                    .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
+                    .wrap_err("Invalid Address")?
                     .assume_checked();
                 let outpoint = outpoint_db.0; // Extract the Txid from TxidDB
                 Ok(Some(OperatorData {
@@ -353,9 +349,7 @@ impl Database {
                         Ok(public_hash) => converted_hashes.push(public_hash),
                         Err(err) => {
                             tracing::error!("Failed to convert hash: {:?}", err);
-                            return Err(BridgeError::Error(
-                                "Failed to convert public hash".to_string(),
-                            ));
+                            return Err(eyre::eyre!("Failed to convert public hash").into());
                         }
                     }
                 }
