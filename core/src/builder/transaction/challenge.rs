@@ -23,7 +23,7 @@ pub fn create_watchtower_challenge_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     if commit_data.len() != paramset.watchtower_challenge_bytes {
-        return Err(eyre::eyre!("Invalid watchtower challenge commit data").into());
+        return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
     }
     let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
         .with_version(Version::non_standard(3))

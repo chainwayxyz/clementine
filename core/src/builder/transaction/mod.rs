@@ -86,6 +86,8 @@ pub enum TxError {
     BitvmSetupNotFound(i32, Txid),
     #[error("Transaction input is missing spend info")]
     MissingSpendInfo,
+    #[error("Incorrect watchtower challenge data length")]
+    IncorrectWatchtowerChallengeDataLength,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
