@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::builder::transaction::TransactionType as TxType;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::SignedTxsWithType;
@@ -159,7 +161,7 @@ pub async fn ensure_outpoint_spent(
 ) -> Result<(), eyre::Error> {
     ensure_async(
         async || rpc.is_utxo_spent(&outpoint).await.map_err(Into::into),
-        None,
+        Some(Duration::from_secs(500)),
         None,
     )
     .await
