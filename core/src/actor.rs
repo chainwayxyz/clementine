@@ -230,9 +230,9 @@ impl Actor {
         }
         for i in 0..pks.bitvm_pks.2.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-                40, 4, i as u32, txid, paramset,
+                32, 4, i as u32, txid, paramset,
             ))?;
-            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<36>(&pk_vec);
         }
 
         Ok(pks)
