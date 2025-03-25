@@ -294,7 +294,7 @@ pub async fn initialize_database(config: &BridgeConfig) {
 
     conn.close().await;
 
-    Database::run_schema_script(config)
+    Database::run_schema_script(config, true)
         .await
         .expect("Failed to run schema script");
 }

@@ -14,6 +14,7 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
 };
+use eyre::Context;
 
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let builder = TaprootBuilder::new();
@@ -134,7 +135,8 @@ pub fn generate_deposit_address(
         .script_pubkey();
 
     let recovery_extracted_xonly_pk =
-        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])?;
+        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
+            .wrap_err("Failed to extract xonly public key from recovery taproot address")?;
 
     let script_timelock =
         TimelockScript::new(Some(recovery_extracted_xonly_pk), user_takes_after).to_script_buf();

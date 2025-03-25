@@ -1,4 +1,4 @@
-use super::convert_int_to_another;
+use super::{convert_int_to_another, ParserError};
 use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
 use crate::errors::BridgeError;
@@ -21,6 +21,7 @@ use crate::{
 use bitcoin::secp256k1::schnorr;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;
+use eyre::Context;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tonic::Status;
 
@@ -68,17 +69,14 @@ impl TryFrom<VerifierPublicKeys> for Vec<PublicKey> {
     fn try_from(value: VerifierPublicKeys) -> Result<Self, Self::Error> {
         let inner = value.verifier_public_keys;
 
-        inner
+        Ok(inner
             .iter()
             .map(|inner_vec| {
-                PublicKey::from_slice(inner_vec).map_err(|e| {
-                    BridgeError::RPCParamMalformed(
-                        "verifier_public_keys".to_string(),
-                        e.to_string(),
-                    )
+                PublicKey::from_slice(inner_vec).wrap_err_with(|| {
+                    ParserError::RPCParamMalformed("verifier_public_keys".to_string())
                 })
             })
-            .collect::<Result<Vec<PublicKey>, _>>()
+            .collect::<Result<Vec<PublicKey>, eyre::Report>>()?)
     }
 }
 impl From<Vec<PublicKey>> for VerifierPublicKeys {

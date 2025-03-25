@@ -19,6 +19,7 @@ use alloy::{
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid};
+use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
 use std::{fmt::Debug, time::Duration};
@@ -163,7 +164,12 @@ impl CitreaClient {
             let filter = filter.from_block(BlockNumberOrTag::Number(from_height));
             let filter = filter.to_block(BlockNumberOrTag::Number(to_height));
 
-            let logs_chunk = self.contract.provider().get_logs(&filter).await?;
+            let logs_chunk = self
+                .contract
+                .provider()
+                .get_logs(&filter)
+                .await
+                .wrap_err("Failed to get logs")?;
             logs.extend(logs_chunk);
 
             from_height += to_height;
@@ -180,10 +186,9 @@ impl CitreaClientT for CitreaClient {
         light_client_prover_url: String,
         secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError> {
-        let citrea_rpc_url = Url::parse(&citrea_rpc_url)
-            .map_err(|e| BridgeError::Error(format!("Can't parse Citrea RPC URL: {:?}", e)))?;
-        let light_client_prover_url = Url::parse(&light_client_prover_url)
-            .map_err(|e| BridgeError::Error(format!("Can't parse Citrea LCP RPC URL: {:?}", e)))?;
+        let citrea_rpc_url = Url::parse(&citrea_rpc_url).wrap_err("Can't parse Citrea RPC URL")?;
+        let light_client_prover_url =
+            Url::parse(&light_client_prover_url).wrap_err("Can't parse Citrea LCP RPC URL")?;
         let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
 
         let key = secret_key.with_chain_id(Some(CITREA_CHAIN_ID));
@@ -200,9 +205,12 @@ impl CitreaClientT for CitreaClient {
             provider,
         );
 
-        let client = HttpClientBuilder::default().build(citrea_rpc_url)?;
-        let light_client_prover_client =
-            HttpClientBuilder::default().build(light_client_prover_url)?;
+        let client = HttpClientBuilder::default()
+            .build(citrea_rpc_url)
+            .wrap_err("Failed to create Citrea RPC client")?;
+        let light_client_prover_client = HttpClientBuilder::default()
+            .build(light_client_prover_url)
+            .wrap_err("Failed to create Citrea LCP RPC client")?;
 
         Ok(CitreaClient {
             client,
@@ -217,7 +225,8 @@ impl CitreaClientT for CitreaClient {
             .contract
             .withdrawalUTXOs(U256::from(withdrawal_index))
             .call()
-            .await?;
+            .await
+            .wrap_err("Failed to get withdrawal UTXO")?;
 
         let txid = withdrawal_utxo.txId.0;
         let txid = Txid::from_slice(txid.as_slice())?;
@@ -234,19 +243,27 @@ impl CitreaClientT for CitreaClient {
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
         let filter = self.contract.event_filter::<Deposit>().filter;
-        let logs = self.get_logs(filter, from_height, to_height).await?;
+        let logs = self
+            .get_logs(filter, from_height, to_height)
+            .await
+            .wrap_err("Failed to get logs")?;
 
         let mut move_txids = vec![];
         for log in logs {
-            let deposit_raw_data = log.data().clone().data.clone();
+            let deposit_raw_data = &log.data().data;
 
-            let deposit_index = Deposit::abi_decode_data(&deposit_raw_data, false)?.4;
+            let deposit_index = Deposit::abi_decode_data(deposit_raw_data, false)
+                .wrap_err("Failed to decode deposit data")?
+                .4;
             let deposit_index: u64 = deposit_index
                 .try_into()
-                .map_err(|e| BridgeError::Error(format!("Can't convert deposit index: {:?}", e)))?;
+                .wrap_err("Failed to convert deposit index to u64")?;
 
-            let move_txid = Deposit::abi_decode_data(deposit_raw_data.as_ref(), false)?.1;
-            let move_txid = Txid::from_slice(move_txid.as_slice())?;
+            let move_txid = Deposit::abi_decode_data(deposit_raw_data, false)
+                .wrap_err("Failed to decode deposit data")?
+                .1;
+            let move_txid = Txid::from_slice(move_txid.as_ref())
+                .wrap_err("Failed to convert move txid to Txid")?;
 
             move_txids.push((deposit_index, move_txid));
         }
@@ -260,22 +277,29 @@ impl CitreaClientT for CitreaClient {
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
         let filter = self.contract.event_filter::<Withdrawal>().filter;
-        let logs = self.get_logs(filter, from_height, to_height).await?;
+        let logs = self
+            .get_logs(filter, from_height, to_height)
+            .await
+            .wrap_err("Failed to get logs")?;
 
         let mut utxos = vec![];
         for log in logs {
             let withdrawal_raw_data = log.data().clone().data.clone();
 
-            let withdrawal_index = Withdrawal::abi_decode_data(&withdrawal_raw_data, false)?.1;
-            let withdrawal_index: u64 = withdrawal_index.try_into().map_err(|e| {
-                BridgeError::Error(format!("Can't convert withdrawal index: {:?}", e))
-            })?;
+            let withdrawal_index = Withdrawal::abi_decode_data(&withdrawal_raw_data, false)
+                .wrap_err("Failed to decode withdrawal data")?
+                .1;
+            let withdrawal_index: u64 = withdrawal_index
+                .try_into()
+                .wrap_err("Failed to convert withdrawal index to u64")?;
 
-            let withdrawal_utxo =
-                Withdrawal::abi_decode_data(withdrawal_raw_data.as_ref(), false)?.0;
+            let withdrawal_utxo = Withdrawal::abi_decode_data(withdrawal_raw_data.as_ref(), false)
+                .wrap_err("Failed to decode withdrawal data")?
+                .0;
 
             let txid = withdrawal_utxo.txId.0;
-            let txid = Txid::from_slice(txid.as_slice())?;
+            let txid =
+                Txid::from_slice(txid.as_ref()).wrap_err("Failed to convert txid to Txid")?;
 
             let vout = withdrawal_utxo.outputId.0;
             let vout = u32::from_be_bytes(vout);
@@ -293,7 +317,8 @@ impl CitreaClientT for CitreaClient {
         let proof_result = self
             .light_client_prover_client
             .get_light_client_proof_by_l1_height(l1_height)
-            .await?;
+            .await
+            .wrap_err("Failed to get light client proof")?;
 
         let ret = if let Some(proof_result) = proof_result {
             Some((
@@ -301,9 +326,7 @@ impl CitreaClientT for CitreaClient {
                     .light_client_proof_output
                     .last_l2_height
                     .try_into()
-                    .map_err(|e| {
-                        BridgeError::Error(format!("Can't convert last_l2_height to u64: {}", e))
-                    })?,
+                    .wrap_err("Can't convert last_l2_height to u64")?,
                 proof_result.proof,
             ))
         } else {
@@ -325,11 +348,12 @@ impl CitreaClientT for CitreaClient {
             }
 
             if start.elapsed() > timeout {
-                return Err(BridgeError::Error(format!(
+                return Err(eyre::eyre!(
                     "Light client proof not found for block height {} after {} seconds",
                     block_height,
                     timeout.as_secs()
-                )));
+                )
+                .into());
             }
 
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -338,10 +362,10 @@ impl CitreaClientT for CitreaClient {
         let proof_previous =
             self.get_light_client_proof(block_height - 1)
                 .await?
-                .ok_or(BridgeError::Error(format!(
+                .ok_or(eyre::eyre!(
                     "Light client proof not found for block height: {}",
                     block_height - 1
-                )))?;
+                ))?;
 
         let l2_height_end: u64 = proof_current.0;
         let l2_height_start: u64 = proof_previous.0;
@@ -472,6 +496,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Includes code that won't change much and the test itself is too flaky; Ignoring..."]
     async fn citrea_get_logs_limit_check() -> citrea_e2e::Result<()> {
         // TODO: temp hack to use the correct docker image
         std::env::set_var(

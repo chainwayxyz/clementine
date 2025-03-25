@@ -5,7 +5,7 @@ use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
 use crate::builder::transaction::TransactionType;
 use crate::constants::BURN_SCRIPT;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, TxError};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
 use bitcoin::sighash::SighashCache;
@@ -13,6 +13,7 @@ use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
 use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
+use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
@@ -48,7 +49,10 @@ pub type SighashCalculator<'a> =
 
 impl<T: State> TxHandler<T> {
     pub fn get_spendable_output(&self, idx: usize) -> Result<SpendableTxIn, BridgeError> {
-        let txout = self.txouts.get(idx).ok_or(BridgeError::TxOutputNotFound)?;
+        let txout = self
+            .txouts
+            .get(idx)
+            .ok_or_else(|| eyre::eyre!("Could not find output {idx} in transaction"))?;
         Ok(SpendableTxIn::new(
             OutPoint {
                 txid: self.cached_txid,
@@ -61,7 +65,7 @@ impl<T: State> TxHandler<T> {
     }
 
     pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {
-        let txin = self.txins.get(idx).ok_or(BridgeError::TxInputNotFound)?;
+        let txin = self.txins.get(idx).ok_or(TxError::TxInputNotFound)?;
         Ok(txin.get_signature_id())
     }
 
@@ -88,7 +92,7 @@ impl<T: State> TxHandler<T> {
                 SpendPath::ScriptSpend(script_idx) => {
                     self.calculate_script_spend_sighash_indexed(idx, script_idx, sighash_type)
                 }
-                SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+                SpendPath::Unknown => Err(TxError::SpendPathNotSpecified.into()),
             }
         }
     }
@@ -118,7 +122,9 @@ impl<T: State> TxHandler<T> {
                 continue;
             }
 
-            if let Some(witness) = signer(idx, &self.txins[idx], calc_sighash)? {
+            if let Some(witness) = signer(idx, &self.txins[idx], calc_sighash)
+                .wrap_err_with(|| format!("Failed to sign input {idx}"))?
+            {
                 self.cached_tx.input[idx].witness = witness.clone();
                 self.txins[idx].set_witness(witness);
             }
@@ -147,8 +153,9 @@ impl<T: State> TxHandler<T> {
             _ => bitcoin::sighash::Prevouts::All(&prevouts_vec),
         };
 
-        let sig_hash =
-            sighash_cache.taproot_key_spend_signature_hash(txin_index, &prevouts, sighash_type)?;
+        let sig_hash = sighash_cache
+            .taproot_key_spend_signature_hash(txin_index, &prevouts, sighash_type)
+            .wrap_err("Failed to calculate taproot sighash for key spend")?;
 
         Ok(sig_hash)
     }
@@ -162,11 +169,11 @@ impl<T: State> TxHandler<T> {
         let script = self
             .txins
             .get(txin_index)
-            .ok_or(BridgeError::TxInputNotFound)?
+            .ok_or(TxError::TxInputNotFound)?
             .get_spendable()
             .get_scripts()
             .get(spend_script_idx)
-            .ok_or(BridgeError::ScriptNotFound(spend_script_idx))?
+            .ok_or(TxError::ScriptNotFound(spend_script_idx))?
             .to_script_buf();
 
         // TODO: remove copy here
@@ -196,12 +203,9 @@ impl<T: State> TxHandler<T> {
             _ => bitcoin::sighash::Prevouts::All(&prevouts_vec),
         };
         let leaf_hash = TapLeafHash::from_script(spend_script, LeafVersion::TapScript);
-        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
-            txin_index,
-            prevouts,
-            leaf_hash,
-            sighash_type,
-        )?;
+        let sig_hash = sighash_cache
+            .taproot_script_spend_signature_hash(txin_index, prevouts, leaf_hash, sighash_type)
+            .wrap_err("Failed to calculate taproot sighash for script spend")?;
 
         Ok(sig_hash)
     }
@@ -216,7 +220,7 @@ impl<T: State> TxHandler<T> {
                 self.calculate_script_spend_sighash_indexed(txin_index, idx, sighash_type)
             }
             SpendPath::KeySpend => self.calculate_pubkey_spend_sighash(txin_index, sighash_type),
-            SpendPath::Unknown => Err(BridgeError::MissingSpendInfo),
+            SpendPath::Unknown => Err(TxError::MissingSpendInfo.into()),
         }
     }
 
@@ -270,7 +274,7 @@ impl TxHandler<Signed> {
 impl TxHandler<Unsigned> {
     pub fn promote(self) -> Result<TxHandler<Signed>, BridgeError> {
         if self.txins.iter().any(|s| s.get_witness().is_none()) {
-            return Err(BridgeError::MissingWitnessData);
+            return Err(eyre::eyre!("Missing witness data").into());
         }
 
         Ok(TxHandler {
@@ -300,26 +304,28 @@ impl TxHandler<Unsigned> {
         let txin = self
             .txins
             .get_mut(txin_index)
-            .ok_or(BridgeError::TxInputNotFound)?;
+            .ok_or(TxError::TxInputNotFound)?;
 
         if txin.get_witness().is_some() {
-            return Err(BridgeError::WitnessAlreadySet);
+            return Err(TxError::WitnessAlreadySet.into());
         }
 
         let script = txin
             .get_spendable()
             .get_scripts()
             .get(script_index)
-            .ok_or(BridgeError::TaprootScriptError)?
+            .ok_or_else(|| {
+                eyre::eyre!("Could not find script {script_index} in input {txin_index}")
+            })?
             .to_script_buf();
 
         let spend_control_block = txin
             .get_spendable()
             .get_spend_info()
             .as_ref()
-            .ok_or(BridgeError::MissingSpendInfo)?
+            .ok_or(TxError::MissingSpendInfo)?
             .control_block(&(script.clone(), LeafVersion::TapScript))
-            .ok_or(BridgeError::ControlBlockError)?;
+            .ok_or_eyre("Failed to find control block for script")?;
 
         let mut witness = Witness::new();
         script_inputs
@@ -342,7 +348,7 @@ impl TxHandler<Unsigned> {
         let txin = self
             .txins
             .get_mut(txin_index)
-            .ok_or(BridgeError::TxInputNotFound)?;
+            .ok_or(TxError::TxInputNotFound)?;
 
         if txin.get_witness().is_none() {
             let witness = Witness::p2tr_key_spend(signature);
@@ -351,7 +357,7 @@ impl TxHandler<Unsigned> {
 
             Ok(())
         } else {
-            Err(BridgeError::WitnessAlreadySet)
+            Err(TxError::WitnessAlreadySet.into())
         }
     }
 }
@@ -491,5 +497,5 @@ pub fn remove_txhandler_from_map<T: State>(
 ) -> Result<TxHandler<T>, BridgeError> {
     txhandlers
         .remove(&tx_type)
-        .ok_or(BridgeError::TxHandlerNotFound(tx_type))
+        .ok_or(TxError::TxHandlerNotFound(tx_type).into())
 }

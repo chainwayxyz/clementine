@@ -9,7 +9,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, TxError};
 use crate::operator::Operator;
 use crate::rpc::clementine::KickoffId;
 use crate::verifier::Verifier;
@@ -177,7 +177,7 @@ where
         commit_data: &[u8],
     ) -> Result<(TransactionType, Transaction), BridgeError> {
         if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
-            return Err(BridgeError::InvalidWatchtowerChallengeData);
+            return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
         }
 
         let context = ContractContext::new_context_for_asserts(
@@ -202,7 +202,7 @@ where
 
         let kickoff_txhandler = txhandlers
             .remove(&TransactionType::Kickoff)
-            .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Kickoff))?;
+            .ok_or(TxError::TxHandlerNotFound(TransactionType::Kickoff))?;
 
         let verifier_index = self
             .idx
@@ -260,10 +260,9 @@ where
         let mut signed_txhandlers = Vec::new();
 
         for idx in 0..ClementineBitVMPublicKeys::number_of_assert_txs() {
-            let mut mini_assert_txhandler =
-                txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
-                    BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),
-                )?;
+            let mut mini_assert_txhandler = txhandlers
+                .remove(&TransactionType::MiniAssert(idx))
+                .ok_or(TxError::TxHandlerNotFound(TransactionType::MiniAssert(idx)))?;
             let derivations = ClementineBitVMPublicKeys::get_assert_derivations(
                 idx,
                 assert_data.deposit_data.get_deposit_outpoint().txid,

@@ -4,6 +4,7 @@ use crate::test::common::citrea::parameters::get_transaction_params;
 use crate::EVMAddress;
 use alloy::sol_types::SolValue;
 use bitcoin::{Block, Transaction};
+use eyre::Context;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::rpc_params;
@@ -18,7 +19,10 @@ pub async fn block_number(client: &HttpClient) -> Result<u32, BridgeError> {
         "latest"
     ];
 
-    let response: String = client.request("eth_call", params).await?;
+    let response: String = client
+        .request("eth_call", params)
+        .await
+        .wrap_err("Failed to get block number")?;
 
     let decoded_hex = hex::decode(&response[2..]).map_err(|e| BridgeError::Error(e.to_string()))?;
     let block_number = decoded_hex
@@ -37,7 +41,10 @@ pub async fn eth_get_balance(
 ) -> Result<u128, BridgeError> {
     let params = rpc_params![evm_address.0, "latest"];
 
-    let response: String = client.request("eth_getBalance", params).await?;
+    let response: String = client
+        .request("eth_getBalance", params)
+        .await
+        .wrap_err("Failed to get balance")?;
     let ret = u128::from_str_radix(&response[2..], 16)
         .map_err(|e| BridgeError::Error(format!("Can't convert hex to int: {}", e)))?;
 
@@ -62,7 +69,8 @@ pub async fn deposit(
             "citrea_sendRawDepositTransaction",
             rpc_params!(hex::encode(params.abi_encode())),
         )
-        .await?;
+        .await
+        .wrap_err("Failed to send deposit transaction")?;
 
     Ok(())
 }

@@ -3,7 +3,7 @@ use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpentTxIn;
 use crate::builder::transaction::{SighashCalculator, TxHandler};
 use crate::config::protocol::ProtocolParamset;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
@@ -17,6 +17,7 @@ use bitcoin::{
 };
 use bitcoin::{TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
+use eyre::{Context, OptionExt};
 
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
@@ -125,10 +126,14 @@ impl Actor {
     ) -> Result<schnorr::Signature, BridgeError> {
         Ok(bitvm_client::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
-            &self.keypair.add_xonly_tweak(
-                &SECP,
-                &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
-            )?,
+            &self
+                .keypair
+                .add_xonly_tweak(
+                    &SECP,
+                    &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root)
+                        .to_scalar(),
+                )
+                .wrap_err("Failed to add xonly tweak to keypair")?,
         ))
     }
 
@@ -147,7 +152,7 @@ impl Actor {
     ) -> Result<winternitz::SecretKey, BridgeError> {
         let wsk = self
             .winternitz_secret_key
-            .ok_or(BridgeError::NoWinternitzSecretKey)?;
+            .ok_or_eyre("Root Winternitz secret key is not provided in configuration file")?;
         Ok([wsk.as_ref().to_vec(), path.to_bytes()].concat())
     }
 
@@ -230,9 +235,9 @@ impl Actor {
         }
         for i in 0..pks.bitvm_pks.2.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-                40, 4, i as u32, txid, paramset,
+                32, 4, i as u32, txid, paramset,
             ))?;
-            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
+            pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<36>(&pk_vec);
         }
 
         Ok(pks)
@@ -259,7 +264,7 @@ impl Actor {
     ) -> Result<(), BridgeError> {
         let spend_control_block = spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
-            .ok_or(BridgeError::ControlBlockError)?;
+            .ok_or_eyre("Failed to find control block for script")?;
         witness.push(script.clone());
         witness.push(spend_control_block.serialize());
         Ok(())
@@ -281,14 +286,14 @@ impl Actor {
                 .get_spendable()
                 .get_spend_info()
                 .as_ref()
-                .ok_or(BridgeError::MissingSpendInfo)?;
+                .ok_or(TxError::MissingSpendInfo)?;
             match spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) => {
                     let script = spt
                         .get_spendable()
                         .get_scripts()
                         .get(script_idx)
-                        .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
+                        .ok_or(TxError::NoScriptAtIndex(script_idx))?;
                     let sighash_type = spt
                         .get_signature_id()
                         .get_deposit_sig_owner()
@@ -300,7 +305,7 @@ impl Actor {
                     let mut witness = match script.kind() {
                         Kind::PreimageRevealScript(script) => {
                             if script.0 != self.xonly_public_key {
-                                return Err(BridgeError::NotOwnedScriptPath);
+                                return Err(TxError::NotOwnedScriptPath.into());
                             }
                             let signature = self.sign(calc_sighash(sighash_type)?);
                             script.generate_script_inputs(
@@ -321,7 +326,7 @@ impl Actor {
                     };
 
                     if signed_preimage {
-                        return Err(BridgeError::MultiplePreimageRevealScripts);
+                        return Err(eyre::eyre!("Encountered multiple preimage reveal scripts when attempting to commit to only one.").into());
                     }
 
                     signed_preimage = true;
@@ -335,7 +340,7 @@ impl Actor {
                     Ok(Some(witness))
                 }
                 SpendPath::KeySpend => Ok(None),
-                SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+                SpendPath::Unknown => Err(TxError::SpendPathNotSpecified.into()),
             }
         };
 
@@ -357,14 +362,14 @@ impl Actor {
                 .get_spendable()
                 .get_spend_info()
                 .as_ref()
-                .ok_or(BridgeError::MissingSpendInfo)?;
+                .ok_or(TxError::MissingSpendInfo)?;
             match spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) => {
                     let script = spt
                         .get_spendable()
                         .get_scripts()
                         .get(script_idx)
-                        .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
+                        .ok_or(TxError::NoScriptAtIndex(script_idx))?;
                     let sighash_type = spt
                         .get_signature_id()
                         .get_deposit_sig_owner()
@@ -376,7 +381,7 @@ impl Actor {
                     let mut witness = match script.kind() {
                         Kind::WinternitzCommit(script) => {
                             if script.checksig_pubkey != self.xonly_public_key {
-                                return Err(BridgeError::NotOwnedScriptPath);
+                                return Err(TxError::NotOwnedScriptPath.into());
                             }
 
                             let mut script_data = Vec::with_capacity(data.len());
@@ -402,7 +407,7 @@ impl Actor {
                     };
 
                     if signed_winternitz {
-                        return Err(BridgeError::MultipleWinternitzScripts);
+                        return Err(eyre::eyre!("Encountered multiple winternitz scripts when attempting to commit to only one.").into());
                     }
 
                     signed_winternitz = true;
@@ -416,7 +421,7 @@ impl Actor {
                     Ok(Some(witness))
                 }
                 SpendPath::KeySpend => Ok(None),
-                SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+                SpendPath::Unknown => Err(TxError::SpendPathNotSpecified.into()),
             }
         };
 
@@ -438,7 +443,7 @@ impl Actor {
                 .get_spendable()
                 .get_spend_info()
                 .as_ref()
-                .ok_or_else(|| BridgeError::MissingSpendInfo)?;
+                .ok_or(TxError::MissingSpendInfo)?;
             let sighash_type = spt
                 .get_signature_id()
                 .get_deposit_sig_owner()
@@ -450,7 +455,7 @@ impl Actor {
                         .get_spendable()
                         .get_scripts()
                         .get(script_idx)
-                        .ok_or_else(|| BridgeError::NoScriptAtIndex(script_idx))?;
+                        .ok_or(TxError::NoScriptAtIndex(script_idx))?;
                     let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
 
                     let sig = sig.map(|sig| taproot::Signature {
@@ -472,7 +477,7 @@ impl Actor {
                                     })
                                 }
                                 (None, false) => {
-                                    return Err(BridgeError::SignatureNotFound(tx_type))
+                                    return Err(TxError::SignatureNotFound(tx_type).into())
                                 }
                             }
                         }
@@ -486,7 +491,7 @@ impl Actor {
                                     })
                                 }
                                 (None, false) => {
-                                    return Err(BridgeError::SignatureNotFound(tx_type))
+                                    return Err(TxError::SignatureNotFound(tx_type).into());
                                 }
                             }
                         }
@@ -497,7 +502,9 @@ impl Actor {
                                     signature: self.sign(calc_sighash(sighash_type)?),
                                     sighash_type,
                                 })),
-                            (None, Some(_)) => return Err(BridgeError::SignatureNotFound(tx_type)),
+                            (None, Some(_)) => {
+                                return Err(TxError::SignatureNotFound(tx_type).into())
+                            }
                             (_, None) => Witness::new(),
                         },
                         Kind::CheckSig(script) => match (sig, script.0 == self.xonly_public_key) {
@@ -507,7 +514,7 @@ impl Actor {
                                 signature: self.sign(calc_sighash(sighash_type)?),
                                 sighash_type,
                             }),
-                            (None, false) => return Err(BridgeError::SignatureNotFound(tx_type)),
+                            (None, false) => return Err(TxError::SignatureNotFound(tx_type).into()),
                         },
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)
@@ -534,13 +541,13 @@ impl Actor {
                             if xonly_public_key == self.xonly_public_key {
                                 self.sign_with_tweak(sighash, spendinfo.merkle_root())?
                             } else {
-                                return Err(BridgeError::NotOwnKeyPath);
+                                return Err(TxError::NotOwnKeyPath.into());
                             }
                         }
                     };
                     Ok(Some(Witness::from_slice(&[&sig.serialize()])))
                 }
-                SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+                SpendPath::Unknown => Err(TxError::SpendPathNotSpecified.into()),
             }
         };
 

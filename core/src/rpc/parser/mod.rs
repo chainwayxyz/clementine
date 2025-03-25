@@ -12,12 +12,35 @@ use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use eyre::Context;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
 use tonic::Status;
 
 pub mod operator;
 pub mod verifier;
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ParserError {
+    // RPC errors
+    #[error("RPC function field {0} is required")]
+    RPCRequiredParam(&'static str),
+    #[error("RPC function parameter {0} is malformed")]
+    RPCParamMalformed(String),
+}
+
+impl From<ParserError> for tonic::Status {
+    fn from(value: ParserError) -> Self {
+        match value {
+            ParserError::RPCRequiredParam(field) => {
+                Status::invalid_argument(format!("RPC function field {} is required.", field))
+            }
+            ParserError::RPCParamMalformed(field) => {
+                Status::invalid_argument(format!("RPC function parameter {} is malformed.", field))
+            }
+        }
+    }
+}
 
 /// Converts an integer type in to another integer type. This is needed because
 /// tonic defaults to wrong integer types for some parameters.
@@ -110,14 +133,15 @@ impl TryFrom<WinternitzPubkey> for winternitz::PublicKey {
             .into_iter()
             .enumerate()
             .map(|(i, inner_vec)| {
-                inner_vec.try_into().map_err(|e: Vec<u8>| {
-                    BridgeError::RPCParamMalformed(
-                        format!("digit_pubkey.[{}]", i),
-                        format!("Incorrect length {:?}, expected 20", e.len()),
-                    )
-                })
+                inner_vec
+                    .try_into()
+                    .map_err(|e: Vec<_>| eyre::eyre!("Incorrect length {:?}, expected 20", e.len()))
+                    .wrap_err_with(|| {
+                        ParserError::RPCParamMalformed(format!("digit_pubkey.[{}]", i))
+                    })
             })
-            .collect::<Result<Vec<[u8; 20]>, BridgeError>>()
+            .collect::<Result<Vec<[u8; 20]>, eyre::Report>>()
+            .map_err(Into::into)
     }
 }
 
@@ -146,12 +170,10 @@ impl TryFrom<SchnorrSig> for Signature {
     type Error = BridgeError;
 
     fn try_from(value: SchnorrSig) -> Result<Self, Self::Error> {
-        Signature::from_slice(&value.schnorr_sig).map_err(|e| {
-            BridgeError::RPCParamMalformed(
-                "schnorr_sig".to_string(),
-                format!("Failed to parse schnorr signature: {}", e),
-            )
-        })
+        Signature::from_slice(&value.schnorr_sig)
+            .wrap_err("Failed to parse schnorr signature")
+            .wrap_err_with(|| ParserError::RPCParamMalformed("schnorr_sig".to_string()))
+            .map_err(Into::into)
     }
 }
 impl From<winternitz::PublicKey> for WinternitzPubkey {

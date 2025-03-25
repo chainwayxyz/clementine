@@ -5,10 +5,10 @@ use super::clementine::{
     TransactionRequest, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
 };
 use super::error::*;
+use super::parser::ParserError;
 use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
-use crate::errors::BridgeError;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
 use crate::rpc::parser::parse_transaction_request;
@@ -124,7 +124,7 @@ where
             .get_ref()
             .deposit_outpoint
             .clone()
-            .ok_or(BridgeError::RPCRequiredParam("deposit_outpoint"))?
+            .ok_or(ParserError::RPCRequiredParam("deposit_outpoint"))?
             .try_into()?;
 
         // self.operator.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
