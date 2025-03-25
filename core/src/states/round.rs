@@ -12,7 +12,7 @@ use super::{
     block_cache::BlockCache,
     context::{Duty, StateContext},
     matcher::{self, BlockMatcher},
-    Owner,
+    Owner, StateMachineError,
 };
 
 #[derive(
@@ -72,7 +72,7 @@ impl<T: Owner> RoundStateMachine<T> {
         }
     }
 }
-use eyre::Report;
+use eyre::Context;
 
 #[state_machine(
     initial = "State::initial_collateral()",
@@ -87,24 +87,21 @@ impl<T: Owner> RoundStateMachine<T> {
         self.dirty = true;
     }
 
-    pub fn wrap_err(
-        &'_ self,
-        method: &'static str,
-    ) -> impl FnOnce(BridgeError) -> eyre::Report + '_ {
-        move |e| {
-            Report::from(e).wrap_err(format!(
-                "Error in round state machine for operator {} in {}",
-                self.operator_idx, method
-            ))
-        }
+    pub fn round_meta(&self, method: &'static str) -> StateMachineError {
+        eyre::eyre!(
+            "Error in round state machine for operator {} in {}",
+            self.operator_idx,
+            method
+        )
+        .into()
     }
 
     async fn unhandled_event(&mut self, context: &mut StateContext<T>, event: &RoundEvent) {
         context
             .capture_error(async |_context| {
                 let event_str = format!("{:?}", event);
-                Err(BridgeError::UnhandledEvent(event_str))
-                    .map_err(self.wrap_err("round unhandled event"))
+                Err(StateMachineError::UnhandledEvent(event_str))
+                    .wrap_err(self.round_meta("round unhandled event"))
             })
             .await;
     }
@@ -224,9 +221,9 @@ impl<T: Owner> RoundStateMachine<T> {
                             operator_idx: self.operator_idx,
                         })
                         .await?;
-                    Ok(())
+                    Ok::<(), BridgeError>(())
                 }
-                .map_err(self.wrap_err("on_round_tx_exit"))
+                .wrap_err(self.round_meta("on_round_tx_exit"))
             })
             .await;
     }
@@ -276,9 +273,9 @@ impl<T: Owner> RoundStateMachine<T> {
                             },
                         );
                     }
-                    Ok(())
+                    Ok::<(), BridgeError>(())
                 }
-                .map_err(self.wrap_err("on_round_tx_entry"))
+                .wrap_err(self.round_meta("on_round_tx_entry"))
             })
             .await;
     }
@@ -333,9 +330,9 @@ impl<T: Owner> RoundStateMachine<T> {
                             round_idx: *round_idx + 1,
                         },
                     );
-                    Ok(())
+                    Ok::<(), BridgeError>(())
                 }
-                .map_err(self.wrap_err("on_ready_to_reimburse_entry"))
+                .wrap_err(self.round_meta("on_ready_to_reimburse_entry"))
             })
             .await;
     }

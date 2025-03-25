@@ -7,6 +7,7 @@ use crate::builder::transaction::{
     create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
+use crate::errors::ResultExt;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
@@ -44,7 +45,7 @@ struct FinalSigQueueItem {
 }
 
 #[derive(Debug, thiserror::Error)]
-enum AggregatorError {
+pub enum AggregatorError {
     #[error("Failed to receive from {stream_name} stream.")]
     InputStreamEndedEarlyUnknownSize { stream_name: String },
     #[error("Failed to send to {stream_name} stream.")]
@@ -876,7 +877,8 @@ impl ClementineAggregator for Aggregator {
         let deposit_blockhash = self
             .rpc
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
-            .await?;
+            .await
+            .map_to_status()?;
 
         // Create sighash stream for transaction signing
         let sighash_stream = Box::pin(create_nofn_sighash_stream(

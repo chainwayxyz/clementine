@@ -78,7 +78,7 @@ impl HeaderChainProver {
                 diff
             );
 
-            return Err(BridgeError::BlockgazerTooDeep(diff));
+            return Err(eyre::eyre!("Cannot synchronize header chain prover to the newest block. We're too far behind. Distance to tip: {diff}").into());
         }
 
         // Check if active blockchain tip is too far away or in batch bounds. If

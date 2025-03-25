@@ -520,7 +520,7 @@ where
                 partial_sig_tx
                     .send(partial_sig)
                     .await
-                    .map_err(|e| BridgeError::SendError("partial signature", e.to_string()))?;
+                    .wrap_err("Failed to send partial signature")?;
 
                 nonce_idx += 1;
                 tracing::debug!(
@@ -750,14 +750,10 @@ where
             bitcoin::TapSighashType::Default,
         )?;
 
-        let agg_nonce =
-            agg_nonce_receiver
-                .recv()
-                .await
-                .ok_or(BridgeError::ChannelEndedPrematurely(
-                    "verifier::deposit_finalize",
-                    "aggregated nonces",
-                ))?;
+        let agg_nonce = agg_nonce_receiver
+            .recv()
+            .await
+            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;

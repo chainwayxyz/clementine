@@ -269,7 +269,11 @@ async fn fetch_new_blocks(
         });
 
         if new_blocks.len() >= 100 {
-            return Err(BridgeError::BlockgazerTooDeep(new_height as u64));
+            return Err(eyre::eyre!(
+                "Blockgazer can't synchronize database with active blockchain; Too deep {}",
+                new_height as u64
+            )
+            .into());
         }
     }
 

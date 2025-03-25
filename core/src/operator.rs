@@ -281,14 +281,14 @@ where
                 wpk_tx
                     .send(wpk)
                     .await
-                    .map_err(|e| BridgeError::SendError("winternitz public key", e.to_string()))?;
+                    .wrap_err("Failed to send winternitz public key")?;
             }
 
             for sig in kickoff_sigs {
                 sig_tx
                     .send(sig)
                     .await
-                    .map_err(|e| BridgeError::SendError("kickoff signature", e.to_string()))?;
+                    .wrap_err("Failed to send kickoff signature")?;
             }
 
             Ok::<(), BridgeError>(())

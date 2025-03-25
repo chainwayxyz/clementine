@@ -10,7 +10,8 @@ use eyre::Context;
 use serde::{Deserialize, Serialize};
 use tonic::async_trait;
 
-use crate::errors::ResultExt;
+use crate::errors::{ErrorExt, ResultExt};
+use crate::extended_rpc::BitcoinRPCError;
 use crate::task::{IgnoreError, WithDelay};
 use crate::{
     actor::Actor,
@@ -693,25 +694,28 @@ impl TxSender {
                             .map_to_eyre()?;
                     }
                 }
-                Err(e) => match e {
-                    BridgeError::TransactionAlreadyInBlock(block_hash) => {
-                        tracing::info!(
-                            "{}: Fee payer tx {} is already in block {}, skipping",
-                            self.btc_syncer_consumer_id,
-                            fee_payer_txid,
-                            block_hash
-                        );
-                        continue;
+                Err(e) => {
+                    let e = e.into_eyre();
+                    match e.root_cause().downcast_ref::<BitcoinRPCError>() {
+                        Some(BitcoinRPCError::TransactionAlreadyInBlock(block_hash)) => {
+                            tracing::info!(
+                                "{}: Fee payer tx {} is already in block {}, skipping",
+                                self.btc_syncer_consumer_id,
+                                fee_payer_txid,
+                                block_hash
+                            );
+                            continue;
+                        }
+                        Some(BitcoinRPCError::BumpFeeUTXOSpent(outpoint)) => {
+                            tracing::info!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping : {:?}", self.btc_syncer_consumer_id, bumped_id, outpoint);
+                            continue;
+                        }
+                        _ => {
+                            tracing::warn!("{}: failed to bump fee the fee payer tx {} of bumped tx {} with error {e}, skipping", self.btc_syncer_consumer_id, fee_payer_txid, bumped_id);
+                            continue;
+                        }
                     }
-                    BridgeError::BumpFeeUTXOSpent(outpoint) => {
-                        tracing::info!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping : {:?}", self.btc_syncer_consumer_id, bumped_id, outpoint);
-                        continue;
-                    }
-                    e => {
-                        tracing::warn!("{}: failed to bump fee the fee payer tx {} of bumped tx {} with error {e}, skipping", self.btc_syncer_consumer_id, fee_payer_txid, bumped_id);
-                        continue;
-                    }
-                },
+                }
             }
         }
 

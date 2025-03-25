@@ -8,6 +8,7 @@
 //! 4. When using external crates inside modules, extension traits are used to convert external-crate errors into BridgeError. This is further wrapped in an eyre::Report to avoid a circular dependency.
 //! 5. BridgeError can be converted to tonic::Status to be returned to the client. Module-level errors can define Into<Status> to customize the returned status.
 //! 6. BridgeError can be used to share error messages across modules.
+//! 7. When the error cause is not sufficiently explained by the error messages, use `eyre::Context::wrap_err` to add more context. This will not hinder modules that are trying to match the error.
 //!
 //! ## Error wrapper example usage with `TxError`
 //! ```rust
@@ -60,59 +61,19 @@
 //! ```
 
 use crate::{
-    builder::transaction::TransactionType, header_chain_prover::HeaderChainProverError,
-    tx_sender::SendTxError,
+    builder::transaction::input::SpendableTxInError, extended_rpc::BitcoinRPCError, header_chain_prover::HeaderChainProverError, rpc::{aggregator::AggregatorError, ParserError}, states::StateMachineError, tx_sender::SendTxError
 };
-use bitcoin::{BlockHash, FeeRate, OutPoint, Txid};
 use core::fmt::Debug;
 use hex::FromHexError;
-use jsonrpsee::types::ErrorObject;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum TxError {
-    /// TxInputNotFound is returned when the input is not found in the transaction
-    #[error("Could not find input of transaction")]
-    TxInputNotFound,
-    #[error("Could not find output of transaction")]
-    TxOutputNotFound,
-    #[error("Attempted to set witness when it's already set")]
-    WitnessAlreadySet,
-    #[error("Script with index {0} not found for transaction")]
-    ScriptNotFound(usize),
-    #[error("Insufficient Context data for the requested TxHandler")]
-    InsufficientContext,
-    #[error("No scripts in TxHandler for the TxIn with index {0}")]
-    NoScriptsForTxIn(usize),
-    #[error("No script in TxHandler for the index {0}")]
-    NoScriptAtIndex(usize),
-    #[error("Spend Path in SpentTxIn in TxHandler not specified")]
-    SpendPathNotSpecified,
-    #[error("Actor does not own the key needed in P2TR keypath")]
-    NotOwnKeyPath,
-    #[error("public key of Checksig in script is not owned by Actor")]
-    NotOwnedScriptPath,
-    #[error("Couldn't find needed signature from database for tx: {:?}", _0)]
-    SignatureNotFound(TransactionType),
-    #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
-    TxHandlerNotFound(TransactionType),
-    #[error("BitvmSetupNotFound for operator {0}, deposit_txid {1}")]
-    BitvmSetupNotFound(i32, Txid),
-    #[error("Transaction input is missing spend info")]
-    MissingSpendInfo,
-
-    #[error(transparent)]
-    Other(#[from] eyre::Report),
-}
+pub use crate::builder::transaction::TxError;
 
 /// Errors returned by the bridge.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
     // TODO: migrate
-    // State Manager errors
-    #[error("State machine received event that it doesn't know how to handle: {0}")]
-    UnhandledEvent(String),
     #[error("{0}")]
     Error(String),
 
@@ -120,10 +81,20 @@ pub enum BridgeError {
     // Header chain prover errors
     #[error("Prover returned an error")]
     Prover(#[from] HeaderChainProverError),
-    #[error("Failed to build transactions: {0}")]
+    #[error("Failed to build transactions")]
     Transaction(#[from] TxError),
-    #[error("Failed to send transactions: {0}")]
+    #[error("Failed to send transactions")]
     SendTx(#[from] SendTxError),
+    #[error("Aggregator error")]
+    Aggregator(#[from] AggregatorError),
+    #[error("Failed to parse request")]
+    Parser(#[from] ParserError),
+    #[error("SpendableTxIn error")]
+    SpendableTxIn(#[from] SpendableTxInError),
+    #[error("Bitcoin RPC error")]
+    BitcoinRPC(#[from] BitcoinRPCError),
+    #[error("State machine error")]
+    StateMachine(#[from] StateMachineError),
 
     // Shared error messages
     #[error("Unsupported network")]
@@ -139,48 +110,23 @@ pub enum BridgeError {
     IntConversionError,
     #[error("Failed to encode/decode data using borsh")]
     BorshError,
-
     #[error("Operator idx {0} was not found in the DB")]
     OperatorNotFound(u32),
-    #[error("User's withdrawal UTXO not set for withdrawal index: {0}")]
-    UsersWithdrawalUtxoNotSetForWithdrawalIndex(u32),
 
-    #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
-    BlockgazerTooDeep(u64),
-
-    // RPC errors
-    #[error("Can't bump fee for Txid of {0} and feerate of {1}: {2}")]
-    BumpFeeError(Txid, FeeRate, String),
-    #[error("Cannot bump fee - UTXO is already spent")]
-    BumpFeeUTXOSpent(OutPoint),
-    #[error("Transaction is already in block: {0}")]
-    TransactionAlreadyInBlock(BlockHash),
-
-    // Aggregator errors
-    #[error("Sighash stream ended prematurely")]
-    SighashStreamEndedPrematurely,
-    #[error("{0} input channel for {1} ended prematurely")]
-    ChannelEndedPrematurely(&'static str, &'static str),
-
-    // TODO: Couldn't put `from[SendError<T>]` because of generics, find a way
-    /// 0: Data name, 1: Error message
-    #[error("Error while sending {0} data: {1}")]
-    SendError(&'static str, String),
-
-    // External error wrappers
-    #[error("Failed to call database: {0}")]
+    // External crate error wrappers
+    #[error("Failed to call database")]
     DatabaseError(#[from] sqlx::Error),
-    #[error("Failed to convert hex string: {0}")]
+    #[error("Failed to convert hex string")]
     FromHexError(#[from] FromHexError),
-    #[error("Failed to convert to hash from slice: {0}")]
+    #[error("Failed to convert to hash from slice")]
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
-    #[error("Error while calling EVM contract: {0}")]
+    #[error("Error while calling EVM contract")]
     AlloyContract(#[from] alloy::contract::Error),
-    #[error("Error while calling EVM RPC function: {0}")]
+    #[error("Error while calling EVM RPC function")]
     AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
-    #[error("Error while encoding/decoding EVM type: {0}")]
+    #[error("Error while encoding/decoding EVM type")]
     AlloySolTypes(#[from] alloy::sol_types::Error),
-    #[error("{0}")]
+    #[error("Tonic status")]
     TonicStatus(#[from] tonic::Status),
 
     // Base wrapper for eyre
@@ -188,13 +134,32 @@ pub enum BridgeError {
     Eyre(#[from] eyre::Report),
 }
 
+/// Extension traits for errors to easily convert them to eyre::Report and
+/// tonic::Status through BridgeError.
 pub trait ErrorExt: Sized {
+    /// Converts the error into an eyre::Report, first wrapping in
+    /// BridgeError if necessary. It does not rewrap in eyre::Report if
+    /// the given error is already an eyre::Report.
     fn into_eyre(self) -> eyre::Report;
+    /// Converts the error into a tonic::Status. Currently defaults to
+    /// tonic::Status::from_error which will walk the error chain and attempt to
+    /// find a [`tonic::Status`] in the chain. If it can't find one, it will
+    /// return an Status::unknown with the Display representation of the error.
+    ///
+    /// TODO: We should change the implementation to walk the chain of errors
+    /// and return the first [`TryInto<tonic::Status>`] error. This is
+    /// impossible to do dynamically, each error must be included in the match
+    /// arms of the conversion logic.
+    fn into_status(self) -> tonic::Status;
 }
 
+/// Extension traits for results to easily convert them to eyre::Report and
+/// tonic::Status through BridgeError.
 pub trait ResultExt: Sized {
     type Output;
+
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
+    fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
 }
 
 impl<T: Into<BridgeError>> ErrorExt for T {
@@ -204,19 +169,20 @@ impl<T: Into<BridgeError>> ErrorExt for T {
             other => eyre::eyre!(other),
         }
     }
+    fn into_status(self) -> tonic::Status {
+        self.into().into()
+    }
 }
 
 impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
     type Output = U;
 
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report> {
-        self.map_err(Into::into).map_err(BridgeError::into_eyre)
+        self.map_err(ErrorExt::into_eyre)
     }
-}
 
-impl From<BridgeError> for ErrorObject<'static> {
-    fn from(val: BridgeError) -> Self {
-        ErrorObject::owned(-30000, format!("{:?}", val), Some(1))
+    fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
+        self.map_err(ErrorExt::into_status)
     }
 }
 
@@ -231,5 +197,39 @@ impl From<BridgeError> for tonic::Status {
             val
         );
         tonic::Status::from_error(Box::new(val))
+
+        // Possible future implementation, requires manually matching all TryInto<Status> types
+        // for err in val.into_eyre().chain() {
+        //     match err.downcast_ref::<BridgeError>() {
+        //         Some(BridgeError::Aggregator(err)) => {
+        //             if let Ok(status) = err.try_into() {
+        //                 return status;
+        //             }
+        //         }
+        //         Some(_) | None => {}
+        //     }
+        // }
+
+        // tracing::error!("Internal server error: {:?}", val);
+        // tonic::Status::internal("Internal server error.")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_downcast() {
+        assert_eq!(
+            BridgeError::IntConversionError
+                .into_eyre()
+                .wrap_err("Some other error")
+                .into_eyre()
+                .wrap_err("some other")
+                .downcast_ref::<BridgeError>()
+                .unwrap()
+                .to_string(),
+            BridgeError::IntConversionError.to_string()
+        );
     }
 }
