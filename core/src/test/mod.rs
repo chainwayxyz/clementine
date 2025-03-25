@@ -5,3 +5,5 @@ mod musig2;
 mod state_manager;
 mod taproot;
 mod withdraw;
+
+mod bitvm_script;

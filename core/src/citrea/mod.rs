@@ -496,7 +496,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "flaky"]
+    #[ignore = "Includes code that won't change much and the test itself is too flaky; Ignoring..."]
     async fn citrea_get_logs_limit_check() -> citrea_e2e::Result<()> {
         // TODO: temp hack to use the correct docker image
         std::env::set_var(
