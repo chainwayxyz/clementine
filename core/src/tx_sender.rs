@@ -747,52 +747,52 @@ impl TxSender {
             let send_tx_result = self.send_tx(id, new_fee_rate).await;
             match send_tx_result {
                 Ok(_) => {}
-                Err(e) => match eyre::Report::from(e)
-                    .root_cause()
-                    .downcast_ref::<SendTxError>()
-                {
-                    Some(SendTxError::UnconfirmedFeePayerUTXOsLeft) => {
-                        tracing::info!(
-                            "{}: Bumping Tx {} : Unconfirmed fee payer UTXOs left, skipping",
-                            self.btc_syncer_consumer_id,
-                            id
-                        );
-                        continue;
-                    }
-                    Some(SendTxError::InsufficientFeePayerAmount) => {
-                        tracing::info!("{}: Bumping Tx {} : Insufficient fee payer amount, creating new fee payer UTXO", self.btc_syncer_consumer_id, id);
-                        let (_, tx, _, _) = self.db.get_tx(None, id).await.map_to_eyre()?;
-                        let fee_payer_utxos = self
-                            .db
-                            .get_confirmed_fee_payer_utxos(None, id)
-                            .await
-                            .map_to_eyre()?;
-                        let total_fee_payer_amount = fee_payer_utxos
-                            .iter()
-                            .map(|(_, _, amount)| *amount)
-                            .sum::<Amount>();
-                        let fee_payer_utxos_len = fee_payer_utxos.len();
-                        self.create_fee_payer_utxo(
-                            id,
-                            &tx,
-                            new_fee_rate,
-                            total_fee_payer_amount,
-                            fee_payer_utxos_len,
-                        )
-                        .await?;
+                Err(e) => {
+                    let e = e.into_eyre();
+                    match e.root_cause().downcast_ref::<SendTxError>() {
+                        Some(SendTxError::UnconfirmedFeePayerUTXOsLeft) => {
+                            tracing::info!(
+                                "{}: Bumping Tx {} : Unconfirmed fee payer UTXOs left, skipping",
+                                self.btc_syncer_consumer_id,
+                                id
+                            );
+                            continue;
+                        }
+                        Some(SendTxError::InsufficientFeePayerAmount) => {
+                            tracing::info!("{}: Bumping Tx {} : Insufficient fee payer amount, creating new fee payer UTXO", self.btc_syncer_consumer_id, id);
+                            let (_, tx, _, _) = self.db.get_tx(None, id).await.map_to_eyre()?;
+                            let fee_payer_utxos = self
+                                .db
+                                .get_confirmed_fee_payer_utxos(None, id)
+                                .await
+                                .map_to_eyre()?;
+                            let total_fee_payer_amount = fee_payer_utxos
+                                .iter()
+                                .map(|(_, _, amount)| *amount)
+                                .sum::<Amount>();
+                            let fee_payer_utxos_len = fee_payer_utxos.len();
+                            self.create_fee_payer_utxo(
+                                id,
+                                &tx,
+                                new_fee_rate,
+                                total_fee_payer_amount,
+                                fee_payer_utxos_len,
+                            )
+                            .await?;
 
-                        continue;
+                            continue;
+                        }
+                        _ => {
+                            tracing::error!(
+                                "{}: Bumping Tx {} : Failed to send tx with CPFP: {:?}",
+                                self.btc_syncer_consumer_id,
+                                id,
+                                e
+                            );
+                            continue;
+                        }
                     }
-                    e => {
-                        tracing::error!(
-                            "{}: Bumping Tx {} : Failed to send tx with CPFP: {:?}",
-                            self.btc_syncer_consumer_id,
-                            id,
-                            e
-                        );
-                        continue;
-                    }
-                },
+                }
             }
         }
 

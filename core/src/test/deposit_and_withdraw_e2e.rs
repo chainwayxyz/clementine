@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::common::citrea::BRIDGE_PARAMS;
 use crate::bitvm_client::SECP;
@@ -510,7 +510,6 @@ async fn mock_citrea_run() {
 
     tracing::info!("Withdrawal tx sent");
 
-    let start = Instant::now();
     let mut payout_txid = None;
     ensure_async(
         async || {
