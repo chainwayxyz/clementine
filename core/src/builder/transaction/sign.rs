@@ -208,7 +208,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::Error("Verifier index not set!".to_string()))?;
+            .ok_or(BridgeError::VerifierIndexNotSet)?;
 
         let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
             &kickoff_txhandler,

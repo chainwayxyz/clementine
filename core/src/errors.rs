@@ -371,6 +371,11 @@ pub enum BridgeError {
     EnvVarNotSet(std::env::VarError, &'static str),
     #[error("Environment variable {0} is malformed: {1}")]
     EnvVarMalformed(&'static str, String),
+
+    #[error("N-of-N not set, yet")]
+    NofNNotSet,
+    #[error("Verifier index is not set, yet")]
+    VerifierIndexNotSet,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

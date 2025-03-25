@@ -182,13 +182,6 @@ where
         )
         .await?;
 
-        // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
-        // let idx = config
-        //     .verifiers_public_keys
-        //     .iter()
-        //     .position(|pk| pk == &signer.public_key)
-        //     .ok_or(BridgeError::PublicKeyNotFound)?;
-
         let db = Database::new(&config).await?;
 
         let citrea_client = C::new(
@@ -197,11 +190,6 @@ where
             None,
         )
         .await?;
-
-        // let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
-        //     config.verifiers_public_keys.clone(),
-        //     None,
-        // )?;
 
         let all_sessions = AllSessions {
             cur_id: 0,
@@ -219,12 +207,6 @@ where
 
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
-
-        // tracing::info!(
-        //     "Verifier {} created with nofn_xonly_pk: {}",
-        //     idx,
-        //     nofn_xonly_pk
-        // );
 
         let verifier = Verifier {
             rpc,
@@ -262,7 +244,6 @@ where
         self.idx.write().await.replace(idx);
 
         // Save the nofn to memory for fast access
-        tracing::info!("setting nofn {}", idx);
         let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
         self.nofn.write().await.replace(nofn);
 
@@ -456,7 +437,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::Error("Verifier index not set!".to_string()))?;
+            .ok_or(BridgeError::VerifierIndexNotSet)?;
         let verifiers_public_keys = self.db.get_verifiers_public_keys(None).await?;
 
         let deposit_blockhash = self
@@ -619,7 +600,7 @@ where
                 .read()
                 .await
                 .clone()
-                .ok_or(BridgeError::Error("Nofn not set".to_string()))?;
+                .ok_or(BridgeError::NofNNotSet)?;
             bitvm_client::SECP
                 .verify_schnorr(&sig, &Message::from(sighash.0), &nofn.agg_xonly_pk)
                 .map_err(|x| {
@@ -962,7 +943,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::Error("Verifier index not set".to_string()))?;
+            .ok_or(BridgeError::VerifierIndexNotSet)?;
 
         let tx_metadata = Some(TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
@@ -1020,7 +1001,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::Error("Verifier index not set".to_string()))?;
+            .ok_or(BridgeError::VerifierIndexNotSet)?;
 
         self.tx_sender
             .add_tx_to_queue(
@@ -1149,7 +1130,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::Error("Verifier index not set".to_string()))?;
+            .ok_or(BridgeError::VerifierIndexNotSet)?;
 
         match duty {
             Duty::NewReadyToReimburse {

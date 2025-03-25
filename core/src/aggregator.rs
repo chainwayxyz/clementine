@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::builder::transaction::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
@@ -23,6 +21,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message};
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+use std::sync::Arc;
 use tonic::Status;
 
 /// Aggregator struct.
@@ -235,7 +234,7 @@ impl Aggregator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn aggregate_move_partial_sigs(
+    fn aggregate_move_partial_sigs(
         &self,
         deposit_data: DepositData,
         agg_nonce: &MusigAggNonce,
@@ -251,13 +250,15 @@ impl Aggregator {
             tx.calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)?
                 .to_byte_array(),
         );
+
         let verifiers_public_keys = self
             .nofn
-            .read()
-            .await
+            .try_read()
+            .map_err(|_| BridgeError::NofNNotSet)?
             .clone()
-            .ok_or(BridgeError::Error("N-of-N not set!".to_string()))?
+            .ok_or(BridgeError::NofNNotSet)?
             .public_keys;
+
         let final_sig = aggregate_partial_signatures(
             &verifiers_public_keys,
             None,

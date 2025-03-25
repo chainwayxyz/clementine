@@ -34,7 +34,7 @@ where
         let idx = verifier
             .idx
             .try_read()
-            .map_err(|_| Status::internal("Failed to read verifier index from RwLock"))?;
+            .map_err(|_| BridgeError::VerifierIndexNotSet)?;
         let id = match *idx {
             Some(idx) => Some(convert_int_to_another("id", idx, u32::try_from)?),
             None => None,

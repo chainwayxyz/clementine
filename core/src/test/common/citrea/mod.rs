@@ -20,7 +20,8 @@ mod bitcoin_merkle;
 mod parameters;
 mod requests;
 
-/// Calculates bridge params dynamically with a setup.
+/// Calculates bridge params dynamically with the N-of-N public key which
+/// retrieved from the aggregator setup.
 ///
 /// CAUTION: This will create N-of-N public key using the default `BridgeConfig`!
 pub fn get_bridge_params() -> String {
@@ -44,25 +45,6 @@ pub fn get_bridge_params() -> String {
         format!("000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a20{}ac0063066369747265611400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000", nofn_xonly_pk)
     })
 }
-
-// lazy_static::lazy_static! {
-//     /// Citrea bridge params. This string includes N-of-N public key for the current
-//     /// test setup. If that setup changes, this string should be updated or needs to
-//     /// calculated dynamically.
-//     ///
-//     /// CAUTION: This will create N-of-N public key using the default `BridgeConfig`!
-//     pub static ref BRIDGE_PARAMS: String = {
-//         let config = BridgeConfig::default();
-//         let nofn_xonly_pk =
-//             bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys, None)
-//             .unwrap()
-//             .to_string();
-
-//         "000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a20".to_owned() +
-//         &nofn_xonly_pk +
-//         "ac0063066369747265611400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000"
-//     };
-// }
 
 /// Citrea e2e hardcoded EVM secret keys.
 pub const SECRET_KEYS: [&str; 10] = [

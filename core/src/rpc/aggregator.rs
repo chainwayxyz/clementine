@@ -437,7 +437,7 @@ impl Aggregator {
             .read()
             .await
             .clone()
-            .ok_or(BridgeError::Error("N-of-N not set!".to_string()))?
+            .ok_or(BridgeError::NofNNotSet)?
             .public_keys;
         let final_sig = crate::musig2::aggregate_partial_signatures(
             &verifiers_public_keys,
@@ -628,8 +628,13 @@ impl ClementineAggregator for Aggregator {
             .clone()
             .await?
             .iter()
-            .map(|vpk| PublicKey::from_slice(&vpk).unwrap())
-            .collect();
+            .map(|vpk| {
+                PublicKey::from_slice(vpk)
+                    .map_err(|e| Status::internal(format!("Failed to parse public key: {:?}", e)))
+            })
+            .collect::<Vec<Result<_, Status>>>()
+            .into_iter()
+            .collect::<Result<Vec<_>, Status>>()?;
         let signer = Actor::new(
             self.config.secret_key,
             self.config.winternitz_secret_key,
@@ -788,7 +793,7 @@ impl ClementineAggregator for Aggregator {
             .read()
             .await
             .clone()
-            .ok_or(BridgeError::Error("N-of-N not set!".to_string()))?
+            .ok_or(BridgeError::NofNNotSet)?
             .public_keys;
         let sig_agg_handle = tokio::spawn(signature_aggregator(
             partial_sig_receiver,

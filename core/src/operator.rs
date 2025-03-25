@@ -133,8 +133,6 @@ where
         )
         .await?;
 
-        // let nofn_xonly_pk =
-        //     XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
         let idx = config
             .operators_xonly_pks
             .iter()
@@ -195,14 +193,11 @@ where
             config.db_name
         );
 
-        // let nofn_xonly_pk = Arc::new(tokio::sync::RwLock::new(None));
-
         Ok(Operator {
             rpc,
             db: db.clone(),
             signer,
             config,
-            // nofn_xonly_pk,
             idx,
             collateral_funding_outpoint,
             tx_sender,
