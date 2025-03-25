@@ -91,7 +91,6 @@ pub enum TxError {
     Other(#[from] eyre::Report),
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum DepositData {
     BaseDeposit(BaseDepositData),

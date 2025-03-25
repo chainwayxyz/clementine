@@ -61,7 +61,12 @@
 //! ```
 
 use crate::{
-    builder::transaction::input::SpendableTxInError, extended_rpc::BitcoinRPCError, header_chain_prover::HeaderChainProverError, rpc::{aggregator::AggregatorError, ParserError}, states::StateMachineError, tx_sender::SendTxError
+    builder::transaction::input::SpendableTxInError,
+    extended_rpc::BitcoinRPCError,
+    header_chain_prover::HeaderChainProverError,
+    rpc::{aggregator::AggregatorError, ParserError},
+    states::StateMachineError,
+    tx_sender::SendTxError,
 };
 use core::fmt::Debug;
 use hex::FromHexError;

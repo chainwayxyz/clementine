@@ -12,7 +12,7 @@ pub mod clementine;
 pub mod aggregator;
 mod error;
 pub mod operator;
- mod parser;
+mod parser;
 pub mod verifier;
 pub mod watchtower;
 
