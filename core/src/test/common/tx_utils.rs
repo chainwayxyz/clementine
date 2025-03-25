@@ -10,14 +10,15 @@ use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
 
-use super::mine_once_after_in_mempool;
+use super::{ensure_async, mine_once_after_in_mempool};
 
+// Cannot use ensure_async due to `Send` requirement being broken upstream
 pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     rpc: &ExtendedRpc,
     lc_prover: &Node<LightClientProverConfig>,
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 1000;
+    let mut timeout_counter = 300;
     while rpc
         .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
@@ -46,6 +47,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     rpc.client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
         .await?;
+
     Ok(())
 }
 
@@ -124,26 +126,30 @@ pub async fn get_txid_where_utxo_is_spent(
 }
 
 pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 50;
-    while rpc
-        .client
-        .get_raw_transaction_info(&tx, None)
-        .await
-        .ok()
-        .and_then(|s| s.blockhash)
-        .is_none()
-    {
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-        // Mine more blocks and wait longer between checks - wait for fee payer tx to be sent to mempool
-        rpc.mine_blocks(1).await?;
-        timeout_counter -= 1;
-        // mine after tx is sent to mempool - with a timeout
-        let _ = mine_once_after_in_mempool(rpc, tx, Some("ensure_tx_onchain"), Some(1)).await;
+    ensure_async(
+        async || {
+            if rpc
+                .client
+                .get_raw_transaction_info(&tx, None)
+                .await
+                .ok()
+                .and_then(|s| s.blockhash)
+                .is_some()
+            {
+                return Ok(true);
+            }
 
-        if timeout_counter == 0 {
-            bail!("timeout while trying to send tx with txid {:?}", tx);
-        }
-    }
+            // Mine more blocks and wait longer between checks - wait for fee payer tx to be sent to mempool
+            rpc.mine_blocks(1).await?;
+            // mine after tx is sent to mempool - with a timeout
+            let _ = mine_once_after_in_mempool(rpc, tx, Some("ensure_tx_onchain"), Some(1)).await;
+            Ok(false)
+        },
+        None,
+        None,
+    )
+    .await
+    .wrap_err("Timed out while waiting for tx to land onchain")?;
     Ok(())
 }
 
@@ -151,23 +157,23 @@ pub async fn ensure_outpoint_spent(
     rpc: &ExtendedRpc,
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 3000;
-    while !(rpc.is_utxo_spent(&outpoint).await?) {
-        // Mine more blocks and wait longer between checks
-        rpc.mine_blocks(1).await?;
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        timeout_counter -= 1;
+    ensure_async(
+        async || rpc.is_utxo_spent(&outpoint).await.map_err(Into::into),
+        None,
+        None,
+    )
+    .await
+    .wrap_err_with(|| {
+        format!(
+            "Timed out while waiting for outpoint {:?} to be spent",
+            outpoint
+        )
+    })?;
 
-        if timeout_counter == 0 {
-            bail!(
-                "timeout while waiting for outpoint {:?} to be spent",
-                outpoint
-            );
-        }
-    }
     rpc.client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
-        .await?;
+        .await
+        .wrap_err("Failed to find txout in RPC after outpoint was spent")?;
     Ok(())
 }
 

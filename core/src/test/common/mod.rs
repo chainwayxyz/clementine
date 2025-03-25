@@ -1,4 +1,6 @@
 //! # Common Utilities for Integration Tests
+use std::time::Duration;
+
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
@@ -35,6 +37,29 @@ use tx_utils::get_txid_where_utxo_is_spent;
 pub mod citrea;
 mod setup_utils;
 pub mod tx_utils;
+
+pub async fn ensure_async(
+    mut func: impl AsyncFnMut() -> Result<bool, eyre::Error>,
+    timeout: Option<Duration>,
+    poll_interval: Option<Duration>,
+) -> Result<(), BridgeError> {
+    let timeout = timeout.unwrap_or(Duration::from_secs(60));
+    let poll_interval = poll_interval.unwrap_or(Duration::from_millis(500));
+
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > timeout {
+            return Err(eyre::eyre!("Timeout reached").into());
+        }
+
+        if func().await? {
+            return Ok(());
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
+}
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
 /// sure that it is included in the next block.
@@ -477,7 +502,7 @@ async fn multiple_deposits_for_operator() {
 }
 
 #[tokio::test]
-async fn create_regtest_rpc_macro() {
+async fn test_regtest_create_and_connect() {
     let mut config = create_test_config_with_thread_name().await;
 
     let regtest = create_regtest_rpc(&mut config).await;
