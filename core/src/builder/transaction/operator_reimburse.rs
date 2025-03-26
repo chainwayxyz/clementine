@@ -186,12 +186,11 @@ pub fn create_kickoff_txhandler(
             Some(deposit_data.get_nofn_xonly_pk()),
             paramset.watchtower_challenge_timeout_timelock,
         ));
-        let verifier_checksig = Arc::new(CheckSig::new(*xonly_pk));
         // UTXO for watchtower challenge or watchtower challenge timeouts
         builder = builder.add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT * 2 + ANCHOR_AMOUNT, // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
-            vec![nofn_2week.clone(), verifier_checksig],
-            None,
+            vec![nofn_2week.clone()],
+            Some(*xonly_pk), // key path as watchtowers xonly pk
             paramset.network,
         ));
 

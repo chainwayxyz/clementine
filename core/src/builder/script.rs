@@ -736,7 +736,7 @@ mod tests {
         );
 
         signer
-            .tx_sign_and_fill_sigs(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign checksig");
         let tx = tx
             .promote()
@@ -861,7 +861,7 @@ mod tests {
         );
 
         signer
-            .tx_sign_and_fill_sigs(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign timelock");
 
         rpc.client
@@ -950,7 +950,7 @@ mod tests {
         );
 
         signer
-            .tx_sign_and_fill_sigs(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign base deposit");
 
         rpc.client
@@ -990,7 +990,7 @@ mod tests {
         );
 
         signer
-            .tx_sign_and_fill_sigs(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign replacement deposit");
 
         rpc.client

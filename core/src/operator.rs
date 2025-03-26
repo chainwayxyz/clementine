@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::actor::{Actor, WinternitzDerivationPath};
+use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
@@ -252,7 +252,8 @@ where
         )?;
 
         self.signer
-            .tx_sign_and_fill_sigs(&mut first_round_tx, &[])?;
+            .clone()
+            .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
 
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
@@ -301,6 +302,7 @@ where
         &self,
         deposit_data: DepositData,
     ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
+        let mut tweak_cache = TweakCache::default();
         let (sig_tx, sig_rx) = mpsc::channel(1280);
 
         let deposit_blockhash = self
@@ -316,11 +318,16 @@ where
             deposit_blockhash,
         ));
 
-        let operator = self.clone();
+        let signer = self.signer.clone();
         tokio::spawn(async move {
             while let Some(sighash) = sighash_stream.next().await {
                 // None because utxos that operators need to sign do not have scripts
-                let sig = operator.signer.sign_with_tweak(sighash?.0, None)?;
+                let (sighash, sig_info) = sighash?;
+                let sig = signer.sign_with_tweak_data(
+                    sighash,
+                    sig_info.tweak_data,
+                    Some(&mut tweak_cache),
+                )?;
 
                 if sig_tx.send(sig).await.is_err() {
                     break;
@@ -568,6 +575,7 @@ where
         &self,
         kickoff_wpks: &KickoffWinternitzKeys,
     ) -> Result<Vec<Signature>, BridgeError> {
+        let mut tweak_cache = TweakCache::default();
         let mut sigs: Vec<Signature> =
             Vec::with_capacity(self.config.get_num_unspent_kickoff_sigs());
         let mut prev_ready_to_reimburse: Option<TxHandler> = None;
@@ -595,11 +603,17 @@ where
                     };
                     let sighashes = txhandler
                         .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
-                    sigs.extend(
-                        sighashes
-                            .into_iter()
-                            .map(|sighash| self.signer.sign(sighash.0)),
-                    );
+                    let signed_sigs: Result<Vec<_>, _> = sighashes
+                        .into_iter()
+                        .map(|(sighash, sig_info)| {
+                            self.signer.sign_with_tweak_data(
+                                sighash,
+                                sig_info.tweak_data,
+                                Some(&mut tweak_cache),
+                            )
+                        })
+                        .collect();
+                    sigs.extend(signed_sigs?);
                 }
                 if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
                     prev_ready_to_reimburse = Some(txhandler);
@@ -777,13 +791,21 @@ where
             self.config.protocol_paramset(),
         )?;
 
+        let mut tweak_cache = TweakCache::default();
+
         // sign ready to reimburse tx
-        self.signer
-            .tx_sign_and_fill_sigs(&mut ready_to_reimburse_txhandler, &[])?;
+        self.signer.tx_sign_and_fill_sigs(
+            &mut ready_to_reimburse_txhandler,
+            &[],
+            Some(&mut tweak_cache),
+        )?;
 
         // sign next round tx
-        self.signer
-            .tx_sign_and_fill_sigs(&mut next_round_txhandler, &[])?;
+        self.signer.tx_sign_and_fill_sigs(
+            &mut next_round_txhandler,
+            &[],
+            Some(&mut tweak_cache),
+        )?;
 
         let current_round_txid = current_round_txhandler.get_cached_tx().compute_txid();
         let ready_to_reimburse_tx = ready_to_reimburse_txhandler.get_cached_tx();
@@ -846,8 +868,11 @@ where
             )?;
 
         // sign burn unused kickoff connectors tx
-        self.signer
-            .tx_sign_and_fill_sigs(&mut burn_unspent_kickoff_connectors_tx, &[])?;
+        self.signer.tx_sign_and_fill_sigs(
+            &mut burn_unspent_kickoff_connectors_tx,
+            &[],
+            Some(&mut tweak_cache),
+        )?;
 
         self.tx_sender
             .insert_try_to_send(
