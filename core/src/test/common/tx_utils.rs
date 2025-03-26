@@ -12,7 +12,7 @@ use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
 
-use super::{ensure_async, mine_once_after_in_mempool};
+use super::{mine_once_after_in_mempool, poll_until_condition};
 
 // Cannot use ensure_async due to `Send` requirement being broken upstream
 pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
@@ -128,7 +128,7 @@ pub async fn get_txid_where_utxo_is_spent(
 }
 
 pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::Error> {
-    ensure_async(
+    poll_until_condition(
         async || {
             if rpc
                 .client
@@ -159,7 +159,7 @@ pub async fn ensure_outpoint_spent(
     rpc: &ExtendedRpc,
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
-    ensure_async(
+    poll_until_condition(
         async || {
             rpc.mine_blocks(1).await?;
             rpc.is_utxo_spent(&outpoint).await.map_err(Into::into)

@@ -11,8 +11,8 @@ use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
 };
 use crate::test::common::{
-    create_regtest_rpc, ensure_async, generate_withdrawal_transaction_and_signature,
-    mine_once_after_in_mempool, run_single_deposit,
+    create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
+    poll_get, poll_until_condition, run_single_deposit,
 };
 use crate::UTXO;
 use crate::{
@@ -510,8 +510,7 @@ async fn mock_citrea_run() {
 
     tracing::info!("Withdrawal tx sent");
 
-    let mut payout_txid = None;
-    ensure_async(
+    let payout_txid = poll_get(
         async || {
             let withdrawal_response = operators[0]
                 .withdraw(WithdrawParams {
@@ -526,14 +525,14 @@ async fn mock_citrea_run() {
             match withdrawal_response {
                 Ok(withdrawal_response) => {
                     tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-                    payout_txid = Some(Txid::from_byte_array(
+                    let payout_txid = Some(Txid::from_byte_array(
                         withdrawal_response.into_inner().txid.try_into().unwrap(),
                     ));
-                    Ok(true)
+                    Ok(Some(payout_txid))
                 }
                 Err(e) => {
                     tracing::info!("Withdrawal error: {:?}", e);
-                    Ok(false)
+                    Ok(None)
                 }
             }
         },
@@ -566,7 +565,7 @@ async fn mock_citrea_run() {
         .expect("failed to create database");
 
     // wait until payout part is not null
-    ensure_async(
+    poll_until_condition(
         async || {
             Ok(db
                 .get_first_unhandled_payout_by_operator_id(None, 0)
@@ -582,7 +581,7 @@ async fn mock_citrea_run() {
 
     tracing::info!("Waiting until payout is handled");
     // wait until payout is handled
-    ensure_async(
+    poll_until_condition(
         async || {
             Ok(db
                 .get_first_unhandled_payout_by_operator_id(None, 0)

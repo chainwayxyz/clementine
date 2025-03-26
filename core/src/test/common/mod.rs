@@ -38,11 +38,56 @@ pub mod citrea;
 mod setup_utils;
 pub mod tx_utils;
 
-pub async fn ensure_async(
+/// Polls a closure until it returns true, or the timeout is reached. Exits
+/// early if the closure throws an error.
+///
+/// Default timeout is 60 seconds, default poll interval is 500 milliseconds.
+///
+/// # Parameters
+///
+/// - `func`: The closure to poll.
+/// - `timeout`: The timeout duration.
+/// - `poll_interval`: The poll interval.
+///
+/// # Returns
+///
+/// - `Ok(())`: If the condition is met.
+/// - `Err(eyre::eyre!("Timeout reached"))`: If the timeout is reached.
+/// - `Err(e)`: If the closure returns an error.
+pub async fn poll_until_condition(
     mut func: impl AsyncFnMut() -> Result<bool, eyre::Error>,
     timeout: Option<Duration>,
     poll_interval: Option<Duration>,
 ) -> Result<(), BridgeError> {
+    poll_get(
+        async move || {
+            if func().await? {
+                Ok(Some(()))
+            } else {
+                Ok(None)
+            }
+        },
+        timeout,
+        poll_interval,
+    )
+    .await
+}
+
+/// Polls a closure until it returns a value, or the timeout is reached. Exits
+/// early if the closure throws an error.
+///
+/// Default timeout is 60 seconds, default poll interval is 500 milliseconds.
+///
+/// # Parameters
+///
+/// - `func`: The closure to poll.
+/// - `timeout`: The timeout duration.
+/// - `poll_interval`: The poll interval.
+pub async fn poll_get<T>(
+    mut func: impl AsyncFnMut() -> Result<Option<T>, eyre::Error>,
+    timeout: Option<Duration>,
+    poll_interval: Option<Duration>,
+) -> Result<T, BridgeError> {
     let timeout = timeout.unwrap_or(Duration::from_secs(60));
     let poll_interval = poll_interval.unwrap_or(Duration::from_millis(500));
 
@@ -50,11 +95,16 @@ pub async fn ensure_async(
 
     loop {
         if start.elapsed() > timeout {
-            return Err(eyre::eyre!("Timeout reached").into());
+            return Err(eyre::eyre!(
+                "Timeout of {:?} seconds reached. Poll interval was {:?} seconds",
+                timeout.as_secs_f32(),
+                poll_interval.as_secs_f32()
+            )
+            .into());
         }
 
-        if func().await? {
-            return Ok(());
+        if let Some(result) = func().await? {
+            return Ok(result);
         }
 
         tokio::time::sleep(poll_interval).await;
@@ -192,27 +242,22 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             .wrap_err("Failed to convert between Txid types")?;
         rpc.mine_blocks(1).await?;
 
-        let start = std::time::Instant::now();
-        let timeout = 60;
-        let _tx = loop {
-            if start.elapsed() > std::time::Duration::from_secs(timeout) {
-                panic!("MoveTx did not land onchain within {timeout} seconds");
-            }
-            rpc.mine_blocks(1).await?;
+        let _tx = poll_get(
+            async || {
+                rpc.mine_blocks(1).await?;
 
-            let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
+                let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
 
-            let tx_result = match tx_result {
-                Ok(tx) => tx,
-                Err(e) => {
+                let _ = tx_result.as_ref().inspect_err(|e| {
                     tracing::info!("Waiting for transaction to be on-chain: {}", e);
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    continue;
-                }
-            };
+                });
 
-            break tx_result;
-        };
+                Ok(tx_result.ok())
+            },
+            None,
+            None,
+        )
+        .await?;
 
         deposit_outpoints.push(deposit_outpoint);
         move_txids.push(move_txid);
