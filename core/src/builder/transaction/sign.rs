@@ -15,6 +15,7 @@ use crate::rpc::clementine::KickoffId;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
+use eyre::eyre;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
 use secp256k1::rand::seq::SliceRandom;
@@ -208,7 +209,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::VerifierIndexNotSet)?;
+            .ok_or(eyre!("Verifier index not set, yet"))?;
 
         let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
             &kickoff_txhandler,

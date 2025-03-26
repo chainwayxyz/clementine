@@ -19,6 +19,7 @@ use crate::{
 };
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message};
+use eyre::eyre;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::sync::Arc;
@@ -254,9 +255,9 @@ impl Aggregator {
         let verifiers_public_keys = self
             .nofn
             .try_read()
-            .map_err(|_| BridgeError::NofNNotSet)?
+            .map_err(|_| eyre!("Verifier index not set, yet"))?
             .clone()
-            .ok_or(BridgeError::NofNNotSet)?
+            .ok_or(eyre!("Verifier index not set, yet"))?
             .public_keys;
 
         let final_sig = aggregate_partial_signatures(

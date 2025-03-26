@@ -1,4 +1,3 @@
-use std::time::Instant;
 use super::common::citrea::get_bridge_params;
 use crate::bitvm_client::SECP;
 use crate::citrea::mock::MockCitreaClient;
@@ -36,6 +35,7 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
+use std::time::Instant;
 
 struct CitreaDepositAndWithdrawE2E;
 #[async_trait]

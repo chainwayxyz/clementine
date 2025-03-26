@@ -32,7 +32,7 @@ use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
-use eyre::{Context, OptionExt};
+use eyre::{eyre, Context, OptionExt};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap};
 use std::pin::pin;
@@ -230,7 +230,7 @@ where
     ) -> Result<(), BridgeError> {
         // Check if verifiers are already set
         if self.nofn.read().await.clone().is_some() && self.idx.read().await.is_some() {
-            return Err(BridgeError::AlreadyInitialized);
+            return Err(eyre!("Verifiers already set").into());
         }
 
         // Save verifiers public keys to db
@@ -241,7 +241,7 @@ where
         let idx = verifiers_public_keys
             .iter()
             .position(|pk| pk == &self.signer.public_key)
-            .ok_or(BridgeError::PublicKeyNotFound)?;
+            .ok_or(eyre!("Public key is not present in received public keys"))?;
         self.idx.write().await.replace(idx);
 
         // Save the nofn to memory for fast access
@@ -438,7 +438,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::VerifierIndexNotSet)?;
+            .ok_or(eyre!("Verifier index not set, yet"))?;
         let verifiers_public_keys = self.db.get_verifiers_public_keys(None).await?;
 
         let deposit_blockhash = self
@@ -604,9 +604,9 @@ where
                 .read()
                 .await
                 .clone()
-                .ok_or(BridgeError::NofNNotSet)?;
+                .ok_or(eyre!("N-of-N not set, yet"))?;
             bitvm_client::SECP
-                .verify_schnorr(&sig, &Message::from(typed_sighash.0), &self.nofn_xonly_pk)
+                .verify_schnorr(&sig, &Message::from(typed_sighash.0), &nofn.agg_xonly_pk)
                 .wrap_err_with(|| {
                     format!(
                         "Failed to verify nofn signature {} with signature info {:?}",
@@ -948,7 +948,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::VerifierIndexNotSet)?;
+            .ok_or(eyre!("Verifier index not set, yet"))?;
 
         let tx_metadata = Some(TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
@@ -1006,7 +1006,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::VerifierIndexNotSet)?;
+            .ok_or(eyre!("Verifier index not set, yet"))?;
 
         self.tx_sender
             .add_tx_to_queue(
@@ -1135,7 +1135,7 @@ where
             .idx
             .read()
             .await
-            .ok_or(BridgeError::VerifierIndexNotSet)?;
+            .ok_or(eyre!("Verifier index not set, yet"))?;
 
         match duty {
             Duty::NewReadyToReimburse {

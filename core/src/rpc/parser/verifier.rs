@@ -35,7 +35,7 @@ where
         let idx = verifier
             .idx
             .try_read()
-            .map_err(|_| BridgeError::VerifierIndexNotSet)?;
+            .map_err(|_| Status::internal("Verifier index not set, yet"))?;
         let id = match *idx {
             Some(idx) => Some(convert_int_to_another("id", idx, u32::try_from)?),
             None => None,

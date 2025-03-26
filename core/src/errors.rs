@@ -132,10 +132,6 @@ pub enum BridgeError {
     #[error("Error while encoding/decoding EVM type")]
     AlloySolTypes(#[from] alloy::sol_types::Error),
 
-    #[error("N-of-N not set, yet")]
-    NofNNotSet,
-    #[error("Verifier index is not set, yet")]
-    VerifierIndexNotSet,
     #[error("Tonic status")]
     TonicStatus(#[from] tonic::Status),
 
