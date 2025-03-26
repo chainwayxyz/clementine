@@ -113,35 +113,24 @@ fn calc_tweaked_xonly_pk(
 }
 
 #[derive(Debug, Clone, Default)]
+// A cache that holds tweaked keys so that we do not need to repeatedly calculate them.
+// This cache will hold data for only one deposit generally because we need to clone the holder of Actor(owner or verifier)
+// to spawned threads during deposit and jn general is immutable.
+// (Because all grpc functions have &self, we also need to clone Actor to a mutable instance
+// to modify the caches)
 pub struct TweakCache {
-    // A cache that holds tweaked keys so that we do not need to repeatedly calculate them.
-    // This cache will hold data for only one deposit generally because we need to clone the holder of Actor(owner or verifier)
-    // to spawned threads during deposit. (Because all grpc functions have &self, we also need to clone Actor to a mutable instance
-    // to modify the caches)
     tweaked_key_cache: HashMap<(XOnlyPublicKey, Option<TapNodeHash>), XOnlyPublicKey>,
     // A cache to hold actors own tweaked keys.
-    tweaked_keypair_cache: HashMap<Option<TapNodeHash>, Keypair>,
-    // Saved keypair so that user cannot accidentally call get_own_tweaked_keypair with a different keypair.
-    saved_keypair: Option<Keypair>,
+    tweaked_keypair_cache: HashMap<(Keypair, Option<TapNodeHash>), Keypair>,
 }
 
 impl TweakCache {
-    fn get_own_tweaked_keypair(
+    fn get_tweaked_keypair(
         &mut self,
         keypair: &Keypair,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<&Keypair, BridgeError> {
-        if let Some(saved_keypair) = self.saved_keypair {
-            if saved_keypair != *keypair {
-                return Err(BridgeError::Error(format!(
-                    "TweakCache used with a different keypair, saved: {:?}, given: {:?}",
-                    saved_keypair, keypair
-                )));
-            }
-        } else {
-            self.saved_keypair = Some(*keypair);
-        }
-        match self.tweaked_keypair_cache.entry(merkle_root) {
+        match self.tweaked_keypair_cache.entry((*keypair, merkle_root)) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => Ok(entry.insert(calc_tweaked_keypair(keypair, merkle_root)?)),
         }
@@ -218,7 +207,7 @@ impl Actor {
     ) -> Result<schnorr::Signature, BridgeError> {
         let keypair;
         let keypair_ref = match tweak_cache {
-            Some(cache) => cache.get_own_tweaked_keypair(&self.keypair, merkle_root)?,
+            Some(cache) => cache.get_tweaked_keypair(&self.keypair, merkle_root)?,
             None => {
                 keypair = calc_tweaked_keypair(&self.keypair, merkle_root)?;
                 &keypair
@@ -966,28 +955,27 @@ mod tests {
         let sk3 = SecretKey::new(&mut rand::thread_rng());
         let keypair3 = Keypair::from_secret_key(&SECP, &sk3);
 
-        tweak_cache.get_own_tweaked_keypair(&keypair, None).unwrap();
+        tweak_cache.get_tweaked_keypair(&keypair, None).unwrap();
         assert!(tweak_cache.get_tweaked_keypair_cache_size() == 1);
         tweak_cache
-            .get_own_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x55; 32])))
+            .get_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x55; 32])))
             .unwrap();
         assert!(tweak_cache.get_tweaked_keypair_cache_size() == 2);
         tweak_cache
-            .get_own_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x56; 32])))
+            .get_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x56; 32])))
             .unwrap();
         assert!(tweak_cache.get_tweaked_keypair_cache_size() == 3);
         tweak_cache
-            .get_own_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x57; 32])))
+            .get_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x57; 32])))
             .unwrap();
         assert!(tweak_cache.get_tweaked_keypair_cache_size() == 4);
         tweak_cache
-            .get_own_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x55; 32])))
+            .get_tweaked_keypair(&keypair, Some(TapNodeHash::assume_hidden([0x55; 32])))
             .unwrap();
-        tweak_cache.get_own_tweaked_keypair(&keypair, None).unwrap();
+        tweak_cache.get_tweaked_keypair(&keypair, None).unwrap();
         assert!(tweak_cache.get_tweaked_keypair_cache_size() == 4);
-        assert!(tweak_cache
-            .get_own_tweaked_keypair(&keypair2, None)
-            .is_err());
+        tweak_cache.get_tweaked_keypair(&keypair2, None).unwrap();
+        assert!(tweak_cache.get_tweaked_keypair_cache_size() == 5);
         let xonly_pk1 = keypair.x_only_public_key();
         let xonly_pk2 = keypair2.x_only_public_key();
         let xonly_pk3 = keypair3.x_only_public_key();

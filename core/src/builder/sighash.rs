@@ -77,9 +77,9 @@ pub struct PartialSignatureInfo {
     pub kickoff_utxo_idx: usize,
 }
 
-/// Contains information about the spend path of the utxo.
+/// Contains information about the spend path that is needed to sign the utxo.
 /// If it is KeyPath, it also includes the merkle root hash of the scripts as
-/// the hash is needed to tweak the key before signing.
+/// the hash is needed to tweak the key before signing. For ScriptPath nothing is needed.
 #[derive(Copy, Clone, Debug)]
 pub enum TapTweakData {
     KeyPath(Option<TapNodeHash>),
