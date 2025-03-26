@@ -3,7 +3,7 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{AggregatorWithdrawResponse, VerifierPublicKeys, WithdrawParams};
-use crate::actor::Actor;
+use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
@@ -24,6 +24,7 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
+use bitcoin::key::Keypair;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::TapSighash;
@@ -733,15 +734,12 @@ impl ClementineAggregator for Aggregator {
                 PublicKey::from_slice(vpk)
                     .map_err(|e| Status::internal(format!("Failed to parse public key: {:?}", e)))
             })
-            .collect::<Vec<Result<_, Status>>>()
-            .into_iter()
             .collect::<Result<Vec<_>, Status>>()?;
-        let signer = Actor::new(
-            self.config.secret_key,
-            self.config.winternitz_secret_key,
-            self.config.protocol_paramset().network,
-        );
-        let nofn = NofN::new(signer.public_key, verifier_public_keys.clone())?;
+
+        let nofn = NofN::new(
+            Keypair::from_secret_key(&SECP, &self.config.secret_key).public_key(),
+            verifier_public_keys.clone(),
+        )?;
         self.nofn.write().await.replace(nofn);
 
         Ok(Response::new(VerifierPublicKeys {
