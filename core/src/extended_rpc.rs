@@ -308,6 +308,7 @@ impl ExtendedRpc {
                             return Err(BitcoinRPCError::BumpFeeUTXOSpent(outpoint));
                         }
 
+                    
                         return Err(BitcoinRPCError::BumpFeeError(
                             txid,
                             fee_rate,

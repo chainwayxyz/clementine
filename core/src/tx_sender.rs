@@ -106,40 +106,34 @@ impl Task for TxSenderTask {
         let mut dbtx = self.db.begin_transaction().await.map_to_eyre()?;
 
         let is_block_update = async {
-            let event = self
+            let Some(event) = self
                 .db
                 .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.btc_syncer_consumer_id)
-                .await?;
-            if event.is_some() {
-                tracing::debug!("TXSENDER: Event: {:?}", event);
-            }
-            Ok::<bool, BridgeError>(match event {
-                Some(event) => match event {
-                    BitcoinSyncerEvent::NewBlock(block_id) => {
-                        self.db.confirm_transactions(&mut dbtx, block_id).await?;
-                        self.current_tip_height = self
-                            .db
-                            .get_block_info_from_id(Some(&mut dbtx), block_id)
-                            .await?
-                            .ok_or(BridgeError::Error("Block not found".to_string()))?
-                            .1;
+                .await?
+            else {
+                return Ok(false);
+            };
 
-                        tracing::trace!("TXSENDER: Confirmed transactions for block {}", block_id);
-                        dbtx.commit().await?;
-                        true
-                    }
-                    BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                        tracing::trace!(
-                            "TXSENDER: Unconfirming transactions for block {}",
-                            block_id
-                        );
-                        self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
-                        dbtx.commit().await?;
-                        true
-                    }
-                },
-                None => false,
-            })
+            match event {
+                BitcoinSyncerEvent::NewBlock(block_id) => {
+                    self.db.confirm_transactions(&mut dbtx, block_id).await?;
+                    self.current_tip_height = self
+                        .db
+                        .get_block_info_from_id(Some(&mut dbtx), block_id)
+                        .await?
+                        .ok_or(BridgeError::Error("Block not found".to_string()))?
+                        .1;
+
+                    tracing::trace!("TXSENDER: Confirmed transactions for block {}", block_id);
+                }
+                BitcoinSyncerEvent::ReorgedBlock(block_id) => {
+                    tracing::trace!("TXSENDER: Unconfirming transactions for block {}", block_id);
+                    self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
+                }
+            }
+
+            dbtx.commit().await?;
+            Ok::<_, BridgeError>(true)
         }
         .await?;
 
@@ -213,7 +207,7 @@ impl TxSender {
             + required_fee
             + MIN_TAPROOT_AMOUNT;
 
-        tracing::info!(
+        tracing::debug!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
             required_amount,
             fee_rate
@@ -486,12 +480,48 @@ impl TxSender {
                 .begin_transaction()
                 .await
                 .wrap_err("Failed to begin database transaction")?;
+
             let last_rbf_txid = self
                 .db
                 .get_last_rbf_txid(Some(&mut dbtx), id)
                 .await
                 .wrap_err("Failed to get last RBF txid")?;
-            if last_rbf_txid.is_none() {
+
+            if let Some(last_rbf_txid) = last_rbf_txid {
+                let bumped_txid = self
+                    .rpc
+                    .bump_fee_with_fee_rate(last_rbf_txid, fee_rate)
+                    .await;
+                match bumped_txid {
+                    Err(e) => {
+                        let e = e.into_eyre();
+                        match e.root_cause().downcast_ref::<BitcoinRPCError>() {
+                            Some(
+                                err @ (BitcoinRPCError::TransactionAlreadyInBlock(_)
+                                | BitcoinRPCError::BumpFeeUTXOSpent(_)),
+                            ) => {
+                                tracing::debug!(
+                                    "RBF tx {} either already in block or UTXO spent, skipping: {:?}",
+                                    last_rbf_txid,
+                                    err
+                                );
+                                return Ok(());
+                            }
+                            _ => {
+                                return Err(e.into_eyre().into());
+                            }
+                        }
+                    }
+                    Ok(bumped_txid) => {
+                        if bumped_txid != last_rbf_txid {
+                            self.db
+                                .save_rbf_txid(Some(&mut dbtx), id, bumped_txid)
+                                .await
+                                .wrap_err("Failed to save RBF txid")?;
+                        }
+                    }
+                }
+            } else {
                 tracing::info!(
                     "Funding RBF tx, meta: {tx_metadata:?}, tx: {:?}",
                     hex::encode(bitcoin::consensus::serialize(&tx))
@@ -541,21 +571,6 @@ impl TxSender {
                     .save_rbf_txid(Some(&mut dbtx), id, txid)
                     .await
                     .wrap_err("Failed to save RBF txid")?;
-            } else {
-                let bumped_txid = self
-                    .rpc
-                    .bump_fee_with_fee_rate(
-                        last_rbf_txid.expect("Last RBF txid should be present"),
-                        fee_rate,
-                    )
-                    .await
-                    .wrap_err("Failed to bump fee with fee rate")?;
-                if bumped_txid != last_rbf_txid.expect("Last RBF txid should be present") {
-                    self.db
-                        .save_rbf_txid(Some(&mut dbtx), id, bumped_txid)
-                        .await
-                        .wrap_err("Failed to save RBF txid")?;
-                }
             }
 
             dbtx.commit()
@@ -576,7 +591,7 @@ impl TxSender {
                 .await
                 .wrap_err("Failed to save RBF txid")?;
         }
-        tracing::info!(
+        tracing::debug!(
             "Submitting package: {}\n\n pkg tx hexs: {:?}",
             tx_metadata
                 .map(|tx_metadata| format!("{tx_metadata:?}"))
@@ -598,7 +613,7 @@ impl TxSender {
             .await
             .wrap_err("Failed to test mempool accept")?;
 
-        tracing::info!("Test mempool result: {test_mempool_result:?}");
+        tracing::debug!(?tx_metadata, "Test mempool result: {test_mempool_result:?}");
 
         let submit_package_result: PackageSubmissionResult = self
             .rpc
@@ -607,7 +622,7 @@ impl TxSender {
             .await
             .wrap_err("Failed to submit package")?;
 
-        tracing::info!(
+        tracing::debug!(
             self.btc_syncer_consumer_id,
             ?tx_metadata,
             "Submit package result: {submit_package_result:?}"
@@ -621,13 +636,15 @@ impl TxSender {
         let mut early_exit = false;
         for (_txid, result) in submit_package_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
-                tracing::error!("Error submitting package: {:?}", error);
+                tracing::error!(consumer = ?self.btc_syncer_consumer_id, ?tx_metadata, "Error submitting package: {:?}", error);
                 early_exit = true;
             }
         }
         if early_exit {
             return Ok(());
         }
+
+        tracing::info!(consumer = ?self.btc_syncer_consumer_id, ?tx_metadata, "Package submitted successfully.");
 
         // // Get the effective fee rate from the first transaction result
         // let effective_fee_rate_btc_per_kvb = submit_package_result
@@ -698,7 +715,7 @@ impl TxSender {
                     let e = e.into_eyre();
                     match e.root_cause().downcast_ref::<BitcoinRPCError>() {
                         Some(BitcoinRPCError::TransactionAlreadyInBlock(block_hash)) => {
-                            tracing::info!(
+                            tracing::debug!(
                                 "{}: Fee payer tx {} is already in block {}, skipping",
                                 self.btc_syncer_consumer_id,
                                 fee_payer_txid,
@@ -707,7 +724,7 @@ impl TxSender {
                             continue;
                         }
                         Some(BitcoinRPCError::BumpFeeUTXOSpent(outpoint)) => {
-                            tracing::info!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping : {:?}", self.btc_syncer_consumer_id, bumped_id, outpoint);
+                            tracing::debug!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping: {:?}", self.btc_syncer_consumer_id, bumped_id, outpoint);
                             continue;
                         }
                         _ => {
@@ -736,8 +753,8 @@ impl TxSender {
             .map_to_eyre()?;
 
         if !txs.is_empty() {
-            tracing::info!(
-                self.btc_syncer_consumer_id,
+            tracing::debug!(
+                ?self.btc_syncer_consumer_id,
                 "Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}, txs: {txs:?}"
             );
         }
@@ -751,15 +768,19 @@ impl TxSender {
                     let e = e.into_eyre();
                     match e.root_cause().downcast_ref::<SendTxError>() {
                         Some(SendTxError::UnconfirmedFeePayerUTXOsLeft) => {
-                            tracing::info!(
-                                "{}: Bumping Tx {} : Unconfirmed fee payer UTXOs left, skipping",
-                                self.btc_syncer_consumer_id,
+                            tracing::debug!(
+                                ?self.btc_syncer_consumer_id,
+                                "Sending Tx {}: Unconfirmed fee payer UTXOs left, skipping for now",
                                 id
                             );
                             continue;
                         }
                         Some(SendTxError::InsufficientFeePayerAmount) => {
-                            tracing::info!("{}: Bumping Tx {} : Insufficient fee payer amount, creating new fee payer UTXO", self.btc_syncer_consumer_id, id);
+                            tracing::debug!(
+                                ?self.btc_syncer_consumer_id,
+                                "Sending Tx {}: Insufficient fee payer amount, creating new fee payer UTXO",
+                                id
+                            );
                             let (_, tx, _, _) = self.db.get_tx(None, id).await.map_to_eyre()?;
                             let fee_payer_utxos = self
                                 .db
@@ -784,8 +805,8 @@ impl TxSender {
                         }
                         _ => {
                             tracing::error!(
-                                "{}: Bumping Tx {} : Failed to send tx with CPFP: {:?}",
-                                self.btc_syncer_consumer_id,
+                                ?self.btc_syncer_consumer_id,
+                                "Sending Tx {}: Failed to send tx: {:?}",
                                 id,
                                 e
                             );
@@ -822,7 +843,7 @@ impl TxSenderClient {
     /// It will also save the cancelled outpoints, cancelled txids and activated prerequisite txs to the database.
     /// It will automatically save inputs as cancelled outpoints.
     /// It will automatically save inputs as activated outpoints.
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip(signed_tx))]
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata, consumer = self.tx_sender_consumer_id))]
     pub async fn insert_try_to_send(
         &self,
         dbtx: DatabaseTransaction<'_, '_>,
@@ -834,15 +855,16 @@ impl TxSenderClient {
         activate_txids: &[ActivatedWithTxid],
         activate_outpoints: &[ActivatedWithOutpoint],
     ) -> Result<u32> {
-        tracing::info!(
-            "{} added tx {:?} with tx_metadata: {:?}",
+        tracing::debug!(
+            "{} added tx {:?}",
             self.tx_sender_consumer_id,
             tx_metadata
-                .map(|data| data.tx_type)
-                .unwrap_or(TransactionType::Dummy),
-            tx_metadata
+                .map(|data| format!("{:?}", data.tx_type))
+                .unwrap_or("N/A".to_string()),
         );
+
         let txid = signed_tx.compute_txid();
+
         let try_to_send_id = self
             .db
             .save_tx(Some(dbtx), tx_metadata, signed_tx, fee_paying_type, txid)
