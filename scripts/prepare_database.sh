@@ -11,3 +11,4 @@ dropdb -U $PGUSER $PGDATABASE
 createdb -U $PGUSER -O $PGUSER $PGDATABASE
 
 cat $SCRIPT_DIR/schema.sql | psql -U $PGUSER $PGDATABASE
+cat $SCRIPT_DIR/pgmq.sql | psql -U $PGUSER $PGDATABASE

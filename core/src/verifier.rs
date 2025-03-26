@@ -32,6 +32,7 @@ use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use eyre::{Context, OptionExt};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::pin;
@@ -68,7 +69,7 @@ impl NofN {
         let idx = public_keys
             .iter()
             .position(|pk| pk == &self_pk)
-            .ok_or(BridgeError::PublicKeyNotFound)?;
+            .ok_or_else(|| eyre::eyre!("Could not find public key in list of verifiers"))?;
         let agg_xonly_pk =
             bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
         Ok(NofN {
@@ -187,7 +188,7 @@ where
             .verifiers_public_keys
             .iter()
             .position(|pk| pk == &signer.public_key)
-            .ok_or(BridgeError::PublicKeyNotFound)?;
+            .ok_or_else(|| eyre::eyre!("Could not find public key in list of verifiers"))?;
 
         let db = Database::new(&config).await?;
 
@@ -250,7 +251,7 @@ where
     ) -> Result<(), BridgeError> {
         // Check if verifiers are already set
         if self.nofn.read().await.clone().is_some() {
-            return Err(BridgeError::AlreadyInitialized);
+            return Err(eyre::eyre!("Verifier already initialized").into());
         }
 
         // Save verifiers public keys to db
@@ -312,7 +313,14 @@ where
                             operator_xonly_pk,
                             sighash.1.tweak_data,
                             Some(&mut tweak_cache),
-                        )?;
+                        )
+                        .map_err(|e| {
+                            eyre::eyre!(
+                                "Unspent kickoff signature verification failed for num sig {}: {}",
+                                cur_sig_index + 1,
+                                e
+                            )
+                        })?;
                         tagged_sigs.push(TaggedSignature {
                             signature: unspent_kickoff_sigs[cur_sig_index].serialize().to_vec(),
                             signature_id: Some(sighash.1.signature_id),
@@ -450,9 +458,10 @@ where
 
         tokio::spawn(async move {
             let mut session_map = verifier.nonces.lock().await;
-            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
-                BridgeError::Error(format!("Could not find session id {session_id}"))
-            })?;
+            let session = session_map
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
@@ -476,13 +485,14 @@ where
                 let sighash = sighash_stream
                     .next()
                     .await
-                    .ok_or(BridgeError::Error("No sighash received".to_string()))??;
+                    .ok_or(eyre::eyre!("No sighash received"))??;
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
                 let nonce = session
                     .nonces
                     .pop()
-                    .ok_or(BridgeError::Error("No nonce available".to_string()))?;
+                    .ok_or(eyre::eyre!("No nonce available"))?;
+
                 let partial_sig = musig2::partial_sign(
                     verifier.config.verifiers_public_keys.clone(),
                     None,
@@ -491,10 +501,11 @@ where
                     verifier.signer.keypair,
                     Message::from_digest(*sighash.0.as_byte_array()),
                 )?;
+
                 partial_sig_tx
                     .send(partial_sig)
                     .await
-                    .map_err(|e| BridgeError::SendError("partial signature", e.to_string()))?;
+                    .wrap_err("Failed to send partial signature")?;
 
                 nonce_idx += 1;
                 tracing::debug!(
@@ -511,7 +522,7 @@ where
             let last_nonce = session
                 .nonces
                 .pop()
-                .ok_or(BridgeError::Error("No last nonce available".to_string()))?;
+                .ok_or(eyre::eyre!("No last nonce available"))?;
             session.nonces.clear();
             session.nonces.push(last_nonce);
 
@@ -577,7 +588,7 @@ where
         let mut nonce_idx: usize = 0;
 
         while let Some(sighash) = sighash_stream.next().await {
-            let sighash = sighash.map_err(|_| BridgeError::SighashStreamEndedPrematurely)?;
+            let typed_sighash = sighash.wrap_err("Failed to read from sighash stream")?;
 
             let &SignatureInfo {
                 operator_idx,
@@ -586,7 +597,7 @@ where
                 signature_id,
                 tweak_data,
                 kickoff_txid,
-            } = &sighash.1;
+            } = &typed_sighash.1;
 
             if signature_id == NormalSignatureKind::YieldKickoffTxid.into() {
                 kickoff_txids[operator_idx][round_idx].push((kickoff_txid, kickoff_utxo_idx));
@@ -596,33 +607,43 @@ where
             let sig = sig_receiver
                 .recv()
                 .await
-                .ok_or(BridgeError::Error("No signature received".to_string()))?;
+                .ok_or_eyre("No signature received")?;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
 
             verify_schnorr(
                 &sig,
-                &Message::from(sighash.0),
+                &Message::from(typed_sighash.0),
                 self.nofn_xonly_pk,
                 tweak_data,
                 Some(&mut tweak_cache),
-            )?;
+            )
+            .wrap_err_with(|| {
+                format!(
+                    "Failed to verify nofn signature {} with signature info {:?}",
+                    nonce_idx + 1,
+                    typed_sighash.1
+                )
+            })?;
 
             let tagged_sig = TaggedSignature {
                 signature: sig.serialize().to_vec(),
                 signature_id: Some(signature_id),
             };
             verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
+
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
         }
 
         if nonce_idx != num_required_nofn_sigs {
-            return Err(BridgeError::Error(format!(
-                "Not received enough nofn signatures. Needed: {}, received: {}",
-                num_required_nofn_sigs, nonce_idx
-            )));
+            return Err(eyre::eyre!(
+                "Did not receive enough nofn signatures. Needed: {}, received: {}",
+                num_required_nofn_sigs,
+                nonce_idx
+            )
+            .into());
         }
 
         // ------ OPERATOR SIGNATURES VERIFICATION ------
@@ -637,14 +658,6 @@ where
         // get signatures of operators and verify them
         for (operator_idx, (op_xonly_pk, _, _)) in operators_data.iter().enumerate() {
             let mut op_sig_count = 0;
-            // // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
-            // let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
-            // let tweaked_op_xonly_pk = op_xonly_pk
-            //     .add_tweak(&SECP, &scalar)
-            //     .map_err(|x| {
-            //         BridgeError::Error(format!("Failed to tweak operator xonly public key: {}", x))
-            //     })?
-            //     .0;
             // generate the sighash stream for operator
             let mut sighash_stream = pin!(create_operator_sighash_stream(
                 self.db.clone(),
@@ -654,26 +667,17 @@ where
                 deposit_blockhash,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
-                let sighash = sighash_stream
+                let typed_sighash = sighash_stream
                     .next()
                     .await
-                    .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
-
-                let tweak_data = sighash.1.tweak_data;
+                    .ok_or_eyre("Operator sighash stream ended prematurely")??;
 
                 tracing::debug!(
-                    "Verifying Final operator Signature {} for operator {}",
+                    "Verifying Final operator signature {} for operator {}, signature info {:?}",
                     nonce_idx + 1,
-                    operator_idx
+                    operator_idx,
+                    typed_sighash.1
                 );
-
-                verify_schnorr(
-                    &operator_sig,
-                    &Message::from(sighash.0),
-                    *op_xonly_pk,
-                    tweak_data,
-                    Some(&mut tweak_cache),
-                )?;
 
                 let &SignatureInfo {
                     operator_idx,
@@ -681,8 +685,25 @@ where
                     kickoff_utxo_idx,
                     signature_id,
                     kickoff_txid: _,
-                    ..
-                } = &sighash.1;
+                    tweak_data,
+                } = &typed_sighash.1;
+
+                verify_schnorr(
+                    &operator_sig,
+                    &Message::from(typed_sighash.0),
+                    *op_xonly_pk,
+                    tweak_data,
+                    Some(&mut tweak_cache),
+                )
+                .wrap_err_with(|| {
+                    format!(
+                        "Operator {} Signature {}: verification failed. Signature info: {:?}.",
+                        operator_idx,
+                        op_sig_count + 1,
+                        typed_sighash.1
+                    )
+                })?;
+
                 let tagged_sig = TaggedSignature {
                     signature: operator_sig.serialize().to_vec(),
                     signature_id: Some(signature_id),
@@ -698,10 +719,12 @@ where
         }
 
         if total_op_sig_count != num_required_total_op_sigs {
-            return Err(BridgeError::Error(format!(
-                "Not enough operator signatures. Needed: {}, received: {}",
-                num_required_total_op_sigs, total_op_sig_count
-            )));
+            return Err(eyre::eyre!(
+                "Did not receive enough operator signatures. Needed: {}, received: {}",
+                num_required_total_op_sigs,
+                total_op_sig_count
+            )
+            .into());
         }
 
         // ----- MOVE TX SIGNING
@@ -716,27 +739,21 @@ where
             bitcoin::TapSighashType::Default,
         )?;
 
-        let agg_nonce =
-            agg_nonce_receiver
-                .recv()
-                .await
-                .ok_or(BridgeError::ChannelEndedPrematurely(
-                    "verifier::deposit_finalize",
-                    "aggregated nonces",
-                ))?;
+        let agg_nonce = agg_nonce_receiver
+            .recv()
+            .await
+            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
-            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
-                BridgeError::Error(format!(
-                    "could not find session with id {} in session cache",
-                    session_id
-                ))
-            })?;
+            let session = session_map
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
             session
                 .nonces
                 .pop()
-                .ok_or_else(|| BridgeError::Error("No move tx secnonce in session".to_string()))?
+                .ok_or_eyre("No move tx secnonce in session")?
         };
 
         // sign move tx and save everything to db if everything is correct
@@ -765,17 +782,20 @@ where
                 if kickoff_txids[operator_idx][round_idx].len()
                     != self.config.protocol_paramset().num_signed_kickoffs
                 {
-                    return Err(BridgeError::Error(format!(
+                    return Err(eyre::eyre!(
                         "Number of signed kickoff utxos for operator: {}, round: {} is wrong. Expected: {}, got: {}",
                         operator_idx, round_idx, self.config.protocol_paramset().num_signed_kickoffs, kickoff_txids[operator_idx][round_idx].len()
-                    )));
+                    ).into());
                 }
                 for (kickoff_txid, kickoff_idx) in &kickoff_txids[operator_idx][round_idx] {
                     if kickoff_txid.is_none() {
-                        return Err(BridgeError::Error(format!(
+                        return Err(eyre::eyre!(
                             "Kickoff txid not found for {}, {}, {}",
-                            operator_idx, round_idx, kickoff_idx
-                        )));
+                            operator_idx,
+                            round_idx,
+                            kickoff_idx
+                        )
+                        .into());
                     }
 
                     self.db
@@ -807,21 +827,19 @@ where
             .challenge_ack_digests
             .into_iter()
             .map(|x| {
-                x.hash
-                    .try_into()
-                    .map_err(|_| BridgeError::Error("Invalid hash length".to_string()))
+                x.hash.try_into().map_err(|e: Vec<u8>| {
+                    eyre::eyre!("Invalid hash length, expected 20 bytes, got {}", e.len())
+                })
             })
-            .collect::<Result<Vec<[u8; 20]>, BridgeError>>()?;
+            .collect::<Result<Vec<[u8; 20]>, eyre::Report>>()?;
 
         if hashes.len() != self.config.get_num_challenge_ack_hashes() {
-            return Err(BridgeError::Error(
-                format!(
-                    "Invalid number of challenge ack hashes received from operator {}: got: {} expected: {}",
-                    operator_idx,
-                    hashes.len(),
-                    self.config.get_num_challenge_ack_hashes()
-                )
-            ));
+            return Err(eyre::eyre!(
+                "Invalid number of challenge ack hashes received from operator {}: got: {} expected: {}",
+                operator_idx,
+                hashes.len(),
+                self.config.get_num_challenge_ack_hashes()
+            ).into());
         }
 
         let operator_data = self
@@ -852,12 +870,13 @@ where
                 winternitz_keys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
             );
-            return Err(BridgeError::Error(format!(
+            return Err(eyre::eyre!(
                 "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
                 operator_idx,
                 winternitz_keys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
-            )));
+            )
+            .into());
         }
 
         let bitvm_pks = ClementineBitVMPublicKeys::from_flattened_vec(&winternitz_keys);
@@ -916,7 +935,7 @@ where
             .db
             .get_deposit_signatures_with_kickoff_txid(None, kickoff_txid)
             .await?
-            .ok_or(BridgeError::Error("Kickoff txid not found".to_string()))?;
+            .ok_or(eyre::eyre!("Kickoff txid not found"))?;
 
         let transaction_data = TransactionRequestData {
             deposit_data: deposit_data.clone(),
@@ -1059,7 +1078,7 @@ where
         let block = block_cache
             .block
             .as_ref()
-            .ok_or(BridgeError::Error("Block not found".to_string()))?;
+            .ok_or(eyre::eyre!("Block not found"))?;
 
         let block_hash = block.block_hash();
 
@@ -1068,7 +1087,7 @@ where
             let payout_tx_idx = block_cache
                 .txids
                 .get(&payout_txid)
-                .ok_or(BridgeError::Error("Payout tx not found".to_string()))?;
+                .ok_or(eyre::eyre!("Payout tx not found"))?;
             let payout_tx = &block.txdata[*payout_tx_idx];
             let last_output = &payout_tx.output[payout_tx.output.len() - 1]
                 .script_pubkey

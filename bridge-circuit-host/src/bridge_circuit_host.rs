@@ -360,6 +360,7 @@ mod tests {
     use std::convert::TryInto;
 
     use super::*;
+
     const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest");
     const WORK_ONLY_ELF: &[u8] =
@@ -402,9 +403,8 @@ mod tests {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
     #[tokio::test]
-    #[ignore]
+    #[ignore = "This test is too slow and only runs in x86_64."]
     async fn bridge_circuit_test() {
         use circuits_lib::bridge_circuit::{
             structs::{LightClientProof, StorageProof},

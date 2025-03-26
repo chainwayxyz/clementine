@@ -39,6 +39,7 @@ use bitcoin::{
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
+use eyre::Context;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -141,22 +142,20 @@ where
             .operators_xonly_pks
             .iter()
             .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
-            .ok_or(BridgeError::ServerError(std::io::Error::other(format!(
-                "{} is not found in operator x-only public keys",
-                signer.xonly_public_key
-            ))))?;
+            .ok_or_else(|| eyre::eyre!("Operator's key not found in list of operator x-only public keys, operator's key: {0}", signer.xonly_public_key))?;
 
         let tx_sender = TxSenderClient::new(db.clone(), format!("operator_{}", idx).to_string());
 
         if config.operator_withdrawal_fee_sats.is_none() {
-            return Err(BridgeError::OperatorWithdrawalFeeNotSet);
+            return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
         }
 
         // TODO: Fix this where the config will only have one address. also check??
         let reimburse_addr = rpc
             .client
             .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
-            .await?
+            .await
+            .wrap_err("Failed to get new address")?
             .assume_checked();
 
         // check if we store our collateral outpoint already in db
@@ -283,14 +282,14 @@ where
                 wpk_tx
                     .send(wpk)
                     .await
-                    .map_err(|e| BridgeError::SendError("winternitz public key", e.to_string()))?;
+                    .wrap_err("Failed to send winternitz public key")?;
             }
 
             for sig in kickoff_sigs {
                 sig_tx
                     .send(sig)
                     .await
-                    .map_err(|e| BridgeError::SendError("kickoff signature", e.to_string()))?;
+                    .wrap_err("Failed to send kickoff signature")?;
             }
 
             Ok::<(), BridgeError>(())
@@ -425,16 +424,15 @@ where
         match withdrawal_utxo {
             Some(withdrawal_utxo) => {
                 if withdrawal_utxo != input_utxo.outpoint {
-                    return Err(BridgeError::InvalidInputUTXO(
-                        input_utxo.outpoint.txid,
-                        withdrawal_utxo.txid,
-                    ));
+                    return Err(eyre::eyre!("Input UTXO does not match withdrawal UTXO from Citrea: Input Outpoint: {0}, Withdrawal Outpoint (from Citrea): {1}", input_utxo.outpoint, withdrawal_utxo).into());
                 }
             }
             None => {
-                return Err(BridgeError::UsersWithdrawalUtxoNotSetForWithdrawalIndex(
-                    withdrawal_index,
-                ));
+                return Err(eyre::eyre!(
+                    "User's withdrawal UTXO is not set for withdrawal index: {0}",
+                    withdrawal_index
+                )
+                .into());
             }
         }
 
@@ -451,11 +449,12 @@ where
             self.config.protocol_paramset().bridge_amount,
             operator_withdrawal_fee_sats,
         ) {
-            return Err(BridgeError::NotEnoughFeeForOperator);
+            return Err(eyre::eyre!("Not enough fee for operator").into());
         }
 
         let user_xonly_pk =
-            XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
+            XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])
+                .wrap_err("Failed to extract xonly public key from input utxo script pubkey")?;
 
         let payout_txhandler = builder::transaction::create_payout_txhandler(
             input_utxo,
@@ -472,7 +471,8 @@ where
             &in_signature,
             &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,
-        )?;
+        )
+        .wrap_err("Failed to verify signature received from user for payout txin")?;
 
         let funded_tx = self
             .rpc
@@ -494,7 +494,8 @@ where
                 }),
                 None,
             )
-            .await?
+            .await
+            .wrap_err("Failed to fund raw transaction")?
             .hex;
 
         let signed_tx: Transaction = deserialize(
@@ -502,11 +503,18 @@ where
                 .rpc
                 .client
                 .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                .await?
+                .await
+                .wrap_err("Failed to sign funded tx through bitcoin RPC")?
                 .hex,
-        )?;
+        )
+        .wrap_err("Failed to deserialize signed tx")?;
 
-        Ok(self.rpc.client.send_raw_transaction(&signed_tx).await?)
+        Ok(self
+            .rpc
+            .client
+            .send_raw_transaction(&signed_tx)
+            .await
+            .wrap_err("Failed to send transaction to signed tx")?)
     }
 
     /// Generates Winternitz public keys for every  BitVM assert tx for a deposit.
@@ -517,12 +525,12 @@ where
     ///   `watchtower index` row and `BitVM assert tx index` column.
     pub fn generate_assert_winternitz_pubkeys(
         &self,
-        deposit_txid: Txid,
+        deposit_outpoint: bitcoin::OutPoint,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         tracing::debug!("Generating assert winternitz pubkeys");
         let bitvm_pks = self
             .signer
-            .generate_bitvm_pks_for_deposit(deposit_txid, self.config.protocol_paramset())?;
+            .generate_bitvm_pks_for_deposit(deposit_outpoint, self.config.protocol_paramset())?;
         let flattened_wpks = bitvm_pks.to_flattened_vec();
 
         Ok(flattened_wpks)
@@ -624,14 +632,14 @@ where
 
     pub fn generate_challenge_ack_preimages_and_hashes(
         &self,
-        deposit_txid: Txid,
+        deposit_outpoint: OutPoint,
     ) -> Result<Vec<PublicHash>, BridgeError> {
         let mut hashes = Vec::with_capacity(self.config.get_num_challenge_ack_hashes());
 
         for verifier_idx in 0..self.config.num_verifiers {
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 verifier_idx as u32,
-                deposit_txid,
+                deposit_outpoint,
                 self.config.protocol_paramset(),
             );
             let hash = self.signer.generate_public_hash_from_path(path)?;
@@ -1106,7 +1114,7 @@ mod tests {
     use crate::operator::Operator;
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
-    use bitcoin::Txid;
+    use bitcoin::{OutPoint, Txid};
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name().await;
@@ -1186,8 +1194,13 @@ mod tests {
             .await
             .unwrap();
 
+        let deposit_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 2,
+        };
+
         let winternitz_public_key = operator
-            .generate_assert_winternitz_pubkeys(Txid::all_zeros())
+            .generate_assert_winternitz_pubkeys(deposit_outpoint)
             .unwrap();
         assert_eq!(
             winternitz_public_key.len(),
@@ -1205,8 +1218,13 @@ mod tests {
             .await
             .unwrap();
 
+        let deposit_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 2,
+        };
+
         let preimages = operator
-            .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
+            .generate_challenge_ack_preimages_and_hashes(deposit_outpoint)
             .unwrap();
         assert_eq!(preimages.len(), config.num_verifiers as usize);
     }

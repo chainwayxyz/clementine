@@ -12,7 +12,7 @@ use statig::prelude::*;
 use std::cmp::max;
 use std::future::Future;
 use std::sync::Arc;
-
+use thiserror::Error;
 pub mod block_cache;
 pub mod context;
 mod event;
@@ -24,6 +24,14 @@ pub mod task;
 pub use context::{Duty, Owner};
 pub use event::SystemEvent;
 
+#[derive(Debug, Error)]
+pub enum StateMachineError {
+    #[error("State machine received event that it doesn't know how to handle: {0}")]
+    UnhandledEvent(String),
+
+    #[error(transparent)]
+    Other(#[from] eyre::Report),
+}
 pub(crate) enum ContextProcessResult<
     T: Owner,
     M: IntoStateMachine,
@@ -104,10 +112,6 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         paramset: &'static ProtocolParamset,
     ) -> eyre::Result<Self> {
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
-        queue
-            .init()
-            .await
-            .wrap_err("Error initializing pqmq queue")?;
 
         queue.create(&Self::queue_name()).await.wrap_err_with(|| {
             format!("Error creating pqmq queue with name {}", Self::queue_name())

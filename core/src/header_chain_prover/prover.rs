@@ -2,8 +2,12 @@
 //!
 //! Prover is responsible for preparing RiscZero header chain prover proofs.
 
-use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
+use crate::{
+    errors::{BridgeError, ErrorExt},
+    header_chain_prover::{HeaderChainProver, HeaderChainProverError},
+};
 use bitcoin::Network;
+use eyre::Context;
 use lazy_static::lazy_static;
 use risc0_to_bitvm2_core::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
@@ -55,13 +59,13 @@ impl HeaderChainProver {
         &self,
         prev_receipt: Option<Receipt>,
         block_headers: Vec<CircuitBlockHeader>,
-    ) -> Result<Receipt, BridgeError> {
+    ) -> Result<Receipt, HeaderChainProverError> {
         // Prepare proof input.
         let (prev_proof, method_id) = match &prev_receipt {
             Some(receipt) => {
                 let prev_output: BlockHeaderCircuitOutput =
                     borsh::from_slice(&receipt.journal.bytes)
-                        .map_err(BridgeError::ProverDeSerializationError)?;
+                        .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
                 let method_id = prev_output.method_id;
 
                 (HeaderChainPrevProofType::PrevProof(prev_output), method_id)
@@ -73,7 +77,7 @@ impl HeaderChainProver {
                     Network::Testnet4 => *TESTNET4_IMAGE_ID,
                     Network::Signet => *SIGNET_IMAGE_ID,
                     Network::Regtest => *REGTEST_IMAGE_ID,
-                    _ => return Err(BridgeError::ProverError("Unsupported network".to_string())),
+                    _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
                 };
 
                 (HeaderChainPrevProofType::GenesisBlock, image_id)
@@ -87,7 +91,7 @@ impl HeaderChainProver {
 
         let mut env = ExecutorEnv::builder();
 
-        env.write_slice(&borsh::to_vec(&input).map_err(BridgeError::BorshError)?);
+        env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
 
         if let Some(prev_receipt) = prev_receipt {
             env.add_assumption(prev_receipt);
@@ -95,7 +99,8 @@ impl HeaderChainProver {
 
         let env = env
             .build()
-            .map_err(|e| BridgeError::ProverError(format!("Can't build environment: {}", e)))?;
+            .map_err(|e| eyre::eyre!(e))
+            .wrap_err("Failed to build environment")?;
 
         let prover = risc0_zkvm::default_prover();
 
@@ -105,14 +110,11 @@ impl HeaderChainProver {
             Network::Testnet4 => TESTNET4_ELF.as_ref(),
             Network::Signet => SIGNET_ELF.as_ref(),
             Network::Regtest => REGTEST_ELF.as_ref(),
-            _ => return Err(BridgeError::ProverError("Unsupported network".to_string())),
+            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
         tracing::trace!("Proving started for block");
-        let receipt = prover
-            .prove(env, elf)
-            .map_err(|e| BridgeError::ProverError(format!("Error while running prover: {}", e)))?
-            .receipt;
+        let receipt = prover.prove(env, elf).map_err(|e| eyre::eyre!(e))?.receipt;
 
         tracing::debug!("Proof receipt: {:?}", receipt);
 

@@ -10,7 +10,7 @@ use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 
 use bitvm::chunk::api::{
-    api_generate_full_tapscripts, api_generate_partial_script, NUM_PUBS, NUM_U160, NUM_U256,
+    api_generate_full_tapscripts, api_generate_partial_script, NUM_HASH, NUM_PUBS, NUM_U256,
 };
 use bitvm::signatures::wots_api::wots160;
 
@@ -245,7 +245,7 @@ pub struct ClementineBitVMReplacementData {
     pub bitvm_pks: (
         [[Vec<(usize, usize)>; 68]; NUM_PUBS],
         [[Vec<(usize, usize)>; 68]; NUM_U256],
-        [[Vec<(usize, usize)>; 44]; NUM_U160],
+        [[Vec<(usize, usize)>; 36]; NUM_HASH],
     ),
 }
 
@@ -320,7 +320,7 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub fn get_number_of_160_bytes_wpks() -> usize {
-        NUM_U160 + 2
+        NUM_HASH + 2
     }
 
     pub fn from_flattened_vec(flattened_wpks: &[Vec<[u8; 20]>]) -> Self {
@@ -345,8 +345,8 @@ impl ClementineBitVMPublicKeys {
             &flattened_wpks[3 + NUM_PUBS..3 + NUM_PUBS + NUM_U256],
         );
 
-        let bitvm_pks_3 = Self::vec_slice_to_nested_array::<44, NUM_U160>(
-            &flattened_wpks[3 + NUM_PUBS + NUM_U256..3 + NUM_PUBS + NUM_U256 + NUM_U160],
+        let bitvm_pks_3 = Self::vec_slice_to_nested_array::<36, NUM_HASH>(
+            &flattened_wpks[3 + NUM_PUBS + NUM_U256..3 + NUM_PUBS + NUM_U256 + NUM_HASH],
         );
 
         Self {
@@ -408,11 +408,11 @@ impl ClementineBitVMPublicKeys {
     }
 
     pub const fn number_of_assert_txs() -> usize {
-        46
+        33
     }
 
     pub const fn number_of_flattened_wpks() -> usize {
-        396
+        381
     }
 
     pub fn get_assert_scripts(
@@ -425,14 +425,19 @@ impl ClementineBitVMPublicKeys {
                 (self.latest_blockhash_pk.to_vec(), 40),
                 (self.challenge_sending_watchtowers_pk.to_vec(), 40),
                 (self.bitvm_pks.0[0].to_vec(), 64),
+                (self.bitvm_pks.1[NUM_U256 - 2].to_vec(), 64),
+                (self.bitvm_pks.1[NUM_U256 - 1].to_vec(), 64),
+                (self.bitvm_pks.2[NUM_HASH - 3].to_vec(), 32),
+                (self.bitvm_pks.2[NUM_HASH - 2].to_vec(), 32),
+                (self.bitvm_pks.2[NUM_HASH - 1].to_vec(), 32),
             ],
             xonly_public_key,
             4,
         ));
         scripts.push(first_script);
-        // iterate NUM_U256 5 by 5
-        for i in (0..NUM_U256).step_by(5) {
-            let last_idx = std::cmp::min(i + 5, NUM_U256);
+        // iterate NUM_U256 6 by 6
+        for i in (0..NUM_U256 - 2).step_by(6) {
+            let last_idx = std::cmp::min(i + 6, NUM_U256);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.1[i..last_idx]
                     .iter()
@@ -443,13 +448,13 @@ impl ClementineBitVMPublicKeys {
             ));
             scripts.push(script);
         }
-        // iterate NUM_U160 9 by 9
-        for i in (0..NUM_U160).step_by(9) {
-            let last_idx = std::cmp::min(i + 9, NUM_U160);
+        // iterate NUM_HASH 12 by 12
+        for i in (0..NUM_HASH - 3).step_by(12) {
+            let last_idx = std::cmp::min(i + 12, NUM_HASH);
             let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
                 self.bitvm_pks.2[i..last_idx]
                     .iter()
-                    .map(|x| (x.to_vec(), 40))
+                    .map(|x| (x.to_vec(), 32))
                     .collect::<Vec<_>>(),
                 xonly_public_key,
                 4,
@@ -461,44 +466,48 @@ impl ClementineBitVMPublicKeys {
 
     pub fn get_assert_derivations(
         mini_assert_idx: usize,
-        txid: bitcoin::Txid,
+        deposit_outpoint: bitcoin::OutPoint,
         paramset: &'static ProtocolParamset,
     ) -> Vec<WinternitzDerivationPath> {
         if mini_assert_idx == 0 {
             vec![
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, txid, paramset),
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, txid, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 2, 0, txid, paramset),
+                WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 2, 0, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 12, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 13, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 360, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 361, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 362, deposit_outpoint, paramset),
             ]
-        } else if (1..=3).contains(&mini_assert_idx) {
-            // for 1, we will have 5 derivations index starting from 0 to 4
-            // for 2, we will have 5 derivations index starting from 5 to 9
-            // for 3, we will have 5 derivations index starting from 10 to 13
-            let derivations: u32 = (mini_assert_idx as u32 - 1) * 5;
+        } else if (1..=2).contains(&mini_assert_idx) {
+            // for 1, we will have 6 derivations index starting from 0 to 5
+            // for 2, we will have 6 derivations index starting from 6 to 11
+            let derivations: u32 = (mini_assert_idx as u32 - 1) * 6;
 
             let mut derivations_vec = vec![];
-            for i in 0..5 {
-                if derivations + i < NUM_U256 as u32 {
+            for i in 0..6 {
+                if derivations + i < NUM_U256 as u32 - 2 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         32 * 2,
                         3,
                         derivations + i,
-                        txid,
+                        deposit_outpoint,
                         paramset,
                     ));
                 }
             }
             derivations_vec
         } else {
-            let derivations: u32 = (mini_assert_idx as u32 - 4) * 9;
+            let derivations: u32 = (mini_assert_idx as u32 - 3) * 12;
             let mut derivations_vec = vec![];
-            for i in 0..9 {
-                if derivations + i < NUM_U160 as u32 {
+            for i in 0..12 {
+                if derivations + i < NUM_HASH as u32 - 3 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
-                        20 * 2,
+                        16 * 2,
                         4,
                         derivations + i,
-                        txid,
+                        deposit_outpoint,
                         paramset,
                     ));
                 }
@@ -620,8 +629,12 @@ mod tests {
 
         let sk = bitcoin::secp256k1::SecretKey::new(&mut thread_rng());
         let signer = Actor::new(sk, Some(sk), config.protocol_paramset().network);
+        let deposit_outpoint = bitcoin::OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0,
+        };
         let bitvm_pks = signer
-            .generate_bitvm_pks_for_deposit(Txid::all_zeros(), config.protocol_paramset())
+            .generate_bitvm_pks_for_deposit(deposit_outpoint, config.protocol_paramset())
             .unwrap();
 
         let flattened_vec = bitvm_pks.to_flattened_vec();
@@ -632,6 +645,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "This test is too slow to run on every commit"]
     async fn test_generate_fresh_data() {
-        let _bitvm_cache = generate_fresh_data();
+        let bitvm_cache = generate_fresh_data();
+        bitvm_cache
+            .save_to_file("bitvm_cache.bin")
+            .expect("Failed to save BitVM cache");
     }
 }

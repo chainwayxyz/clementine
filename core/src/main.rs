@@ -19,7 +19,7 @@ use clementine_core::{
 async fn main() {
     let (config, args) = get_configuration_from_cli();
 
-    Database::run_schema_script(&config)
+    Database::run_schema_script(&config, args.actor == cli::Actors::Verifier)
         .await
         .expect("Can't run schema script");
 

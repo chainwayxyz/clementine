@@ -9,7 +9,7 @@ use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, TxError};
 use crate::operator::Operator;
 use crate::rpc::clementine::KickoffId;
 use crate::verifier::Verifier;
@@ -128,7 +128,7 @@ pub async fn create_and_sign_txs(
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 watchtower_idx as u32,
-                transaction_data.deposit_data.get_deposit_outpoint().txid,
+                transaction_data.deposit_data.get_deposit_outpoint(),
                 config.protocol_paramset(),
             );
             let preimage = signer.generate_preimage_from_path(path)?;
@@ -178,7 +178,7 @@ where
         commit_data: &[u8],
     ) -> Result<(TransactionType, Transaction), BridgeError> {
         if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
-            return Err(BridgeError::InvalidWatchtowerChallengeData);
+            return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
         }
 
         let context = ContractContext::new_context_for_asserts(
@@ -203,7 +203,7 @@ where
 
         let kickoff_txhandler = txhandlers
             .remove(&TransactionType::Kickoff)
-            .ok_or(BridgeError::TxHandlerNotFound(TransactionType::Kickoff))?;
+            .ok_or(TxError::TxHandlerNotFound(TransactionType::Kickoff))?;
 
         let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
             &kickoff_txhandler,
@@ -323,13 +323,12 @@ where
         let mut signed_txhandlers = Vec::new();
 
         for idx in 0..ClementineBitVMPublicKeys::number_of_assert_txs() {
-            let mut mini_assert_txhandler =
-                txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(
-                    BridgeError::TxHandlerNotFound(TransactionType::MiniAssert(idx)),
-                )?;
+            let mut mini_assert_txhandler = txhandlers
+                .remove(&TransactionType::MiniAssert(idx))
+                .ok_or(TxError::TxHandlerNotFound(TransactionType::MiniAssert(idx)))?;
             let derivations = ClementineBitVMPublicKeys::get_assert_derivations(
                 idx,
-                assert_data.deposit_data.get_deposit_outpoint().txid,
+                assert_data.deposit_data.get_deposit_outpoint(),
                 self.config.protocol_paramset(),
             );
             let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations

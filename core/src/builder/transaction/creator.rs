@@ -1,6 +1,7 @@
 use bitcoin::XOnlyPublicKey;
 
 use crate::actor::Actor;
+
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::transaction::{
@@ -10,7 +11,7 @@ use crate::builder::transaction::{
 };
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
@@ -21,10 +22,10 @@ use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
 fn get_txhandler(
     txhandlers: &BTreeMap<TransactionType, TxHandler>,
     tx_type: TransactionType,
-) -> Result<&TxHandler, BridgeError> {
+) -> Result<&TxHandler, TxError> {
     txhandlers
         .get(&tx_type)
-        .ok_or(BridgeError::TxHandlerNotFound(tx_type))
+        .ok_or(TxError::TxHandlerNotFound(tx_type))
 }
 
 #[derive(Debug, Clone)]
@@ -194,7 +195,7 @@ impl ReimburseDbCache {
                         .db
                         .get_bitvm_setup(None, self.operator_idx as i32, *deposit_outpoint)
                         .await?
-                        .ok_or(BridgeError::BitvmSetupNotFound(
+                        .ok_or(TxError::BitvmSetupNotFound(
                             self.operator_idx as i32,
                             deposit_outpoint.txid,
                         ))?;
@@ -204,7 +205,7 @@ impl ReimburseDbCache {
                 }
             }
         } else {
-            Err(BridgeError::InsufficientContext)
+            Err(TxError::InsufficientContext.into())
         }
     }
 
@@ -221,7 +222,8 @@ impl ReimburseDbCache {
                                 *deposit_outpoint,
                             )
                             .await?
-                            .ok_or(BridgeError::WatchtowerPublicHashesNotFound(
+                            .ok_or(eyre::eyre!(
+                                "Watchtower public hashes not found for operator {0} and deposit {1}",
                                 self.operator_idx as i32,
                                 deposit_outpoint.txid,
                             ))?,
@@ -230,7 +232,7 @@ impl ReimburseDbCache {
                 }
             }
         } else {
-            Err(BridgeError::InsufficientContext)
+            Err(TxError::InsufficientContext.into())
         }
     }
 
@@ -243,7 +245,7 @@ impl ReimburseDbCache {
                         .db
                         .get_bitvm_root_hash(None, self.operator_idx as i32, *deposit_outpoint)
                         .await?
-                        .ok_or(BridgeError::BitvmSetupNotFound(
+                        .ok_or(TxError::BitvmSetupNotFound(
                             self.operator_idx as i32,
                             deposit_outpoint.txid,
                         ))?;
@@ -255,7 +257,7 @@ impl ReimburseDbCache {
                 }
             }
         } else {
-            Err(BridgeError::InsufficientContext)
+            Err(TxError::InsufficientContext.into())
         }
     }
 }
@@ -360,7 +362,7 @@ impl TxHandlerCache {
         {
             let txhandler = txhandlers
                 .remove(tx_type)
-                .ok_or(BridgeError::TxHandlerNotFound(*tx_type))?;
+                .ok_or(TxError::TxHandlerNotFound(*tx_type))?;
             self.saved_txs.insert(*tx_type, txhandler);
         }
         Ok(())
@@ -444,13 +446,9 @@ pub async fn create_txhandlers(
     let kickoff_id = KickoffId {
         operator_idx,
         round_idx,
-        kickoff_idx: context
-            .kickoff_idx
-            .ok_or(BridgeError::InsufficientContext)?,
+        kickoff_idx: context.kickoff_idx.ok_or(TxError::InsufficientContext)?,
     };
-    let deposit_data = context
-        .deposit_data
-        .ok_or(BridgeError::InsufficientContext)?;
+    let deposit_data = context.deposit_data.ok_or(TxError::InsufficientContext)?;
 
     if !txhandlers.contains_key(&TransactionType::MoveToVault) {
         // if not cached create move_txhandler
@@ -466,15 +464,12 @@ pub async fn create_txhandlers(
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
         // the actual scripts to be able to spend
-        let actor = context
-            .signer
-            .clone()
-            .ok_or(BridgeError::InsufficientContext)?;
+        let actor = context.signer.clone().ok_or(TxError::InsufficientContext)?;
 
         // deposit_data.deposit_outpoint.txid
 
-        let bitvm_pks = actor
-            .generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint().txid, paramset)?;
+        let bitvm_pks =
+            actor.generate_bitvm_pks_for_deposit(deposit_data.get_deposit_outpoint(), paramset)?;
 
         let assert_scripts = bitvm_pks.get_assert_scripts(operator_data.xonly_pk);
 

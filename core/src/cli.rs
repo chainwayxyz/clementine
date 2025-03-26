@@ -16,7 +16,7 @@ use std::str::FromStr;
 use tracing::level_filters::LevelFilter;
 use tracing::Level;
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum, Eq, PartialEq)]
 pub enum Actors {
     Verifier,
     Operator,

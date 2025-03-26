@@ -4,6 +4,7 @@ use super::{
 };
 use crate::{bitcoin_syncer::BitcoinSyncerEvent, errors::BridgeError, execute_query_with_tx};
 use bitcoin::{BlockHash, OutPoint, Txid};
+use eyre::Context;
 use std::ops::DerefMut;
 
 impl Database {
@@ -22,11 +23,13 @@ impl Database {
         )
         .bind(BlockHashDB(*block_hash))
         .bind(BlockHashDB(*prev_block_hash))
-        .bind(i32::try_from(block_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?);
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
+        u32::try_from(id)
+            .wrap_err(BridgeError::IntConversionError)
+            .map_err(Into::into)
     }
     /// # Returns
     ///
@@ -49,8 +52,7 @@ impl Database {
 
         ret.map(
             |(prev_hash, height)| -> Result<(BlockHash, u32), BridgeError> {
-                let height = u32::try_from(height)
-                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                let height = u32::try_from(height).wrap_err(BridgeError::IntConversionError)?;
                 Ok((prev_hash.0, height))
             },
         )
@@ -65,15 +67,14 @@ impl Database {
         let query = sqlx::query_as(
             "SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1 AND is_canonical = true",
         )
-        .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?);
 
         let ret: Option<(BlockHashDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         ret.map(
             |(block_hash, height)| -> Result<(BlockHash, u32), BridgeError> {
-                let height = u32::try_from(height)
-                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                let height = u32::try_from(height).wrap_err(BridgeError::IntConversionError)?;
                 Ok((block_hash.0, height))
             },
         )
@@ -91,7 +92,7 @@ impl Database {
             "INSERT INTO bitcoin_blocks (height, block_data) VALUES ($1, $2)
              ON CONFLICT (height) DO UPDATE SET block_data = $2",
         )
-        .bind(i32::try_from(block_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(i32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?)
         .bind(&block_bytes);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -103,9 +104,8 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_height: u32,
     ) -> Result<Option<bitcoin::Block>, BridgeError> {
-        let query = sqlx::query_as("SELECT block_data FROM bitcoin_blocks WHERE height = $1").bind(
-            i32::try_from(block_height).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
-        );
+        let query = sqlx::query_as("SELECT block_data FROM bitcoin_blocks WHERE height = $1")
+            .bind(i32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?);
 
         let block_data: Option<(Vec<u8>,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
@@ -113,7 +113,7 @@ impl Database {
         match block_data {
             Some((bytes,)) => {
                 let block = bitcoin::consensus::deserialize(&bytes)
-                    .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                    .wrap_err(BridgeError::IntConversionError)?;
                 Ok(Some(block))
             }
             None => Ok(None),
@@ -130,10 +130,9 @@ impl Database {
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         result
-            .map(|(height,)| {
-                u32::try_from(height).map_err(|e| BridgeError::ConversionError(e.to_string()))
-            })
+            .map(|(height,)| u32::try_from(height).wrap_err(BridgeError::IntConversionError))
             .transpose()
+            .map_err(Into::into)
     }
 
     /// Gets the block hashes that have height bigger then the given height and deletes them.
@@ -150,15 +149,14 @@ impl Database {
                 RETURNING id
             ) SELECT id FROM deleted",
         )
-        .bind(i32::try_from(height).map_err(|e| BridgeError::ConversionError(e.to_string()))?);
+        .bind(i32::try_from(height).wrap_err(BridgeError::IntConversionError)?);
 
         let block_ids: Vec<(i32,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
         block_ids
             .into_iter()
-            .map(|(block_id,)| {
-                u32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))
-            })
-            .collect::<Result<Vec<_>, BridgeError>>()
+            .map(|(block_id,)| u32::try_from(block_id).wrap_err(BridgeError::IntConversionError))
+            .collect::<Result<Vec<_>, eyre::Report>>()
+            .map_err(Into::into)
     }
 
     pub async fn add_txid_to_block(
@@ -168,7 +166,7 @@ impl Database {
         txid: &bitcoin::Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO bitcoin_syncer_txs (block_id, txid) VALUES ($1, $2)")
-            .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+            .bind(i32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?)
             .bind(super::wrapper::TxidDB(*txid));
 
         execute_query_with_tx!(self.connection, Some(tx), query, execute)?;
@@ -180,9 +178,8 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_id: u32,
     ) -> Result<Vec<Txid>, BridgeError> {
-        let query = sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1").bind(
-            i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
-        );
+        let query = sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1")
+            .bind(i32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?);
 
         let txids: Vec<(TxidDB,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
@@ -225,8 +222,7 @@ impl Database {
             .into_iter()
             .map(
                 |(block_id, txid, vout)| -> Result<(i64, OutPoint), BridgeError> {
-                    let vout = u32::try_from(vout)
-                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?;
+                    let vout = u32::try_from(vout).wrap_err(BridgeError::IntConversionError)?;
                     Ok((block_id, OutPoint { txid: txid.0, vout }))
                 },
             )
@@ -242,11 +238,11 @@ impl Database {
             BitcoinSyncerEvent::NewBlock(block_id) => sqlx::query(
                 "INSERT INTO bitcoin_syncer_events (block_id, event_type) VALUES ($1, 'new_block'::bitcoin_syncer_event_type)",
             )
-            .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?),
+            .bind(i32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?),
             BitcoinSyncerEvent::ReorgedBlock(block_id) => sqlx::query(
                 "INSERT INTO bitcoin_syncer_events (block_id, event_type) VALUES ($1, 'reorged_block'::bitcoin_syncer_event_type)",
             )
-            .bind(i32::try_from(block_id).map_err(|e| BridgeError::ConversionError(e.to_string()))?),
+            .bind(i32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?),
         };
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -302,10 +298,10 @@ impl Database {
         let event = event.expect("should exist since we checked is_none()");
         let event_type = match event.2.as_str() {
             "new_block" => BitcoinSyncerEvent::NewBlock(
-                u32::try_from(event.1).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                u32::try_from(event.1).wrap_err(BridgeError::IntConversionError)?,
             ),
             "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(
-                u32::try_from(event.1).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                u32::try_from(event.1).wrap_err(BridgeError::IntConversionError)?,
             ),
             _ => return Err(BridgeError::Error("Invalid event type".to_string())),
         };

@@ -159,7 +159,7 @@ pub fn create_nofn_sighash_stream(
             db.get_operators(None).await?;
         let paramset = config.protocol_paramset();
         if operators.len() < config.num_operators {
-            Err(BridgeError::NotEnoughOperators)?;
+            Err(eyre::eyre!("Not enough operators"))?;
         }
 
         for (operator_idx, (op_xonly_pk, _, _)) in
@@ -229,7 +229,7 @@ pub fn create_nofn_sighash_stream(
 
 
                     if sum != config.get_num_required_nofn_sigs_per_kickoff() {
-                        Err(BridgeError::NofNSighashMismatch(config.get_num_required_nofn_sigs_per_kickoff(), sum))?;
+                        Err(eyre::eyre!("NofN sighash count does not match: expected {0}, got {1}", config.get_num_required_nofn_sigs_per_kickoff(), sum))?;
                     }
                     // recollect round_tx, ready_to_reimburse_tx, and move_to_vault_tx for the next kickoff_utxo
                     txhandler_cache.store_for_next_kickoff(&mut txhandlers)?;
@@ -305,7 +305,7 @@ pub fn create_operator_sighash_stream(
                     }
                 }
                 if sum != config.get_num_required_operator_sigs_per_kickoff() {
-                    Err(BridgeError::OperatorSighashMismatch(config.get_num_required_operator_sigs_per_kickoff(), sum))?;
+                    Err(eyre::eyre!("Operator sighash count does not match: expected {0}, got {1}", config.get_num_required_operator_sigs_per_kickoff(), sum))?;
                 }
                 // recollect round_tx, ready_to_reimburse_tx, and move_to_vault_tx for the next kickoff_utxo
                 txhandler_cache.store_for_next_kickoff(&mut txhandlers)?;

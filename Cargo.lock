@@ -1723,7 +1723,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=8508328#8508328d1823ea0c6675af6cb0168de1d1f0cdbc"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=a3d7230#a3d72306ece8a7a9f9ca5b71b1a1ee470e2cd988"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-crypto-primitives 0.5.0 (git+https://github.com/arkworks-rs/crypto-primitives?branch=release-0.5.0)",
@@ -2191,6 +2191,7 @@ dependencies = [
  "bitcoincore-rpc",
  "bitvm",
  "borsh",
+ "bridge-circuit-host",
  "citrea-e2e",
  "clap",
  "eyre",
@@ -2224,7 +2225,6 @@ dependencies = [
  "toml",
  "tonic",
  "tonic-build",
- "tonic-reflection",
  "tower 0.4.13",
  "tracing",
  "tracing-subscriber 0.3.19",
@@ -2999,7 +2999,7 @@ dependencies = [
 [[package]]
 name = "final-spv"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=8508328#8508328d1823ea0c6675af6cb0168de1d1f0cdbc"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=a3d7230#a3d72306ece8a7a9f9ca5b71b1a1ee470e2cd988"
 dependencies = [
  "bitcoin",
  "blake3",
@@ -3373,7 +3373,7 @@ dependencies = [
 [[package]]
 name = "header-chain"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=8508328#8508328d1823ea0c6675af6cb0168de1d1f0cdbc"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=a3d7230#a3d72306ece8a7a9f9ca5b71b1a1ee470e2cd988"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -7221,19 +7221,6 @@ dependencies = [
  "prost-types",
  "quote",
  "syn 2.0.99",
-]
-
-[[package]]
-name = "tonic-reflection"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "878d81f52e7fcfd80026b7fdb6a9b578b3c3653ba987f87f0dce4b64043cba27"
-dependencies = [
- "prost",
- "prost-types",
- "tokio",
- "tokio-stream",
- "tonic",
 ]
 
 [[package]]

@@ -582,7 +582,7 @@ mod tests {
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use bitcoin::{Amount, Sequence, TxOut, Txid};
+    use bitcoin::{Amount, OutPoint, Sequence, TxOut, Txid};
 
     async fn create_taproot_test_tx(
         rpc: &ExtendedRpc,
@@ -693,11 +693,16 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
+        let deposit_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0,
+        };
+
         let derivation = WinternitzDerivationPath::BitvmAssert(
             64,
             3,
             0,
-            Txid::all_zeros(),
+            deposit_outpoint,
             ProtocolParamsetName::Regtest.into(),
         );
 
@@ -705,7 +710,7 @@ mod tests {
             64,
             2,
             0,
-            Txid::all_zeros(),
+            deposit_outpoint,
             ProtocolParamsetName::Regtest.into(),
         );
 

@@ -70,7 +70,6 @@ For more information, use `--help` flag:
 1. **PostgreSQL Database**
 
    Tests require a PostgreSQL database with a high max connection limit due to parallelism of tests.
-   It is also required to have pgmq extension installed for PostgreSQL.
    You can quickly set one up using Docker:
 
    ```bash
@@ -81,7 +80,7 @@ For more information, use `--help` flag:
    -p 5432:5432 \
    --restart always \
    -d postgres:15 \
-   bash -c "apt-get update && apt-get install -y make pgxnclient && pgxn install pgmq && exec docker-entrypoint.sh postgres -c 'max_connections=1000'"
+   bash -c "exec docker-entrypoint.sh postgres -c 'max_connections=1000'"
    ```
 
 2. **RISC Zero Toolchain**

@@ -78,12 +78,20 @@ impl Database {
     ///
     /// Will return [`BridgeError`] if there was a problem with database
     /// connection.
-    pub async fn run_schema_script(config: &BridgeConfig) -> Result<(), BridgeError> {
+    pub async fn run_schema_script(
+        config: &BridgeConfig,
+        is_verifier: bool,
+    ) -> Result<(), BridgeError> {
         let database = Database::new(config).await?;
 
         sqlx::raw_sql(include_str!("../../../scripts/schema.sql"))
             .execute(&database.connection)
             .await?;
+        if is_verifier {
+            sqlx::raw_sql(include_str!("../../../scripts/pgmq.sql"))
+                .execute(&database.connection)
+                .await?;
+        }
 
         database.close().await;
         Ok(())
