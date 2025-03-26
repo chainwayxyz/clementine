@@ -65,7 +65,6 @@ impl SignatureId {
                     ChallengeTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                     MiniAssert1 => Ok(Own(SighashDefault)),
                     OperatorChallengeAck1 => Ok(Own(SighashDefault)),
-                    WatchtowerChallenge1 => Ok(Own(SighashDefault)),
                     NotStored => Ok(NotOwned),
                     YieldKickoffTxid => Ok(NotOwned),
                 }
