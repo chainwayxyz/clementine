@@ -121,7 +121,7 @@ fn calc_tweaked_xonly_pk(
 pub struct TweakCache {
     tweaked_key_cache: HashMap<(XOnlyPublicKey, Option<TapNodeHash>), XOnlyPublicKey>,
     // A cache to hold actors own tweaked keys.
-    tweaked_keypair_cache: HashMap<(Keypair, Option<TapNodeHash>), Keypair>,
+    tweaked_keypair_cache: HashMap<(XOnlyPublicKey, Option<TapNodeHash>), Keypair>,
 }
 
 impl TweakCache {
@@ -130,7 +130,10 @@ impl TweakCache {
         keypair: &Keypair,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<&Keypair, BridgeError> {
-        match self.tweaked_keypair_cache.entry((*keypair, merkle_root)) {
+        match self
+            .tweaked_keypair_cache
+            .entry((keypair.x_only_public_key().0, merkle_root))
+        {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => Ok(entry.insert(calc_tweaked_keypair(keypair, merkle_root)?)),
         }
