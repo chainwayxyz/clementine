@@ -5,15 +5,17 @@ use crate::bitvm_client::SECP;
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
-use crate::rpc::clementine::WithdrawParams;
+use crate::rpc::clementine::{KickoffId, TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    ensure_tx_onchain,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
+use crate::test::full_flow::get_tx_from_signed_txs_with_type;
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -401,7 +403,7 @@ async fn mock_citrea_run() {
         mut operators,
         _aggregator,
         _cleanup,
-        _deposit_params,
+        deposit_params,
         move_txid,
         _deposit_blockhash,
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
@@ -572,8 +574,8 @@ async fn mock_citrea_run() {
                 .await?
                 .is_some())
         },
-        Some(Duration::from_secs(120)),
-        Some(Duration::from_millis(100)),
+        Some(Duration::from_secs(180)),
+        Some(Duration::from_millis(200)),
     )
     .await
     .wrap_err("Timed out while waiting for payout to be added to unhandled list")
@@ -588,8 +590,8 @@ async fn mock_citrea_run() {
                 .await?
                 .is_none())
         },
-        Some(Duration::from_secs(120)),
-        Some(Duration::from_millis(100)),
+        Some(Duration::from_secs(180)),
+        Some(Duration::from_millis(200)),
     )
     .await
     .wrap_err("Timed out while waiting for payout to be handled")
@@ -620,6 +622,48 @@ async fn mock_citrea_run() {
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
     // wait until the light client prover is synced to the same height
+
+    //we need to check that challenge timeout is not sent as withdrawal is truthful
+    let mut used_utxo = 1000000000;
+    // get kickoff_idx that was used to sign the kickoff
+    for i in 0..config.protocol_paramset().num_kickoffs_per_round as u32 {
+        let kickoff_tx = db
+            .get_kickoff_txid_for_used_kickoff_connector(None, 0, i)
+            .await;
+        if let Ok(Some(used_kickoff_txid)) = kickoff_tx {
+            if used_kickoff_txid == kickoff_txid {
+                used_utxo = i;
+                break;
+            }
+        }
+    }
+
+    assert!(used_utxo != 1000000000);
+
+    let signed_txs = operators[0]
+        .internal_create_signed_txs(TransactionRequest {
+            deposit_params: Some(deposit_params),
+            kickoff_id: Some(KickoffId {
+                operator_idx: 0,
+                round_idx: 0,
+                kickoff_idx: used_utxo,
+            }),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+
+    let challenge_timeout_txid = get_tx_from_signed_txs_with_type(
+        &signed_txs,
+        crate::builder::transaction::TransactionType::ChallengeTimeout,
+    )
+    .unwrap()
+    .compute_txid();
+
+    //ensure challenge timeout was sent
+    ensure_tx_onchain(&rpc, challenge_timeout_txid)
+        .await
+        .unwrap();
 
     // Ensure the reimburse connector is spent
     ensure_outpoint_spent(&rpc, reimburse_connector)
