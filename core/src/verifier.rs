@@ -1237,6 +1237,26 @@ where
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
 
+        // Save block info to database for the header chain prover.
+        let block_hash = block_cache
+            .block
+            .as_ref()
+            .ok_or(eyre::eyre!("Block not found"))?
+            .block_hash();
+        let block_header = block_cache
+            .block
+            .as_ref()
+            .ok_or(eyre::eyre!("Block not found"))?
+            .header;
+        self.db
+            .set_new_block(
+                Some(&mut dbtx),
+                block_hash,
+                block_header,
+                block_height.into(),
+            )
+            .await?;
+
         Ok(())
     }
 }
