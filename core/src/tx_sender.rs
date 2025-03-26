@@ -354,10 +354,10 @@ impl TxSender {
 
         let sighash = tx_handler
             .calculate_pubkey_spend_sighash(1, bitcoin::TapSighashType::Default)
-            .wrap_err("Failed to calculate pubkey spend sighash")?;
+            .map_err(|e| eyre!(e))?;
         let signature = self
             .signer
-            .sign_with_tweak(sighash, None)
+            .sign_with_tweak_data(sighash, builder::sighash::TapTweakData::KeyPath(None), None)
             .map_err(|e| eyre!(e))?;
         tx_handler
             .set_p2tr_key_spend_witness(
@@ -1052,6 +1052,7 @@ impl TxSenderClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actor::TweakCache;
     use crate::bitcoin_syncer::BitcoinSyncer;
     use crate::bitvm_client::SECP;
     use crate::builder::script::{CheckSig, SpendableScript};
@@ -1095,7 +1096,7 @@ mod tests {
 
     async fn create_bumpable_tx(
         rpc: &ExtendedRpc,
-        signer: Actor,
+        signer: &Actor,
         network: bitcoin::Network,
         fee_paying_type: FeePayingType,
     ) -> Result<Transaction, BridgeError> {
@@ -1142,7 +1143,11 @@ mod tests {
         };
 
         let sighash = builder.calculate_pubkey_spend_sighash(0, sighash_type)?;
-        let signature = signer.sign_with_tweak(sighash, None)?;
+        let signature = signer.sign_with_tweak_data(
+            sighash,
+            builder::sighash::TapTweakData::KeyPath(None),
+            None,
+        )?;
         builder.set_p2tr_key_spend_witness(
             &bitcoin::taproot::Signature {
                 signature,
@@ -1176,7 +1181,7 @@ mod tests {
         let tx_sender = tx_sender.into_task().cancelable_loop();
         tx_sender.0.into_bg();
 
-        let tx = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::CPFP)
+        let tx = create_bumpable_tx(&rpc, &signer, network, FeePayingType::CPFP)
             .await
             .unwrap();
 
@@ -1234,7 +1239,7 @@ mod tests {
 
         assert!(tx_id1_seen_block_id.is_none());
 
-        let tx2 = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::RBF)
+        let tx2 = create_bumpable_tx(&rpc, &signer, network, FeePayingType::RBF)
             .await
             .unwrap();
 
@@ -1333,8 +1338,10 @@ mod tests {
                 Some(taproot_spend_info.clone()),
             ))
             .finalize();
+
+        let mut tweak_cache = TweakCache::default();
         signer
-            .tx_sign_and_fill_sigs(&mut will_fail_handler, &[])
+            .tx_sign_and_fill_sigs(&mut will_fail_handler, &[], Some(&mut tweak_cache))
             .unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
@@ -1364,7 +1371,7 @@ mod tests {
             ))
             .finalize();
         signer
-            .tx_sign_and_fill_sigs(&mut will_successful_handler, &[])
+            .tx_sign_and_fill_sigs(&mut will_successful_handler, &[], Some(&mut tweak_cache))
             .unwrap();
 
         rpc.mine_blocks(1).await.unwrap();

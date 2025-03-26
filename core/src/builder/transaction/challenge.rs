@@ -34,7 +34,7 @@ pub fn create_watchtower_challenge_txhandler(
             ),
             kickoff_txhandler
                 .get_spendable_output(get_watchtower_challenge_utxo_vout(watchtower_idx))?,
-            SpendPath::ScriptSpend(1),
+            SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         );
     let mut current_idx = 0;
