@@ -128,7 +128,7 @@ pub async fn create_and_sign_txs(
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 watchtower_idx as u32,
-                transaction_data.deposit_data.get_deposit_outpoint().txid,
+                transaction_data.deposit_data.get_deposit_outpoint(),
                 config.protocol_paramset(),
             );
             let preimage = signer.generate_preimage_from_path(path)?;
@@ -266,7 +266,7 @@ where
                 .ok_or(TxError::TxHandlerNotFound(TransactionType::MiniAssert(idx)))?;
             let derivations = ClementineBitVMPublicKeys::get_assert_derivations(
                 idx,
-                assert_data.deposit_data.get_deposit_outpoint().txid,
+                assert_data.deposit_data.get_deposit_outpoint(),
                 self.config.protocol_paramset(),
             );
             let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations

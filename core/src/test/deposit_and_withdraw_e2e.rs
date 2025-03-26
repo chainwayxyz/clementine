@@ -10,7 +10,7 @@ use crate::test::common::tx_utils::{
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
-    run_single_deposit,
+    poll_get, poll_until_condition, run_single_deposit,
 };
 use crate::UTXO;
 use crate::{
@@ -35,7 +35,8 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
-use std::time::Instant;
+use eyre::Context;
+use std::time::Duration;
 
 struct CitreaDepositAndWithdrawE2E;
 #[async_trait]
@@ -510,43 +511,42 @@ async fn mock_citrea_run() {
 
     tracing::info!("Withdrawal tx sent");
 
-    let start = Instant::now();
-    let payout_txid = loop {
-        let withdrawal_response = operators[0]
-            .withdraw(WithdrawParams {
-                withdrawal_id: 0,
-                input_signature: sig.serialize().to_vec(),
-                input_outpoint: Some(withdrawal_utxo.into()),
-                output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
-                output_amount: payout_txout.txout().value.to_sat(),
-            })
-            .await;
+    let payout_txid = poll_get(
+        async || {
+            let withdrawal_response = operators[0]
+                .withdraw(WithdrawParams {
+                    withdrawal_id: 0,
+                    input_signature: sig.serialize().to_vec(),
+                    input_outpoint: Some(withdrawal_utxo.into()),
+                    output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
+                    output_amount: payout_txout.txout().value.to_sat(),
+                })
+                .await;
 
-        tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-
-        match withdrawal_response {
-            Ok(withdrawal_response) => {
-                tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-                break Txid::from_byte_array(
-                    withdrawal_response.into_inner().txid.try_into().unwrap(),
-                );
+            match withdrawal_response {
+                Ok(withdrawal_response) => {
+                    tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+                    let payout_txid = Some(Txid::from_byte_array(
+                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                    ));
+                    Ok(Some(payout_txid))
+                }
+                Err(e) => {
+                    tracing::info!("Withdrawal error: {:?}", e);
+                    Ok(None)
+                }
             }
-            Err(e) => {
-                tracing::info!("Withdrawal error: {:?}", e);
-            }
-        }
-
-        // wait 1000ms
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        rpc.mine_blocks(1).await.unwrap();
-
-        // timeout after 120 seconds
-        if start.elapsed() > std::time::Duration::from_secs(120) {
-            panic!("Withdrawal took too long");
-        }
-    };
+        },
+        Some(std::time::Duration::from_secs(120)),
+        Some(std::time::Duration::from_millis(1000)),
+    )
+    .await
+    .wrap_err("Withdrawal took too long")
+    .unwrap();
 
     tracing::info!("Payout txid: {:?}", payout_txid);
+
+    let payout_txid = payout_txid.unwrap();
 
     mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None)
         .await
@@ -566,26 +566,35 @@ async fn mock_citrea_run() {
         .expect("failed to create database");
 
     // wait until payout part is not null
-    while db
-        .get_first_unhandled_payout_by_operator_id(None, 0)
-        .await
-        .unwrap()
-        .is_none()
-    {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    poll_until_condition(
+        async || {
+            Ok(db
+                .get_first_unhandled_payout_by_operator_id(None, 0)
+                .await?
+                .is_some())
+        },
+        Some(Duration::from_secs(120)),
+        Some(Duration::from_millis(100)),
+    )
+    .await
+    .wrap_err("Timed out while waiting for payout to be added to unhandled list")
+    .unwrap();
 
     tracing::info!("Waiting until payout is handled");
     // wait until payout is handled
-    while db
-        .get_first_unhandled_payout_by_operator_id(None, 0)
-        .await
-        .unwrap()
-        .is_some()
-    {
-        tracing::info!("Payout is not handled yet");
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    poll_until_condition(
+        async || {
+            Ok(db
+                .get_first_unhandled_payout_by_operator_id(None, 0)
+                .await?
+                .is_none())
+        },
+        Some(Duration::from_secs(120)),
+        Some(Duration::from_millis(100)),
+    )
+    .await
+    .wrap_err("Timed out while waiting for payout to be handled")
+    .unwrap();
 
     let kickoff_txid = db
         .get_handled_payout_kickoff_txid(None, payout_txid)

@@ -13,9 +13,9 @@ use bitcoin::taproot::{self, LeafVersion, TaprootSpendInfo};
 use bitcoin::{
     hashes::Hash,
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
-    Address, ScriptBuf, TapSighash, TapTweakHash, Txid,
+    Address, ScriptBuf, TapSighash, TapTweakHash,
 };
-use bitcoin::{TapNodeHash, TapSighashType, Witness};
+use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 use eyre::{Context, OptionExt};
 
@@ -24,11 +24,11 @@ pub enum WinternitzDerivationPath {
     /// round_idx, kickoff_idx
     /// Message length is fixed KICKOFF_BLOCKHASH_COMMIT_LENGTH
     Kickoff(u32, u32, &'static ProtocolParamset),
-    /// message_length, pk_type_idx, pk_idx, deposit_txid
-    BitvmAssert(u32, u32, u32, Txid, &'static ProtocolParamset),
-    /// watchtower_idx, deposit_txid
+    /// message_length, pk_type_idx, pk_idx, deposit_outpoint
+    BitvmAssert(u32, u32, u32, OutPoint, &'static ProtocolParamset),
+    /// watchtower_idx, deposit_outpoint
     /// message length is fixed to 1 (because its for one hash)
-    ChallengeAckHash(u32, Txid, &'static ProtocolParamset),
+    ChallengeAckHash(u32, OutPoint, &'static ProtocolParamset),
 }
 
 impl WinternitzDerivationPath {
@@ -53,17 +53,19 @@ impl WinternitzDerivationPath {
                 message_length,
                 pk_type_idx,
                 pk_idx,
-                deposit_txid,
+                deposit_outpoint,
                 _,
             ) => {
                 bytes.extend_from_slice(&message_length.to_be_bytes());
                 bytes.extend_from_slice(&pk_type_idx.to_be_bytes());
                 bytes.extend_from_slice(&pk_idx.to_be_bytes());
-                bytes.extend_from_slice(&deposit_txid.to_byte_array());
+                bytes.extend_from_slice(&deposit_outpoint.txid.to_byte_array());
+                bytes.extend_from_slice(&deposit_outpoint.vout.to_be_bytes());
             }
-            WinternitzDerivationPath::ChallengeAckHash(watchtower_idx, deposit_txid, _) => {
+            WinternitzDerivationPath::ChallengeAckHash(watchtower_idx, deposit_outpoint, _) => {
                 bytes.extend_from_slice(&watchtower_idx.to_be_bytes());
-                bytes.extend_from_slice(&deposit_txid.to_byte_array());
+                bytes.extend_from_slice(&deposit_outpoint.txid.to_byte_array());
+                bytes.extend_from_slice(&deposit_outpoint.vout.to_be_bytes());
             }
         }
 
@@ -208,34 +210,54 @@ impl Actor {
 
     pub fn generate_bitvm_pks_for_deposit(
         &self,
-        txid: Txid,
+        deposit_outpoint: OutPoint,
         paramset: &'static ProtocolParamset,
     ) -> Result<ClementineBitVMPublicKeys, BridgeError> {
         let mut pks = ClementineBitVMPublicKeys::create_replacable();
         let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-            40, 0, 0, txid, paramset,
+            40,
+            0,
+            0,
+            deposit_outpoint,
+            paramset,
         ))?;
         pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
         let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-            40, 1, 0, txid, paramset,
+            40,
+            1,
+            0,
+            deposit_outpoint,
+            paramset,
         ))?;
         pks.challenge_sending_watchtowers_pk =
             ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
         for i in 0..pks.bitvm_pks.0.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-                64, 2, i as u32, txid, paramset,
+                64,
+                2,
+                i as u32,
+                deposit_outpoint,
+                paramset,
             ))?;
             pks.bitvm_pks.0[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
         }
         for i in 0..pks.bitvm_pks.1.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-                64, 3, i as u32, txid, paramset,
+                64,
+                3,
+                i as u32,
+                deposit_outpoint,
+                paramset,
             ))?;
             pks.bitvm_pks.1[i] = ClementineBitVMPublicKeys::vec_to_array::<68>(&pk_vec);
         }
         for i in 0..pks.bitvm_pks.2.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-                32, 4, i as u32, txid, paramset,
+                32,
+                4,
+                i as u32,
+                deposit_outpoint,
+                paramset,
             ))?;
             pks.bitvm_pks.2[i] = ClementineBitVMPublicKeys::vec_to_array::<36>(&pk_vec);
         }
@@ -576,7 +598,7 @@ mod tests {
     use bitcoin::sighash::TapSighashType;
     use bitcoin::transaction::Transaction;
 
-    use bitcoin::{Amount, Network, OutPoint};
+    use bitcoin::{Amount, Network, OutPoint, Txid};
     use bitvm::{
         execute_script,
         signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz},
@@ -863,19 +885,25 @@ mod tests {
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, Txid::all_zeros(), paramset);
+        let deposit_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 1,
+        };
+
+        let params = WinternitzDerivationPath::BitvmAssert(3, 0, 0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            224, 101, 120, 58, 98, 81, 185, 170, 95, 83, 4, 26, 162, 206, 73, 239, 34, 128, 222, 43,
+            109, 153, 145, 11, 185, 140, 236, 205, 105, 93, 80, 123, 62, 218, 228, 193, 124, 151,
+            200, 208,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
             expected_pk
         );
 
-        let params = WinternitzDerivationPath::ChallengeAckHash(0, Txid::all_zeros(), paramset);
+        let params = WinternitzDerivationPath::ChallengeAckHash(0, deposit_outpoint, paramset);
         let expected_pk = vec![
-            52, 104, 75, 112, 27, 246, 92, 105, 191, 110, 32, 49, 155, 126, 25, 165, 197, 83, 254,
-            151,
+            113, 255, 129, 122, 93, 181, 207, 47, 113, 140, 166, 79, 160, 116, 58, 199, 27, 162,
+            163, 142,
         ];
         assert_eq!(
             actor.derive_winternitz_pk(params).unwrap()[0].to_vec(),
@@ -901,8 +929,13 @@ mod tests {
         let message_len = data.len() as u32 * 2;
         let paramset: &'static ProtocolParamset = ProtocolParamsetName::Regtest.into();
 
+        let deposit_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 1,
+        };
+
         let path =
-            WinternitzDerivationPath::BitvmAssert(message_len, 0, 0, Txid::all_zeros(), paramset);
+            WinternitzDerivationPath::BitvmAssert(message_len, 0, 0, deposit_outpoint, paramset);
         let params = winternitz::Parameters::new(message_len, paramset.winternitz_log_d);
 
         let witness = actor

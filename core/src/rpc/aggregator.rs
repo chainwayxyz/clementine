@@ -1040,6 +1040,7 @@ mod tests {
     use crate::{rpc::clementine::DepositParams, test::common::*};
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
+    use eyre::Context;
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -1123,30 +1124,29 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
-        let start = std::time::Instant::now();
-        let timeout = 60;
-        let tx = loop {
-            if start.elapsed() > std::time::Duration::from_secs(timeout) {
-                panic!("MoveTx did not land onchain within {timeout} seconds");
-            }
-            rpc.mine_blocks(1).await.unwrap();
+        let tx = poll_get(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
 
-            let tx_result = rpc
-                .client
-                .get_raw_transaction_info(&movetx_txid, None)
-                .await;
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&movetx_txid, None)
+                    .await;
 
-            let tx_result = match tx_result {
-                Ok(tx) => tx,
-                Err(e) => {
-                    tracing::error!("Error getting transaction: {:?}", e);
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    continue;
-                }
-            };
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
 
-            break tx_result;
-        };
+                Ok(tx_result)
+            },
+            None,
+            None,
+        )
+        .await
+        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
+        .unwrap();
 
         assert!(tx.confirmations.unwrap() > 0);
     }

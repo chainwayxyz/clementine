@@ -1015,8 +1015,12 @@ mod tests {
 
         let operator = Operator::<MockCitreaClient>::new(config).await.unwrap();
         let operator_idx = 0x45;
+        let deposit_outpoint = OutPoint {
+            txid: Txid::from_slice(&[0x45; 32]).unwrap(),
+            vout: 0x1F,
+        };
         let wpks = operator
-            .generate_assert_winternitz_pubkeys(Txid::all_zeros())
+            .generate_assert_winternitz_pubkeys(deposit_outpoint)
             .unwrap();
 
         database
