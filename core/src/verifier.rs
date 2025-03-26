@@ -924,7 +924,15 @@ where
         let payout_info = self
             .db
             .get_payout_info_from_move_txid(None, move_txid)
-            .await?;
+            .await;
+        if let Err(e) = &payout_info {
+            tracing::warn!(
+                "Couldn't retrieve payout info from db {}, assuming malicious",
+                e
+            );
+            return Ok(true);
+        }
+        let payout_info = payout_info?;
         if let Some((operator_idx, payout_blockhash)) = payout_info {
             if operator_idx != kickoff_id.operator_idx {
                 return Ok(true);
