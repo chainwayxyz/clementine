@@ -6,19 +6,16 @@ use crate::builder::transaction::DepositData;
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
-use crate::rpc::clementine::{
-    FinalizedPayoutParams, KickoffId, TransactionRequest, WithdrawParams,
-};
+use crate::rpc::clementine::{FinalizedPayoutParams, WithdrawParams};
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
-    ensure_tx_onchain, get_txid_where_utxo_is_spent,
+    get_txid_where_utxo_is_spent,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
-use crate::test::full_flow::get_tx_from_signed_txs_with_type;
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -406,7 +403,7 @@ async fn mock_citrea_run_truthful() {
         mut operators,
         _aggregator,
         _cleanup,
-        deposit_params,
+        _deposit_params,
         move_txid,
         _deposit_blockhash,
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
@@ -626,47 +623,19 @@ async fn mock_citrea_run_truthful() {
 
     // wait until the light client prover is synced to the same height
 
-    //we need to check that challenge timeout is not sent as withdrawal is truthful
-    let mut used_utxo = 1000000000;
-    // get kickoff_idx that was used to sign the kickoff
-    for i in 0..config.protocol_paramset().num_kickoffs_per_round as u32 {
-        let kickoff_tx = db
-            .get_kickoff_txid_for_used_kickoff_connector(None, 0, i)
-            .await;
-        if let Ok(Some(used_kickoff_txid)) = kickoff_tx {
-            if used_kickoff_txid == kickoff_txid {
-                used_utxo = i;
-                break;
-            }
-        }
-    }
+    let challenge_outpoint = OutPoint {
+        txid: kickoff_txid,
+        vout: 0,
+    };
 
-    assert!(used_utxo != 1000000000);
-
-    let signed_txs = operators[0]
-        .internal_create_signed_txs(TransactionRequest {
-            deposit_params: Some(deposit_params),
-            kickoff_id: Some(KickoffId {
-                operator_idx: 0,
-                round_idx: 0,
-                kickoff_idx: used_utxo,
-            }),
-        })
-        .await
-        .unwrap()
-        .into_inner();
-
-    let challenge_timeout_txid = get_tx_from_signed_txs_with_type(
-        &signed_txs,
-        crate::builder::transaction::TransactionType::ChallengeTimeout,
-    )
-    .unwrap()
-    .compute_txid();
-
-    //ensure challenge timeout was sent
-    ensure_tx_onchain(&rpc, challenge_timeout_txid)
+    let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
         .await
         .unwrap();
+
+    // check that challenge utxo was spent on timeout -> meaning challenge was not sent
+    let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
+    // tx shouldn't have challenge amount sats as output as challenge timeout should be sent
+    assert!(tx.output[0].value != config.protocol_paramset().operator_challenge_amount);
 
     // Ensure the reimburse connector is spent
     ensure_outpoint_spent(&rpc, reimburse_connector)
@@ -783,17 +752,6 @@ async fn mock_citrea_run_malicious() {
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
-    // Setup tx_sender for sending transactions
-    let verifier_0_config = {
-        let mut config = config.clone();
-        config.db_name += "0";
-        config
-    };
-
-    let db = Database::new(&verifier_0_config)
-        .await
-        .expect("failed to create database");
-
     let dep_data: DepositData = deposit_params.clone().try_into().unwrap();
 
     let kickoff_txid: bitcoin::Txid = operators[0]
@@ -820,47 +778,6 @@ async fn mock_citrea_run_malicious() {
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
-    // wait until the light client prover is synced to the same height
-
-    //we need to check that challenge is sent
-    let mut used_utxo = 1000000000;
-    // get kickoff_idx that was used to sign the kickoff
-    for i in 0..config.protocol_paramset().num_kickoffs_per_round as u32 {
-        let kickoff_tx = db
-            .get_kickoff_txid_for_used_kickoff_connector(None, 0, i)
-            .await;
-        if let Ok(Some(used_kickoff_txid)) = kickoff_tx {
-            if used_kickoff_txid == kickoff_txid {
-                used_utxo = i;
-                break;
-            }
-        }
-    }
-
-    assert!(used_utxo != 1000000000);
-
-    tracing::warn!("Used utxo: {:?}", used_utxo);
-
-    let signed_txs = operators[0]
-        .internal_create_signed_txs(TransactionRequest {
-            deposit_params: Some(deposit_params),
-            kickoff_id: Some(KickoffId {
-                operator_idx: 0,
-                round_idx: 0,
-                kickoff_idx: used_utxo,
-            }),
-        })
-        .await
-        .unwrap()
-        .into_inner();
-
-    let challenge_timeout_txid = get_tx_from_signed_txs_with_type(
-        &signed_txs,
-        crate::builder::transaction::TransactionType::ChallengeTimeout,
-    )
-    .unwrap()
-    .compute_txid();
-
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
         vout: 0,
@@ -871,7 +788,9 @@ async fn mock_citrea_run_malicious() {
         .unwrap();
 
     // check that challenge utxo was not spent on timeout -> meaning challenge was sent
-    assert!(challenge_spent_txid != challenge_timeout_txid);
+    let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
+    // tx should have challenge amount output
+    assert!(tx.output[0].value == config.protocol_paramset().operator_challenge_amount);
 
     // TODO: check that operators collateral got burned. It cant be checked right now as we dont have auto disprove implemented.
 }
