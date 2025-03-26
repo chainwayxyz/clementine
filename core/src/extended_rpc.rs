@@ -249,10 +249,11 @@ impl ExtendedRpc {
             .wrap_err("Failed to get transaction")?;
         let tx_size = tx.weight().to_vbytes_ceil();
         let current_fee_sat = u64::try_from(
-            -transaction_info
+            transaction_info
                 .fee
                 .expect("Fee should be present")
-                .to_sat(),
+                .to_sat()
+                .abs(),
         )
         .wrap_err("Failed to convert fee to sat")?;
         let current_fee_rate = FeeRate::from_sat_per_kwu(1000 * current_fee_sat / tx_size);

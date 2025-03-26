@@ -1,4 +1,6 @@
 //! # Common Utilities for Integration Tests
+use std::time::Duration;
+
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
@@ -35,6 +37,79 @@ use tx_utils::get_txid_where_utxo_is_spent;
 pub mod citrea;
 mod setup_utils;
 pub mod tx_utils;
+
+/// Polls a closure until it returns true, or the timeout is reached. Exits
+/// early if the closure throws an error.
+///
+/// Default timeout is 60 seconds, default poll interval is 500 milliseconds.
+///
+/// # Parameters
+///
+/// - `func`: The closure to poll.
+/// - `timeout`: The timeout duration.
+/// - `poll_interval`: The poll interval.
+///
+/// # Returns
+///
+/// - `Ok(())`: If the condition is met.
+/// - `Err(eyre::eyre!("Timeout reached"))`: If the timeout is reached.
+/// - `Err(e)`: If the closure returns an error.
+pub async fn poll_until_condition(
+    mut func: impl AsyncFnMut() -> Result<bool, eyre::Error>,
+    timeout: Option<Duration>,
+    poll_interval: Option<Duration>,
+) -> Result<(), BridgeError> {
+    poll_get(
+        async move || {
+            if func().await? {
+                Ok(Some(()))
+            } else {
+                Ok(None)
+            }
+        },
+        timeout,
+        poll_interval,
+    )
+    .await
+}
+
+/// Polls a closure until it returns a value, or the timeout is reached. Exits
+/// early if the closure throws an error.
+///
+/// Default timeout is 60 seconds, default poll interval is 500 milliseconds.
+///
+/// # Parameters
+///
+/// - `func`: The closure to poll.
+/// - `timeout`: The timeout duration.
+/// - `poll_interval`: The poll interval.
+pub async fn poll_get<T>(
+    mut func: impl AsyncFnMut() -> Result<Option<T>, eyre::Error>,
+    timeout: Option<Duration>,
+    poll_interval: Option<Duration>,
+) -> Result<T, BridgeError> {
+    let timeout = timeout.unwrap_or(Duration::from_secs(60));
+    let poll_interval = poll_interval.unwrap_or(Duration::from_millis(500));
+
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > timeout {
+            return Err(eyre::eyre!(
+                "Timeout of {:?} seconds reached. Poll interval was {:?} seconds",
+                timeout.as_secs_f32(),
+                poll_interval.as_secs_f32()
+            )
+            .into());
+        }
+
+        if let Some(result) = func().await? {
+            return Ok(result);
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
+}
 
 /// Wait for a transaction to be in the mempool and than mines a block to make
 /// sure that it is included in the next block.
@@ -167,27 +242,22 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             .wrap_err("Failed to convert between Txid types")?;
         rpc.mine_blocks(1).await?;
 
-        let start = std::time::Instant::now();
-        let timeout = 60;
-        let _tx = loop {
-            if start.elapsed() > std::time::Duration::from_secs(timeout) {
-                panic!("MoveTx did not land onchain within {timeout} seconds");
-            }
-            rpc.mine_blocks(1).await?;
+        let _tx = poll_get(
+            async || {
+                rpc.mine_blocks(1).await?;
 
-            let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
+                let tx_result = rpc.client.get_raw_transaction_info(&move_txid, None).await;
 
-            let tx_result = match tx_result {
-                Ok(tx) => tx,
-                Err(e) => {
+                let _ = tx_result.as_ref().inspect_err(|e| {
                     tracing::info!("Waiting for transaction to be on-chain: {}", e);
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    continue;
-                }
-            };
+                });
 
-            break tx_result;
-        };
+                Ok(tx_result.ok())
+            },
+            None,
+            None,
+        )
+        .await?;
 
         deposit_outpoints.push(deposit_outpoint);
         move_txids.push(move_txid);
@@ -477,7 +547,7 @@ async fn multiple_deposits_for_operator() {
 }
 
 #[tokio::test]
-async fn create_regtest_rpc_macro() {
+async fn test_regtest_create_and_connect() {
     let mut config = create_test_config_with_thread_name().await;
 
     let regtest = create_regtest_rpc(&mut config).await;
