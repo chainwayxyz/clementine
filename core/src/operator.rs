@@ -518,12 +518,12 @@ where
     ///   `watchtower index` row and `BitVM assert tx index` column.
     pub fn generate_assert_winternitz_pubkeys(
         &self,
-        deposit_txid: Txid,
+        deposit_outpoint: bitcoin::OutPoint,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         tracing::debug!("Generating assert winternitz pubkeys");
         let bitvm_pks = self
             .signer
-            .generate_bitvm_pks_for_deposit(deposit_txid, self.config.protocol_paramset())?;
+            .generate_bitvm_pks_for_deposit(deposit_outpoint, self.config.protocol_paramset())?;
         let flattened_wpks = bitvm_pks.to_flattened_vec();
 
         Ok(flattened_wpks)
@@ -618,14 +618,14 @@ where
 
     pub fn generate_challenge_ack_preimages_and_hashes(
         &self,
-        deposit_txid: Txid,
+        deposit_outpoint: OutPoint,
     ) -> Result<Vec<PublicHash>, BridgeError> {
         let mut hashes = Vec::with_capacity(self.config.get_num_challenge_ack_hashes());
 
         for verifier_idx in 0..self.config.num_verifiers {
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 verifier_idx as u32,
-                deposit_txid,
+                deposit_outpoint,
                 self.config.protocol_paramset(),
             );
             let hash = self.signer.generate_public_hash_from_path(path)?;
@@ -1089,7 +1089,7 @@ mod tests {
     use crate::operator::Operator;
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
-    use bitcoin::Txid;
+    use bitcoin::{OutPoint, Txid};
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name().await;
@@ -1169,8 +1169,13 @@ mod tests {
             .await
             .unwrap();
 
+        let deposit_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 2,
+        };
+
         let winternitz_public_key = operator
-            .generate_assert_winternitz_pubkeys(Txid::all_zeros())
+            .generate_assert_winternitz_pubkeys(deposit_outpoint)
             .unwrap();
         assert_eq!(
             winternitz_public_key.len(),
@@ -1188,8 +1193,13 @@ mod tests {
             .await
             .unwrap();
 
+        let deposit_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 2,
+        };
+
         let preimages = operator
-            .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
+            .generate_challenge_ack_preimages_and_hashes(deposit_outpoint)
             .unwrap();
         assert_eq!(preimages.len(), config.num_verifiers as usize);
     }
