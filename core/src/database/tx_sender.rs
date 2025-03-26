@@ -12,6 +12,7 @@ use bitcoin::{
     consensus::{deserialize, serialize},
     Amount, FeeRate, Transaction, Txid,
 };
+use eyre::{Context, OptionExt};
 use std::ops::DerefMut;
 // Add this at the top with other imports
 
@@ -50,7 +51,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id)?)
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -63,7 +64,7 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id)?)
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -76,7 +77,7 @@ impl Database {
             AND ctt.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id)?)
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -89,7 +90,7 @@ impl Database {
             AND cto.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id)?)
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -102,7 +103,7 @@ impl Database {
             AND fpu.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id)?)
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -115,7 +116,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id)?)
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -128,7 +129,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id)?)
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -174,7 +175,7 @@ impl Database {
             WHERE txs.seen_block_id = $1;
             "#,
         )
-        .bind(i32::try_from(block_id)?)
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
 
@@ -202,13 +203,11 @@ impl Database {
             "INSERT INTO tx_sender_fee_payer_utxos (bumped_id, fee_payer_txid, vout, amount, replacement_of_id)
              VALUES ($1, $2, $3, $4, $5)",
         )
-        .bind(i32::try_from(bumped_id)?)
+        .bind(i32::try_from(bumped_id).wrap_err("Failed to convert bumped id to i32")?)
         .bind(TxidDB(fee_payer_txid))
-        .bind(i32::try_from(vout)?)
-        .bind(i64::try_from(amount.to_sat())?)
-        .bind(replacement_of_id.map(|id| -> Result<i32, BridgeError> {
-            i32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
-        }).transpose()?);
+        .bind(i32::try_from(vout).wrap_err("Failed to convert vout to i32")?)
+        .bind(i64::try_from(amount.to_sat()).wrap_err("Failed to convert amount to i64")?)
+        .bind(replacement_of_id.map( i32::try_from).transpose().wrap_err("Failed to convert replacement of id to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -236,7 +235,7 @@ impl Database {
               )
             ",
         )
-        .bind(i32::try_from(bumped_id)?);
+        .bind(i32::try_from(bumped_id).wrap_err("Failed to convert bumped id to i32")?);
 
         let results: Vec<(i32, TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
@@ -245,13 +244,11 @@ impl Database {
             .iter()
             .map(|(id, fee_payer_txid, vout, amount)| {
                 Ok((
-                    u32::try_from(*id).map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    u32::try_from(*id).wrap_err("Failed to convert id to u32")?,
                     fee_payer_txid.0,
-                    u32::try_from(*vout)
-                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    u32::try_from(*vout).wrap_err("Failed to convert vout to u32")?,
                     Amount::from_sat(
-                        u64::try_from(*amount)
-                            .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                        u64::try_from(*amount).wrap_err("Failed to convert amount to u64")?,
                     ),
                 ))
             })
@@ -268,7 +265,7 @@ impl Database {
              FROM tx_sender_fee_payer_utxos fpu
              WHERE fpu.bumped_id = $1 AND fpu.seen_block_id IS NOT NULL",
         )
-        .bind(i32::try_from(id)?);
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
 
         let results: Vec<(TxidDB, i32, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
@@ -278,11 +275,9 @@ impl Database {
             .map(|(fee_payer_txid, vout, amount)| {
                 Ok((
                     fee_payer_txid.0,
-                    u32::try_from(*vout)
-                        .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                    u32::try_from(*vout).wrap_err("Failed to convert vout to u32")?,
                     Amount::from_sat(
-                        u64::try_from(*amount)
-                            .map_err(|e| BridgeError::ConversionError(e.to_string()))?,
+                        u64::try_from(*amount).wrap_err("Failed to convert amount to u64")?,
                     ),
                 ))
             })
@@ -302,11 +297,13 @@ impl Database {
         )
         .bind(serialize(raw_tx))
         .bind(fee_paying_type)
-        .bind(serde_json::to_string(&tx_metadata).map_err(|e| BridgeError::ConversionError(e.to_string()))?)
+        .bind(serde_json::to_string(&tx_metadata).wrap_err("Failed to encode tx_metadata to JSON")?)
         .bind(TxidDB(txid));
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        u32::try_from(id).map_err(BridgeError::IntConversionError)
+        u32::try_from(id)
+            .wrap_err("Failed to convert id to u32")
+            .map_err(Into::into)
     }
 
     pub async fn save_rbf_txid(
@@ -316,7 +313,7 @@ impl Database {
         txid: Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO tx_sender_rbf_txids (id, txid) VALUES ($1, $2)")
-            .bind(i32::try_from(id)?)
+            .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?)
             .bind(TxidDB(txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -329,7 +326,7 @@ impl Database {
         id: u32,
     ) -> Result<Option<Txid>, BridgeError> {
         let query = sqlx::query_as::<_, (TxidDB,)>("SELECT txid FROM tx_sender_rbf_txids WHERE id = $1 ORDER BY insertion_order DESC LIMIT 1")
-            .bind(i32::try_from(id)?);
+            .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
 
         let result: Option<(TxidDB,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
@@ -345,9 +342,9 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO tx_sender_cancel_try_to_send_outpoints (cancelled_id, txid, vout) VALUES ($1, $2, $3)"
         )
-        .bind(i32::try_from(cancelled_id)?)
+        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled id to i32")?)
         .bind(TxidDB(outpoint.txid))
-        .bind(i32::try_from(outpoint.vout)?);
+        .bind(i32::try_from(outpoint.vout).wrap_err("Failed to convert vout to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -362,7 +359,7 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO tx_sender_cancel_try_to_send_txids (cancelled_id, txid) VALUES ($1, $2)",
         )
-        .bind(i32::try_from(cancelled_id)?)
+        .bind(i32::try_from(cancelled_id).wrap_err("Failed to convert cancelled id to i32")?)
         .bind(TxidDB(txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -378,9 +375,9 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO tx_sender_activate_try_to_send_txids (activated_id, txid, timelock) VALUES ($1, $2, $3)"
         )
-        .bind(i32::try_from(activated_id)?)
+        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated id to i32")?)
         .bind(TxidDB(prerequisite_tx.txid))
-        .bind(i32::try_from(prerequisite_tx.relative_block_height)?);
+        .bind(i32::try_from(prerequisite_tx.relative_block_height).wrap_err("Failed to convert relative block height to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -395,10 +392,10 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO tx_sender_activate_try_to_send_outpoints (activated_id, txid, vout, timelock) VALUES ($1, $2, $3, $4)"
         )
-        .bind(i32::try_from(activated_id)?)
+        .bind(i32::try_from(activated_id).wrap_err("Failed to convert activated id to i32")?)
         .bind(TxidDB(activated_outpoint.outpoint.txid))
-        .bind(i32::try_from(activated_outpoint.outpoint.vout)?)
-        .bind(i32::try_from(activated_outpoint.relative_block_height)?);
+        .bind(i32::try_from(activated_outpoint.outpoint.vout).wrap_err("Failed to convert vout to i32")?)
+        .bind(i32::try_from(activated_outpoint.relative_block_height).wrap_err("Failed to convert relative block height to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -475,17 +472,22 @@ impl Database {
                     -- Check if fee_rate is lower than the provided fee rate or null
                     AND (txs.effective_fee_rate IS NULL OR txs.effective_fee_rate < $1);",
         )
-        .bind(i64::try_from(fee_rate.to_sat_per_vb_ceil())?)
-        .bind(i32::try_from(current_tip_height)?);
+        .bind(
+            i64::try_from(fee_rate.to_sat_per_vb_ceil())
+                .wrap_err("Failed to convert fee rate to i64")?,
+        )
+        .bind(
+            i32::try_from(current_tip_height)
+                .wrap_err("Failed to convert current tip height to i32")?,
+        );
 
         let results = execute_query_with_tx!(self.connection, tx, select_query, fetch_all)?;
 
         let txs = results
             .into_iter()
-            .map(|(id,)| -> Result<u32, BridgeError> {
-                u32::try_from(id).map_err(|e| BridgeError::ConversionError(e.to_string()))
-            })
-            .collect::<Result<Vec<_>, BridgeError>>()?;
+            .map(|(id,)| u32::try_from(id))
+            .collect::<Result<Vec<_>, _>>()
+            .wrap_err("Failed to convert id to u32")?;
 
         Ok(txs)
     }
@@ -499,8 +501,11 @@ impl Database {
         let query = sqlx::query(
             "UPDATE tx_sender_try_to_send_txs SET effective_fee_rate = $1 WHERE id = $2",
         )
-        .bind(i64::try_from(effective_fee_rate.to_sat_per_vb_ceil())?)
-        .bind(i32::try_from(id)?);
+        .bind(
+            i64::try_from(effective_fee_rate.to_sat_per_vb_ceil())
+                .wrap_err("Failed to convert effective fee rate to i64")?,
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -518,23 +523,24 @@ impl Database {
              FROM tx_sender_try_to_send_txs
              WHERE id = $1 LIMIT 1",
             )
-            .bind(i32::try_from(id)?);
+            .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
+            serde_json::from_str(result.0.as_deref().unwrap_or("null"))
+                .wrap_err_with(|| format!("Failed to decode tx_metadata from {:?}", result.0))?,
             result
-                .0
-                .map(|s| serde_json::from_str(&s))
-                .transpose()
-                .map_err(|e| BridgeError::ConversionError(e.to_string()))?
-                .ok_or_else(|| BridgeError::ConversionError("TxMetadata".to_string()))?,
-            deserialize(&result.1.unwrap_or_default())
-                .map_err(|e| BridgeError::Error(format!("Bitcoin deserialization error: {}", e)))?,
+                .1
+                .as_deref()
+                .map(deserialize)
+                .ok_or_eyre("Expected raw_tx to be present")?
+                .wrap_err("Failed to deserialize raw_tx")?,
             result.2,
             result
                 .3
-                .map(|id| u32::try_from(id).map_err(BridgeError::IntConversionError))
-                .transpose()?,
+                .map(u32::try_from)
+                .transpose()
+                .wrap_err("Failed to convert seen_block_id to u32")?,
         ))
     }
 }

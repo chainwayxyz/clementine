@@ -14,7 +14,7 @@ runs:
   steps:
     - name: Download bitvm cache bin
       shell: bash
-      run: wget https://static.testnet.citrea.xyz/common/bitvm_cache_v2.bin -O core/bitvm_cache.bin
+      run: wget https://static.testnet.citrea.xyz/common/bitvm_cache_v3.bin -O core/bitvm_cache.bin
     - name: Download Bitcoin
       shell: bash
       run: wget https://static.testnet.citrea.xyz/common/bitcoin-28.0-x86_64-linux-gnu.tar.gz

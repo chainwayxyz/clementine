@@ -2,6 +2,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use bitcoin::TapSighashType;
+use eyre::Context;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntityType {
@@ -48,12 +49,7 @@ impl SignatureId {
         match *self {
             SignatureId::NormalSignature(normal_sig) => {
                 let normal_sig_type = NormalSignatureKind::try_from(normal_sig.signature_kind)
-                    .map_err(|_| {
-                        BridgeError::Error(
-                            "Couldn't convert SignatureId::NormalSignature to DepositSigKey"
-                                .to_string(),
-                        )
-                    })?;
+                    .wrap_err("Couldn't convert SignatureId::NormalSignature to DepositSigKey")?;
                 use NormalSignatureKind::*;
                 match normal_sig_type {
                     OperatorSighashDefault => Ok(Own(SighashDefault)),
@@ -75,13 +71,10 @@ impl SignatureId {
                 }
             }
             SignatureId::NumberedSignature(numbered_sig) => {
-                let numbered_sig_type =
-                    NumberedSignatureKind::try_from(numbered_sig.signature_kind).map_err(|_| {
-                        BridgeError::Error(
-                            "Couldn't convert SignatureId::NumberedSignature to DepositSigKey"
-                                .to_string(),
-                        )
-                    })?;
+                let numbered_sig_type = NumberedSignatureKind::try_from(
+                    numbered_sig.signature_kind,
+                )
+                .wrap_err("Couldn't convert SignatureId::NumberedSignature to DepositSigKey")?;
                 use NumberedSignatureKind::*;
                 match numbered_sig_type {
                     OperatorChallengeNack1 => Ok(NofnSharedDeposit(SighashDefault)),

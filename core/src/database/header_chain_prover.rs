@@ -13,6 +13,7 @@ use bitcoin::{
     hashes::Hash,
     BlockHash, CompactTarget, TxMerkleNode,
 };
+use eyre::Context;
 use risc0_zkvm::Receipt;
 
 impl Database {
@@ -114,7 +115,7 @@ impl Database {
         hash: block::BlockHash,
         proof: Receipt,
     ) -> Result<(), BridgeError> {
-        let proof = borsh::to_vec(&proof).map_err(BridgeError::BorshError)?;
+        let proof = borsh::to_vec(&proof).wrap_err(BridgeError::BorshError)?;
 
         let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2;")
             .bind(proof)
@@ -141,7 +142,7 @@ impl Database {
             None => return Ok(None),
         };
 
-        let receipt: Receipt = borsh::from_slice(&receipt).map_err(BridgeError::BorshError)?;
+        let receipt: Receipt = borsh::from_slice(&receipt).wrap_err(BridgeError::BorshError)?;
 
         Ok(Some(receipt))
     }
@@ -167,7 +168,7 @@ impl Database {
         let result: (BlockHashDB, BlockHeaderDB, i32, Vec<u8>) =
             execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        let receipt: Receipt = borsh::from_slice(&result.3).map_err(BridgeError::BorshError)?;
+        let receipt: Receipt = borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
 
         Ok((result.0 .0, result.1 .0, result.2, receipt))
     }

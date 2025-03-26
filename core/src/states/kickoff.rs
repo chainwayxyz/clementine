@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bitcoin::{OutPoint, Transaction, Witness};
-use eyre::Report;
+use eyre::Context;
 use serde_with::serde_as;
 use statig::prelude::*;
 
@@ -18,7 +18,7 @@ use super::{
     block_cache::BlockCache,
     context::{Duty, StateContext},
     matcher::{BlockMatcher, Matcher},
-    Owner,
+    Owner, StateMachineError,
 };
 
 #[derive(
@@ -126,16 +126,13 @@ impl<T: Owner> KickoffStateMachine<T> {
         tracing::trace!(?self.kickoff_id, ?self.deposit_data, "Transitioning from {:?} to {:?}", state_a, state_b);
         self.dirty = true;
     }
-    pub fn wrap_err(
-        &'_ self,
-        method: &'static str,
-    ) -> impl FnOnce(BridgeError) -> eyre::Report + '_ {
-        move |e| {
-            Report::from(e).wrap_err(format!(
-                "Error in kickoff state machine for kickoff {:?} in {}",
-                self.kickoff_id, method
-            ))
-        }
+
+    pub fn kickoff_meta(&self, method: &'static str) -> StateMachineError {
+        eyre::eyre!(format!(
+            "Error in kickoff state machine for kickoff {:?} in {}",
+            self.kickoff_id, method
+        ))
+        .into()
     }
 
     #[action]
@@ -174,9 +171,9 @@ impl<T: Owner> KickoffStateMachine<T> {
                             })
                             .await?;
                     }
-                    Ok(())
+                    Ok::<(), BridgeError>(())
                 }
-                .map_err(self.wrap_err("on send_asserts"))
+                .wrap_err(self.kickoff_meta("on send_asserts"))
             })
             .await;
     }
@@ -192,9 +189,9 @@ impl<T: Owner> KickoffStateMachine<T> {
                             deposit_data: self.deposit_data.clone(),
                         })
                         .await?;
-                    Ok(())
+                    Ok::<(), BridgeError>(())
                 }
-                .map_err(self.wrap_err("on send_watchtower_challenge"))
+                .wrap_err(self.kickoff_meta("on send_watchtower_challenge"))
             })
             .await;
     }
@@ -213,9 +210,9 @@ impl<T: Owner> KickoffStateMachine<T> {
                             payout_blockhash: self.payout_blockhash.clone(),
                         })
                         .await?;
-                    Ok(())
+                    Ok::<(), BridgeError>(())
                 }
-                .map_err(self.wrap_err("on_check_time_to_send_asserts"))
+                .wrap_err(self.kickoff_meta("on_check_time_to_send_asserts"))
             })
             .await;
     }
@@ -224,8 +221,8 @@ impl<T: Owner> KickoffStateMachine<T> {
         context
             .capture_error(async |_context| {
                 let event_str = format!("{:?}", event);
-                Err(BridgeError::UnhandledEvent(event_str))
-                    .map_err(self.wrap_err("kickoff unhandled event"))
+                Err(StateMachineError::UnhandledEvent(event_str))
+                    .wrap_err(self.kickoff_meta("kickoff unhandled event"))
             })
             .await;
     }
@@ -249,9 +246,9 @@ impl<T: Owner> KickoffStateMachine<T> {
                         ),
                         KickoffEvent::TimeToSendVerifierDisprove,
                     );
-                    Ok(())
+                    Ok::<(), BridgeError>(())
                 }
-                .map_err(self.wrap_err("on_kickoff_started_entry"))
+                .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))
             })
             .await;
     }
@@ -524,9 +521,9 @@ impl<T: Owner> KickoffStateMachine<T> {
                 {
                     // Add all watchtower challenges and operator asserts to matchers
                     self.add_default_kickoff_matchers(context).await?;
-                    Ok(())
+                    Ok::<(), BridgeError>(())
                 }
-                .map_err(self.wrap_err("on_kickoff_started_entry"))
+                .wrap_err(self.kickoff_meta("on_kickoff_started_entry"))
             })
             .await;
     }

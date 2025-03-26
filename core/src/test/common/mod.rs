@@ -26,6 +26,7 @@ use bitcoin::key::Keypair;
 use bitcoin::secp256k1::Message;
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
+use eyre::Context;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
@@ -96,7 +97,11 @@ pub async fn mine_once_after_in_mempool(
         )));
     }
 
-    let tx_block_height = rpc.client.get_block_info(&tx.blockhash.unwrap()).await?;
+    let tx_block_height = rpc
+        .client
+        .get_block_info(&tx.blockhash.unwrap())
+        .await
+        .wrap_err("Failed to get block info")?;
 
     Ok(tx_block_height.height)
 }
@@ -126,7 +131,10 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     );
     let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
-    aggregator.setup(Request::new(Empty {})).await?;
+    aggregator
+        .setup(Request::new(Empty {}))
+        .await
+        .wrap_err("Failed to setup aggregator")?;
 
     let mut deposit_outpoints = Vec::new();
     let mut move_txids = Vec::new();
@@ -155,7 +163,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             .new_deposit(deposit_params)
             .await?
             .into_inner()
-            .try_into()?;
+            .try_into()
+            .wrap_err("Failed to convert between Txid types")?;
         rpc.mine_blocks(1).await?;
 
         let start = std::time::Instant::now();
@@ -221,7 +230,10 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
     let setup_start = std::time::Instant::now();
-    aggregator.setup(Request::new(Empty {})).await?;
+    aggregator
+        .setup(Request::new(Empty {}))
+        .await
+        .wrap_err("Failed to setup aggregator")?;
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
@@ -248,9 +260,11 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     let move_txid: Txid = aggregator
         .new_deposit(deposit_params.clone())
-        .await?
+        .await
+        .wrap_err("Failed to execute deposit")?
         .into_inner()
-        .try_into()?;
+        .try_into()
+        .wrap_err("Failed to convert between Txid types")?;
 
     // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;

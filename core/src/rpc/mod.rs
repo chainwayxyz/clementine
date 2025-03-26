@@ -15,6 +15,8 @@ pub mod operator;
 mod parser;
 pub mod verifier;
 
+pub use parser::ParserError;
+
 impl From<NormalSignatureKind> for SignatureId {
     fn from(value: NormalSignatureKind) -> Self {
         SignatureId::NormalSignature(NormalSignatureId {
