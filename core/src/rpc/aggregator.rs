@@ -1083,9 +1083,11 @@ mod tests {
                     .get_raw_transaction_info(&movetx_txid, None)
                     .await;
 
-                let tx_result = tx_result.inspect_err(|e| {
-                    tracing::error!("Error getting transaction: {:?}", e);
-                }).ok();
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
 
                 Ok(tx_result)
             },
