@@ -3,8 +3,6 @@ use final_spv::spv::SPV;
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
-use super::winternitz::WinternitzHandler;
-
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitInput {
     pub header_chain_circuit_output: BlockHeaderCircuitOutput,
@@ -13,6 +11,12 @@ pub struct WorkOnlyCircuitInput {
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitOutput {
     pub work_u128: [u32; 4],
+}
+
+#[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+pub struct WatchTowerChallengeTxCommitment {
+    pub compressed_g16_proof: [u8; 128],
+    pub total_work: [u8; 16],
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
@@ -31,7 +35,9 @@ pub struct StorageProof {
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BridgeCircuitInput {
-    pub winternitz_details: Vec<WinternitzHandler>,
+    pub watchtower_challenge_input_idxs: Vec<u8>,
+    pub watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
+    pub watchtower_challenge_txs: Vec<Vec<u8>>,
     pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
     pub lcp: LightClientProof,
@@ -41,7 +47,9 @@ pub struct BridgeCircuitInput {
 
 impl BridgeCircuitInput {
     pub fn new(
-        winternitz_details: Vec<WinternitzHandler>,
+        watchtower_challenge_input_idxs: Vec<u8>,
+        watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
+        watchtower_challenge_txs: Vec<Vec<u8>>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
         lcp: LightClientProof,
@@ -52,7 +60,9 @@ impl BridgeCircuitInput {
             return Err("num_watchtowers exceeds the limit: 160");
         }
         Ok(Self {
-            winternitz_details,
+            watchtower_challenge_input_idxs,
+            watchtower_challenge_utxos,
+            watchtower_challenge_txs,
             hcp,
             payout_spv,
             lcp,
