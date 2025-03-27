@@ -19,6 +19,7 @@ use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::header_chain_prover::HeaderChainProver;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::{block_cache, StateManager};
@@ -228,6 +229,8 @@ where
             idx,
             nofn_xonly_pk
         );
+
+        HeaderChainProver::new(&config, rpc.clone()).await?.run();
 
         let verifier = Verifier {
             rpc,
