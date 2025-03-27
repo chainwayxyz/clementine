@@ -245,20 +245,22 @@ impl Aggregator {
             deposit_data,
             self.config.protocol_paramset(),
         )?;
-        // println!("MOVE_TX: {:?}", tx);
-        // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
+
         let message = Message::from_digest(
             tx.calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)?
                 .to_byte_array(),
         );
 
-        let verifiers_public_keys = self
-            .nofn
-            .try_read()
-            .map_err(|_| eyre!("Verifier index not set, yet"))?
-            .clone()
-            .ok_or(eyre!("Verifier index not set, yet"))?
-            .public_keys;
+        let verifiers_public_keys = futures::executor::block_on(async {
+            Ok::<_, BridgeError>(
+                self.nofn
+                    .read()
+                    .await
+                    .clone()
+                    .ok_or(eyre!("N-of-N not set, yet"))?
+                    .public_keys,
+            )
+        })?;
 
         let final_sig = aggregate_partial_signatures(
             &verifiers_public_keys,

@@ -32,14 +32,12 @@ where
     type Error = Status;
 
     fn try_from(verifier: &Verifier<C>) -> Result<Self, Self::Error> {
-        let idx = verifier
-            .idx
-            .try_read()
-            .map_err(|_| Status::internal("Verifier index not set, yet"))?;
-        let id = match *idx {
-            Some(idx) => Some(convert_int_to_another("id", idx, u32::try_from)?),
-            None => None,
-        };
+        let id = futures::executor::block_on(async {
+            match *verifier.idx.read().await {
+                Some(idx) => convert_int_to_another("id", idx, u32::try_from).map(Some),
+                None => Ok(None),
+            }
+        })?;
 
         Ok(VerifierParams {
             id,
