@@ -1,6 +1,8 @@
 //! # Header Chain Prover
 
 use crate::errors::ResultExt;
+use crate::states::block_cache::BlockCache;
+use crate::task::{IntoTask, Task, TaskExt, WithDelay};
 use crate::{
     config::BridgeConfig,
     database::Database,
@@ -15,13 +17,14 @@ use risc0_to_bitvm2_core::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
+use sqlx::Postgres;
 use std::{
     fs::File,
     io::{BufReader, Read},
     time::Duration,
 };
 use thiserror::Error;
-use tokio::time::sleep;
+use tonic::async_trait;
 
 // Prepare prover binary and calculate it's image id, before anything else.
 const MAINNET_ELF: &[u8; 199812] = include_bytes!("../../scripts/mainnet-header-chain-guest");
@@ -51,12 +54,6 @@ lazy_static! {
         .expect("hardcoded ELF is valid");
 }
 
-#[derive(Debug, Clone)]
-pub struct HeaderChainProver {
-    db: Database,
-    network: bitcoin::Network,
-}
-
 #[derive(Debug, Error)]
 pub enum HeaderChainProverError {
     #[error("Error while de/serializing object")]
@@ -66,6 +63,12 @@ pub enum HeaderChainProverError {
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
+}
+
+#[derive(Debug, Clone)]
+pub struct HeaderChainProver {
+    db: Database,
+    network: bitcoin::Network,
 }
 
 impl HeaderChainProver {
@@ -120,33 +123,6 @@ impl HeaderChainProver {
             db,
             network: config.protocol_paramset().network,
         })
-    }
-
-    /// Get the proof of a block.
-    ///
-    /// # Parameters
-    ///
-    /// - `hash`: Target block hash
-    ///
-    /// # Returns
-    ///
-    /// - [`Receipt`]: Specified block's proof receipt
-    pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
-        match self.db.get_block_proof_by_hash(None, hash).await? {
-            Some(r) => Ok(r),
-            None => Err(HeaderChainProverError::NoHeaderChainProof(hash).into()),
-        }
-    }
-
-    /// Starts a background task that syncs current database to active
-    /// blockchain and does proving.
-    #[tracing::instrument]
-    pub fn run(&self) {
-        let prover = HeaderChainProver::start_prover(self.clone());
-
-        tokio::spawn(async move {
-            tokio::join!(prover);
-        });
     }
 
     /// Proves given block headers.
@@ -231,44 +207,121 @@ impl HeaderChainProver {
     ///
     /// - prover: [`ChainProver`] instance
     #[tracing::instrument(skip_all)]
-    pub async fn start_prover(prover: HeaderChainProver) {
-        loop {
-            let non_proved_block = prover.db.get_non_proven_block(None).await;
+    pub async fn check_for_new_block_and_prove(
+        prover: HeaderChainProver,
+    ) -> Result<Option<Receipt>, BridgeError> {
+        let non_proved_block = prover.db.get_non_proven_block(None).await;
 
-            if let Ok((
-                current_block_hash,
-                current_block_header,
-                _current_block_height,
-                previous_proof,
-            )) = non_proved_block
-            {
-                tracing::trace!(
-                    "Prover starts proving for block with hash: {}",
-                    current_block_hash
-                );
+        let (current_block_hash, current_block_header, _current_block_height, previous_proof) =
+            if let Ok(non_proved_block) = non_proved_block {
+                (
+                    non_proved_block.0,
+                    non_proved_block.1,
+                    non_proved_block.2,
+                    non_proved_block.3,
+                )
+            } else {
+                return Ok(None);
+            };
 
-                let header: CircuitBlockHeader = current_block_header.into();
-                let receipt =
-                    prover.prove_block_headers(Some(previous_proof), vec![header.clone()]);
+        tracing::trace!(
+            "Prover starts proving for block with hash: {}",
+            current_block_hash
+        );
 
-                match receipt {
-                    Ok(receipt) => {
-                        if let Err(e) = prover
-                            .db
-                            .set_block_proof(None, current_block_hash, receipt)
-                            .await
-                        {
-                            tracing::error!("Can't save proof for header {:?}: {}", header, e);
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Can't prove for header {:?}: {}", header, e)
-                    }
-                };
-            }
+        let header: CircuitBlockHeader = current_block_header.into();
+        let receipt = prover.prove_block_headers(Some(previous_proof), vec![header.clone()])?;
 
-            sleep(Duration::from_secs(1)).await;
+        prover
+            .db
+            .set_block_proof(None, current_block_hash, receipt.clone())
+            .await?;
+
+        Ok(Some(receipt))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HeaderChainProverClient {
+    db: Database,
+}
+
+impl HeaderChainProverClient {
+    pub async fn new(config: &BridgeConfig) -> Result<Self, HeaderChainProverError> {
+        let db = Database::new(config).await.map_to_eyre()?;
+
+        Ok(HeaderChainProverClient { db })
+    }
+
+    /// Get the proof of a block.
+    ///
+    /// # Parameters
+    ///
+    /// - `hash`: Target block hash
+    ///
+    /// # Returns
+    ///
+    /// - [`Receipt`]: Specified block's proof receipt
+    pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
+        match self.db.get_block_proof_by_hash(None, hash).await? {
+            Some(r) => Ok(r),
+            None => Err(HeaderChainProverError::NoHeaderChainProof(hash).into()),
         }
+    }
+
+    /// Sets a new block to database, later to be proven.
+    pub async fn set_new_block(
+        &self,
+        block_cache: &BlockCache,
+        block_height: u32,
+        dbtx: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), BridgeError> {
+        let block_hash = block_cache
+            .block
+            .as_ref()
+            .ok_or(eyre::eyre!("Block not found"))?
+            .block_hash();
+
+        let block_header = block_cache
+            .block
+            .as_ref()
+            .ok_or(eyre::eyre!("Block not found"))?
+            .header;
+
+        self.db
+            .set_new_block(Some(dbtx), block_hash, block_header, block_height.into())
+            .await?;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct HeaderChainProverTask {
+    inner: HeaderChainProver,
+}
+
+#[async_trait]
+impl Task for HeaderChainProverTask {
+    type Output = bool;
+
+    async fn run_once(&mut self) -> std::result::Result<Self::Output, BridgeError> {
+        let receipt = HeaderChainProver::check_for_new_block_and_prove(self.inner.clone()).await?;
+        tracing::error!("Receipt: {:?}", receipt);
+
+        if receipt.is_some() {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+impl IntoTask for HeaderChainProver {
+    type Task = WithDelay<HeaderChainProverTask>;
+
+    fn into_task(self) -> Self::Task {
+        HeaderChainProverTask { inner: self }.with_delay(Duration::from_secs(1))
     }
 }
 
@@ -277,6 +330,8 @@ mod tests {
     use crate::extended_rpc::ExtendedRpc;
     use crate::header_chain_prover::HeaderChainProver;
     use crate::test::common::*;
+    use crate::verifier::VerifierServer;
+    use crate::{citrea::mock::MockCitreaClient, header_chain_prover::HeaderChainProverClient};
     use bitcoin::{
         block::{Header, Version},
         CompactTarget, TxMerkleNode,
@@ -286,8 +341,6 @@ mod tests {
     use borsh::BorshDeserialize;
     use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use risc0_zkvm::Receipt;
-    use std::time::Duration;
-    use tokio::time::sleep;
 
     async fn mine_and_get_first_n_block_headers(
         rpc: ExtendedRpc,
@@ -327,22 +380,25 @@ mod tests {
         // First block's assumption will be added to db: Make sure block exists
         // too.
         rpc.mine_blocks(1).await.unwrap();
-
-        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+        let _prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
+        let prover_client = HeaderChainProverClient::new(&config).await.unwrap();
 
         // Test assumption is for block 0.
         let hash = rpc.client.get_block_hash(0).await.unwrap();
-        let _should_not_panic = prover.get_header_chain_proof(hash).await.unwrap();
+        let _should_not_panic = prover_client.get_header_chain_proof(hash).await.unwrap();
 
         let wrong_hash = BlockHash::from_raw_hash(Hash::from_slice(&[0x45; 32]).unwrap());
         assert_ne!(wrong_hash, hash);
-        assert!(prover.get_header_chain_proof(wrong_hash).await.is_err());
+        assert!(prover_client
+            .get_header_chain_proof(wrong_hash)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
-    async fn start_header_chain_prover() {
+    async fn prove_a_block_from_database() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
@@ -350,8 +406,6 @@ mod tests {
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
-        prover.run();
-        sleep(Duration::from_secs(1)).await;
 
         // Mine a block and write genesis block's proof to database.
         rpc.mine_blocks(1).await.unwrap();
@@ -361,6 +415,7 @@ mod tests {
             .set_block_proof(None, BlockHash::all_zeros(), receipt.clone())
             .await
             .unwrap();
+        let prover_client = HeaderChainProverClient::new(&config).await.unwrap();
 
         // Set up non proven block.
         let height = 1;
@@ -373,13 +428,13 @@ mod tests {
             .await
             .unwrap();
 
-        poll_until_condition(
-            async || Ok(prover.get_header_chain_proof(hash).await.is_ok()),
-            Some(Duration::from_secs(180)),
-            None,
-        )
-        .await
-        .unwrap();
+        let receipt = HeaderChainProver::check_for_new_block_and_prove(prover.clone())
+            .await
+            .unwrap()
+            .unwrap();
+
+        let read_recipt = prover_client.get_header_chain_proof(hash).await.unwrap();
+        assert_eq!(receipt.journal, read_recipt.journal);
     }
 
     #[tokio::test]
@@ -437,6 +492,7 @@ mod tests {
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
+        let prover_client = HeaderChainProverClient::new(&config).await.unwrap();
         let block_headers = mine_and_get_first_n_block_headers(rpc, 3).await;
 
         // Prove genesis block.
@@ -450,7 +506,7 @@ mod tests {
             .set_block_proof(None, hash, receipt.clone())
             .await
             .unwrap();
-        let database_receipt = prover.get_header_chain_proof(hash).await.unwrap();
+        let database_receipt = prover_client.get_header_chain_proof(hash).await.unwrap();
         assert_eq!(receipt.journal, database_receipt.journal);
         assert_eq!(receipt.metadata, database_receipt.metadata);
 
@@ -483,9 +539,39 @@ mod tests {
             .set_block_proof(None, hash, receipt.clone())
             .await
             .unwrap();
-        let database_receipt2 = prover.get_header_chain_proof(hash).await.unwrap();
+        let database_receipt2 = prover_client.get_header_chain_proof(hash).await.unwrap();
         assert_eq!(receipt.journal, database_receipt2.journal);
         assert_eq!(receipt.metadata, database_receipt2.metadata);
         assert_ne!(receipt.journal, database_receipt.journal);
+    }
+
+    #[tokio::test]
+    async fn verifier_new_check_header_chain_proof() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        rpc.mine_blocks(1).await.unwrap();
+
+        let verifier = VerifierServer::<MockCitreaClient>::new(config)
+            .await
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+
+        poll_until_condition(
+            async || {
+                Ok(verifier
+                    .verifier
+                    .header_chain_prover
+                    .get_header_chain_proof(hash)
+                    .await
+                    .is_ok())
+            },
+            None,
+            None,
+        )
+        .await
+        .unwrap();
     }
 }

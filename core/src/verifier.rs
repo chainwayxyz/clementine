@@ -19,7 +19,7 @@ use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::header_chain_prover::HeaderChainProver;
+use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverClient};
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::{block_cache, StateManager};
@@ -112,6 +112,9 @@ where
 
         background_tasks.loop_and_monitor(tx_sender.into_task());
 
+        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
+        background_tasks.loop_and_monitor(header_chain_prover.into_task());
+
         // initialize and run state manager
         let state_manager =
             StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
@@ -163,6 +166,7 @@ pub struct Verifier<C: CitreaClientT> {
     _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub tx_sender: TxSenderClient,
+    pub header_chain_prover: HeaderChainProverClient,
     pub citrea_client: C,
 }
 
@@ -230,7 +234,7 @@ where
             nofn_xonly_pk
         );
 
-        HeaderChainProver::new(&config, rpc.clone()).await?.run();
+        let header_chain_prover = HeaderChainProverClient::new(&config).await?;
 
         let verifier = Verifier {
             rpc,
@@ -243,6 +247,7 @@ where
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
             tx_sender,
+            header_chain_prover,
             citrea_client,
         };
         Ok(verifier)
@@ -1290,23 +1295,8 @@ where
             .await?;
 
         // Save block info to database for the header chain prover.
-        let block_hash = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
-            .block_hash();
-        let block_header = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
-            .header;
-        self.db
-            .set_new_block(
-                Some(&mut dbtx),
-                block_hash,
-                block_header,
-                block_height.into(),
-            )
+        self.header_chain_prover
+            .set_new_block(block_cache.as_ref(), block_height, dbtx)
             .await?;
 
         Ok(())
