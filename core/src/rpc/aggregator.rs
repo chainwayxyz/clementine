@@ -580,6 +580,47 @@ impl Aggregator {
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
         Ok(move_txhandler.promote()?)
     }
+
+    /// Fetches verifier public keys from verifiers and sets up N-of-N.
+    async fn collect_verifier_public_keys(
+        &self,
+        verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+    ) -> Result<VerifierPublicKeys, BridgeError> {
+        tracing::info!("Collecting verifier public keys...");
+
+        let (vpks, verifier_public_keys): (Vec<Vec<u8>>, Vec<PublicKey>) =
+            try_join_all(verifier_clients.iter().map(|client| {
+                let mut client = client.clone();
+
+                async move {
+                    let verifier_params = client
+                        .get_params(Request::new(Empty {}))
+                        .await?
+                        .into_inner();
+                    let encoded_verifier_public_key = verifier_params.public_key;
+                    let decoded_verifier_public_key =
+                        PublicKey::from_slice(&encoded_verifier_public_key).map_err(|e| {
+                            Status::internal(format!("Failed to parse public key: {:?}", e))
+                        })?;
+
+                    Ok::<_, Status>((encoded_verifier_public_key, decoded_verifier_public_key))
+                }
+            }))
+            .await
+            .wrap_err("Failed to collect verifier public keys")?
+            .into_iter()
+            .unzip();
+
+        let nofn = NofN::new(
+            Keypair::from_secret_key(&SECP, &self.config.secret_key).public_key(),
+            verifier_public_keys,
+        )?;
+        self.nofn.write().await.replace(nofn);
+
+        Ok(clementine::VerifierPublicKeys {
+            verifier_public_keys: vpks,
+        })
+    }
 }
 
 #[async_trait]
@@ -619,22 +660,15 @@ impl ClementineAggregator for Aggregator {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
-        tracing::info!("Collecting verifier public keys...");
-        let verifier_public_keys = try_join_all(self.verifier_clients.iter().map(|client| {
-            let mut client = client.clone();
-            async move {
-                let verifier_params = client
-                    .get_params(Request::new(Empty {}))
-                    .await?
-                    .into_inner();
-                Ok::<_, Status>(verifier_params.public_key)
-            }
-        }))
-        .shared(); // share this future so all the spawned threads can poll on it.
+        let verifier_public_keys = self
+            .collect_verifier_public_keys(self.verifier_clients.clone())
+            .await?;
+        tracing::debug!(
+            "Verifier public keys: {:?}",
+            verifier_public_keys.verifier_public_keys
+        );
 
-        tracing::debug!("Verifier public keys: {:?}", verifier_public_keys);
-        let verifier_public_keys_clone = verifier_public_keys.clone();
-
+        let verifier_public_keys_move = verifier_public_keys.clone();
         let set_verifier_keys_handle = tokio::spawn({
             let verifier_clients = self.verifier_clients.clone();
 
@@ -642,12 +676,9 @@ impl ClementineAggregator for Aggregator {
                 tracing::info!("Setting up verifiers...");
 
                 try_join_all(verifier_clients.into_iter().map(|mut verifier| {
-                    let verifier_public_keys = verifier_public_keys.clone();
+                    let verifier_public_keys = verifier_public_keys_move.clone();
 
                     async move {
-                        let verifier_public_keys = clementine::VerifierPublicKeys {
-                            verifier_public_keys: verifier_public_keys.await?.clone(),
-                        };
                         verifier
                             .set_verifiers(Request::new(verifier_public_keys))
                             .await?;
@@ -725,26 +756,7 @@ impl ClementineAggregator for Aggregator {
         .into_iter()
         .collect::<Result<Vec<_>, Status>>()?;
 
-        // Save N-of-N public key.
-        let verifier_public_keys: Vec<PublicKey> = verifier_public_keys_clone
-            .clone()
-            .await?
-            .iter()
-            .map(|vpk| {
-                PublicKey::from_slice(vpk)
-                    .map_err(|e| Status::internal(format!("Failed to parse public key: {:?}", e)))
-            })
-            .collect::<Result<Vec<_>, Status>>()?;
-
-        let nofn = NofN::new(
-            Keypair::from_secret_key(&SECP, &self.config.secret_key).public_key(),
-            verifier_public_keys.clone(),
-        )?;
-        self.nofn.write().await.replace(nofn);
-
-        Ok(Response::new(VerifierPublicKeys {
-            verifier_public_keys: verifier_public_keys_clone.await?,
-        }))
+        Ok(Response::new(verifier_public_keys))
     }
 
     /// Handles a new deposit request from a user. This function coordinates the signing process
