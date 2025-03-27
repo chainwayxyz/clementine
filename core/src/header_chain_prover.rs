@@ -1,7 +1,6 @@
 //! # Header Chain Prover
-//!
-//! Fetches latest blocks from active blockchain and prepares proves for them.
 
+use crate::errors::ResultExt;
 use crate::{
     config::BridgeConfig,
     database::Database,
@@ -60,9 +59,6 @@ pub struct HeaderChainProver {
 
 #[derive(Debug, Error)]
 pub enum HeaderChainProverError {
-    // Header chain prover errors
-    #[error("Prover returned an error")]
-    ProverError,
     #[error("Error while de/serializing object")]
     ProverDeSerializationError,
     #[error("No header chain proofs for hash {0}")]
@@ -71,7 +67,6 @@ pub enum HeaderChainProverError {
     #[error(transparent)]
     Other(#[from] eyre::Report),
 }
-use crate::errors::ResultExt;
 
 impl HeaderChainProver {
     pub async fn new(
@@ -294,6 +289,26 @@ mod tests {
     use std::time::Duration;
     use tokio::time::sleep;
 
+    async fn mine_and_get_first_n_block_headers(
+        rpc: ExtendedRpc,
+        block_num: u64,
+    ) -> Vec<CircuitBlockHeader> {
+        let height = rpc.client.get_block_count().await.unwrap();
+        if height < block_num {
+            rpc.mine_blocks(block_num - height).await.unwrap();
+        }
+
+        let mut headers = Vec::new();
+        for i in 0..block_num {
+            let hash = rpc.client.get_block_hash(i).await.unwrap();
+            let header = rpc.client.get_block_header(&hash).await.unwrap();
+
+            headers.push(CircuitBlockHeader::from(header));
+        }
+
+        headers
+    }
+
     #[tokio::test]
     async fn new() {
         let mut config = create_test_config_with_thread_name().await;
@@ -304,7 +319,6 @@ mod tests {
     }
 
     #[tokio::test]
-
     async fn new_with_proof_assumption() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -328,15 +342,14 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
+
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
-
         prover.run();
         sleep(Duration::from_secs(1)).await;
 
@@ -349,35 +362,24 @@ mod tests {
             .await
             .unwrap();
 
-        let hash = rpc.client.get_block_hash(1).await.unwrap();
-        loop {
-            if let Ok(proof) = prover.get_header_chain_proof(hash).await {
-                println!("Second block's proof is {:?}", proof);
-                break;
-            }
+        // Set up non proven block.
+        let height = 1;
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let block = rpc.client.get_block(&hash).await.unwrap();
+        let header = block.header;
+        prover
+            .db
+            .set_new_block(None, hash, header, height)
+            .await
+            .unwrap();
 
-            println!("Waiting for proof to be written to database for second block...");
-            sleep(Duration::from_secs(1)).await;
-        }
-    }
-    async fn mine_and_get_first_n_block_headers(
-        rpc: ExtendedRpc,
-        block_num: u64,
-    ) -> Vec<CircuitBlockHeader> {
-        let height = rpc.client.get_block_count().await.unwrap();
-        if height < block_num {
-            rpc.mine_blocks(block_num - height).await.unwrap();
-        }
-
-        let mut headers = Vec::new();
-        for i in 0..block_num {
-            let hash = rpc.client.get_block_hash(i).await.unwrap();
-            let header = rpc.client.get_block_header(&hash).await.unwrap();
-
-            headers.push(CircuitBlockHeader::from(header));
-        }
-
-        headers
+        poll_until_condition(
+            async || Ok(prover.get_header_chain_proof(hash).await.is_ok()),
+            Some(Duration::from_secs(180)),
+            None,
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -428,7 +430,6 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-
     async fn save_and_get_proof() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
