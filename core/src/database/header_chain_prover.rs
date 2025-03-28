@@ -37,7 +37,7 @@ impl Database {
     /// Gets the newest block's info that it's previous block has proven before.
     /// This block will be the candidate block for the prover.
     ///
-    /// TODO: Return nonve if there is no block to prove, not an error (errors
+    /// TODO: Return none if there is no block to prove, not an error (errors
     /// get mixed up).
     pub async fn get_non_proven_block(
         &self,

@@ -234,7 +234,7 @@ where
             nofn_xonly_pk
         );
 
-        let header_chain_prover = HeaderChainProverClient::new(&config).await?;
+        let header_chain_prover = HeaderChainProverClient::new(db.clone()).await?;
 
         let verifier = Verifier {
             rpc,
@@ -1296,7 +1296,7 @@ where
 
         // Save block info to database for the header chain prover.
         self.header_chain_prover
-            .set_new_block(block_cache.as_ref(), block_height, dbtx)
+            .set_new_block(block_cache.as_ref(), Some(dbtx))
             .await?;
 
         Ok(())
