@@ -12,15 +12,18 @@ use alloy::{
         },
         Provider, ProviderBuilder, RootProvider,
     },
-    rpc::types::{Filter, Log},
+    rpc::{
+        client::ClientBuilder,
+        types::{Filter, Log},
+    },
     signers::{local::PrivateKeySigner, Signer},
     sol,
     sol_types::SolEvent,
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid};
-use bridge_circuit_host::receipt_from_inner;
-use circuits_lib::bridge_circuit::structs::LightClientProof;
+use bridge_circuit_host::{fetch_storage_proof, receipt_from_inner};
+use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -133,12 +136,20 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         block_height: u64,
         timeout: Duration,
     ) -> Result<(u64, u64), BridgeError>;
+
+    async fn get_storage_proof(
+        &self,
+        l2_height: u64,
+        deposit_index: u32,
+        move_to_vault_txid: Txid,
+    ) -> Result<StorageProof, BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
 /// RPC.
 #[derive(Clone, Debug)]
 pub struct CitreaClient {
+    rpc_url: Url,
     pub client: HttpClient,
     pub light_client_prover_client: HttpClient,
     pub wallet_address: alloy::primitives::Address,
@@ -184,6 +195,22 @@ impl CitreaClient {
 
 #[async_trait]
 impl CitreaClientT for CitreaClient {
+    async fn get_storage_proof(
+        &self,
+        l2_height: u64,
+        deposit_index: u32,
+        move_to_vault_txid: Txid,
+    ) -> Result<StorageProof, BridgeError> {
+        let alloy_client = ClientBuilder::default().http(self.rpc_url.clone());
+        fetch_storage_proof(
+            &l2_height.to_string(),
+            deposit_index,
+            move_to_vault_txid.to_byte_array(),
+            alloy_client,
+        )
+        .await
+        .map_err(BridgeError::from)
+    }
     async fn new(
         citrea_rpc_url: String,
         light_client_prover_url: String,
@@ -209,13 +236,14 @@ impl CitreaClientT for CitreaClient {
         );
 
         let client = HttpClientBuilder::default()
-            .build(citrea_rpc_url)
+            .build(citrea_rpc_url.clone())
             .wrap_err("Failed to create Citrea RPC client")?;
         let light_client_prover_client = HttpClientBuilder::default()
             .build(light_client_prover_url)
             .wrap_err("Failed to create Citrea LCP RPC client")?;
 
         Ok(CitreaClient {
+            rpc_url: citrea_rpc_url,
             client,
             light_client_prover_client,
             wallet_address,

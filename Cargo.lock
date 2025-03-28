@@ -2181,6 +2181,7 @@ version = "0.2.0"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
  "ark-groth16 0.5.0",
  "ark-serialize 0.5.0",
  "async-stream",

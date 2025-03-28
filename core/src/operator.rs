@@ -1,9 +1,10 @@
+use ark_ff::PrimeField;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
@@ -38,14 +39,14 @@ use bitcoin::{
 };
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
+use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
 use bridge_circuit_host::bridge_circuit_host::{
     create_spv, prove_bridge_circuit, _BRIDGE_CIRCUIT_ELF,
 };
 use bridge_circuit_host::structs::BridgeCircuitHostParams;
-use circuits_lib::bridge_circuit::storage_proof;
+use bridge_circuit_host::utils::get_ark_verifying_key;
 use eyre::{Context, OptionExt};
-use sov_rollup_interface::zk::light_client_proof;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -968,7 +969,7 @@ where
             create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?
                 .get_cached_tx()
                 .compute_txid();
-        let (payout_block_height, payout_block_hash, payout_txid) = self
+        let (payout_block_height, payout_block_hash, payout_txid, deposit_idx) = self
             .db
             .get_payout_info_from_move_txid(None, move_txid)
             .await
@@ -1000,18 +1001,27 @@ where
 
         let spv = create_spv(
             &mut bitcoin::consensus::serialize(payout_tx).as_slice(),
-            &[], // TODO: add headers
+            todo!(), // TODO: add headers
             payout_block,
             payout_block_height,
             payout_tx_index as u32,
         );
 
-        let (light_client_proof, lcp_receipt, _) = self
+        let (light_client_proof, lcp_receipt, l2_height) = self
             .citrea_client
             .get_light_client_proof(payout_block_height as u64)
             .await
             .wrap_err("Failed to get light client proof for payout block height")?
             .ok_or_eyre("Light client proof is not available for payout block height")?;
+
+        let storage_proof = self
+            .citrea_client
+            .get_storage_proof(l2_height, deposit_idx as u32, move_txid)
+            .await
+            .wrap_err(format!(
+                "Failed to get storage proof for move txid {:?}, l2 height {}, deposit_idx {}",
+                move_txid, l2_height, deposit_idx
+            ))?;
 
         let bridge_circuit_host_params = BridgeCircuitHostParams {
             winternitz_details: vec![],
@@ -1020,18 +1030,32 @@ where
             headerchain_receipt: todo!(),
             light_client_proof,
             lcp_receipt,
-            storage_proof: todo!(),
+            storage_proof,
             num_of_watchtowers: self.config.num_verifiers as u32,
         };
 
-        let proof = prove_bridge_circuit(bridge_circuit_host_params, _BRIDGE_CIRCUIT_ELF);
+        let (g16_proof, g16_output, _public_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, _BRIDGE_CIRCUIT_ELF);
+
+        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
+
+        let asserts = generate_assertions(
+            g16_proof,
+            vec![public_input_scalar],
+            &get_ark_verifying_key(),
+        )
+        .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?;
 
         let assert_txs = self
-            .create_assert_commitment_txs(TransactionRequestData {
-                kickoff_id,
-                deposit_data: deposit_data.clone(),
-            })
+            .create_assert_commitment_txs(
+                TransactionRequestData {
+                    kickoff_id,
+                    deposit_data: deposit_data.clone(),
+                },
+                ClementineBitVMPublicKeys::get_assert_commit_data(asserts),
+            )
             .await?;
+
         let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in assert_txs {
             self.tx_sender

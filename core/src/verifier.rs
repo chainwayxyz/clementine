@@ -938,7 +938,7 @@ where
             return Ok(true);
         }
         let payout_info = payout_info?;
-        if let Some((operator_idx, payout_blockhash, _)) = payout_info {
+        if let Some((operator_idx, payout_blockhash, _, _)) = payout_info {
             if operator_idx != kickoff_id.operator_idx {
                 return Ok(true);
             }

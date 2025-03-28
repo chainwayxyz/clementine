@@ -201,24 +201,25 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         move_to_vault_txid: Txid,
-    ) -> Result<Option<(u32, BlockHash, Txid)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, BlockHashDB, TxidDB)>(
-            "SELECT w.payout_payer_operator_idx, w.payout_tx_blockhash, w.payout_txid
+    ) -> Result<Option<(u32, BlockHash, Txid, i32)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, BlockHashDB, TxidDB, i32)>(
+            "SELECT w.payout_payer_operator_idx, w.payout_tx_blockhash, w.payout_txid, w.idx
              FROM withdrawals w
              WHERE w.move_to_vault_txid = $1",
         )
         .bind(TxidDB(move_to_vault_txid));
 
-        let result: Option<(i32, BlockHashDB, TxidDB)> =
+        let result: Option<(i32, BlockHashDB, TxidDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         result
-            .map(|(operator_idx, block_hash, txid)| {
+            .map(|(operator_idx, block_hash, txid, deposit_idx)| {
                 Ok((
                     u32::try_from(operator_idx)
                         .wrap_err("Failed to convert operator index to u32")?,
                     block_hash.0,
                     txid.0,
+                    deposit_idx,
                 ))
             })
             .transpose()

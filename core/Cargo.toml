@@ -53,6 +53,7 @@ rand_chacha = { workspace = true }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 circuits-lib = { path = "../circuits-lib" }
 bincode = { workspace = true }
+ark-ff = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

@@ -10,7 +10,8 @@ use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 
 use bitvm::chunk::api::{
-    api_generate_full_tapscripts, api_generate_partial_script, NUM_HASH, NUM_PUBS, NUM_U256,
+    api_generate_full_tapscripts, api_generate_partial_script, Assertions, NUM_HASH, NUM_PUBS,
+    NUM_U256,
 };
 use bitvm::signatures::wots_api::wots160;
 
@@ -422,8 +423,9 @@ impl ClementineBitVMPublicKeys {
         let mut scripts = Vec::new();
         let first_script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
             vec![
-                (self.latest_blockhash_pk.to_vec(), 40),
-                (self.challenge_sending_watchtowers_pk.to_vec(), 40),
+                // TODO: add later?
+                //(self.latest_blockhash_pk.to_vec(), 40),
+                //(self.challenge_sending_watchtowers_pk.to_vec(), 40),
                 (self.bitvm_pks.0[0].to_vec(), 64),
                 (self.bitvm_pks.1[NUM_U256 - 2].to_vec(), 64),
                 (self.bitvm_pks.1[NUM_U256 - 1].to_vec(), 64),
@@ -462,6 +464,37 @@ impl ClementineBitVMPublicKeys {
             scripts.push(script);
         }
         scripts
+    }
+
+    pub fn get_assert_commit_data(asserts: Assertions) -> Vec<Vec<Vec<u8>>> {
+        let mut commit_data = Vec::new();
+        commit_data.push(vec![
+            asserts.0[0].to_vec(),
+            asserts.1[NUM_U256 - 2].to_vec(),
+            asserts.1[NUM_U256 - 1].to_vec(),
+            asserts.2[NUM_HASH - 3].to_vec(),
+            asserts.2[NUM_HASH - 2].to_vec(),
+            asserts.2[NUM_HASH - 1].to_vec(),
+        ]);
+        for i in (0..NUM_U256 - 2).step_by(6) {
+            let last_idx = std::cmp::min(i + 6, NUM_U256);
+            commit_data.push(
+                asserts.1[i..last_idx]
+                    .iter()
+                    .map(|x| x.to_vec())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        for i in (0..NUM_HASH - 3).step_by(12) {
+            let last_idx = std::cmp::min(i + 12, NUM_HASH);
+            commit_data.push(
+                asserts.2[i..last_idx]
+                    .iter()
+                    .map(|x| x.to_vec())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        commit_data
     }
 
     pub fn get_assert_derivations(

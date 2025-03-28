@@ -1,8 +1,8 @@
 use super::CitreaClientT;
 use crate::errors::BridgeError;
 use alloy::signers::local::PrivateKeySigner;
-use bitcoin::{OutPoint, Txid};
-use circuits_lib::bridge_circuit::structs::LightClientProof;
+use bitcoin::{hashes::Hash, OutPoint, Txid};
+use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
 use eyre::Context;
 use risc0_zkvm::Receipt;
 use std::{
@@ -70,6 +70,19 @@ impl MockCitreaClient {
 
 #[async_trait]
 impl CitreaClientT for MockCitreaClient {
+    async fn get_storage_proof(
+        &self,
+        _l2_height: u64,
+        deposit_index: u32,
+        move_to_vault_txid: Txid,
+    ) -> Result<StorageProof, BridgeError> {
+        Ok(StorageProof {
+            storage_proof_utxo: "".to_string(),
+            storage_proof_deposit_idx: "".to_string(),
+            index: deposit_index,
+            txid_hex: move_to_vault_txid.to_byte_array(),
+        })
+    }
     /// Connects a database with the given URL which is stored in
     /// `citrea_rpc_url`. Other paramaters are dumped.
     async fn new(
