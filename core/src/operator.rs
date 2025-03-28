@@ -8,9 +8,9 @@ use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureIn
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
-    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
+    create_burn_unused_kickoff_connectors_txhandler, create_move_to_vault_txhandler,
+    create_round_nth_txhandler, create_round_txhandlers, create_txhandlers, ContractContext,
+    DepositData, KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
     TxHandlerCache,
 };
 use crate::citrea::CitreaClientT;
@@ -39,7 +39,13 @@ use bitcoin::{
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
-use eyre::Context;
+use bridge_circuit_host::bridge_circuit_host::{
+    create_spv, prove_bridge_circuit, _BRIDGE_CIRCUIT_ELF,
+};
+use bridge_circuit_host::structs::BridgeCircuitHostParams;
+use circuits_lib::bridge_circuit::storage_proof;
+use eyre::{Context, OptionExt};
+use sov_rollup_interface::zk::light_client_proof;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -958,6 +964,68 @@ where
         _watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
     ) -> Result<(), BridgeError> {
+        let move_txid =
+            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?
+                .get_cached_tx()
+                .compute_txid();
+        let (payout_block_height, payout_block_hash, payout_txid) = self
+            .db
+            .get_payout_info_from_move_txid(None, move_txid)
+            .await
+            .wrap_err("Failed to get payout info from db during sending asserts.")?
+            .ok_or_eyre(format!(
+                "Payout info not found in db while sending asserts for move txid: {}",
+                move_txid
+            ))?;
+
+        let (_, payout_block) = self
+            .db
+            .get_full_block_from_hash(None, payout_block_hash)
+            .await?
+            .ok_or_eyre(format!(
+                "Payout block {:?} {:?} not found in db",
+                payout_block_height, payout_block_hash
+            ))?;
+
+        let payout_tx_index = payout_block
+            .txdata
+            .iter()
+            .position(|tx| tx.compute_txid() == payout_txid)
+            .ok_or_eyre(format!(
+                "Payout txid {:?} not found in block {:?} {:?}",
+                payout_txid, payout_block_height, payout_block_hash
+            ))?;
+
+        let payout_tx = &payout_block.txdata[payout_tx_index];
+
+        let spv = create_spv(
+            &mut bitcoin::consensus::serialize(payout_tx).as_slice(),
+            &[], // TODO: add headers
+            payout_block,
+            payout_block_height,
+            payout_tx_index as u32,
+        );
+
+        let (light_client_proof, lcp_receipt, _) = self
+            .citrea_client
+            .get_light_client_proof(payout_block_height as u64)
+            .await
+            .wrap_err("Failed to get light client proof for payout block height")?
+            .ok_or_eyre("Light client proof is not available for payout block height")?;
+
+        let bridge_circuit_host_params = BridgeCircuitHostParams {
+            winternitz_details: vec![],
+            spv,
+            block_header_circuit_output: todo!(),
+            headerchain_receipt: todo!(),
+            light_client_proof,
+            lcp_receipt,
+            storage_proof: todo!(),
+            num_of_watchtowers: self.config.num_verifiers as u32,
+        };
+
+        let proof = prove_bridge_circuit(bridge_circuit_host_params, _BRIDGE_CIRCUIT_ELF);
+
         let assert_txs = self
             .create_assert_commitment_txs(TransactionRequestData {
                 kickoff_id,

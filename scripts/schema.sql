@@ -14,6 +14,7 @@ create table if not exists operators (
 );
 create table if not exists bitcoin_blocks (
     height int primary key not null,
+    block_hash bytea not null,
     block_data bytea not null,
     created_at timestamp not null default now()
 );

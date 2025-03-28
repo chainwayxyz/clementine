@@ -88,12 +88,16 @@ impl Database {
         block_height: u32,
     ) -> Result<(), BridgeError> {
         let block_bytes = bitcoin::consensus::serialize(block);
+        let block_hash = block.block_hash();
         let query = sqlx::query(
-            "INSERT INTO bitcoin_blocks (height, block_data) VALUES ($1, $2)
-             ON CONFLICT (height) DO UPDATE SET block_data = $2",
+            "INSERT INTO bitcoin_blocks (height, block_data, block_hash) VALUES ($1, $2, $3)
+             ON CONFLICT (height) DO UPDATE 
+             SET block_data = $2,
+                 blockhash = EXCLUDED.blockhash",
         )
         .bind(i32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?)
-        .bind(&block_bytes);
+        .bind(&block_bytes)
+        .bind(BlockHashDB(block_hash));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -115,6 +119,30 @@ impl Database {
                 let block = bitcoin::consensus::deserialize(&bytes)
                     .wrap_err(BridgeError::IntConversionError)?;
                 Ok(Some(block))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_full_block_from_hash(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_hash: BlockHash,
+    ) -> Result<Option<(u32, bitcoin::Block)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT (block_height, block_data FROM bitcoin_blocks WHERE block_hash = $1",
+        )
+        .bind(BlockHashDB(block_hash));
+
+        let block_data: Option<(i32, Vec<u8>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match block_data {
+            Some((height_i32, bytes)) => {
+                let height = u32::try_from(height_i32).wrap_err(BridgeError::IntConversionError)?;
+                let block = bitcoin::consensus::deserialize(&bytes)
+                    .wrap_err(BridgeError::IntConversionError)?;
+                Ok(Some((height, block)))
             }
             None => Ok(None),
         }

@@ -204,7 +204,7 @@ pub async fn fetch_storage_proof(
 /// * If `claim.output.value()` is empty.
 /// * If `output` is `None`.
 /// * If `output.journal.value()` is empty.
-fn receipt_from_inner(inner: InnerReceipt) -> eyre::Result<Receipt> {
+pub fn receipt_from_inner(inner: InnerReceipt) -> eyre::Result<Receipt> {
     let mb_claim = inner.claim().or_else(|_| bail!("Claim is empty"))?;
     let claim = mb_claim
         .value()
