@@ -1,8 +1,10 @@
+use bitcoin::taproot::{self, TaprootSpendInfo};
 use eyre::{eyre, OptionExt};
 use std::{collections::BTreeMap, env, time::Duration};
 
 use bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
+    consensus, transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid,
+    Weight,
 };
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{json::EstimateMode, PackageTransactionResult, RpcApi};
@@ -40,6 +42,13 @@ const POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_secs(1)
 };
 
+/// Manages the process of sending Bitcoin transactions, including handling fee bumping
+/// strategies like Replace-By-Fee (RBF) and Child-Pays-For-Parent (CPFP).
+///
+/// It interacts with a Bitcoin Core RPC endpoint (`ExtendedRpc`) to query network state
+/// (like fee rates) and submit transactions. It uses a `Database` to persist transaction
+/// state, track confirmation status, and manage associated data like fee payer UTXOs.
+/// The `Actor` provides signing capabilities for transactions controlled by this service.
 #[derive(Clone, Debug)]
 pub struct TxSender {
     pub signer: Actor,
@@ -47,12 +56,21 @@ pub struct TxSender {
     pub db: Database,
     pub network: bitcoin::Network,
     pub btc_syncer_consumer_id: String,
+    cached_spendinfo: TaprootSpendInfo,
 }
 
+/// Specifies the fee bumping strategy used for a transaction.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, sqlx::Type)]
 #[sqlx(type_name = "fee_paying_type", rename_all = "lowercase")]
 pub enum FeePayingType {
+    /// Child-Pays-For-Parent: A new "child" transaction is created, spending an output
+    /// from the original "parent" transaction. The child pays a high fee, sufficient
+    /// to cover both its own cost and the parent's fee deficit, incentivizing miners
+    /// to confirm both together. Specifically, we utilize "fee payer" UTXOs.
     CPFP,
+    /// Replace-By-Fee: The original unconfirmed transaction is replaced with a new
+    /// version that includes a higher fee. The original transaction must signal
+    /// RBF enablement (e.g., via nSequence). Bitcoin Core's `bumpfee` RPC is often used.
     RBF,
 }
 
@@ -68,7 +86,7 @@ pub struct ActivatedWithOutpoint {
     pub relative_block_height: u32,
 }
 
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TxMetadata {
     pub deposit_outpoint: Option<OutPoint>,
     pub operator_idx: Option<u32>,
@@ -76,6 +94,28 @@ pub struct TxMetadata {
     pub round_idx: Option<u32>,
     pub kickoff_idx: Option<u32>,
     pub tx_type: TransactionType,
+}
+impl std::fmt::Debug for TxMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut dbg_struct = f.debug_struct("TxMetadata");
+        if let Some(deposit_outpoint) = self.deposit_outpoint {
+            dbg_struct.field("deposit_outpoint", &deposit_outpoint);
+        }
+        if let Some(operator_idx) = self.operator_idx {
+            dbg_struct.field("operator_idx", &operator_idx);
+        }
+        if let Some(verifier_idx) = self.verifier_idx {
+            dbg_struct.field("verifier_idx", &verifier_idx);
+        }
+        if let Some(round_idx) = self.round_idx {
+            dbg_struct.field("round_idx", &round_idx);
+        }
+        if let Some(kickoff_idx) = self.kickoff_idx {
+            dbg_struct.field("kickoff_idx", &kickoff_idx);
+        }
+        dbg_struct.field("tx_type", &self.tx_type);
+        dbg_struct.finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -138,7 +178,7 @@ impl Task for TxSenderTask {
         .await?;
 
         if is_block_update {
-            // Don't wait in new events
+            // Pull in all block updates before trying to send.
             return Ok(true);
         }
 
@@ -146,6 +186,7 @@ impl Task for TxSenderTask {
         let fee_rate = self.inner.get_fee_rate().await?;
         tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
 
+        // Main loop which handles sending unconfirmed txs
         self.inner
             .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)
             .await?;
@@ -177,6 +218,12 @@ impl TxSender {
         network: bitcoin::Network,
     ) -> Self {
         Self {
+            cached_spendinfo: builder::address::create_taproot_address(
+                &[],
+                Some(signer.xonly_public_key),
+                network,
+            )
+            .1,
             signer,
             rpc,
             db,
@@ -185,7 +232,22 @@ impl TxSender {
         }
     }
 
-    /// Creates a fee payer UTXO for a CPFP transaction.
+    /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP.
+    ///
+    /// This function is called when a CPFP attempt fails due to insufficient funds
+    /// in the existing confirmed fee payer UTXOs associated with a transaction (`bumped_id`).
+    /// It calculates the required fee based on the parent transaction (`tx`) and the current
+    /// `fee_rate`, adding a buffer (3x required fee + dust limit) to handle potential fee spikes.
+    /// It then sends funds to the `TxSender`'s own signer address using the RPC's
+    /// `send_to_address` and saves the resulting UTXO information (`outpoint`, `amount`)
+    /// to the database, linking it to the `bumped_id`.
+    ///
+    /// # Arguments
+    /// * `bumped_id` - The database ID of the parent transaction requiring the fee bump.
+    /// * `tx` - The parent transaction itself.
+    /// * `fee_rate` - The target fee rate for the CPFP package.
+    /// * `total_fee_payer_amount` - The sum of amounts in currently available confirmed fee payer UTXOs.
+    /// * `fee_payer_utxos_len` - The number of currently available confirmed fee payer UTXOs.
     async fn create_fee_payer_utxo(
         &self,
         bumped_id: u32,
@@ -201,7 +263,8 @@ impl TxSender {
             FeePayingType::CPFP,
         )?;
 
-        let required_amount = (required_fee - total_fee_payer_amount)
+        // Aggressively add 3x required fee to the total amount to account for sudden spikes
+        let new_fee_payer_amount = (required_fee - total_fee_payer_amount)
             + required_fee
             + required_fee
             + required_fee
@@ -209,13 +272,13 @@ impl TxSender {
 
         tracing::debug!(
             "Creating fee payer UTXO with amount {} ({} sat/vb)",
-            required_amount,
+            new_fee_payer_amount,
             fee_rate
         );
 
         let outpoint = self
             .rpc
-            .send_to_address(&self.signer.address, required_amount)
+            .send_to_address(&self.signer.address, new_fee_payer_amount)
             .await
             .map_to_eyre()?;
 
@@ -225,7 +288,7 @@ impl TxSender {
                 bumped_id,
                 outpoint.txid,
                 outpoint.vout,
-                required_amount,
+                new_fee_payer_amount,
                 None,
             )
             .await
@@ -234,12 +297,15 @@ impl TxSender {
         Ok(())
     }
 
-    /// Gets the current fee rate.
+    /// Gets the current recommended fee rate from the Bitcoin Core node.
     ///
-    /// If the fee rate is not estimable, it will return a fee rate of 1 sat/vb,
-    /// **only for regtest**.
+    /// Uses the `estimatesmartfee` RPC call with a confirmation target of 1 block
+    /// and conservative estimation mode.
     ///
-    /// TODO: Use more sophisticated fee estimation, like the one in mempool.space
+    /// If fee estimation is unavailable (e.g., node is warming up), it returns
+    /// an error, except in Regtest mode where it defaults to 1 sat/vB for testing convenience.
+    ///
+    /// TODO: Implement more sophisticated fee estimation (e.g., mempool.space API).
     async fn get_fee_rate(&self) -> Result<FeeRate> {
         let fee_rate = self
             .rpc
@@ -252,8 +318,7 @@ impl TxSender {
             Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
             None => {
                 if self.network == bitcoin::Network::Regtest {
-                    // TODO: Looks like this check never occurs.
-                    tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
+                    tracing::trace!("Using fee rate of 1 sat/vb (Regtest mode)");
                     return Ok(FeeRate::from_sat_per_vb_unchecked(1));
                 }
 
@@ -262,27 +327,56 @@ impl TxSender {
         }
     }
 
-    /// Calculates the required total fee of a CPFP child tx.
+    /// Calculates the total fee required for a transaction package based on the fee bumping strategy.
+    ///
+    /// # Arguments
+    /// * `parent_tx_weight` - The weight of the main transaction being bumped.
+    /// * `num_fee_payer_utxos` - The number of fee payer UTXOs used (relevant for child tx size in CPFP).
+    /// * `fee_rate` - The target fee rate (sat/kwu or similar).
+    /// * `fee_paying_type` - The strategy being used (CPFP or RBF).
+    ///
+    /// # Calculation Logic
+    /// *   **CPFP:** Calculates the weight of the hypothetical child transaction based on the
+    ///     number of fee payer inputs and standard P2TR output sizes. It then calculates the
+    ///     fee based on the *combined virtual size* (vbytes) of the parent and child transactions,
+    ///     as miners evaluate the package deal.
+    /// *   **RBF:** Calculates the weight of the replacement transaction itself (assuming inputs
+    ///     and potentially outputs change slightly). The fee is calculated based on the weight
+    ///     of this single replacement transaction.
+    ///
+    /// Reference for weight estimates: <https://bitcoin.stackexchange.com/a/116959>
     fn calculate_required_fee(
         parent_tx_weight: Weight,
         num_fee_payer_utxos: usize,
         fee_rate: FeeRate,
         fee_paying_type: FeePayingType,
     ) -> Result<Amount> {
-        // Each additional p2tr input adds 230 WU and each additional p2tr
-        // output adds 172 WU to the transaction:
-        // https://bitcoin.stackexchange.com/a/116959
+        // Estimate the weight of the child transaction (for CPFP) or the RBF replacement.
+        // P2TR input witness adds ~57.5vbytes (230 WU). P2TR output adds 43 vbytes (172 WU).
+        // Base transaction overhead (version, locktime, input/output counts) ~ 10.5 vBytes (42 WU)
+        // Anchor input marker (OP_FALSE OP_RETURN ..) adds overhead. Exact WU TBD.
+        // For CPFP child: (N fee payer inputs) + (1 anchor input) + (1 change output)
+        // For RBF replacement: (N fee payer inputs) + (1 change output) - assuming it replaces a tx with an anchor.
+        // TODO: Refine these weight estimations.
         let child_tx_weight = match fee_paying_type {
-            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172),
-            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172),
+            // CPFP Child: N fee payer inputs + 1 anchor input + 1 change output + base overhead.
+            // Approx WU: (230 * num_fee_payer_utxos) + 230 + 172 + base_overhead_wu
+            // Simplified calculation used here needs verification.
+            FeePayingType::CPFP => Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172), // TODO: Verify 207 WU for anchor input + overhead
+            // RBF Replacement: N fee payer inputs + 1 change output + base overhead.
+            // Assumes it replaces a tx of similar structure but potentially different inputs/fees.
+            // Simplified calculation used here needs verification.
+            FeePayingType::RBF => Weight::from_wu_usize(230 * num_fee_payer_utxos + 172), // TODO: Verify WU for RBF structure
         };
 
-        // When effective fee rate is calculated, it calculates vBytes of the tx not the total weight.
+        // Calculate total weight for fee calculation.
+        // For CPFP, miners consider the effective fee rate over the combined *vbytes* of parent + child.
+        // For RBF, miners consider the fee rate of the single replacement transaction's weight.
         let total_weight = match fee_paying_type {
             FeePayingType::CPFP => Weight::from_vb_unchecked(
                 child_tx_weight.to_vbytes_ceil() + parent_tx_weight.to_vbytes_ceil(),
             ),
-            FeePayingType::RBF => child_tx_weight + parent_tx_weight,
+            FeePayingType::RBF => child_tx_weight + parent_tx_weight, // Should likely just be the RBF tx weight? Check RBF rules.
         };
 
         fee_rate
@@ -291,9 +385,24 @@ impl TxSender {
             .map_err(Into::into)
     }
 
-    /// Creates a child tx that spends the p2a anchor using the fee payer utxos.
-    /// It assumes the parent tx pays 0 fees.
-    /// It also assumes the fee payer utxos are signable by the self.signer.
+    /// Creates a Child-Pays-For-Parent (CPFP) child transaction.
+    ///
+    /// This transaction spends:
+    /// 1.  The designated "P2A anchor" output of the parent transaction (`p2a_anchor`).
+    /// 2.  One or more confirmed "fee payer" UTXOs (`fee_payer_utxos`) controlled by the `signer`.
+    ///
+    /// It calculates the total fee required (`required_fee`) to make the combined parent + child
+    /// package attractive to miners at the target `fee_rate`. The `required_fee` is paid entirely
+    /// by this child transaction.
+    ///
+    /// The remaining value (total input value - `required_fee`) is sent to the `change_address`.
+    ///
+    /// # Signing
+    /// Currently, it signs the input spending the P2A anchor and potentially the first fee payer UTXO.
+    /// TODO: Ensure *all* fee payer UTXO inputs are correctly signed if more than one is used.
+    ///
+    /// # Returns
+    /// The constructed and partially signed child transaction.
     fn create_child_tx(
         &self,
         p2a_anchor: OutPoint,
@@ -391,8 +500,14 @@ impl TxSender {
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
 
-    /// Creates a package of txs that will be submitted to the network.
-    /// The package will be a CPFP package
+    /// Creates a transaction package for CPFP submission.
+    ///
+    /// Finds the P2A anchor output in the parent transaction (`tx`), then constructs
+    /// the child transaction using `create_child_tx`.
+    ///
+    /// # Returns
+    /// A `Vec` containing the parent transaction followed by the child transaction,
+    /// ready for submission via the `submitpackage` RPC.
     fn create_package(
         &self,
         tx: Transaction,
@@ -421,24 +536,177 @@ impl TxSender {
         Ok(vec![tx, child_tx])
     }
 
-    /// Sends the tx with the given fee_rate.
-    async fn send_tx(&self, id: u32, fee_rate: FeeRate) -> Result<()> {
-        let unconfirmed_fee_payer_utxos = self
+    /// Sends or bumps a transaction using the Replace-By-Fee (RBF) strategy.
+    ///
+    /// It interacts with the database to track the latest RBF attempt (`last_rbf_txid`).
+    ///
+    /// # Logic:
+    /// 1.  **Check for Existing RBF Tx:** Retrieves `last_rbf_txid` for the `try_to_send_id`.
+    /// 2.  **Bump Existing Tx:** If `last_rbf_txid` exists, it calls `rpc.bump_fee_with_fee_rate`.
+    ///     - This internally uses the Bitcoin Core `bumpfee` RPC.
+    ///     - It handles cases where the tx is already confirmed or its inputs are spent.
+    ///     - If `bumpfee` succeeds and returns a *new* txid, the database is updated.
+    /// 3.  **Send Initial RBF Tx:** If no `last_rbf_txid` exists (first attempt):
+    ///     - It uses `fund_raw_transaction` RPC to let the wallet add inputs, potentially
+    ///       outputs, set the fee according to `fee_rate`, and mark the transaction as replaceable.
+    ///     - Uses `sign_raw_transaction_with_wallet` RPC to sign the funded transaction.
+    ///     - Uses `send_raw_transaction` RPC to broadcast the initial RBF transaction.
+    ///     - Saves the resulting `txid` to the database as the `last_rbf_txid`.
+    ///
+    /// # Arguments
+    /// * `try_to_send_id` - The database ID tracking this send attempt.
+    /// * `tx` - The original transaction intended for RBF (used only on the first attempt).
+    /// * `tx_metadata` - Optional metadata associated with the transaction.
+    /// * `fee_rate` - The target fee rate for the RBF replacement.
+    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
+    async fn send_rbf_tx(
+        &self,
+        try_to_send_id: u32,
+        tx: Transaction,
+        tx_metadata: Option<TxMetadata>,
+        fee_rate: FeeRate,
+    ) -> Result<()> {
+        tracing::debug!(?tx_metadata, "Sending RBF tx",);
+
+        let mut dbtx = self
             .db
-            .get_bumpable_fee_payer_txs(None, id)
+            .begin_transaction()
             .await
-            .map_to_eyre()?;
-        if !unconfirmed_fee_payer_utxos.is_empty() {
-            return Err(SendTxError::UnconfirmedFeePayerUTXOsLeft);
+            .wrap_err("Failed to begin database transaction")?;
+
+        let last_rbf_txid = self
+            .db
+            .get_last_rbf_txid(Some(&mut dbtx), try_to_send_id)
+            .await
+            .wrap_err("Failed to get last RBF txid")?;
+
+        if let Some(last_rbf_txid) = last_rbf_txid {
+            tracing::debug!("Bumping existing RBF tx");
+            let bumped_txid = self
+                .rpc
+                .bump_fee_with_fee_rate(last_rbf_txid, fee_rate)
+                .await;
+
+            match bumped_txid {
+                Err(e) => {
+                    let e = e.into_eyre();
+                    match e.root_cause().downcast_ref::<BitcoinRPCError>() {
+                        Some(
+                            err @ (BitcoinRPCError::TransactionAlreadyInBlock(_)
+                            | BitcoinRPCError::BumpFeeUTXOSpent(_)),
+                        ) => {
+                            tracing::debug!(
+                                "RBF tx {} either already in block or UTXO spent, skipping: {:?}",
+                                last_rbf_txid,
+                                err
+                            );
+                            return Ok(());
+                        }
+                        _ => {
+                            return Err(e.into_eyre().into());
+                        }
+                    }
+                }
+                Ok(bumped_txid) => {
+                    if bumped_txid != last_rbf_txid {
+                        self.db
+                            .save_rbf_txid(Some(&mut dbtx), try_to_send_id, bumped_txid)
+                            .await
+                            .wrap_err("Failed to save RBF txid")?;
+                    }
+                }
+            }
+        } else {
+            tracing::debug!("Funding RBF tx for the first time");
+
+            let funded_tx = self
+                .rpc
+                .client
+                .fund_raw_transaction(
+                    &tx,
+                    Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+                        add_inputs: Some(true),
+                        change_address: None,
+                        change_position: Some(1),
+                        change_type: None,
+                        include_watching: None,
+                        lock_unspents: None,
+                        fee_rate: Some(Amount::from_sat(5 * fee_rate.to_sat_per_kwu())),
+                        subtract_fee_from_outputs: None,
+                        replaceable: Some(true),
+                        conf_target: None,
+                        estimate_mode: None,
+                    }),
+                    None,
+                )
+                .await
+                .wrap_err("Failed to fund raw transaction")?
+                .hex;
+
+            let funded_tx: Transaction =
+                consensus::deserialize(&(funded_tx)).wrap_err("Failed to deserialize funded tx")?;
+            if funded_tx.output.len() != tx.output.len() {
+                let mut should_warn = false;
+                for inp in tx.input.iter() {
+                    if inp.witness.len() == 1 {
+                        // taproot keyspend witness
+                        if let Ok(sig) = taproot::Signature::from_slice(&inp.witness[0]) {
+                            if sig.sighash_type != bitcoin::TapSighashType::SinglePlusAnyoneCanPay {
+                                should_warn = true;
+                            }
+                        }
+                    }
+                }
+                if should_warn {
+                    tracing::warn!("Funded tx output length is not equal to the original tx output length, Tx Sender currently does not support this");
+                }
+            }
+
+            let signed_tx: Transaction = bitcoin::consensus::deserialize(
+                &self
+                    .rpc
+                    .client
+                    .sign_raw_transaction_with_wallet(&funded_tx, None, None)
+                    .await
+                    .wrap_err("Failed to sign raw transaction")?
+                    .hex,
+            )
+            .wrap_err("Failed to deserialize signed transaction")?;
+
+            let txid = self
+                .rpc
+                .client
+                .send_raw_transaction(&signed_tx)
+                .await
+                .wrap_err("Failed to send raw transaction")?;
+
+            self.db
+                .save_rbf_txid(Some(&mut dbtx), try_to_send_id, txid)
+                .await
+                .wrap_err("Failed to save RBF txid")?;
         }
 
-        let fee_payer_utxos = self
-            .db
-            .get_confirmed_fee_payer_utxos(None, id)
+        dbtx.commit()
             .await
-            .wrap_err("Failed to get confirmed fee payer utxos")?;
+            .wrap_err("Failed to commit database transaction")?;
 
-        let fee_payer_utxos: Vec<SpendableTxIn> = fee_payer_utxos
+        Ok(())
+    }
+
+    /// Retrieves confirmed fee payer UTXOs associated with a specific send attempt.
+    ///
+    /// Queries the database for UTXOs linked to `try_to_send_id` that are marked as confirmed.
+    /// These UTXOs are controlled by the `TxSender`'s `signer` and are intended to be
+    /// spent by a CPFP child transaction.
+    ///
+    /// # Returns
+    /// A `Vec` of `SpendableTxIn`, ready to be included as inputs in the CPFP child tx.
+    async fn get_fee_payer_utxos(&self, try_to_send_id: u32) -> Result<Vec<SpendableTxIn>> {
+        Ok(self
+            .db
+            .get_confirmed_fee_payer_utxos(None, try_to_send_id)
+            .await
+            .map_to_eyre()?
             .iter()
             .map(|(txid, vout, amount)| {
                 SpendableTxIn::new(
@@ -451,151 +719,63 @@ impl TxSender {
                         script_pubkey: self.signer.address.script_pubkey(),
                     },
                     vec![],
-                    Some(
-                        builder::address::create_taproot_address(
-                            &[],
-                            Some(self.signer.xonly_public_key),
-                            self.network,
-                        )
-                        .1,
-                    ),
+                    Some(self.cached_spendinfo.clone()),
                 )
             })
-            .collect();
+            .collect())
+    }
 
-        let (tx_metadata, tx, fee_paying_type, _) = self
+    /// Sends a transaction using the Child-Pays-For-Parent (CPFP) strategy.
+    ///
+    /// # Logic:
+    /// 1.  **Check Unconfirmed Fee Payers:** Ensures no unconfirmed fee payer UTXOs exist
+    ///     for this `try_to_send_id`. If they do, returns `UnconfirmedFeePayerUTXOsLeft`
+    ///     as they need to confirm before being spendable by the child.
+    /// 2.  **Get Confirmed Fee Payers:** Retrieves the available confirmed fee payer UTXOs.
+    /// 3.  **Create Package:** Calls `create_package` to build the `vec![parent_tx, child_tx]`.
+    ///     The `child_tx` spends the parent's anchor output and the fee payer UTXOs, paying
+    ///     a fee calculated for the whole package.
+    /// 4.  **Test Mempool Accept (Debug step):** Uses `testmempoolaccept` RPC
+    ///     to check if the package is likely to be accepted by the network before submitting.
+    /// 5.  **Submit Package:** Uses the `submitpackage` RPC to atomically submit the parent
+    ///     and child transactions. Bitcoin Core evaluates the fee rate of the package together.
+    /// 6.  **Handle Results:** Checks the `submitpackage` result. If successful or already in
+    ///     mempool, updates the effective fee rate in the database. If failed, logs an error.
+    ///
+    /// # Arguments
+    /// * `try_to_send_id` - The database ID tracking this send attempt.
+    /// * `tx` - The parent transaction requiring the fee bump.
+    /// * `tx_metadata` - Optional metadata associated with the transaction.
+    /// * `fee_rate` - The target fee rate for the CPFP package.
+    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, try_to_send_id, tx_meta=?tx_metadata))]
+    async fn send_cpfp_tx(
+        &self,
+        try_to_send_id: u32,
+        tx: Transaction,
+        tx_metadata: Option<TxMetadata>,
+        fee_rate: FeeRate,
+    ) -> Result<()> {
+        tracing::debug!("Sending CPFP tx",);
+        let unconfirmed_fee_payer_utxos = self
             .db
-            .get_tx(None, id)
+            .get_bumpable_fee_payer_txs(None, try_to_send_id)
             .await
-            .wrap_err("Failed to get tx")?;
+            .map_to_eyre()?;
 
-        if fee_paying_type == FeePayingType::RBF {
-            tracing::info!(
-                "Sending RBF tx, meta: {tx_metadata:?}, tx: {:?}",
-                hex::encode(bitcoin::consensus::serialize(&tx))
-            );
-
-            let mut dbtx = self
-                .db
-                .begin_transaction()
-                .await
-                .wrap_err("Failed to begin database transaction")?;
-
-            let last_rbf_txid = self
-                .db
-                .get_last_rbf_txid(Some(&mut dbtx), id)
-                .await
-                .wrap_err("Failed to get last RBF txid")?;
-
-            if let Some(last_rbf_txid) = last_rbf_txid {
-                let bumped_txid = self
-                    .rpc
-                    .bump_fee_with_fee_rate(last_rbf_txid, fee_rate)
-                    .await;
-                match bumped_txid {
-                    Err(e) => {
-                        let e = e.into_eyre();
-                        match e.root_cause().downcast_ref::<BitcoinRPCError>() {
-                            Some(
-                                err @ (BitcoinRPCError::TransactionAlreadyInBlock(_)
-                                | BitcoinRPCError::BumpFeeUTXOSpent(_)),
-                            ) => {
-                                tracing::debug!(
-                                    "RBF tx {} either already in block or UTXO spent, skipping: {:?}",
-                                    last_rbf_txid,
-                                    err
-                                );
-                                return Ok(());
-                            }
-                            _ => {
-                                return Err(e.into_eyre().into());
-                            }
-                        }
-                    }
-                    Ok(bumped_txid) => {
-                        if bumped_txid != last_rbf_txid {
-                            self.db
-                                .save_rbf_txid(Some(&mut dbtx), id, bumped_txid)
-                                .await
-                                .wrap_err("Failed to save RBF txid")?;
-                        }
-                    }
-                }
-            } else {
-                tracing::info!(
-                    "Funding RBF tx, meta: {tx_metadata:?}, tx: {:?}",
-                    hex::encode(bitcoin::consensus::serialize(&tx))
-                );
-
-                let funded_tx = self
-                    .rpc
-                    .client
-                    .fund_raw_transaction(
-                        &tx,
-                        Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
-                            add_inputs: Some(true),
-                            change_address: None,
-                            change_position: Some(1),
-                            change_type: None,
-                            include_watching: None,
-                            lock_unspents: None,
-                            fee_rate: Some(Amount::from_sat(5 * fee_rate.to_sat_per_kwu())),
-                            subtract_fee_from_outputs: None,
-                            replaceable: Some(true),
-                            conf_target: None,
-                            estimate_mode: None,
-                        }),
-                        None,
-                    )
-                    .await
-                    .wrap_err("Failed to fund raw transaction")?
-                    .hex;
-
-                let signed_tx: Transaction = bitcoin::consensus::deserialize(
-                    &self
-                        .rpc
-                        .client
-                        .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                        .await
-                        .wrap_err("Failed to sign raw transaction")?
-                        .hex,
-                )
-                .wrap_err("Failed to deserialize signed transaction")?;
-                let txid = self
-                    .rpc
-                    .client
-                    .send_raw_transaction(&signed_tx)
-                    .await
-                    .wrap_err("Failed to send raw transaction")?;
-                self.db
-                    .save_rbf_txid(Some(&mut dbtx), id, txid)
-                    .await
-                    .wrap_err("Failed to save RBF txid")?;
-            }
-
-            dbtx.commit()
-                .await
-                .wrap_err("Failed to commit database transaction")?;
-            return Ok(());
+        if !unconfirmed_fee_payer_utxos.is_empty() {
+            return Err(SendTxError::UnconfirmedFeePayerUTXOsLeft);
         }
+
+        let fee_payer_utxos = self.get_fee_payer_utxos(try_to_send_id).await?;
 
         let package = self
             .create_package(tx, fee_rate, fee_payer_utxos)
-            .wrap_err("Failed to create package")?;
+            .wrap_err("Failed to create CPFP package")?;
+
         let package_refs: Vec<&Transaction> = package.iter().collect();
 
-        // If the tx is RBF, we should note the txid of the package.
-        if fee_paying_type == FeePayingType::RBF {
-            self.db
-                .save_rbf_txid(None, id, package[0].compute_txid())
-                .await
-                .wrap_err("Failed to save RBF txid")?;
-        }
         tracing::debug!(
-            "Submitting package: {}\n\n pkg tx hexs: {:?}",
-            tx_metadata
-                .map(|tx_metadata| format!("{tx_metadata:?}"))
-                .unwrap_or("missing tx metadata".to_string()),
+            "Submitting package\n Pkg tx hexs: {:?}",
             if env::var("DBG_PACKAGE_HEX").is_ok() {
                 package
                     .iter()
@@ -613,7 +793,7 @@ impl TxSender {
             .await
             .wrap_err("Failed to test mempool accept")?;
 
-        tracing::debug!(?tx_metadata, "Test mempool result: {test_mempool_result:?}");
+        tracing::trace!("Test mempool result: {test_mempool_result:?}");
 
         let submit_package_result: PackageSubmissionResult = self
             .rpc
@@ -622,11 +802,7 @@ impl TxSender {
             .await
             .wrap_err("Failed to submit package")?;
 
-        tracing::debug!(
-            self.btc_syncer_consumer_id,
-            ?tx_metadata,
-            "Submit package result: {submit_package_result:?}"
-        );
+        tracing::debug!("Submit package result: {submit_package_result:?}");
 
         // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_package_result.tx_results.is_empty() {
@@ -636,7 +812,7 @@ impl TxSender {
         let mut early_exit = false;
         for (_txid, result) in submit_package_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
-                tracing::error!(consumer = ?self.btc_syncer_consumer_id, ?tx_metadata, "Error submitting package: {:?}", error);
+                tracing::error!(consumer= ?self.btc_syncer_consumer_id, ?tx_metadata, "Error submitting package: {:?}", error);
                 early_exit = true;
             }
         }
@@ -644,7 +820,7 @@ impl TxSender {
             return Ok(());
         }
 
-        tracing::info!(consumer = ?self.btc_syncer_consumer_id, ?tx_metadata, "Package submitted successfully.");
+        tracing::info!("Package submitted successfully.");
 
         // // Get the effective fee rate from the first transaction result
         // let effective_fee_rate_btc_per_kvb = submit_package_result
@@ -674,7 +850,7 @@ impl TxSender {
         // let effective_fee_rate = Self::btc_per_kvb_to_fee_rate(effective_fee_rate_btc_per_kvb);
         // Save the effective fee rate to the db
         self.db
-            .update_effective_fee_rate(None, id, fee_rate)
+            .update_effective_fee_rate(None, try_to_send_id, fee_rate)
             .await
             .wrap_err("Failed to update effective fee rate")?;
 
@@ -688,7 +864,47 @@ impl TxSender {
         Ok(())
     }
 
-    /// Tries to bump fees of fee payer txs with the given fee_rate.
+    /// Dispatches the transaction sending logic based on its `FeePayingType`.
+    ///
+    /// Retrieves the transaction details and its associated `FeePayingType` from the database.
+    /// Calls either `send_rbf_tx` or `send_cpfp_tx` accordingly.
+    ///
+    /// # Arguments
+    /// * `try_to_send_id` - The database ID tracking this send attempt.
+    /// * `fee_rate` - The target fee rate for the bump attempt.
+    async fn send_tx(&self, try_to_send_id: u32, fee_rate: FeeRate) -> Result<()> {
+        let (tx_metadata, tx, fee_paying_type, _) = self
+            .db
+            .get_tx(None, try_to_send_id)
+            .await
+            .wrap_err("Failed to get tx")?;
+
+        match fee_paying_type {
+            FeePayingType::RBF => {
+                self.send_rbf_tx(try_to_send_id, tx, tx_metadata, fee_rate)
+                    .await
+            }
+            FeePayingType::CPFP => {
+                self.send_cpfp_tx(try_to_send_id, tx, tx_metadata, fee_rate)
+                    .await
+            }
+        }
+    }
+
+    /// Attempts to bump the fees of unconfirmed "fee payer" UTXOs using RBF.
+    ///
+    /// Fee payer UTXOs are created to fund CPFP child transactions. However, these
+    /// fee payer creation transactions might themselves get stuck due to low fees.
+    /// This function identifies such unconfirmed fee payer transactions associated with
+    /// a parent transaction (`bumped_id`) and attempts to RBF them using the provided `fee_rate`.
+    ///
+    /// This ensures the fee payer UTXOs confirm quickly, making them available to be spent
+    /// by the actual CPFP child transaction.
+    ///
+    /// # Arguments
+    /// * `bumped_id` - The database ID of the parent transaction whose fee payer UTXOs need bumping.
+    /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
+    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, bumped_id, fee_rate))]
     async fn bump_fees_of_fee_payer_txs(&self, bumped_id: u32, fee_rate: FeeRate) -> Result<()> {
         let bumpable_fee_payer_txs = self
             .db
@@ -716,19 +932,22 @@ impl TxSender {
                     match e.root_cause().downcast_ref::<BitcoinRPCError>() {
                         Some(BitcoinRPCError::TransactionAlreadyInBlock(block_hash)) => {
                             tracing::debug!(
-                                "{}: Fee payer tx {} is already in block {}, skipping",
-                                self.btc_syncer_consumer_id,
+                                "Fee payer tx {} is already in block {}, skipping",
                                 fee_payer_txid,
                                 block_hash
                             );
                             continue;
                         }
                         Some(BitcoinRPCError::BumpFeeUTXOSpent(outpoint)) => {
-                            tracing::debug!("{}: Fee payer UTXO for the bumped tx {} is already onchain, skipping: {:?}", self.btc_syncer_consumer_id, bumped_id, outpoint);
+                            tracing::debug!(
+                                "Fee payer tx {} is already onchain, skipping: {:?}",
+                                fee_payer_txid,
+                                outpoint
+                            );
                             continue;
                         }
                         _ => {
-                            tracing::warn!("{}: failed to bump fee the fee payer tx {} of bumped tx {} with error {e}, skipping", self.btc_syncer_consumer_id, fee_payer_txid, bumped_id);
+                            tracing::warn!("Failed to bump fee the fee payer tx {} of bumped tx {} with error {e}, skipping", fee_payer_txid, bumped_id);
                             continue;
                         }
                     }
@@ -739,8 +958,26 @@ impl TxSender {
         Ok(())
     }
 
-    /// Tries to send unconfirmed txs that have a new effective fee rate.
-    /// Tries to bump fees of fee payer UTXOs with RBF
+    /// The main loop for processing transactions requiring fee bumps or initial sending.
+    ///
+    /// Fetches transactions from the database that are eligible to be sent or bumped
+    /// based on the `new_fee_rate` and `current_tip_height`.
+    ///
+    /// For each eligible transaction (`id`):
+    /// 1.  **Bump Fee Payers:** Calls `bump_fees_of_fee_payer_txs` to ensure any associated,
+    ///     unconfirmed fee payer UTXOs (used for CPFP) are themselves confirmed.
+    /// 2.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
+    ///     transaction (`id`) using the `new_fee_rate`.
+    /// 3.  **Handle Errors:**
+    ///     - `UnconfirmedFeePayerUTXOsLeft`: Skips the current tx, waiting for fee payers to confirm.
+    ///     - `InsufficientFeePayerAmount`: Calls `create_fee_payer_utxo` to provision more funds
+    ///       for a future CPFP attempt.
+    ///     - Other errors are logged.
+    ///
+    /// # Arguments
+    /// * `new_fee_rate` - The current target fee rate based on network conditions.
+    /// * `current_tip_height` - The current blockchain height, used for time-lock checks.
+    #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, new_fee_rate, current_tip_height))]
     async fn try_to_send_unconfirmed_txs(
         &self,
         new_fee_rate: FeeRate,
@@ -753,15 +990,14 @@ impl TxSender {
             .map_to_eyre()?;
 
         if !txs.is_empty() {
-            tracing::debug!(
-                ?self.btc_syncer_consumer_id,
-                "Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}, txs: {txs:?}"
-            );
+            tracing::debug!("Trying to send {} sendable txs ", txs.len());
         }
 
         for id in txs {
             self.bump_fees_of_fee_payer_txs(id, new_fee_rate).await?;
+
             let send_tx_result = self.send_tx(id, new_fee_rate).await;
+
             match send_tx_result {
                 Ok(_) => {}
                 Err(e) => {
@@ -769,7 +1005,6 @@ impl TxSender {
                     match e.root_cause().downcast_ref::<SendTxError>() {
                         Some(SendTxError::UnconfirmedFeePayerUTXOsLeft) => {
                             tracing::debug!(
-                                ?self.btc_syncer_consumer_id,
                                 "Sending Tx {}: Unconfirmed fee payer UTXOs left, skipping for now",
                                 id
                             );
@@ -777,39 +1012,35 @@ impl TxSender {
                         }
                         Some(SendTxError::InsufficientFeePayerAmount) => {
                             tracing::debug!(
-                                ?self.btc_syncer_consumer_id,
                                 "Sending Tx {}: Insufficient fee payer amount, creating new fee payer UTXO",
                                 id
                             );
                             let (_, tx, _, _) = self.db.get_tx(None, id).await.map_to_eyre()?;
+
                             let fee_payer_utxos = self
                                 .db
                                 .get_confirmed_fee_payer_utxos(None, id)
                                 .await
                                 .map_to_eyre()?;
+
                             let total_fee_payer_amount = fee_payer_utxos
                                 .iter()
                                 .map(|(_, _, amount)| *amount)
                                 .sum::<Amount>();
-                            let fee_payer_utxos_len = fee_payer_utxos.len();
+
                             self.create_fee_payer_utxo(
                                 id,
                                 &tx,
                                 new_fee_rate,
                                 total_fee_payer_amount,
-                                fee_payer_utxos_len,
+                                fee_payer_utxos.len(),
                             )
                             .await?;
 
                             continue;
                         }
                         _ => {
-                            tracing::error!(
-                                ?self.btc_syncer_consumer_id,
-                                "Sending Tx {}: Failed to send tx: {:?}",
-                                id,
-                                e
-                            );
+                            tracing::error!("Sending Tx {}: Failed to send tx: {:?}", id, e);
                             continue;
                         }
                     }
@@ -839,10 +1070,34 @@ impl TxSenderClient {
         }
     }
 
-    /// Tries to send a tx. If all conditions are met, it will save the tx to the database.
-    /// It will also save the cancelled outpoints, cancelled txids and activated prerequisite txs to the database.
-    /// It will automatically save inputs as cancelled outpoints.
-    /// It will automatically save inputs as activated outpoints.
+    /// Saves a transaction to the database queue for sending/fee bumping.
+    ///
+    /// This function determines the initial parameters for a transaction send attempt,
+    /// including its `FeePayingType`, associated metadata, and dependencies (cancellations/activations).
+    /// It then persists this information in the database via `db.save_tx` and related functions.
+    /// The actual sending logic (CPFP/RBF) is handled later by the `TxSender` task loop.
+    ///
+    /// # Default activation and cancellation conditions
+    ///
+    /// By default, this function automatically adds cancellation conditions for all outpoints
+    /// spent by the `signed_tx` itself. If `signed_tx` confirms, these input outpoints
+    /// are marked as spent/cancelled in the database.
+    ///
+    /// There are no default activation conditions added implicitly; all activation prerequisites
+    /// must be explicitly provided via the `activate_txids` and `activate_outpoints` arguments.
+    ///
+    /// # Arguments
+    /// * `dbtx` - An active database transaction.
+    /// * `tx_metadata` - Optional metadata about the transaction's purpose.
+    /// * `signed_tx` - The transaction to be potentially sent.
+    /// * `fee_paying_type` - Whether to use CPFP or RBF for fee management.
+    /// * `cancel_outpoints` - Outpoints that should be marked invalid if this tx confirms (in addition to the tx's own inputs).
+    /// * `cancel_txids` - Txids that should be marked invalid if this tx confirms.
+    /// * `activate_txids` - Txids that are prerequisites for this tx, potentially with a relative timelock.
+    /// * `activate_outpoints` - Outpoints that are prerequisites for this tx, potentially with a relative timelock.
+    ///
+    /// # Returns
+    /// The database ID (`try_to_send_id`) assigned to this send attempt.
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE), skip_all, fields(?tx_metadata, consumer = self.tx_sender_consumer_id))]
     pub async fn insert_try_to_send(
         &self,
@@ -950,6 +1205,28 @@ impl TxSenderClient {
         Ok(try_to_send_id)
     }
 
+    /// Adds a transaction to the sending queue based on its type and configuration.
+    ///
+    /// This is a higher-level wrapper around `insert_try_to_send`. It determines the
+    /// appropriate `FeePayingType` (CPFP or RBF) and any specific cancellation or activation
+    /// dependencies based on the `tx_type` and `config`.
+    ///
+    /// For example:
+    /// - `Challenge` transactions use `RBF`.
+    /// - Most other transactions default to `CPFP`.
+    /// - Specific types like `OperatorChallengeAck` might activate certain outpoints
+    ///   based on related transactions (`kickoff_txid`).
+    ///
+    /// # Arguments
+    /// * `dbtx` - An active database transaction.
+    /// * `tx_type` - The semantic type of the transaction.
+    /// * `signed_tx` - The transaction itself.
+    /// * `related_txs` - Other transactions potentially related (e.g., the kickoff for a challenge ack).
+    /// * `tx_metadata` - Optional metadata, `tx_type` will be added/overridden.
+    /// * `config` - Bridge configuration providing parameters like finality depth.
+    ///
+    /// # Returns
+    /// The database ID (`try_to_send_id`) assigned to this send attempt.
     pub async fn add_tx_to_queue<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
@@ -1084,6 +1361,7 @@ mod tests {
     use secp256k1::rand;
     use std::result::Result;
     use std::sync::Arc;
+    use tokio::sync::oneshot;
 
     impl TxSenderClient {
         pub async fn test_dbtx(
@@ -1093,9 +1371,16 @@ mod tests {
         }
     }
 
-    async fn create_test_tx_sender(
+    async fn create_tx_sender(
         rpc: ExtendedRpc,
-    ) -> (TxSender, ExtendedRpc, Database, Actor, bitcoin::Network) {
+    ) -> (
+        TxSender,
+        BitcoinSyncer,
+        ExtendedRpc,
+        Database,
+        Actor,
+        bitcoin::Network,
+    ) {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = bitcoin::Network::Regtest;
         let actor = Actor::new(sk, None, network);
@@ -1112,7 +1397,46 @@ mod tests {
             network,
         );
 
-        (tx_sender, rpc, db, actor, network)
+        (
+            tx_sender,
+            BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+                .await
+                .unwrap(),
+            rpc,
+            db,
+            actor,
+            network,
+        )
+    }
+
+    async fn create_bg_tx_sender(
+        rpc: ExtendedRpc,
+    ) -> (
+        TxSenderClient,
+        TxSender,
+        Vec<oneshot::Sender<()>>,
+        ExtendedRpc,
+        Database,
+        Actor,
+        bitcoin::Network,
+    ) {
+        let (tx_sender, syncer, rpc, db, actor, network) = create_tx_sender(rpc).await;
+
+        let sender_task = tx_sender.clone().into_task().cancelable_loop();
+        sender_task.0.into_bg();
+
+        let syncer_task = syncer.into_task().cancelable_loop();
+        syncer_task.0.into_bg();
+
+        (
+            tx_sender.client(),
+            tx_sender,
+            vec![sender_task.1, syncer_task.1],
+            rpc,
+            db,
+            actor,
+            network,
+        )
     }
 
     async fn create_bumpable_tx(
@@ -1133,10 +1457,13 @@ mod tests {
             FeePayingType::RBF => Version::TWO,
         };
 
-        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+        let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
             .with_version(version)
             .add_input(
-                NormalSignatureKind::OperatorSighashDefault,
+                match fee_paying_type {
+                    FeePayingType::CPFP => NormalSignatureKind::OperatorSighashDefault,
+                    FeePayingType::RBF => NormalSignatureKind::WatchtowerChallenge1,
+                },
                 SpendableTxIn::new(
                     outpoint,
                     TxOut {
@@ -1150,7 +1477,9 @@ mod tests {
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {
-                value: amount - builder::transaction::anchor_output().value,
+                value: amount
+                    - builder::transaction::anchor_output().value
+                    - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
                 script_pubkey: address.script_pubkey(), // TODO: This should be the wallet address, not the signer address
             }))
             .add_output(UnspentTxOut::from_partial(
@@ -1158,45 +1487,22 @@ mod tests {
             ))
             .finalize();
 
-        let sighash_type = match fee_paying_type {
-            FeePayingType::CPFP => bitcoin::TapSighashType::Default,
-            FeePayingType::RBF => bitcoin::TapSighashType::AllPlusAnyoneCanPay,
-        };
+        signer.tx_sign_and_fill_sigs(&mut txhandler, &[]).unwrap();
 
-        let sighash = builder.calculate_pubkey_spend_sighash(0, sighash_type)?;
-        let signature = signer.sign_with_tweak(sighash, None)?;
-        builder.set_p2tr_key_spend_witness(
-            &bitcoin::taproot::Signature {
-                signature,
-                sighash_type,
-            },
-            0,
-        )?;
-
-        let tx = builder.get_cached_tx().clone();
+        let tx = txhandler.get_cached_tx().clone();
         Ok(tx)
     }
 
     #[tokio::test]
-    async fn test_try_to_send() -> Result<(), BridgeError> {
+    async fn test_try_to_send_duplicate() -> Result<(), BridgeError> {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
 
         rpc.mine_blocks(1).await.unwrap();
 
-        let (tx_sender, rpc, db, signer, network) = create_test_tx_sender(rpc).await;
-
-        let btc_syncer = BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
-            .await
-            .unwrap()
-            .into_task()
-            .cancelable_loop();
-        btc_syncer.0.into_bg();
-
-        let client = tx_sender.client();
-        let tx_sender = tx_sender.into_task().cancelable_loop();
-        tx_sender.0.into_bg();
+        let (client, _tx_sender, _cancel_txs, rpc, db, signer, network) =
+            create_bg_tx_sender(rpc).await;
 
         let tx = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::CPFP)
             .await
@@ -1231,66 +1537,80 @@ mod tests {
             .unwrap(); // It is ok to call this twice
         dbtx.commit().await.unwrap();
 
-        for _ in 0..30 {
-            rpc.mine_blocks(1).await.unwrap();
+        poll_until_condition(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
 
-            let tx_result = rpc
-                .client
-                .get_raw_transaction_info(&tx.compute_txid(), None)
-                .await;
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&tx.compute_txid(), None)
+                    .await;
 
-            if tx_result.is_ok() && tx_result.unwrap().confirmations.unwrap() > 0 {
-                return Ok(());
-            }
+                Ok(tx_result.is_ok() && tx_result.unwrap().confirmations.unwrap() > 0)
+            },
+            Some(Duration::from_secs(30)),
+            Some(Duration::from_millis(100)),
+        )
+        .await
+        .expect("Tx was not confirmed in time");
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
+        poll_until_condition(
+            async || {
+                let (_, _, _, tx_id1_seen_block_id) = db.get_tx(None, tx_id1).await.unwrap();
+                let (_, _, _, tx_id2_seen_block_id) = db.get_tx(None, tx_id2).await.unwrap();
 
-        tokio::time::sleep(Duration::from_secs(10)).await;
+                // Wait for tx sender to catch up to bitcoin syncer
+                Ok(tx_id2_seen_block_id.is_some() && tx_id1_seen_block_id.is_some())
+            },
+            Some(Duration::from_secs(5)),
+            Some(Duration::from_millis(100)),
+        )
+        .await
+        .expect("Tx was not confirmed in time");
 
-        let (_, _, _, tx_id2_seen_block_id) = db.get_tx(None, tx_id2).await.unwrap();
+        Ok(())
+    }
 
-        assert!(tx_id2_seen_block_id.is_some());
+    #[tokio::test]
+    async fn test_try_to_send_rbf() -> Result<(), BridgeError> {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
 
-        let (_, _, _, tx_id1_seen_block_id) = db.get_tx(None, tx_id1).await.unwrap();
+        rpc.mine_blocks(1).await.unwrap();
 
-        assert!(tx_id1_seen_block_id.is_none());
+        let (client, _tx_sender, _cancel_txs, rpc, db, signer, network) =
+            create_bg_tx_sender(rpc).await;
 
-        let tx2 = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::RBF)
+        let tx = create_bumpable_tx(&rpc, signer.clone(), network, FeePayingType::RBF)
             .await
             .unwrap();
 
         let mut dbtx = db.begin_transaction().await.unwrap();
         client
-            .insert_try_to_send(
-                &mut dbtx,
-                None,
-                &tx2,
-                FeePayingType::RBF,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
+            .insert_try_to_send(&mut dbtx, None, &tx, FeePayingType::RBF, &[], &[], &[], &[])
             .await
             .unwrap();
         dbtx.commit().await.unwrap();
 
-        for _ in 0..30 {
-            rpc.mine_blocks(1).await.unwrap();
+        poll_until_condition(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
 
-            let tx_result = rpc
-                .client
-                .get_raw_transaction_info(&tx.compute_txid(), None)
-                .await;
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&tx.compute_txid(), None)
+                    .await;
 
-            if tx_result.is_ok() && tx_result.unwrap().confirmations.unwrap() > 0 {
-                return Ok(());
-            }
+                Ok(tx_result.is_ok() && tx_result.unwrap().confirmations.unwrap() > 0)
+            },
+            Some(Duration::from_secs(30)),
+            Some(Duration::from_millis(100)),
+        )
+        .await
+        .expect("Tx was not confirmed in time");
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-        panic!("Tx was not confirmed in time");
+        Ok(())
     }
 
     #[tokio::test]

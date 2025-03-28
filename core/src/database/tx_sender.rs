@@ -214,9 +214,9 @@ impl Database {
         Ok(())
     }
 
-    /// Some fee payer txs may not hit onchain, so we need to bump fees of them.
-    /// These txs should not be confirmed and should not be replaced by other txs.
-    /// Replaced means that the tx was bumped and the replacement tx is in the database.
+    /// Some fee payer TXs may not hit onchain, so we need to bump their fees.
+    /// These TXs should not be confirmed and should not be replaced by other TXs.
+    /// Replaced means that the TX was bumped and the replacement TX is in the database.
     pub async fn get_bumpable_fee_payer_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
