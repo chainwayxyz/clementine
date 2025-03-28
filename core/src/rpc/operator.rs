@@ -6,6 +6,7 @@ use super::clementine::{
 };
 use super::error::*;
 use super::parser::ParserError;
+use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
@@ -14,6 +15,7 @@ use crate::rpc::parser;
 use crate::rpc::parser::parse_transaction_request;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
+use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -143,7 +145,14 @@ where
 
         let raw_txs = self
             .operator
-            .create_assert_commitment_txs(tx_req_data)
+            .create_assert_commitment_txs(
+                tx_req_data,
+                ClementineBitVMPublicKeys::get_assert_commit_data((
+                    [[0u8; 32]; NUM_PUBS],
+                    [[0u8; 32]; NUM_U256],
+                    [[0u8; 16]; NUM_HASH],
+                )),
+            )
             .await?;
 
         Ok(Response::new(SignedTxsWithType {
