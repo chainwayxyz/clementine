@@ -173,7 +173,7 @@ pub async fn fetch_storage_proof(
         l2_height
     ]);
 
-    let response: serde_json::Value = client.request("eth_p", request).await?;
+    let response: serde_json::Value = client.request("eth_getProof", request).await?;
 
     let response: EIP1186AccountProofResponse = serde_json::from_value(response)?;
 
