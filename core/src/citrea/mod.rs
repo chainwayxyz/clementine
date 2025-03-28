@@ -172,7 +172,7 @@ impl CitreaClient {
                 .wrap_err("Failed to get logs")?;
             logs.extend(logs_chunk);
 
-            from_height += to_height;
+            from_height = to_height + 1;
         }
 
         Ok(logs)
