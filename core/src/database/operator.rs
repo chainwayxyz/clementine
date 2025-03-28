@@ -520,13 +520,13 @@ impl Database {
         }
     }
 
-    pub async fn get_deposit_signatures_with_kickoff_txid(
+    pub async fn get_deposit_data_with_kickoff_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         kickoff_txid: Txid,
-    ) -> Result<Option<(DepositData, KickoffId, Vec<TaggedSignature>)>, BridgeError> {
-        let query = sqlx::query_as::<_, (DepositParamsDB, i32, i32, i32, SignaturesDB)>(
-            "SELECT d.deposit_params, ds.operator_idx, ds.round_idx, ds.kickoff_idx, ds.signatures
+    ) -> Result<Option<(DepositData, KickoffId)>, BridgeError> {
+        let query = sqlx::query_as::<_, (DepositParamsDB, i32, i32, i32)>(
+            "SELECT d.deposit_params, ds.operator_idx, ds.round_idx, ds.kickoff_idx
              FROM deposit_signatures ds
              INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
              WHERE ds.kickoff_txid = $1;",
@@ -536,7 +536,7 @@ impl Database {
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((deposit_params, operator_idx, round_idx, kickoff_idx, signatures)) => Ok(Some((
+            Some((deposit_params, operator_idx, round_idx, kickoff_idx)) => Ok(Some((
                 deposit_params.0.try_into()?,
                 KickoffId {
                     operator_idx: u32::try_from(operator_idx)
@@ -546,7 +546,6 @@ impl Database {
                     kickoff_idx: u32::try_from(kickoff_idx)
                         .wrap_err("Failed to convert kickoff idx to u32")?,
                 },
-                signatures.0.signatures,
             ))),
             None => Ok(None),
         }

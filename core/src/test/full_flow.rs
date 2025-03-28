@@ -720,7 +720,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     Ok(())
 }
 
-fn get_tx_from_signed_txs_with_type(
+pub fn get_tx_from_signed_txs_with_type(
     txs: &SignedTxsWithType,
     tx_type: TxType,
 ) -> Result<bitcoin::Transaction> {
