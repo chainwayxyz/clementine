@@ -16,7 +16,7 @@ use bitcoin::{
     witness, Script, TapSighash, TapSighashType, Transaction, TxOut,
 };
 
-use secp256k1::{schnorr::Signature, Secp256k1, XOnlyPublicKey};
+use secp256k1::{schnorr::Signature, Message, Secp256k1, XOnlyPublicKey};
 use groth16::CircuitGroth16Proof;
 use groth16_verifier::CircuitGroth16WithTotalWork;
 use lc_proof::lc_proof_verifier;
@@ -295,9 +295,9 @@ pub fn total_work_and_watchtower_flags(
 
         secp.verify_schnorr(
             &sig,
-            &Message::from_slice(&msg).unwrap(),
+            &Message::from_digest_slice(&msg).unwrap(),
             &pubkey,
-        )
+        );
 
         if IS_TEST {
             challenge_sending_watchtowers[idx / 8] |= 1 << (idx % 8);
