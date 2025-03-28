@@ -207,10 +207,12 @@ impl HeaderChainProver {
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
-        tracing::trace!("Proving started for block");
         let receipt = prover.prove(env, elf).map_err(|e| eyre::eyre!(e))?.receipt;
-
-        tracing::debug!("Proof receipt: {:?}", receipt);
+        tracing::debug!(
+            "Proof receipt for header chain circuit input {:?}: {:?}",
+            input,
+            receipt
+        );
 
         Ok(receipt)
     }
@@ -244,7 +246,7 @@ impl HeaderChainProver {
         current_block_height: u32,
         previous_proof: Receipt,
     ) -> Result<Receipt, BridgeError> {
-        tracing::error!(
+        tracing::info!(
             "Prover starts proving for block with hash {} and with height {}",
             current_block_hash,
             current_block_height
@@ -354,7 +356,12 @@ impl Task for HeaderChainProverTask {
                 previous_proof,
             )
             .await?;
-        tracing::error!("Receipt: {:?}", receipt);
+        tracing::info!(
+            "Receipt for block with hash {:?} and height with: {:?}: {:?}",
+            current_block_hash,
+            current_block_height,
+            receipt
+        );
 
         Ok(true)
     }
@@ -363,6 +370,7 @@ impl Task for HeaderChainProverTask {
 #[cfg(test)]
 mod tests {
     use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+    use crate::citrea::mock::MockCitreaClient;
     use crate::database::{Database, DatabaseTransaction};
     use crate::errors::BridgeError;
     use crate::extended_rpc::ExtendedRpc;
@@ -373,6 +381,7 @@ mod tests {
     use crate::task::manager::BackgroundTaskManager;
     use crate::task::IntoTask;
     use crate::test::common::*;
+    use crate::verifier::VerifierServer;
     use bitcoin::{
         block::{Header, Version},
         CompactTarget, TxMerkleNode,
@@ -665,34 +674,44 @@ mod tests {
         .unwrap();
     }
 
-    // #[tokio::test]
-    // async fn verifier_new_check_header_chain_proof() {
-    //     let mut config = create_test_config_with_thread_name().await;
-    //     let regtest = create_regtest_rpc(&mut config).await;
-    //     let rpc = regtest.rpc().clone();
-    //     rpc.mine_blocks(1).await.unwrap();
+    #[tokio::test]
+    async fn verifier_new_check_header_chain_proof() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        let db = Database::new(&config).await.unwrap();
 
-    //     let verifier = VerifierServer::<MockCitreaClient>::new(config)
-    //         .await
-    //         .unwrap();
-    //     rpc.mine_blocks(1).await.unwrap();
-    //     let height = rpc.client.get_block_count().await.unwrap();
-    //     let hash = rpc.client.get_block_hash(height).await.unwrap();
-    //     rpc.mine_blocks(101).await.unwrap();
+        // Save initial blocks, because VerifierServer won't.
+        let count = rpc.client.get_block_count().await.unwrap();
+        for i in 1..count {
+            let hash = rpc.client.get_block_hash(i).await.unwrap();
+            let block = rpc.client.get_block(&hash).await.unwrap();
 
-    //     poll_until_condition(
-    //         async || {
-    //             Ok(verifier
-    //                 .verifier
-    //                 .header_chain_prover
-    //                 .get_header_chain_proof(hash)
-    //                 .await
-    //                 .is_ok())
-    //         },
-    //         None,
-    //         Some(Duration::from_secs(1)),
-    //     )
-    //     .await
-    //     .unwrap();
-    // }
+            db.set_new_block(None, block.block_hash(), block.header, i)
+                .await
+                .unwrap();
+        }
+
+        let verifier = VerifierServer::<MockCitreaClient>::new(config)
+            .await
+            .unwrap();
+
+        let height = 1;
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+
+        poll_until_condition(
+            async || {
+                Ok(verifier
+                    .verifier
+                    .header_chain_prover
+                    .get_header_chain_proof(hash)
+                    .await
+                    .is_ok())
+            },
+            None,
+            Some(Duration::from_secs(1)),
+        )
+        .await
+        .unwrap();
+    }
 }
