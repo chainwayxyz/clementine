@@ -468,8 +468,6 @@ service ClementineAggregator {
   // 2. Distributes these verifier keys to all verifiers
   // 3. Collects all operator configs from each operator
   // 4. Distributes these operator configs to all verifiers
-  // 5. Collects all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from each watchtower
-  // 6. Distributes these Winternitz pubkeys to all verifiers
   rpc Setup(Empty) returns (VerifierPublicKeys) {}
 
   // This will call, DepositNonceGen for every verifier,

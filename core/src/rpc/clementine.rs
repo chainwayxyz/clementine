@@ -1512,8 +1512,6 @@ pub mod clementine_aggregator_client {
         /// 2. Distributes these verifier keys to all verifiers
         /// 3. Collects all operator configs from each operator
         /// 4. Distributes these operator configs to all verifiers
-        /// 5. Collects all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from each watchtower
-        /// 6. Distributes these Winternitz pubkeys to all verifiers
         pub async fn setup(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -3004,8 +3002,6 @@ pub mod clementine_aggregator_server {
         /// 2. Distributes these verifier keys to all verifiers
         /// 3. Collects all operator configs from each operator
         /// 4. Distributes these operator configs to all verifiers
-        /// 5. Collects all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from each watchtower
-        /// 6. Distributes these Winternitz pubkeys to all verifiers
         async fn setup(
             &self,
             request: tonic::Request<super::Empty>,
