@@ -10,13 +10,13 @@ use crate::common::zkvm::ZkvmGuest;
 use bitcoin::{
     consensus::Decodable,
     hashes::Hash,
-    key::Secp256k1,
     opcodes,
     script::Instruction,
-    secp256k1::{schnorr::Signature, Message, XOnlyPublicKey},
     sighash::{self, Prevouts, SighashCache, TaprootError},
     witness, Script, TapSighash, TapSighashType, Transaction, TxOut,
 };
+
+use secp256k1::{schnorr::Signature, Secp256k1, XOnlyPublicKey};
 use groth16::CircuitGroth16Proof;
 use groth16_verifier::CircuitGroth16WithTotalWork;
 use lc_proof::lc_proof_verifier;
@@ -286,14 +286,20 @@ pub fn total_work_and_watchtower_flags(
 
         let secp = Secp256k1::verification_only();
 
-        let msg = Message::from_digest(sighash.to_byte_array());
+        let msg = sighash.to_byte_array();
 
         let pubkey_bytes = outputs[*input_idx as usize].script_pubkey.to_bytes();
         let pubkey = XOnlyPublicKey::from_slice(&pubkey_bytes).unwrap();
 
         let sig = Signature::from_slice(&sig_bytes).unwrap();
 
-        if IS_TEST || secp.verify_schnorr(&sig, &msg, &pubkey).is_ok() {
+        secp.verify_schnorr(
+            &sig,
+            &Message::from_slice(&msg).unwrap(),
+            &pubkey,
+        )
+
+        if IS_TEST {
             challenge_sending_watchtowers[idx / 8] |= 1 << (idx % 8);
             if watchtower_tx.output.len() >= 3 {
                 watchtower_challenges_outputs.push([
