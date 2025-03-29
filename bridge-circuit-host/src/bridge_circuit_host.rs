@@ -9,7 +9,6 @@ use bitcoin::{consensus::Decodable, hashes::Hash};
 use borsh::{self, BorshDeserialize};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
-use circuits_lib::bridge_circuit::winternitz::verify_winternitz_signature;
 use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
 use final_spv::merkle_tree::BitcoinMerkleTree;
 use final_spv::spv::SPV;
@@ -17,7 +16,6 @@ use header_chain::header_chain::CircuitBlockHeader;
 use header_chain::mmr_native::MMRNative;
 
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
-use sha2::{Digest, Sha256};
 
 const _BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/prod-testnet4-bridge-circuit-guest");
@@ -81,7 +79,6 @@ pub fn prove_bridge_circuit(
     // {
     //     panic!("Light client proof receipt verification failed");
     // }
-
 
     // Header chain verification
     if header_chain_proof_output_serialized
@@ -339,6 +336,7 @@ mod tests {
         include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest");
     const WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
+
     pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
         hex_literal::hex!("1ff9f5b6d77bbd4296e1749049d4a841088fb72f7a324da71e31fa1576d4bc0b");
 
@@ -433,12 +431,15 @@ mod tests {
             .try_into()
             .unwrap();
 
-        println!("commited_total_work: {:?}", commited_total_work);
-
         let input: u64 = 1;
 
         let compressed_proof_and_total_work: Vec<u8> =
             [compressed_proof.as_ref(), commited_total_work.as_ref()].concat();
+
+        println!(
+            "Compressed proof and total work: {:?}",
+            hex::encode(compressed_proof_and_total_work.clone())
+        );
 
         let len = compressed_proof_and_total_work.len();
         let n0 = u32::try_from(len).expect("Length exceeds u32 max value");

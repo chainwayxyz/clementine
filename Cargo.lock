@@ -2098,6 +2098,7 @@ dependencies = [
  "hex-literal",
  "itertools 0.14.0",
  "jmt 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "k256",
  "num-bigint 0.4.6",
  "num-traits",
  "once_cell",
@@ -2105,7 +2106,6 @@ dependencies = [
  "ripemd",
  "risc0-groth16",
  "risc0-zkvm",
- "secp256k1 0.29.0",
  "serde",
  "serde_json",
  "sha2",
@@ -4193,6 +4193,7 @@ dependencies = [
  "elliptic-curve",
  "once_cell",
  "sha2",
+ "signature",
 ]
 
 [[package]]

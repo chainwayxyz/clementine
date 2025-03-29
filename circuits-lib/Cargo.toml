@@ -43,8 +43,7 @@ itertools = { workspace = true }
 final-spv = { workspace = true }
 header-chain = { workspace = true }
 
-
-secp256k1 = { version = "=0.29.0", default-features = false }
+k256 = { workspace = true }
 
 [features]
 not_patched = []
