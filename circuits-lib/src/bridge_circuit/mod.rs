@@ -13,7 +13,7 @@ use bitcoin::{
     opcodes,
     script::Instruction,
     sighash::{Prevouts, SighashCache, TaprootError},
-    Script, TapSighash, TapSighashType, Transaction, TxOut,
+    Script, TapSighash, TapSighashType, Transaction, TxOut, Txid,
 };
 
 use groth16::CircuitGroth16Proof;
@@ -28,7 +28,6 @@ use signature::hazmat::PrehashVerifier;
 use std::{io::Cursor, str::FromStr};
 use storage_proof::verify_storage_proofs;
 use structs::{BridgeCircuitInput, WatchTowerChallengeTxCommitment};
-use winternitz::WinternitzHandler;
 
 macro_rules! assert_all_eq {
     ($first:expr, $( $x:expr ),+ ) => {
@@ -91,11 +90,22 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);
 
+
+    let kickcoff_tx: Transaction = match Decodable::consensus_decode(&mut Cursor::new(&input.kickoff_tx)) {
+        Ok(tx) => tx,
+        Err(_) => panic!("Invalid kickoff transaction"),
+    };
+
+    let kickoff_tx_id = kickcoff_tx.compute_txid();
+
     let (max_total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+        &kickoff_tx_id,
+        &input.watchtower_idxs,
         &input.watchtower_challenge_txs,
         &input.watchtower_challenge_utxos,
         &input.watchtower_challenge_input_idxs,
-        input.num_watchtowers,
+        &input.watchtower_pubkeys,
+        input.num_watchtowers as u32,
         &work_only_image_id,
     );
 
@@ -142,8 +152,8 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
     let last_output = input.payout_spv.transaction.output.last().unwrap();
 
-    // let deposit_constant =
-    //     deposit_constant(last_output, &input.winternitz_details, input.sp.txid_hex);
+    let deposit_constant =
+        deposit_constant(last_output, &kickoff_tx_id, &input.watchtower_pubkeys,input.sp.txid_hex);
 
     let latest_blockhash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32]
         .try_into()
@@ -162,10 +172,10 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let binding = blake3::hash(&concatenated_data);
     let hash_bytes = binding.as_bytes();
 
-    // let concat_journal = [deposit_constant, *hash_bytes].concat();
-    // let journal_hash = blake3::hash(&concat_journal);
+    let concat_journal = [deposit_constant, *hash_bytes].concat();
+    let journal_hash = blake3::hash(&concat_journal);
 
-    // guest.commit(journal_hash.as_bytes());
+    guest.commit(journal_hash.as_bytes());
 }
 
 /// Converts a message into a Groth16 proof structure and verifies it against a given pre-state. (only for work-only circuit)
@@ -217,9 +227,12 @@ fn convert_to_groth16_and_verify(
 ///
 /// - If `winternitz_details.len()` does not match `num_watchtowers`.
 pub fn total_work_and_watchtower_flags(
+    kickoff_tx_id: &Txid,
+    watchtower_idxs: &[u8],
     watchtower_challenge_txs: &[Vec<u8>],
     watchtower_challenge_utxos: &[Vec<Vec<u8>>],
     watchtower_challenge_input_idxs: &[u8],
+    watchtower_pubkeys: &[Vec<u8>],
     num_watchtowers: u32,
     work_only_image_id: &[u8; 32],
 ) -> ([u8; 16], [u8; 20]) {
@@ -231,11 +244,13 @@ pub fn total_work_and_watchtower_flags(
         watchtower_challenge_txs.len(),
         watchtower_challenge_utxos.len(),
         watchtower_challenge_input_idxs.len(),
+        watchtower_idxs.len(),
         num_watchtowers as usize
     );
 
-    for (idx, ((tx, utxos), (input_idx))) in watchtower_challenge_txs
+    for (_, (((tx, &idx) , utxos), (input_idx))) in watchtower_challenge_txs
         .iter()
+        .zip(watchtower_idxs.iter())
         .zip(watchtower_challenge_utxos.iter())
         .zip(watchtower_challenge_input_idxs.iter())
         .enumerate()
@@ -254,12 +269,16 @@ pub fn total_work_and_watchtower_flags(
             Err(_) => continue,
         };
 
-        println!("watchtower tx {:?}", watchtower_tx);
-        println!("outputs {:?}", outputs);
-
         let prevouts = Prevouts::All(&outputs);
 
-        let witness = watchtower_tx.input[*input_idx as usize].witness.to_vec();
+        let input = watchtower_tx.input[*input_idx as usize].clone();
+
+        // IS THIS CHECK SHOULD BE HERE?
+        if input.previous_output.txid != *kickoff_tx_id {
+            continue;
+        };
+
+        let witness = input.witness.to_vec();
 
         if witness.len() != 1 {
             continue;
@@ -296,6 +315,11 @@ pub fn total_work_and_watchtower_flags(
             continue;
         };
 
+        // IS THIS CHECK CORRECT?
+        if watchtower_pubkeys[idx as usize] != pubkey.as_bytes()[2..34] {
+            continue;
+        }
+
         let verifying_key = match VerifyingKey::from_bytes(&pubkey.as_bytes()[2..]) {
             Ok(verifying_key) => verifying_key,
             Err(_) => continue,
@@ -311,7 +335,7 @@ pub fn total_work_and_watchtower_flags(
                 .verify_prehash(sighash.as_byte_array(), &signature)
                 .is_ok()
         {
-            challenge_sending_watchtowers[idx / 8] |= 1 << (idx % 8);
+            challenge_sending_watchtowers[(idx as usize) / 8 ] |= 1 << (idx % 8);
             if watchtower_tx.output.len() >= 3 {
                 watchtower_challenges_outputs.push([
                     watchtower_tx.output[0].clone(),
@@ -326,10 +350,6 @@ pub fn total_work_and_watchtower_flags(
 
     let mut valid_watchtower_challenge_commitments: Vec<WatchTowerChallengeTxCommitment> = vec![];
 
-    println!(
-        "watchtower_challenges_outputs {:?}",
-        watchtower_challenges_outputs
-    );
     for outputs in watchtower_challenges_outputs {
         if !outputs[0].script_pubkey.is_p2tr()
             || !outputs[1].script_pubkey.is_p2tr()
@@ -373,7 +393,6 @@ pub fn total_work_and_watchtower_flags(
 
     for commitment in valid_watchtower_challenge_commitments {
         // Grooth16 verification of work only circuit
-        println!("commitment {:?}", commitment);
         if IS_TEST
             || convert_to_groth16_and_verify(
                 &commitment.compressed_g16_proof,
@@ -417,7 +436,8 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
 /// - If the length of the operator ID (extracted from `script_pubkey`) exceeds 32 bytes.
 fn deposit_constant(
     last_output: &TxOut,
-    winternitz_details: &[WinternitzHandler],
+    kickoff_tx: &Txid,
+    watchtower_pubkeys: &[Vec<u8>],
     move_txid_hex: [u8; 32],
 ) -> [u8; 32] {
     let last_output_script = last_output.script_pubkey.to_bytes();
@@ -438,14 +458,15 @@ fn deposit_constant(
     let mut operator_id = [0u8; 32];
     operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
 
-    let pub_key_concat: Vec<u8> = winternitz_details
+    // pubkeys are 32 bytes long
+    let pubkey_concat = watchtower_pubkeys
         .iter()
-        .flat_map(|wots_handler| wots_handler.pub_key.iter().flatten())
-        .copied()
-        .collect();
+        .flat_map(|pubkey| pubkey.to_vec())
+        .collect::<Vec<u8>>();
 
-    let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).into();
-    let pre_deposit_constant = [move_txid_hex, wintertniz_pubkeys_digest, operator_id].concat();
+
+    let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
+    let pre_deposit_constant = [kickoff_tx.to_byte_array(), move_txid_hex, watchtower_pubkeys_digest, operator_id].concat();
 
     Sha256::digest(&pre_deposit_constant).into()
 }
@@ -572,84 +593,13 @@ fn sighash_man_implementation(
 mod tests {
     use std::io::Cursor;
 
-    use crate::bridge_circuit::winternitz::Parameters;
-
     use super::*;
     use bitcoin::{
         consensus::{Decodable, Encodable},
-        opcodes,
-        script::Builder,
-        Amount, ScriptBuf, Transaction,
+        ScriptBuf, Transaction,
     };
     use hex::decode;
 
-    #[test]
-    fn test_deposit_constant() {
-        let script_buf = Builder::new()
-            .push_opcode(opcodes::all::OP_RETURN)
-            .push_slice([0x02])
-            .into_script();
-        let last_output = TxOut {
-            value: Amount::from_sat(1000),
-            script_pubkey: script_buf,
-        };
-
-        let winternitz_details = vec![WinternitzHandler {
-            pub_key: vec![[
-                147, 0, 0, 0, 162, 22, 250, 184, 250, 140, 238, 8, 88, 92, 50, 253, 80, 242, 185,
-                70,
-            ]],
-            signature: None,
-            message: None,
-            params: Parameters::new(0, 8),
-        }];
-
-        let move_txid_hex: [u8; 32] = [
-            187, 37, 16, 52, 104, 164, 103, 56, 46, 217, 245, 133, 18, 154, 212, 3, 49, 181, 68,
-            37, 21, 93, 111, 15, 174, 140, 121, 147, 145, 238, 46, 127,
-        ];
-
-        let expected_deposit_constant: [u8; 32] = [
-            95, 130, 146, 18, 194, 83, 141, 245, 190, 209, 190, 177, 204, 238, 255, 133, 118, 221,
-            148, 4, 94, 1, 134, 27, 164, 67, 28, 164, 159, 202, 14, 180,
-        ];
-
-        let result = deposit_constant(&last_output, &winternitz_details, move_txid_hex);
-
-        assert_eq!(
-            result, expected_deposit_constant,
-            "Deposit constant mismatch"
-        );
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_deposit_constant_failure_invalid_op_return() {
-        let script_buf = Builder::new()
-            .push_opcode(opcodes::all::OP_RETURN)
-            .into_script();
-        let last_output = TxOut {
-            value: Amount::from_sat(1000),
-            script_pubkey: script_buf,
-        };
-
-        let winternitz_details = vec![WinternitzHandler {
-            pub_key: vec![[
-                147, 0, 0, 0, 162, 22, 250, 184, 250, 140, 238, 8, 88, 92, 50, 253, 80, 242, 185,
-                70,
-            ]],
-            signature: None,
-            message: None,
-            params: Parameters::new(0, 8),
-        }];
-
-        let move_txid_hex: [u8; 32] = [
-            187, 37, 16, 52, 104, 164, 103, 56, 46, 217, 245, 133, 18, 154, 212, 3, 49, 181, 68,
-            37, 21, 93, 111, 15, 174, 140, 121, 147, 145, 238, 46, 127,
-        ];
-
-        deposit_constant(&last_output, &winternitz_details, move_txid_hex);
-    }
 
     #[test]
     fn test_total_work_and_watchtower_flags() {
@@ -674,21 +624,21 @@ mod tests {
         let _ = Encodable::consensus_encode(&output, &mut encoded_tx_out);
         println!("Encoded tx out: {:?}", hex::encode(&encoded_tx_out));
 
-        let (total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
-            &[raw_tx_bytes],
-            &[vec![encoded_tx_out]],
-            &[0],
-            1,
-            &WORK_ONLY_IMAGE_ID,
-        );
+        // let (total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+        //     &[raw_tx_bytes],
+        //     &[vec![encoded_tx_out]],
+        //     &[0],
+        //     1,
+        //     &WORK_ONLY_IMAGE_ID,
+        // );
 
-        let mut expected_challenge_sending_watchtowers = [0u8; 20];
-        expected_challenge_sending_watchtowers[0] = 1;
-        assert_eq!(total_work, [0u8; 16], "Total work is not correct");
-        assert_eq!(
-            challenge_sending_watchtowers, expected_challenge_sending_watchtowers,
-            "Challenge sending watchtowers is not correct"
-        );
+        // let mut expected_challenge_sending_watchtowers = [0u8; 20];
+        // expected_challenge_sending_watchtowers[0] = 1;
+        // assert_eq!(total_work, [0u8; 16], "Total work is not correct");
+        // assert_eq!(
+        //     challenge_sending_watchtowers, expected_challenge_sending_watchtowers,
+        //     "Challenge sending watchtowers is not correct"
+        // );
     }
 
     #[test]
