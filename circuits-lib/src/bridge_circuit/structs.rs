@@ -3,7 +3,6 @@ use final_spv::spv::SPV;
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
-
 const NUM_OF_WATCHTOWERS: u8 = 160;
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -38,7 +37,7 @@ pub struct StorageProof {
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BridgeCircuitInput {
-    pub kickoff_tx : Vec<u8>,
+    pub kickoff_tx: Vec<u8>,
     pub watchtower_idxs: Vec<u8>,
     pub watchtower_pubkeys: Vec<Vec<u8>>,
     pub watchtower_challenge_input_idxs: Vec<u8>,
@@ -75,7 +74,7 @@ impl BridgeCircuitInput {
                 return Err("watchtower_idx exceeds the number of watchtowers");
             }
         }
-        
+
         Ok(Self {
             kickoff_tx,
             watchtower_idxs,
