@@ -93,7 +93,7 @@ impl Database {
             "INSERT INTO bitcoin_blocks (height, block_data, block_hash) VALUES ($1, $2, $3)
              ON CONFLICT (height) DO UPDATE 
              SET block_data = $2,
-                 blockhash = EXCLUDED.blockhash",
+                 block_hash = EXCLUDED.block_hash",
         )
         .bind(i32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?)
         .bind(&block_bytes)
