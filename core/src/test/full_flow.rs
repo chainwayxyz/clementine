@@ -720,7 +720,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     Ok(())
 }
 
-fn get_tx_from_signed_txs_with_type(
+pub fn get_tx_from_signed_txs_with_type(
     txs: &SignedTxsWithType,
     tx_type: TxType,
 ) -> Result<bitcoin::Transaction> {
@@ -835,6 +835,74 @@ pub async fn run_challenge_with_state_machine(
     Ok(())
 }
 
+// Operator successfully sends challenge timeout for one deposit, but doesnt
+// spend its remaining kickoffs, state machine should automatically send any
+// unspent kickoff connector tx to burn operators collateral
+pub async fn run_unspent_kickoffs_with_state_machine(
+    config: &mut BridgeConfig,
+    rpc: ExtendedRpc,
+) -> Result<()> {
+    let (
+        _operators,
+        _verifiers,
+        tx_sender,
+        _dep_params,
+        _kickoff_idx,
+        _base_tx_req,
+        all_txs,
+        _cleanup,
+    ) = base_setup(config, &rpc).await?;
+
+    // Send Round Transaction
+    tracing::info!("Sending round transaction");
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
+
+    // TODO: I wanted to test when operator at least sends one truthful kickoff but I couldn't as
+    // is_kickoff_malicious auto returns true, so state manager sends a challenge transaction immadiately
+    // -> kickoff finalizer cannot be spent with challenge timeout -> collateral can be burned with "kickoff not finalized tx"
+    // instead of unspent kickoff connector tx
+
+    // // Send Kickoff Transaction
+    // tracing::info!("Sending kickoff transaction");
+    // send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
+
+    // rpc.mine_blocks(
+    //     config
+    //         .protocol_paramset()
+    //         .operator_challenge_timeout_timelock as u64,
+    // )
+    // .await?;
+
+    // tracing::info!("Sending challenge timeout transaction");
+    // send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ChallengeTimeout).await?;
+
+    // state machine should burn the collateral after ready to reimburse tx gets sent
+    let ready_to_reimburse_tx =
+        get_tx_from_signed_txs_with_type(&all_txs, TxType::ReadyToReimburse)?;
+    let collateral_utxo = OutPoint {
+        txid: ready_to_reimburse_tx.compute_txid(),
+        vout: 0,
+    };
+
+    // Send Ready to Reimburse Reimburse Transaction
+    tracing::info!("Sending ready to reimburse transaction");
+    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::ReadyToReimburse).await?;
+
+    let collateral_burn_txid = get_txid_where_utxo_is_spent(&rpc, collateral_utxo).await?;
+
+    // calculate unspent kickoff tx txids and check if any of them is where collateral was spent
+    let is_spent_by_unspent_kickoff_tx = (0..config.protocol_paramset().num_kickoffs_per_round)
+        .map(|i| {
+            let tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::UnspentKickoff(i)).unwrap();
+            tx.compute_txid()
+        })
+        .any(|txid| txid == collateral_burn_txid);
+
+    assert!(is_spent_by_unspent_kickoff_tx);
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -923,6 +991,17 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         run_challenge_with_state_machine(&mut config, rpc)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_unspent_kickoffs_with_state_machine() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        run_unspent_kickoffs_with_state_machine(&mut config, rpc)
             .await
             .unwrap();
     }

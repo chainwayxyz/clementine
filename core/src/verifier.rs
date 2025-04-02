@@ -1,7 +1,8 @@
-use crate::actor::Actor;
+use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
-use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
+use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::taproot_builder_with_scripts;
+use crate::builder::script::extract_winternitz_commits;
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
@@ -30,11 +31,11 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
-use bitcoin::{Address, ScriptBuf, TapTweakHash, XOnlyPublicKey};
+use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
-use eyre::{Context, OptionExt};
+use eyre::{Context, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -277,6 +278,7 @@ where
         unspent_kickoff_sigs: Vec<Signature>,
         kickoff_wpks: &KickoffWinternitzKeys,
     ) -> Result<Vec<TaggedSignature>, BridgeError> {
+        let mut tweak_cache = TweakCache::default();
         let mut tagged_sigs = Vec::with_capacity(unspent_kickoff_sigs.len());
         let mut prev_ready_to_reimburse: Option<TxHandler> = None;
         let operator_data = OperatorData {
@@ -285,10 +287,10 @@ where
             reimburse_addr: wallet_reimburse_address.clone(),
         };
         let mut cur_sig_index = 0;
-        for idx in 0..self.config.protocol_paramset().num_round_txs {
+        for round_idx in 0..self.config.protocol_paramset().num_round_txs {
             let txhandlers = create_round_txhandlers(
                 self.config.protocol_paramset(),
-                idx,
+                round_idx,
                 &operator_data,
                 kickoff_wpks,
                 prev_ready_to_reimburse.as_ref(),
@@ -299,34 +301,34 @@ where
                 {
                     let partial = PartialSignatureInfo {
                         operator_idx: operator_index as usize,
-                        round_idx: idx,
+                        round_idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };
                     let sighashes = txhandler
                         .calculate_shared_txins_sighash(EntityType::OperatorSetup, partial)?;
                     for sighash in sighashes {
                         let message = Message::from_digest(sighash.0.to_byte_array());
-                        bitvm_client::SECP
-                            .verify_schnorr(
-                                &unspent_kickoff_sigs[cur_sig_index],
-                                &message,
-                                &operator_xonly_pk,
+                        verify_schnorr(
+                            &unspent_kickoff_sigs[cur_sig_index],
+                            &message,
+                            operator_xonly_pk,
+                            sighash.1.tweak_data,
+                            Some(&mut tweak_cache),
+                        )
+                        .map_err(|e| {
+                            eyre::eyre!(
+                                "Unspent kickoff signature verification failed for num sig {}: {}",
+                                cur_sig_index + 1,
+                                e
                             )
-                            .map_err(|e| {
-                                eyre::eyre!(
-                                    "Unspent kickoff signature verification failed for num sig {}: {}",
-                                    cur_sig_index + 1,
-                                    e
-                                )
-                            })?;
+                        })?;
                         tagged_sigs.push(TaggedSignature {
                             signature: unspent_kickoff_sigs[cur_sig_index].serialize().to_vec(),
                             signature_id: Some(sighash.1.signature_id),
                         });
                         cur_sig_index += 1;
                     }
-                }
-                if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
+                } else if let TransactionType::ReadyToReimburse = txhandler.get_transaction_type() {
                     prev_ready_to_reimburse = Some(txhandler);
                 }
             }
@@ -539,6 +541,7 @@ where
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
     ) -> Result<MusigPartialSignature, BridgeError> {
+        let mut tweak_cache = TweakCache::default();
         let deposit_blockhash = self
             .rpc
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
@@ -593,6 +596,7 @@ where
                 round_idx,
                 kickoff_utxo_idx,
                 signature_id,
+                tweak_data,
                 kickoff_txid,
             } = &typed_sighash.1;
 
@@ -607,15 +611,21 @@ where
                 .ok_or_eyre("No signature received")?;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
-            bitvm_client::SECP
-                .verify_schnorr(&sig, &Message::from(typed_sighash.0), &self.nofn_xonly_pk)
-                .wrap_err_with(|| {
-                    format!(
-                        "Failed to verify nofn signature {} with signature info {:?}",
-                        nonce_idx + 1,
-                        typed_sighash.1
-                    )
-                })?;
+
+            verify_schnorr(
+                &sig,
+                &Message::from(typed_sighash.0),
+                self.nofn_xonly_pk,
+                tweak_data,
+                Some(&mut tweak_cache),
+            )
+            .wrap_err_with(|| {
+                format!(
+                    "Failed to verify nofn signature {} with signature info {:?}",
+                    nonce_idx + 1,
+                    typed_sighash.1
+                )
+            })?;
 
             let tagged_sig = TaggedSignature {
                 signature: sig.serialize().to_vec(),
@@ -649,12 +659,6 @@ where
         // get signatures of operators and verify them
         for (operator_idx, (op_xonly_pk, _, _)) in operators_data.iter().enumerate() {
             let mut op_sig_count = 0;
-            // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
-            let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
-            let tweaked_op_xonly_pk = op_xonly_pk
-                .add_tweak(&SECP, &scalar)
-                .wrap_err("Failed to tweak operator xonly public key")?
-                .0;
             // generate the sighash stream for operator
             let mut sighash_stream = pin!(create_operator_sighash_stream(
                 self.db.clone(),
@@ -676,28 +680,30 @@ where
                     typed_sighash.1
                 );
 
-                bitvm_client::SECP
-                    .verify_schnorr(
-                        &operator_sig,
-                        &Message::from(typed_sighash.0),
-                        &tweaked_op_xonly_pk,
-                    )
-                    .wrap_err_with(|| {
-                        format!(
-                            "Operator {} Signature {}: verification failed. Signature info: {:?}.",
-                            operator_idx,
-                            op_sig_count + 1,
-                            typed_sighash.1
-                        )
-                    })?;
-
                 let &SignatureInfo {
                     operator_idx,
                     round_idx,
                     kickoff_utxo_idx,
                     signature_id,
                     kickoff_txid: _,
+                    tweak_data,
                 } = &typed_sighash.1;
+
+                verify_schnorr(
+                    &operator_sig,
+                    &Message::from(typed_sighash.0),
+                    *op_xonly_pk,
+                    tweak_data,
+                    Some(&mut tweak_cache),
+                )
+                .wrap_err_with(|| {
+                    format!(
+                        "Operator {} Signature {}: verification failed. Signature info: {:?}.",
+                        operator_idx,
+                        op_sig_count + 1,
+                        typed_sighash.1
+                    )
+                })?;
 
                 let tagged_sig = TaggedSignature {
                     signature: operator_sig.serialize().to_vec(),
@@ -908,29 +914,76 @@ where
         Ok(())
     }
 
-    // TODO: #402
+    /// Checks if the operator who sent the kickoff matches the payout data saved in our db
+    /// Payout data in db is updated during citrea sync.
     async fn is_kickoff_malicious(
         &self,
-        _kickoff_txid: bitcoin::Txid,
+        kickoff_witness: Witness,
+        deposit_data: &DepositData,
+        kickoff_id: KickoffId,
     ) -> Result<bool, BridgeError> {
+        let move_txid =
+            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?
+                .get_cached_tx()
+                .compute_txid();
+        let payout_info = self
+            .db
+            .get_payout_info_from_move_txid(None, move_txid)
+            .await;
+        if let Err(e) = &payout_info {
+            tracing::warn!(
+                "Couldn't retrieve payout info from db {}, assuming malicious",
+                e
+            );
+            return Ok(true);
+        }
+        let payout_info = payout_info?;
+        if let Some((operator_idx, payout_blockhash)) = payout_info {
+            if operator_idx != kickoff_id.operator_idx {
+                return Ok(true);
+            }
+            let wt_derive_path = WinternitzDerivationPath::Kickoff(
+                kickoff_id.round_idx,
+                kickoff_id.kickoff_idx,
+                self.config.protocol_paramset(),
+            );
+            let commits = extract_winternitz_commits(
+                kickoff_witness,
+                &[wt_derive_path],
+                self.config.protocol_paramset(),
+            )?;
+            let blockhash_data = commits.first();
+            // only last 20 bytes of the blockhash is committed
+            let truncated_blockhash = &payout_blockhash[12..];
+            if let Some(committed_blockhash) = blockhash_data {
+                if committed_blockhash != truncated_blockhash {
+                    tracing::warn!("Payout blockhash does not match committed hash: committed: {:?}, truncated payout blockhash: {:?}",
+                        blockhash_data, truncated_blockhash);
+                    return Ok(true);
+                }
+            } else {
+                return Err(BridgeError::Error(
+                    "Couldn't retrieve committed data from witness".to_string(),
+                ));
+            }
+            return Ok(false);
+        }
         Ok(true)
     }
 
     pub async fn handle_kickoff<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
-        kickoff_txid: bitcoin::Txid,
+        kickoff_witness: Witness,
+        deposit_data: DepositData,
+        kickoff_id: KickoffId,
     ) -> Result<(), BridgeError> {
-        let is_malicious = self.is_kickoff_malicious(kickoff_txid).await?;
+        let is_malicious = self
+            .is_kickoff_malicious(kickoff_witness, &deposit_data, kickoff_id)
+            .await?;
         if !is_malicious {
             return Ok(());
         }
-
-        let (deposit_data, kickoff_id, _) = self
-            .db
-            .get_deposit_signatures_with_kickoff_txid(None, kickoff_txid)
-            .await?
-            .ok_or(eyre::eyre!("Kickoff txid not found"))?;
 
         let transaction_data = TransactionRequestData {
             deposit_data: deposit_data.clone(),
@@ -1104,6 +1157,48 @@ where
 
         Ok(())
     }
+
+    async fn send_unspent_kickoff_connectors(
+        &self,
+        round_idx: u32,
+        operator_idx: u32,
+        used_kickoffs: HashSet<usize>,
+    ) -> Result<(), BridgeError> {
+        if used_kickoffs.len() == self.config.protocol_paramset().num_kickoffs_per_round {
+            // ok, every kickoff spent
+            return Ok(());
+        }
+        let unspent_kickoff_txs = self
+            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_idx)
+            .await?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        for (tx_type, tx) in unspent_kickoff_txs {
+            if let TransactionType::UnspentKickoff(kickoff_idx) = tx_type {
+                if used_kickoffs.contains(&kickoff_idx) {
+                    continue;
+                }
+                self.tx_sender
+                    .add_tx_to_queue(
+                        &mut dbtx,
+                        tx_type,
+                        &tx,
+                        &[],
+                        Some(TxMetadata {
+                            tx_type,
+                            operator_idx: Some(operator_idx),
+                            verifier_idx: Some(self.idx as u32),
+                            round_idx: Some(round_idx),
+                            kickoff_idx: Some(kickoff_idx as u32),
+                            deposit_outpoint: None,
+                        }),
+                        &self.config,
+                    )
+                    .await?;
+            }
+        }
+        dbtx.commit().await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1124,6 +1219,8 @@ where
                     "Verifier {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",
                     self.idx, round_idx, operator_idx, used_kickoffs
                 );
+                self.send_unspent_kickoff_connectors(round_idx, operator_idx, used_kickoffs)
+                    .await?;
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
@@ -1171,9 +1268,9 @@ where
                 );
                 let kickoff_data = self
                     .db
-                    .get_deposit_signatures_with_kickoff_txid(None, txid)
+                    .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
-                if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
+                if let Some((deposit_data, kickoff_id)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
                     StateManager::<Self>::dispatch_new_kickoff_machine(
@@ -1181,11 +1278,12 @@ where
                         &mut dbtx,
                         kickoff_id,
                         block_height,
-                        deposit_data,
-                        witness,
+                        deposit_data.clone(),
+                        witness.clone(),
                     )
                     .await?;
-                    self.handle_kickoff(&mut dbtx, txid).await?;
+                    self.handle_kickoff(&mut dbtx, witness, deposit_data, kickoff_id)
+                        .await?;
                     dbtx.commit().await?;
                 }
             }
@@ -1198,8 +1296,7 @@ where
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        let mut db_cache =
-            ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
+        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
         let txhandlers = create_txhandlers(
             tx_type,
             contract_context,

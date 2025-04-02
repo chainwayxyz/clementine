@@ -251,11 +251,12 @@ pub fn create_unspent_kickoff_txhandlers(
                     (NumberedSignatureKind::UnspentKickoff2, idx as i32),
                     round_txhandler.get_spendable_output(1 + idx)?,
                     SpendPath::ScriptSpend(1),
-                    DEFAULT_SEQUENCE,
+                    Sequence::from_height(1),
                 )
                 .add_output(UnspentTxOut::from_partial(
                     builder::transaction::anchor_output(),
                 ))
+                .add_burn_output()
                 .finalize(),
         );
     }

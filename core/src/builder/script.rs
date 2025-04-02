@@ -5,6 +5,8 @@
 // Currently generate_witness functions are not yet used.
 #![allow(dead_code)]
 
+use crate::actor::WinternitzDerivationPath;
+use crate::config::protocol::ProtocolParamset;
 use crate::EVMAddress;
 use bitcoin::hashes::{hash160, Hash};
 use bitcoin::opcodes::OP_TRUE;
@@ -16,6 +18,7 @@ use bitcoin::{
 };
 use bitcoin::{taproot, Amount, Txid, Witness};
 use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
+use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
 
@@ -24,6 +27,67 @@ pub enum SpendPath {
     ScriptSpend(usize),
     KeySpend,
     Unknown,
+}
+
+/// Converts a minimal serialized u32 (trailing zeros removed) to full 4 byte representation
+fn from_minimal_to_u32_le_bytes(minimal: &[u8]) -> Result<[u8; 4]> {
+    if minimal.len() > 4 {
+        return Err(eyre::eyre!("u32 bytes length is greater than 4"));
+    }
+    let mut bytes = [0u8; 4];
+    bytes[..minimal.len()].copy_from_slice(minimal);
+    Ok(bytes)
+}
+
+/// Extracts the committed data from the witness.
+/// Note: The function is hardcoded for winternitz_log_d = 4 currently, will not work for others.
+pub fn extract_winternitz_commits(
+    witness: Witness,
+    wt_derive_paths: &[WinternitzDerivationPath],
+    paramset: &'static ProtocolParamset,
+) -> Result<Vec<Vec<u8>>> {
+    if paramset.winternitz_log_d != 4 {
+        return Err(eyre::eyre!("Only winternitz_log_d = 4 is supported"));
+    }
+    let mut commits: Vec<Vec<u8>> = Vec::new();
+    let mut cur_witness_iter = witness.into_iter().skip(1);
+
+    for wt_path in wt_derive_paths.iter().rev() {
+        let wt_params = wt_path.get_params();
+        let message_digits =
+            (wt_params.byte_message_length() * 8).div_ceil(paramset.winternitz_log_d) as usize;
+        let checksum_digits = wt_params.total_length() as usize - message_digits;
+
+        let mut elements: Vec<&[u8]> = cur_witness_iter
+            .by_ref()
+            .skip(1)
+            .step_by(2)
+            .take(message_digits)
+            .collect();
+        elements.reverse();
+
+        // advance iterator to skip checksum digits at the end
+        cur_witness_iter.by_ref().nth(checksum_digits * 2 - 1);
+
+        commits.push(
+            elements
+                .chunks_exact(2)
+                .map(|digits| {
+                    let first_digit = u32::from_le_bytes(from_minimal_to_u32_le_bytes(digits[0])?);
+                    let second_digit = u32::from_le_bytes(from_minimal_to_u32_le_bytes(digits[1])?);
+
+                    let first_u8 = u8::try_from(first_digit)
+                        .wrap_err("Failed to convert first digit to u8")?;
+                    let second_u8 = u8::try_from(second_digit)
+                        .wrap_err("Failed to convert second digit to u8")?;
+
+                    Ok(second_u8 * (1 << paramset.winternitz_log_d) + first_u8)
+                })
+                .collect::<Result<Vec<_>>>()?,
+        );
+    }
+    commits.reverse();
+    Ok(commits)
 }
 
 /// A trait that marks all script types. Each script has a `generate_script_inputs` (eg. [`WinternitzCommit::generate_script_inputs`]) function that
@@ -672,7 +736,7 @@ mod tests {
         );
 
         signer
-            .tx_sign_and_fill_sigs(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign checksig");
         let tx = tx
             .promote()
@@ -797,7 +861,7 @@ mod tests {
         );
 
         signer
-            .tx_sign_and_fill_sigs(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign timelock");
 
         rpc.client
@@ -886,7 +950,7 @@ mod tests {
         );
 
         signer
-            .tx_sign_and_fill_sigs(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign base deposit");
 
         rpc.client
@@ -926,12 +990,81 @@ mod tests {
         );
 
         signer
-            .tx_sign_and_fill_sigs(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[], None)
             .expect("should be able to sign replacement deposit");
 
         rpc.client
             .send_raw_transaction(tx.get_cached_tx())
             .await
             .expect("bitcoin RPC did not accept transaction");
+    }
+
+    #[tokio::test]
+    async fn test_extract_commit_data() {
+        let config = create_test_config_with_thread_name().await;
+        let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
+
+        let signer = Actor::new(
+            kp.secret_key(),
+            Some(kp.secret_key()),
+            bitcoin::Network::Regtest,
+        );
+
+        let kickoff = WinternitzDerivationPath::Kickoff(0, 0, config.protocol_paramset());
+        let bitvm_assert = WinternitzDerivationPath::BitvmAssert(
+            64,
+            3,
+            0,
+            OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            },
+            config.protocol_paramset(),
+        );
+        let commit_script = WinternitzCommit::new(
+            vec![
+                (
+                    signer
+                        .derive_winternitz_pk(kickoff.clone())
+                        .expect("failed to derive Winternitz public key"),
+                    40,
+                ),
+                (
+                    signer
+                        .derive_winternitz_pk(bitvm_assert.clone())
+                        .expect("failed to derive Winternitz public key"),
+                    64,
+                ),
+            ],
+            signer.xonly_public_key,
+            4,
+        );
+        let signature = taproot::Signature::from_slice(&[1u8; 64]).expect("valid signature");
+        let kickoff_blockhash: Vec<u8> = (0..20u8).collect();
+        let assert_commit_data: Vec<u8> = (0..32u8).collect();
+        let witness = commit_script.generate_script_inputs(
+            &[
+                (
+                    kickoff_blockhash.clone(),
+                    signer.get_derived_winternitz_sk(kickoff.clone()).unwrap(),
+                ),
+                (
+                    assert_commit_data.clone(),
+                    signer
+                        .get_derived_winternitz_sk(bitvm_assert.clone())
+                        .unwrap(),
+                ),
+            ],
+            &signature,
+        );
+        let extracted = extract_winternitz_commits(
+            witness,
+            &[kickoff, bitvm_assert],
+            config.protocol_paramset(),
+        )
+        .unwrap();
+        tracing::info!("{:?}", extracted);
+        assert_eq!(extracted[0], kickoff_blockhash);
+        assert_eq!(extracted[1], assert_commit_data);
     }
 }
