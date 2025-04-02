@@ -153,7 +153,6 @@ where
 #[derive(Debug, Clone)]
 pub struct Verifier<C: CitreaClientT> {
     rpc: ExtendedRpc,
-    pub idx: Arc<tokio::sync::RwLock<Option<usize>>>,
 
     pub(crate) signer: Actor,
     pub(crate) db: Database,
@@ -218,7 +217,6 @@ where
             nofn: Arc::new(tokio::sync::RwLock::new(nofn)),
             _operator_xonly_pks: config.operators_xonly_pks.clone(),
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
-            idx: Arc::new(tokio::sync::RwLock::new(None)),
             tx_sender,
             citrea_client,
         };
@@ -230,7 +228,7 @@ where
         verifiers_public_keys: Vec<PublicKey>,
     ) -> Result<(), BridgeError> {
         // Check if verifiers are already set
-        if self.nofn.read().await.clone().is_some() && self.idx.read().await.is_some() {
+        if self.nofn.read().await.clone().is_some() {
             return Err(eyre!("Verifiers already set").into());
         }
 
@@ -238,12 +236,6 @@ where
         self.db
             .set_verifiers_public_keys(None, &verifiers_public_keys)
             .await?;
-
-        let idx = verifiers_public_keys
-            .iter()
-            .position(|pk| pk == &self.signer.public_key)
-            .ok_or(eyre!("Public key is not present in received public keys"))?;
-        self.idx.write().await.replace(idx);
 
         // Save the nofn to memory for fast access
         let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
@@ -436,11 +428,7 @@ where
     ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
-        let verifier_index = self
-            .idx
-            .read()
-            .await
-            .ok_or(eyre!("Verifier index not set, yet"))?;
+        let verifier_index = deposit_data.get_watchtower_index(&self.signer.xonly_public_key)?;
         let verifiers_public_keys = self.db.get_verifiers_public_keys(None).await?;
 
         let deposit_blockhash = self
@@ -997,16 +985,9 @@ where
         )
         .await?;
 
-        let verifier_idx = self
-            .idx
-            .read()
-            .await
-            .ok_or(eyre!("Verifier index not set, yet"))?;
-
         let tx_metadata = Some(TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
             operator_idx: Some(kickoff_id.operator_idx),
-            verifier_idx: Some(verifier_idx as u32),
             round_idx: Some(kickoff_id.round_idx),
             kickoff_idx: Some(kickoff_id.kickoff_idx),
             deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -1055,12 +1036,6 @@ where
             .await?;
         let mut dbtx = self.db.begin_transaction().await?;
 
-        let verifier_index = self
-            .idx
-            .read()
-            .await
-            .ok_or(eyre!("Verifier index not set, yet"))?;
-
         self.tx_sender
             .add_tx_to_queue(
                 &mut dbtx,
@@ -1070,7 +1045,6 @@ where
                 Some(TxMetadata {
                     tx_type,
                     operator_idx: None,
-                    verifier_idx: Some(verifier_index as u32),
                     round_idx: Some(kickoff_id.round_idx),
                     kickoff_idx: Some(kickoff_id.kickoff_idx),
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -1082,7 +1056,7 @@ where
 
         tracing::info!(
             "Commited watchtower challenge for watchtower {}",
-            verifier_index
+            self.signer.xonly_public_key
         );
 
         Ok(())
@@ -1186,13 +1160,6 @@ where
             return Ok(());
         }
 
-        let verifier_idx = Some(
-            self.idx
-                .read()
-                .await
-                .ok_or(eyre!("Verifier index not set, yet"))? as u32,
-        );
-
         let unspent_kickoff_txs = self
             .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_idx)
             .await?;
@@ -1211,7 +1178,6 @@ where
                         Some(TxMetadata {
                             tx_type,
                             operator_idx: Some(operator_idx),
-                            verifier_idx,
                             round_idx: Some(round_idx),
                             kickoff_idx: Some(kickoff_idx as u32),
                             deposit_outpoint: None,
@@ -1234,12 +1200,7 @@ where
     const OWNER_TYPE: &'static str = "verifier";
 
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
-        let verifier_index = self
-            .idx
-            .read()
-            .await
-            .ok_or(eyre!("Verifier index not set, yet"))?;
-
+        let verifier_xonly_pk = &self.signer.xonly_public_key;
         match duty {
             Duty::NewReadyToReimburse {
                 round_idx,
@@ -1247,8 +1208,8 @@ where
                 used_kickoffs,
             } => {
                 tracing::info!(
-                    "Verifier {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",
-                    verifier_index, round_idx, operator_idx, used_kickoffs
+                    "Verifier {:?} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",
+                    verifier_xonly_pk, round_idx, operator_idx, used_kickoffs
                 );
                 self.send_unspent_kickoff_connectors(round_idx, operator_idx, used_kickoffs)
                     .await?;
@@ -1258,8 +1219,8 @@ where
                 deposit_data,
             } => {
                 tracing::warn!(
-                    "Verifier {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
-                    verifier_index, kickoff_id, deposit_data
+                    "Verifier {:?} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
+                    verifier_xonly_pk, kickoff_id, deposit_data
                 );
                 self.send_watchtower_challenge(kickoff_id, deposit_data)
                     .await?;
@@ -1271,8 +1232,8 @@ where
                 ..
             } => {
                 tracing::info!(
-                    "Verifier {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
-                    verifier_index, kickoff_id, deposit_data, watchtower_challenges.len()
+                    "Verifier {:?} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
+                    verifier_xonly_pk, kickoff_id, deposit_data, watchtower_challenges.len()
                 );
             }
             Duty::VerifierDisprove {
@@ -1283,8 +1244,8 @@ where
                 payout_blockhash,
             } => {
                 tracing::warn!(
-                    "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                    payout_blockhash: {:?}", verifier_index, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
+                    "Verifier {:?} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
+                    payout_blockhash: {:?}", verifier_xonly_pk, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
             }
             Duty::CheckIfKickoff {
                 txid,
@@ -1292,8 +1253,8 @@ where
                 witness,
             } => {
                 tracing::info!(
-                    "Verifier {} called check if kickoff with txid: {:?}, block_height: {:?}",
-                    verifier_index,
+                    "Verifier {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
+                    verifier_xonly_pk,
                     txid,
                     block_height,
                 );

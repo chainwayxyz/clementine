@@ -87,12 +87,19 @@ async fn base_setup(
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
     let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
+
+    let verifiers_xonly_pks = verifiers_public_keys
+        .iter()
+        .map(|pk| pk.x_only_public_key().0)
+        .collect::<Vec<_>>();
+
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
         nofn_xonly_pk,
-        num_verifiers: config.num_verifiers,
+        verifiers: verifiers_xonly_pks,
+        watchtowers: vec![],
     });
     let dep_params: DepositParams = deposit_data.into();
     tracing::info!("Creating move transaction");
@@ -184,12 +191,18 @@ pub async fn run_operator_end_round(
 
     let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
 
+    let verifiers_xonly_pks = verifiers_public_keys
+        .iter()
+        .map(|pk| pk.x_only_public_key().0)
+        .collect::<Vec<_>>();
+
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
         nofn_xonly_pk,
-        num_verifiers: config.num_verifiers,
+        verifiers: verifiers_xonly_pks,
+        watchtowers: vec![],
     });
 
     let dep_params: DepositParams = deposit_data.into();
@@ -781,12 +794,12 @@ pub async fn run_challenge_with_state_machine(
     let kickoff_tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::Kickoff)?;
     let kickoff_txid = kickoff_tx.compute_txid();
 
-    let watchtower_challenge_utxos = (0..deposit_data.get_num_verifiers()).map(|i| OutPoint {
+    let watchtower_challenge_utxos = (0..deposit_data.get_num_watchtowers()).map(|i| OutPoint {
         txid: kickoff_txid,
         vout: get_watchtower_challenge_utxo_vout(i) as u32,
     });
 
-    let watchtower_challenge_timeout_txids = (0..deposit_data.get_num_verifiers())
+    let watchtower_challenge_timeout_txids = (0..deposit_data.get_num_watchtowers())
         .map(|i| {
             let wtc =
                 get_tx_from_signed_txs_with_type(&all_txs, TxType::WatchtowerChallengeTimeout(i))

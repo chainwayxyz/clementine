@@ -193,7 +193,16 @@ impl From<BaseDepositData> for BaseDeposit {
             evm_address: data.evm_address.0.to_vec(),
             recovery_taproot_address: data.recovery_taproot_address.assume_checked().to_string(),
             nofn_xonly_pk: data.nofn_xonly_pk.serialize().to_vec(),
-            num_verifiers: data.num_verifiers as u64,
+            verifiers: data
+                .verifiers
+                .iter()
+                .map(|pk| pk.serialize().to_vec())
+                .collect(),
+            watchtowers: data
+                .watchtowers
+                .iter()
+                .map(|pk| pk.serialize().to_vec())
+                .collect(),
         }
     }
 }
@@ -204,7 +213,16 @@ impl From<ReplacementDepositData> for ReplacementDeposit {
             deposit_outpoint: Some(data.deposit_outpoint.into()),
             old_move_txid: Some(data.old_move_txid.into()),
             nofn_xonly_pk: data.nofn_xonly_pk.serialize().to_vec(),
-            num_verifiers: data.num_verifiers as u64,
+            verifiers: data
+                .verifiers
+                .iter()
+                .map(|pk| pk.serialize().to_vec())
+                .collect(),
+            watchtowers: data
+                .watchtowers
+                .iter()
+                .map(|pk| pk.serialize().to_vec())
+                .collect(),
         }
     }
 }
@@ -272,6 +290,16 @@ impl TryFrom<clementine::Txid> for Txid {
     }
 }
 
+fn parse_xonly_public_keys(pk: &[Vec<u8>]) -> Result<Vec<XOnlyPublicKey>, Status> {
+    pk.iter()
+        .map(|pk| {
+            XOnlyPublicKey::from_slice(pk).map_err(|e| {
+                Status::invalid_argument(format!("Failed to parse xonly public key: {}", e))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+}
+
 fn parse_base_deposit_data(data: BaseDeposit) -> Result<DepositData, Status> {
     let deposit_outpoint: bitcoin::OutPoint = data
         .deposit_outpoint
@@ -288,14 +316,18 @@ fn parse_base_deposit_data(data: BaseDeposit) -> Result<DepositData, Status> {
         .parse::<bitcoin::Address<_>>()
         .map_err(|e| Status::internal(e.to_string()))?;
 
-    let nofn_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_slice(&data.nofn_xonly_pk)
-        .map_err(|e| BridgeError::Error(format!("Failed to parse xonly public key: {}", e)))?;
+    let nofn_xonly_pk: XOnlyPublicKey =
+        XOnlyPublicKey::from_slice(&data.nofn_xonly_pk).map_err(|e| {
+            Status::invalid_argument(format!("Failed to parse xonly public key: {}", e))
+        })?;
+
     Ok(DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,
         nofn_xonly_pk,
-        num_verifiers: data.num_verifiers as usize,
+        verifiers: parse_xonly_public_keys(&data.verifiers)?,
+        watchtowers: parse_xonly_public_keys(&data.watchtowers)?,
     }))
 }
 
@@ -315,14 +347,17 @@ fn parse_replacement_deposit_data(data: ReplacementDeposit) -> Result<DepositDat
             ))
         })?;
 
-    let nofn_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_slice(&data.nofn_xonly_pk)
-        .map_err(|e| BridgeError::Error(format!("Failed to parse xonly public key: {}", e)))?;
+    let nofn_xonly_pk: XOnlyPublicKey =
+        XOnlyPublicKey::from_slice(&data.nofn_xonly_pk).map_err(|e| {
+            Status::invalid_argument(format!("Failed to parse xonly public key: {}", e))
+        })?;
 
     Ok(DepositData::ReplacementDeposit(ReplacementDepositData {
         deposit_outpoint,
         old_move_txid: move_txid,
         nofn_xonly_pk,
-        num_verifiers: data.num_verifiers as usize,
+        verifiers: parse_xonly_public_keys(&data.verifiers)?,
+        watchtowers: parse_xonly_public_keys(&data.watchtowers)?,
     }))
 }
 

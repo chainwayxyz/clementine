@@ -559,7 +559,6 @@ impl Aggregator {
                 Some(TxMetadata {
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     operator_idx: None,
-                    verifier_idx: None,
                     round_idx: None,
                     kickoff_idx: None,
                     tx_type: TransactionType::MoveToVault,
@@ -783,7 +782,8 @@ impl ClementineAggregator for Aggregator {
         &self,
         request: Request<DepositParams>,
     ) -> Result<Response<clementine::Txid>, Status> {
-        let deposit_params = request.into_inner();
+        todo!("order verifier clients somehow");
+        let deposit_params: DepositParams = request.into_inner();
         // Collect and distribute keys needed keys from operators and watchtowers to verifiers
         let start = std::time::Instant::now();
         self.collect_and_distribute_keys(&deposit_params).await?;
@@ -1116,12 +1116,18 @@ mod tests {
             .unwrap();
         rpc.mine_blocks(18).await.unwrap();
 
+        let verifiers_xonly_pks = verifiers_public_keys
+            .iter()
+            .map(|pk| pk.x_only_public_key().0)
+            .collect::<Vec<_>>();
+
         let deposit_data = DepositData::BaseDeposit(BaseDepositData {
             deposit_outpoint,
             evm_address,
             recovery_taproot_address: signer.address.as_unchecked().clone(),
             nofn_xonly_pk,
-            num_verifiers: config.num_verifiers,
+            verifiers: verifiers_xonly_pks,
+            watchtowers: vec![],
         });
 
         let movetx_txid: Txid = aggregator

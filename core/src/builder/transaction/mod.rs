@@ -110,12 +110,56 @@ impl DepositData {
             DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk,
         }
     }
-    pub fn get_num_verifiers(&self) -> usize {
+    fn get_num_verifiers(&self) -> usize {
         match self {
-            DepositData::BaseDeposit(data) => data.num_verifiers,
-            DepositData::ReplacementDeposit(data) => data.num_verifiers,
+            DepositData::BaseDeposit(data) => data.verifiers.len(),
+            DepositData::ReplacementDeposit(data) => data.verifiers.len(),
         }
     }
+    pub fn get_num_watchtowers(&self) -> usize {
+        self.get_num_verifiers()
+            + match self {
+                DepositData::BaseDeposit(data) => data.watchtowers.len(),
+                DepositData::ReplacementDeposit(data) => data.watchtowers.len(),
+            }
+    }
+    pub fn get_verifier_index(&self, xonly_pk: &XOnlyPublicKey) -> Result<usize, eyre::Report> {
+        self.get_verifiers()
+            .iter()
+            .position(|pk| pk == xonly_pk)
+            .ok_or_else(|| eyre::eyre!("Verifier with public key {} not found", xonly_pk))
+    }
+    pub fn get_watchtower_index(&self, xonly_pk: &XOnlyPublicKey) -> Result<usize, eyre::Report> {
+        self.get_watchtowers()
+            .iter()
+            .position(|pk| pk == xonly_pk)
+            .ok_or_else(|| eyre::eyre!("Watchtower with public key {} not found", xonly_pk))
+    }
+    /// Returns sorted verifiers, they are sorted so that their order is deterministic.
+    pub fn get_verifiers(&self) -> Vec<XOnlyPublicKey> {
+        let mut verifiers = match self {
+            DepositData::BaseDeposit(data) => data.verifiers.clone(),
+            DepositData::ReplacementDeposit(data) => data.verifiers.clone(),
+        };
+        verifiers.sort();
+        verifiers
+    }
+    /// Returns sorted watchtowers, they are sorted so that their order is deterministic.
+    pub fn get_watchtowers(&self) -> Vec<XOnlyPublicKey> {
+        let mut watchtowers = self.get_verifiers().to_vec();
+        match self {
+            DepositData::BaseDeposit(data) => watchtowers.extend(data.watchtowers.iter()),
+            DepositData::ReplacementDeposit(data) => watchtowers.extend(data.watchtowers.iter()),
+        }
+        watchtowers.sort();
+        watchtowers
+    }
+    // pub fn get_num_verifiers(&self) -> usize {
+    //     match self {
+    //         DepositData::BaseDeposit(data) => data.num_verifiers,
+    //         DepositData::ReplacementDeposit(data) => data.num_verifiers,
+    //     }
+    // }
 }
 
 /// Type to uniquely identify a deposit.
@@ -129,8 +173,11 @@ pub struct BaseDepositData {
     pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
     /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
-    /// Num of verifiers that will participate in the deposit. TODO: Change to verifier xonly pks?
-    pub num_verifiers: usize,
+    /// X-only public keys of verifiers that will participate in the deposit.
+    pub verifiers: Vec<XOnlyPublicKey>,
+    /// X-only public keys of watchtowers that will participate in the deposit.
+    /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+    pub watchtowers: Vec<XOnlyPublicKey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -141,8 +188,11 @@ pub struct ReplacementDepositData {
     pub old_move_txid: Txid,
     /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
-    /// Num of verifiers that will participate in the deposit. TODO: Change to verifier xonly pks?
-    pub num_verifiers: usize,
+    /// X-only public keys of verifiers that will participate in the deposit.
+    pub verifiers: Vec<XOnlyPublicKey>,
+    /// X-only public keys of watchtowers that will participate in the deposit.
+    /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+    pub watchtowers: Vec<XOnlyPublicKey>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]

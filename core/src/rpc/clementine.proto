@@ -97,8 +97,11 @@ message ReplacementDeposit {
   Txid old_move_txid = 2;
   // nofn public key used to sign the deposit
   bytes nofn_xonly_pk = 3;
-  // Num of verifiers that will participate in the deposit.
-  uint64 num_verifiers = 4;
+  /// X-only public keys of verifiers that will participate in the deposit.
+  repeated bytes verifiers = 4;
+  /// X-only public keys of watchtowers that will participate in the deposit.
+  /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+  repeated bytes watchtowers = 5;
 }
 
 // A new original deposit request's details.
@@ -111,8 +114,11 @@ message BaseDeposit {
   string recovery_taproot_address = 3;
   // nofn public key used to sign the deposit
   bytes nofn_xonly_pk = 4;
-  // Num of verifiers that will participate in the deposit.
-  uint64 num_verifiers = 5;
+  /// X-only public keys of verifiers that will participate in the deposit.
+  repeated bytes verifiers = 5;
+  /// X-only public keys of watchtowers that will participate in the deposit.
+  /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+  repeated bytes watchtowers = 6;
 }
 
 enum FeeType {
@@ -339,11 +345,10 @@ service ClementineOperator {
 // Verifier --------------------------------------------------------------------
 
 message VerifierParams {
-  optional uint32 id = 1;
-  bytes public_key = 2;
-  uint32 num_verifiers = 3;
-  uint32 num_operators = 4;
-  uint32 num_round_txs = 5;
+  bytes public_key = 1;
+  uint32 num_verifiers = 2;
+  uint32 num_operators = 3;
+  uint32 num_round_txs = 4;
 }
 
 message PartialSig {

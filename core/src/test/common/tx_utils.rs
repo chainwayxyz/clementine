@@ -73,7 +73,6 @@ pub async fn send_tx(
                 kickoff_idx: None,
                 operator_idx: None,
                 round_idx: None,
-                verifier_idx: None,
             }),
             &tx,
             if tx_type == TxType::Challenge {

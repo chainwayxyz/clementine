@@ -1,7 +1,4 @@
-use bitcoin::XOnlyPublicKey;
-
 use crate::actor::Actor;
-
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::transaction::{
@@ -74,8 +71,6 @@ pub struct ReimburseDbCache {
     challenge_ack_hashes: Option<Vec<PublicHash>>,
     /// operator data
     operator_data: Option<OperatorData>,
-    /// watchtower xonly pks
-    verifier_xonly_pks: Option<Vec<XOnlyPublicKey>>,
 }
 
 impl ReimburseDbCache {
@@ -96,7 +91,6 @@ impl ReimburseDbCache {
             bitvm_disprove_root_hash: None,
             challenge_ack_hashes: None,
             operator_data: None,
-            verifier_xonly_pks: None,
         }
     }
 
@@ -116,7 +110,6 @@ impl ReimburseDbCache {
             bitvm_disprove_root_hash: None,
             challenge_ack_hashes: None,
             operator_data: None,
-            verifier_xonly_pks: None,
         }
     }
 
@@ -148,21 +141,6 @@ impl ReimburseDbCache {
                         .ok_or(BridgeError::OperatorNotFound(self.operator_idx))?,
                 );
                 Ok(self.operator_data.as_ref().expect("Inserted before"))
-            }
-        }
-    }
-
-    pub async fn get_verifier_xonly_pks(&mut self) -> Result<&[XOnlyPublicKey], BridgeError> {
-        match self.verifier_xonly_pks {
-            Some(ref pks) => Ok(pks),
-            None => {
-                let verifier_pks = self.db.get_verifiers_public_keys(None).await?;
-                let xonly_pks = verifier_pks
-                    .iter()
-                    .map(|pk| pk.x_only_public_key().0)
-                    .collect::<Vec<_>>();
-                self.verifier_xonly_pks = Some(xonly_pks);
-                Ok(self.verifier_xonly_pks.as_ref().expect("Inserted before"))
             }
         }
     }
@@ -460,7 +438,6 @@ pub async fn create_txhandlers(
 
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
-    let verifier_xonly_pks = db_cache.get_verifier_xonly_pks().await?.to_vec();
 
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
@@ -482,7 +459,6 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
-            &verifier_xonly_pks,
             &public_hashes,
             paramset,
         )?;
@@ -506,7 +482,6 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
-            &verifier_xonly_pks,
             &public_hashes,
             paramset,
         )?
@@ -546,14 +521,14 @@ pub async fn create_txhandlers(
     );
 
     // create watchtower tx's except WatchtowerChallenges
-    for verifier_idx in 0..deposit_data.get_num_verifiers() {
+    for watchtower_idx in 0..deposit_data.get_num_watchtowers() {
         // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
         // - acknowledge the challenge by sending the operator_challenge_ACK_tx, otherwise their burn connector
         // will get burned by operator_challenge_nack
         let watchtower_challenge_timeout_txhandler =
             builder::transaction::create_watchtower_challenge_timeout_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                verifier_idx,
+                watchtower_idx,
                 paramset,
             )?;
         txhandlers.insert(
@@ -564,7 +539,7 @@ pub async fn create_txhandlers(
         let operator_challenge_nack_txhandler =
             builder::transaction::create_operator_challenge_nack_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                verifier_idx,
+                watchtower_idx,
                 get_txhandler(&txhandlers, TransactionType::Round)?,
                 paramset,
             )?;
@@ -576,7 +551,7 @@ pub async fn create_txhandlers(
         let operator_challenge_ack_txhandler =
             builder::transaction::create_operator_challenge_ack_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                verifier_idx,
+                watchtower_idx,
                 paramset,
             )?;
         txhandlers.insert(
@@ -762,10 +737,10 @@ mod tests {
             TransactionType::ChallengeTimeout,
         ];
         txs_operator_can_sign.extend(
-            (0..deposit_data.get_num_verifiers()).map(TransactionType::OperatorChallengeNack),
+            (0..deposit_data.get_num_watchtowers()).map(TransactionType::OperatorChallengeNack),
         );
         txs_operator_can_sign.extend(
-            (0..deposit_data.get_num_verifiers()).map(TransactionType::OperatorChallengeAck),
+            (0..deposit_data.get_num_watchtowers()).map(TransactionType::OperatorChallengeAck),
         );
         txs_operator_can_sign.extend(
             (0..ClementineBitVMPublicKeys::number_of_assert_txs())
@@ -774,7 +749,8 @@ mod tests {
         txs_operator_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
         txs_operator_can_sign.extend(
-            (0..deposit_data.get_num_verifiers()).map(TransactionType::WatchtowerChallengeTimeout),
+            (0..deposit_data.get_num_watchtowers())
+                .map(TransactionType::WatchtowerChallengeTimeout),
         );
 
         let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap();
@@ -876,7 +852,7 @@ mod tests {
             //TransactionType::Disprove,
         ];
         txs_verifier_can_sign.extend(
-            (0..deposit_data.get_num_verifiers()).map(TransactionType::OperatorChallengeNack),
+            (0..deposit_data.get_num_watchtowers()).map(TransactionType::OperatorChallengeNack),
         );
         txs_verifier_can_sign.extend(
             (0..ClementineBitVMPublicKeys::number_of_assert_txs())
@@ -885,7 +861,8 @@ mod tests {
         txs_verifier_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
         txs_verifier_can_sign.extend(
-            (0..deposit_data.get_num_verifiers()).map(TransactionType::WatchtowerChallengeTimeout),
+            (0..deposit_data.get_num_watchtowers())
+                .map(TransactionType::WatchtowerChallengeTimeout),
         );
 
         // try to sign everything for all verifiers

@@ -1,9 +1,6 @@
 BEGIN;
 -- Table to store the public keys of the verifiers
-create table if not exists verifier_public_keys (
-    idx int primary key,
-    public_key text not null
-);
+create table if not exists verifier_public_keys (public_key text primary key not null);
 create table if not exists operators (
     operator_idx int primary key,
     xonly_pk text not null,

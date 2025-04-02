@@ -225,12 +225,18 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             .await?;
         rpc.mine_blocks(18).await?;
 
+        let verifiers_xonly_pks = verifiers_public_keys
+            .iter()
+            .map(|pk| pk.x_only_public_key().0)
+            .collect::<Vec<_>>();
+
         let deposit_data = DepositData::BaseDeposit(BaseDepositData {
             deposit_outpoint,
             evm_address,
             recovery_taproot_address: actor.address.as_unchecked().to_owned(),
             nofn_xonly_pk,
-            num_verifiers: config.num_verifiers,
+            verifiers: verifiers_xonly_pks,
+            watchtowers: vec![],
         });
 
         let deposit_params: DepositParams = deposit_data.into();
@@ -322,12 +328,18 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
 
+    let verifiers_xonly_pks = verifiers_public_keys
+        .iter()
+        .map(|pk| pk.x_only_public_key().0)
+        .collect::<Vec<_>>();
+
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: actor.address.as_unchecked().to_owned(),
         nofn_xonly_pk,
-        num_verifiers: config.num_verifiers,
+        verifiers: verifiers_xonly_pks,
+        watchtowers: vec![],
     });
 
     let deposit_params: DepositParams = deposit_data.into();
@@ -492,7 +504,7 @@ pub async fn run_replacement_deposit(
         create_replacement_deposit_txhandler(move_txid, nofn_xonly_pk, config.protocol_paramset())?;
 
     let replacement_deposit_tx =
-        sign_nofn_deposit_tx(&new_deposit_tx, config, verifiers_public_keys);
+        sign_nofn_deposit_tx(&new_deposit_tx, config, verifiers_public_keys.clone());
 
     aggregator
         .internal_send_tx(SendTxRequest {
@@ -519,6 +531,11 @@ pub async fn run_replacement_deposit(
 
     let deposit_blockhash = rpc.get_blockhash_of_tx(&replacement_deposit_txid).await?;
 
+    let verifiers_xonly_pks = verifiers_public_keys
+        .iter()
+        .map(|pk| pk.x_only_public_key().0)
+        .collect::<Vec<_>>();
+
     let deposit_data = DepositData::ReplacementDeposit(ReplacementDepositData {
         deposit_outpoint: bitcoin::OutPoint {
             txid: replacement_deposit_txid,
@@ -526,7 +543,8 @@ pub async fn run_replacement_deposit(
         },
         nofn_xonly_pk,
         old_move_txid: move_txid,
-        num_verifiers: config.num_verifiers,
+        verifiers: verifiers_xonly_pks,
+        watchtowers: vec![],
     });
 
     let deposit_params: DepositParams = deposit_data.into();

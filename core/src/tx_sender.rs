@@ -72,7 +72,6 @@ pub struct ActivatedWithOutpoint {
 pub struct TxMetadata {
     pub deposit_outpoint: Option<OutPoint>,
     pub operator_idx: Option<u32>,
-    pub verifier_idx: Option<u32>,
     pub round_idx: Option<u32>,
     pub kickoff_idx: Option<u32>,
     pub tx_type: TransactionType,

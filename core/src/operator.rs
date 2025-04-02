@@ -257,7 +257,6 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_idx: Some(self.idx as u32),
-                    verifier_idx: None,
                     round_idx: Some(0),
                     kickoff_idx: None,
                     deposit_outpoint: None,
@@ -699,7 +698,6 @@ where
         let tx_metadata = Some(TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
             operator_idx: Some(self.idx as u32),
-            verifier_idx: None,
             round_idx: Some(round_idx),
             kickoff_idx: Some(kickoff_idx),
             deposit_outpoint: Some(deposit_outpoint),
@@ -875,7 +873,6 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
                     operator_idx: Some(self.idx as u32),
-                    verifier_idx: None,
                     round_idx: Some(current_round_index),
                     kickoff_idx: None,
                     deposit_outpoint: None,
@@ -896,7 +893,6 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
                     operator_idx: Some(self.idx as u32),
-                    verifier_idx: None,
                     round_idx: Some(current_round_index),
                     kickoff_idx: None,
                     deposit_outpoint: None,
@@ -917,7 +913,6 @@ where
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
                     operator_idx: Some(self.idx as u32),
-                    verifier_idx: None,
                     round_idx: Some(current_round_index + 1),
                     kickoff_idx: None,
                     deposit_outpoint: None,
@@ -970,7 +965,6 @@ where
                     Some(TxMetadata {
                         tx_type,
                         operator_idx: Some(self.idx as u32),
-                        verifier_idx: None,
                         round_idx: Some(kickoff_id.round_idx),
                         kickoff_idx: Some(kickoff_id.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),

@@ -19,7 +19,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         public_keys: &[PublicKey],
     ) -> Result<(), BridgeError> {
-        let mut query = QueryBuilder::new("INSERT INTO verifier_public_keys (idx, public_key) ");
+        let mut query = QueryBuilder::new("INSERT INTO verifier_public_keys (public_key) ");
         query.push_values(public_keys.iter().enumerate(), |mut builder, (idx, pk)| {
             builder.push_bind(idx as i32).push_bind(PublicKeyDB(*pk));
         });
@@ -34,12 +34,12 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<PublicKey>, BridgeError> {
-        let query = sqlx::query_as("SELECT * FROM verifier_public_keys ORDER BY idx;");
+        let query = sqlx::query_as("SELECT * FROM verifier_public_keys;");
 
-        let pks: Vec<(i32, PublicKeyDB)> =
+        let pks: Vec<(PublicKeyDB,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        Ok(pks.into_iter().map(|(_, pk)| pk.0).collect())
+        Ok(pks.into_iter().map(|(pk,)| pk.0).collect())
     }
 
     pub async fn set_move_to_vault_txid_from_citrea_deposit(

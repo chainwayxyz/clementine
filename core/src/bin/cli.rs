@@ -1,3 +1,4 @@
+use bitcoin::XOnlyPublicKey;
 use clap::{Parser, Subcommand};
 use clementine_core::rpc::clementine::{
     clementine_aggregator_client::ClementineAggregatorClient,
@@ -5,6 +6,7 @@ use clementine_core::rpc::clementine::{
     clementine_verifier_client::ClementineVerifierClient, deposit_params::DepositData, BaseDeposit,
     DepositParams, Empty, Outpoint,
 };
+use std::str::FromStr;
 use tonic::Request;
 
 #[derive(Parser)]
@@ -45,8 +47,10 @@ enum OperatorCommands {
         deposit_outpoint_txid: String,
         #[arg(long)]
         deposit_outpoint_vout: u32,
-        #[arg(long)]
-        num_verifiers: u64,
+        #[arg(long, num_args = 1.., value_delimiter = ',')]
+        verifiers: Vec<String>,
+        #[arg(long, num_args = 0.., value_delimiter = ',')]
+        watchtowers: Vec<String>,
     },
     /// Get operator parameters
     GetParams,
@@ -101,8 +105,10 @@ enum AggregatorCommands {
         recovery_taproot_address: String,
         #[arg(long)]
         nofn_xonly_pk: String,
-        #[arg(long)]
-        num_verifiers: u64,
+        #[arg(long, num_args = 1.., value_delimiter = ',')]
+        verifiers: Vec<String>,
+        #[arg(long, num_args = 0.., value_delimiter = ',')]
+        watchtowers: Vec<String>,
     },
     // Add other aggregator commands as needed
 }
@@ -119,7 +125,8 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
         OperatorCommands::GetDepositKeys {
             deposit_outpoint_txid,
             deposit_outpoint_vout,
-            num_verifiers,
+            verifiers,
+            watchtowers,
         } => {
             println!(
                 "Getting deposit keys for outpoint {}:{}",
@@ -134,7 +141,24 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                     evm_address: vec![1; 20],
                     recovery_taproot_address: String::new(),
                     nofn_xonly_pk: vec![1; 32],
-                    num_verifiers,
+                    verifiers: verifiers
+                        .iter()
+                        .map(|v| {
+                            XOnlyPublicKey::from_str(v)
+                                .expect("Failed to parse verifier public key")
+                                .serialize()
+                                .to_vec()
+                        })
+                        .collect(),
+                    watchtowers: watchtowers
+                        .iter()
+                        .map(|w| {
+                            XOnlyPublicKey::from_str(w)
+                                .expect("Failed to parse watchtower public key")
+                                .serialize()
+                                .to_vec()
+                        })
+                        .collect(),
                 })),
             };
             let response = operator
@@ -239,7 +263,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             evm_address,
             recovery_taproot_address,
             nofn_xonly_pk,
-            num_verifiers,
+            verifiers,
+            watchtowers,
         } => {
             let deposit = aggregator
                 .new_deposit(DepositParams {
@@ -251,7 +276,24 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                         evm_address: evm_address.as_bytes().to_vec(),
                         recovery_taproot_address,
                         nofn_xonly_pk: nofn_xonly_pk.as_bytes().to_vec(),
-                        num_verifiers,
+                        verifiers: verifiers
+                            .iter()
+                            .map(|v| {
+                                XOnlyPublicKey::from_str(v)
+                                    .expect("Failed to parse verifier public key")
+                                    .serialize()
+                                    .to_vec()
+                            })
+                            .collect(),
+                        watchtowers: watchtowers
+                            .iter()
+                            .map(|w| {
+                                XOnlyPublicKey::from_str(w)
+                                    .expect("Failed to parse watchtower public key")
+                                    .serialize()
+                                    .to_vec()
+                            })
+                            .collect(),
                     })),
                 })
                 .await

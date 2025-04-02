@@ -86,9 +86,13 @@ pub struct ReplacementDeposit {
     /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "3")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
-    /// Num of verifiers that will participate in the deposit.
-    #[prost(uint64, tag = "4")]
-    pub num_verifiers: u64,
+    /// / X-only public keys of verifiers that will participate in the deposit.
+    #[prost(bytes = "vec", repeated, tag = "4")]
+    pub verifiers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    /// / X-only public keys of watchtowers that will participate in the deposit.
+    /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+    #[prost(bytes = "vec", repeated, tag = "5")]
+    pub watchtowers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 /// A new original deposit request's details.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -105,9 +109,13 @@ pub struct BaseDeposit {
     /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "4")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
-    /// Num of verifiers that will participate in the deposit.
-    #[prost(uint64, tag = "5")]
-    pub num_verifiers: u64,
+    /// / X-only public keys of verifiers that will participate in the deposit.
+    #[prost(bytes = "vec", repeated, tag = "5")]
+    pub verifiers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    /// / X-only public keys of watchtowers that will participate in the deposit.
+    /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+    #[prost(bytes = "vec", repeated, tag = "6")]
+    pub watchtowers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NumberedTransactionId {
@@ -271,15 +279,13 @@ pub struct FinalizedPayoutParams {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierParams {
-    #[prost(uint32, optional, tag = "1")]
-    pub id: ::core::option::Option<u32>,
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "1")]
     pub public_key: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint32, tag = "3")]
+    #[prost(uint32, tag = "2")]
     pub num_verifiers: u32,
-    #[prost(uint32, tag = "4")]
+    #[prost(uint32, tag = "3")]
     pub num_operators: u32,
-    #[prost(uint32, tag = "5")]
+    #[prost(uint32, tag = "4")]
     pub num_round_txs: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

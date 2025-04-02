@@ -41,7 +41,6 @@ pub fn create_kickoff_txhandler(
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
     disprove_root_hash: &[u8; 32],
-    verifier_xonly_pks: &[XOnlyPublicKey],
     operator_unlock_hashes: &[[u8; 20]],
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
@@ -164,24 +163,9 @@ pub fn create_kickoff_txhandler(
         }
     }
 
-    // create watchtower challenges
-    if deposit_data.get_num_verifiers() != verifier_xonly_pks.len() {
-        return Err(BridgeError::ConfigError(format!(
-            "Number of verifiers in config ({}) does not match number of verifier xonly addrs ({})",
-            deposit_data.get_num_verifiers(),
-            verifier_xonly_pks.len()
-        )));
-    }
+    let watchtower_xonly_pks = deposit_data.get_watchtowers();
 
-    if deposit_data.get_num_verifiers() != operator_unlock_hashes.len() {
-        return Err(BridgeError::ConfigError(format!(
-            "Number of verifiers in config ({}) does not match number of operator unlock addresses ({})",
-            deposit_data.get_num_verifiers(),
-            operator_unlock_hashes.len()
-        )));
-    }
-
-    for (verifier_idx, xonly_pk) in verifier_xonly_pks.iter().enumerate() {
+    for (watchtower_idx, watchtower_xonly_pk) in watchtower_xonly_pks.iter().enumerate() {
         let nofn_2week = Arc::new(TimelockScript::new(
             Some(deposit_data.get_nofn_xonly_pk()),
             paramset.watchtower_challenge_timeout_timelock,
@@ -190,7 +174,7 @@ pub fn create_kickoff_txhandler(
         builder = builder.add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT * 2 + ANCHOR_AMOUNT, // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
             vec![nofn_2week.clone()],
-            Some(*xonly_pk), // key path as watchtowers xonly pk
+            Some(*watchtower_xonly_pk), // key path as watchtowers xonly pk
             paramset.network,
         ));
 
@@ -201,7 +185,7 @@ pub fn create_kickoff_txhandler(
         ));
         let operator_with_preimage = Arc::new(PreimageRevealScript::new(
             operator_xonly_pk,
-            operator_unlock_hashes[verifier_idx],
+            operator_unlock_hashes[watchtower_idx],
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
