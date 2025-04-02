@@ -210,23 +210,36 @@ fn convert_to_groth16_and_verify(
     groth16_proof.verify(image_id)
 }
 
-/// Computes the total work and watchtower challenge flags based on Winternitz signatures.
+/// Computes the maximum verified total work and watchtower challenge flags from challenge transactions.
 ///
 /// # Parameters
 ///
-/// - `winternitz_details`: A slice of `WinternitzHandler`, each containing a signature and a message.
-/// - `num_watchtowers`: The expected number of watchtowers (must match `winternitz_details.len()`, otherwise the function panics).
-/// - `work_only_image_id`: A 32-byte array used for Groth16 verification of the work-only circuit.
+/// - `kickoff_tx`: The kickoff transaction used as a reference for validating watchtower inputs.
+/// - `kickoff_tx_id`: The transaction ID of the kickoff transaction.
+/// - `watchtower_idxs`: A list of indices corresponding to each watchtower.
+/// - `watchtower_challenge_txs`: A list of encoded watchtower challenge transactions.
+/// - `watchtower_challenge_utxos`: A list of UTXO sets corresponding to the inputs of the challenge transactions.
+/// - `watchtower_challenge_input_idxs`: A list of input indices pointing to which input in each transaction should be verified.
+/// - `watchtower_pubkeys`: A list of 32-byte x-only public keys expected from each watchtower (used for P2TR signature verification).
+/// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
 ///
 /// # Returns
 ///
 /// A tuple containing:
-/// - `[u8; 32]`: A 32-byte array representing the total work.
-/// - `[u8; 20]`: A 20-byte array representing the watchtower challenge flags.
+/// - `[u8; 16]`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
+/// - `[u8; 20]`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
 ///
 /// # Panics
 ///
-/// - If `winternitz_details.len()` does not match `num_watchtowers`.
+/// - Panics if the lengths of any of the provided watchtower lists are mismatched.
+///
+/// # Notes
+///
+/// - Skips over any challenge with invalid encoding, invalid signature, or improper structure.
+/// - Each watchtower challenge is expected to contain exactly 3 outputs:
+///     - First two should be P2TR outputs containing the compressed Groth16 proof parts.
+///     - Third must be an OP_RETURN containing the rest of the proof and the total work value.
+/// - The function sorts valid commitments by total work and verifies the highest one using a Groth16 verifier.
 pub fn total_work_and_watchtower_flags(
     kickoff_tx: &Transaction,
     kickoff_tx_id: &Txid,
