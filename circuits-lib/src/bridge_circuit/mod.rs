@@ -90,25 +90,16 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);
 
-
-    let kickoff_tx: Transaction = match Decodable::consensus_decode(&mut Cursor::new(&input.kickoff_tx)) {
-        Ok(tx) => tx,
-        Err(_) => panic!("Invalid kickoff transaction"),
-    };
+    let kickoff_tx: Transaction =
+        match Decodable::consensus_decode(&mut Cursor::new(&input.kickoff_tx)) {
+            Ok(tx) => tx,
+            Err(_) => panic!("Invalid kickoff transaction"),
+        };
 
     let kickoff_tx_id = kickoff_tx.compute_txid();
 
-    let (max_total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
-        &kickoff_tx,
-        &kickoff_tx_id,
-        &input.watchtower_idxs,
-        &input.watchtower_challenge_txs,
-        &input.watchtower_challenge_utxos,
-        &input.watchtower_challenge_input_idxs,
-        &input.watchtower_pubkeys,
-        input.num_watchtowers as u32,
-        &work_only_image_id,
-    );
+    let (max_total_work, challenge_sending_watchtowers) =
+        total_work_and_watchtower_flags(&kickoff_tx, &kickoff_tx_id, &input, &work_only_image_id);
 
     // Why is that 32 bytes in the first place?
     let total_work: [u8; 16] = input.hcp.chain_state.total_work[16..32]
@@ -153,8 +144,12 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
     let last_output = input.payout_spv.transaction.output.last().unwrap();
 
-    let deposit_constant =
-        deposit_constant(last_output, &kickoff_tx_id, &input.watchtower_pubkeys,input.sp.txid_hex);
+    let deposit_constant = deposit_constant(
+        last_output,
+        &kickoff_tx_id,
+        &input.watchtower_pubkeys,
+        input.sp.txid_hex,
+    );
 
     let latest_blockhash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32]
         .try_into()
@@ -243,12 +238,7 @@ fn convert_to_groth16_and_verify(
 pub fn total_work_and_watchtower_flags(
     kickoff_tx: &Transaction,
     kickoff_tx_id: &Txid,
-    watchtower_idxs: &[u8],
-    watchtower_challenge_txs: &[Vec<u8>],
-    watchtower_challenge_utxos: &[Vec<Vec<u8>>],
-    watchtower_challenge_input_idxs: &[u8],
-    watchtower_pubkeys: &[Vec<u8>],
-    num_watchtowers: u32,
+    circuit_input: &BridgeCircuitInput,
     work_only_image_id: &[u8; 32],
 ) -> ([u8; 16], [u8; 20]) {
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
@@ -256,32 +246,33 @@ pub fn total_work_and_watchtower_flags(
 
     // num_watchtowers should be removed, does not make sense to have it
     assert_all_eq!(
-        watchtower_challenge_txs.len(),
-        watchtower_challenge_utxos.len(),
-        watchtower_challenge_input_idxs.len(),
-        watchtower_idxs.len(),
-        num_watchtowers as usize
+        circuit_input.watchtower_challenge_txs.len(),
+        circuit_input.watchtower_challenge_utxos.len(),
+        circuit_input.watchtower_challenge_input_idxs.len(),
+        circuit_input.watchtower_idxs.len(),
+        circuit_input.num_watchtowers as usize
     );
 
-    for (_, (((tx, &idx) , utxos), input_idx)) in watchtower_challenge_txs
+    for (_, (((tx, &idx), utxos), input_idx)) in circuit_input
+        .watchtower_challenge_txs
         .iter()
-        .zip(watchtower_idxs.iter())
-        .zip(watchtower_challenge_utxos.iter())
-        .zip(watchtower_challenge_input_idxs.iter())
+        .zip(circuit_input.watchtower_idxs.iter())
+        .zip(circuit_input.watchtower_challenge_utxos.iter())
+        .zip(circuit_input.watchtower_challenge_input_idxs.iter())
         .enumerate()
     {
-        let watchtower_tx: Transaction = match Decodable::consensus_decode(&mut Cursor::new(tx)) {
-            Ok(tx) => tx,
-            Err(_) => continue,
+        let Ok(watchtower_tx): Result<Transaction, _> =
+            Decodable::consensus_decode(&mut Cursor::new(tx))
+        else {
+            continue;
         };
 
-        let outputs: Vec<TxOut> = match utxos
+        let Ok(outputs): Result<Vec<TxOut>, _> = utxos
             .iter()
             .map(|utxo| Decodable::consensus_decode(&mut Cursor::new(utxo)))
             .collect::<Result<_, _>>()
-        {
-            Ok(outputs) => outputs,
-            Err(_) => continue,
+        else {
+            continue;
         };
 
         let prevouts = Prevouts::All(&outputs);
@@ -318,11 +309,13 @@ pub fn total_work_and_watchtower_flags(
             Err(_) => continue,
         };
 
-        if input.previous_output.txid != *kickoff_tx_id || kickoff_tx.output.len() <= input.previous_output.vout as usize {
+        if input.previous_output.txid != *kickoff_tx_id
+            || kickoff_tx.output.len() <= input.previous_output.vout as usize
+        {
             continue;
         };
 
-        let output = kickoff_tx.output[input.previous_output.vout as usize].clone(); 
+        let output = kickoff_tx.output[input.previous_output.vout as usize].clone();
 
         let pubkey = output.script_pubkey.clone();
 
@@ -332,7 +325,7 @@ pub fn total_work_and_watchtower_flags(
         };
 
         // IS THIS CHECK CORRECT?
-        if watchtower_pubkeys[idx as usize] != pubkey.as_bytes()[2..34] {
+        if circuit_input.watchtower_pubkeys[idx as usize] != pubkey.as_bytes()[2..34] {
             continue;
         }
 
@@ -351,7 +344,7 @@ pub fn total_work_and_watchtower_flags(
                 .verify_prehash(sighash.as_byte_array(), &signature)
                 .is_ok()
         {
-            challenge_sending_watchtowers[(idx as usize) / 8 ] |= 1 << (idx % 8);
+            challenge_sending_watchtowers[(idx as usize) / 8] |= 1 << (idx % 8);
             if watchtower_tx.output.len() >= 3 {
                 watchtower_challenges_outputs.push([
                     watchtower_tx.output[0].clone(),
@@ -359,8 +352,6 @@ pub fn total_work_and_watchtower_flags(
                     watchtower_tx.output[2].clone(),
                 ]);
             }
-        } else {
-            continue;
         }
     }
 
@@ -380,12 +371,11 @@ pub fn total_work_and_watchtower_flags(
         let second_output: [u8; 32] = outputs[1].script_pubkey.to_bytes()[2..]
             .try_into()
             .expect("Cannot fail");
-        let third_output: [u8; 80] = match parse_op_return_data(&outputs[2].script_pubkey) {
-            Some(data) => match data.try_into() {
-                Ok(data) => data,
-                Err(_) => continue,
-            },
-            None => continue,
+
+        let Some(Ok(third_output)) =
+            parse_op_return_data(&outputs[2].script_pubkey).map(TryInto::<[u8; 80]>::try_into)
+        else {
+            continue;
         };
 
         let compressed_g16_proof: [u8; 128] = [&first_output, &second_output, &third_output[0..64]]
@@ -480,9 +470,14 @@ fn deposit_constant(
         .flat_map(|pubkey| pubkey.to_vec())
         .collect::<Vec<u8>>();
 
-
     let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
-    let pre_deposit_constant = [kickoff_tx.to_byte_array(), move_txid_hex, watchtower_pubkeys_digest, operator_id].concat();
+    let pre_deposit_constant = [
+        kickoff_tx.to_byte_array(),
+        move_txid_hex,
+        watchtower_pubkeys_digest,
+        operator_id,
+    ]
+    .concat();
 
     Sha256::digest(&pre_deposit_constant).into()
 }
@@ -607,6 +602,7 @@ fn sighash_man_implementation(
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
     use std::io::Cursor;
 
     use super::*;
@@ -615,7 +611,6 @@ mod tests {
         ScriptBuf, Transaction,
     };
     use hex::decode;
-
 
     #[test]
     fn test_total_work_and_watchtower_flags() {
@@ -626,11 +621,15 @@ mod tests {
         let wt_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&raw_tx_bytes)).unwrap();
 
-        println!("wt input previous output: {:?}", wt_tx.input[0].previous_output.vout);
+        println!(
+            "wt input previous output: {:?}",
+            wt_tx.input[0].previous_output.vout
+        );
 
         let kickoff_raw_tx_bytes = decode(kick_off_raw_tx).unwrap();
         let kickoff_tx: Transaction =
-            Decodable::consensus_decode(&mut Cursor::new(&kickoff_raw_tx_bytes)).unwrap();
+            Decodable::consensus_decode(&mut Cursor::new(&kickoff_raw_tx_bytes))
+                .expect("Failed to decode kickoff tx");
 
         let output = kickoff_tx.output[wt_tx.input[0].previous_output.vout as usize].clone();
 
