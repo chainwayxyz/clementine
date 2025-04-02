@@ -51,7 +51,7 @@ impl Database {
                 FROM header_chain_proofs h1
                 JOIN header_chain_proofs h2 ON h1.prev_block_hash = h2.block_hash
                 WHERE h2.proof IS NOT NULL
-                ORDER BY h1.height
+                ORDER BY h1.height DESC
                 LIMIT 1;",
         );
 
@@ -279,9 +279,37 @@ mod tests {
             .await
             .unwrap();
 
-        // This time, `get_non_proven_block` should return second block's details.
+        // This time, `get_non_proven_block` should return third block's details.
         let res = db.get_non_proven_block(None).await.unwrap();
         assert_eq!(res.0, block_hash2);
         assert_eq!(res.2 as u64, height2);
+
+        // Save fourth block without a proof.
+        let block = block::Block {
+            header: Header {
+                version: Version::TWO,
+                prev_blockhash: block_hash1,
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0x1F,
+                bits: CompactTarget::default(),
+                nonce: 0x45 + 4,
+            },
+            txdata: vec![],
+        };
+        let block_hash3 = block.block_hash();
+        let height3 = base_height + 3;
+        db.set_new_block(None, block_hash3, block.header, height3)
+            .await
+            .unwrap();
+
+        // Set third block's proof.
+        db.set_block_proof(None, block_hash2, receipt.clone())
+            .await
+            .unwrap();
+
+        // This time, `get_non_proven_block` should return fourth block's details.
+        let res = db.get_non_proven_block(None).await.unwrap();
+        assert_eq!(res.0, block_hash3);
+        assert_eq!(res.2 as u64, height3);
     }
 }

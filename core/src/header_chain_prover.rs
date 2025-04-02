@@ -382,10 +382,6 @@ mod tests {
     use crate::task::IntoTask;
     use crate::test::common::*;
     use crate::verifier::VerifierServer;
-    use bitcoin::{
-        block::{Header, Version},
-        CompactTarget, TxMerkleNode,
-    };
     use bitcoin::{hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
@@ -430,8 +426,11 @@ mod tests {
         }
     }
 
+    /// Mines `block_num` amount of blocks (if not already mined) and returns
+    /// the first `block_num` block headers in blockchain.
     async fn mine_and_get_first_n_block_headers(
         rpc: ExtendedRpc,
+        db: Database,
         block_num: u64,
     ) -> Vec<CircuitBlockHeader> {
         let height = rpc.client.get_block_count().await.unwrap();
@@ -445,6 +444,8 @@ mod tests {
             let header = rpc.client.get_block_header(&hash).await.unwrap();
 
             headers.push(CircuitBlockHeader::from(header));
+
+            let _ignore_errors = db.set_new_block(None, hash, header, i).await;
         }
 
         headers
@@ -561,7 +562,7 @@ mod tests {
         // Prove genesis block and get it's receipt.
         let receipt = prover.prove_block_headers(None, vec![]).unwrap();
 
-        let block_headers = mine_and_get_first_n_block_headers(rpc, 3).await;
+        let block_headers = mine_and_get_first_n_block_headers(rpc, prover.db.clone(), 3).await;
         let receipt = prover
             .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
             .unwrap();
@@ -574,66 +575,76 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn save_and_get_proof() {
+    async fn check_for_new_blocks_and_prove() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
-        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
-            .await
-            .unwrap();
         let db = Database::new(&config).await.unwrap();
 
-        let prover_client = HeaderChainProverClient::new(db).await.unwrap();
-        let block_headers = mine_and_get_first_n_block_headers(rpc, 3).await;
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        // let prover_client: HeaderChainProverClient =
+        // HeaderChainProverClient::new(db.clone()).await.unwrap();
 
-        // Prove genesis block.
-        let receipt = prover.prove_block_headers(None, vec![]).unwrap();
-        let hash =
-            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[1].prev_block_hash).unwrap());
-        let header: Header = block_headers[0].clone().into();
-        let _ = prover.db.set_new_block(None, hash, header, 0).await; // TODO: Unwrapping this causes errors.
-        prover
-            .db
-            .set_block_proof(None, hash, receipt.clone())
-            .await
-            .unwrap();
-        let database_receipt = prover_client.get_header_chain_proof(hash).await.unwrap();
-        assert_eq!(receipt.journal, database_receipt.journal);
-        assert_eq!(receipt.metadata, database_receipt.metadata);
+        let number_of_blocks_to_prove = 5;
+        let _block_headers =
+            mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), number_of_blocks_to_prove)
+                .await;
 
-        // Prove second block.
-        let receipt = prover
-            .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
-            .unwrap();
-        let hash =
-            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[2].prev_block_hash).unwrap());
-        let header = Header {
-            version: Version::from_consensus(block_headers[1].version),
-            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array(
-                block_headers[1].prev_block_hash,
-            )),
-            merkle_root: TxMerkleNode::from_raw_hash(Hash::from_byte_array(
-                block_headers[1].merkle_root,
-            )),
-            time: block_headers[1].time,
-            bits: CompactTarget::from_consensus(block_headers[1].bits),
-            nonce: block_headers[1].nonce,
-        };
-        prover
-            .db
-            .set_new_block(None, hash, header, 0)
+        // Prove blocks after the first one. Because the first one has
+        // an assumption that is provided from the bridge config.
+        let hash = rpc.client.get_block_hash(0).await.unwrap();
+        let mut previous_proof = db
+            .get_block_proof_by_hash(None, hash)
             .await
+            .unwrap()
             .unwrap();
+        for i in 1..number_of_blocks_to_prove {
+            tracing::error!("Proving block wit {:?}", previous_proof);
+            let non_proven_block = prover
+                .check_for_new_unproven_blocks()
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(non_proven_block.2, i as u32);
 
-        prover
-            .db
-            .set_block_proof(None, hash, receipt.clone())
-            .await
-            .unwrap();
-        let database_receipt2 = prover_client.get_header_chain_proof(hash).await.unwrap();
-        assert_eq!(receipt.journal, database_receipt2.journal);
-        assert_eq!(receipt.metadata, database_receipt2.metadata);
-        assert_ne!(receipt.journal, database_receipt.journal);
+            // let previous_block_hash = rpc.client.get_block_hash(i - 1).await.unwrap();
+            let current_block_hash = rpc.client.get_block_hash(i).await.unwrap();
+            let current_block_header = rpc
+                .client
+                .get_block_header(&current_block_hash)
+                .await
+                .unwrap();
+            // let previous_proof = prover_client
+            //     .get_header_chain_proof(previous_block_hash)
+            //     .await
+            //     .unwrap();
+            // tracing::error!(
+            //     "Previous proof: wirth hash {:?}",
+            //     // previous_proof,
+            //     previous_block_hash
+            // );
+
+            let receipt = prover
+                .prove_block(
+                    current_block_hash,
+                    current_block_header,
+                    i.try_into().unwrap(),
+                    previous_proof,
+                )
+                .await
+                .unwrap();
+
+            let db_receipt = db
+                .get_block_proof_by_hash(None, current_block_hash)
+                .await
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(receipt.journal, db_receipt.journal);
+            assert_eq!(receipt.metadata, db_receipt.metadata);
+
+            previous_proof = receipt;
+        }
     }
 
     #[tokio::test]
@@ -683,6 +694,7 @@ mod tests {
 
         // Save initial blocks, because VerifierServer won't.
         let count = rpc.client.get_block_count().await.unwrap();
+        tracing::info!("Block count: {}", count);
         for i in 1..count {
             let hash = rpc.client.get_block_hash(i).await.unwrap();
             let block = rpc.client.get_block(&hash).await.unwrap();
@@ -695,8 +707,9 @@ mod tests {
         let verifier = VerifierServer::<MockCitreaClient>::new(config)
             .await
             .unwrap();
+        rpc.mine_blocks(10).await.unwrap();
 
-        let height = 1;
+        let height = rpc.client.get_block_count().await.unwrap() - 7;
         let hash = rpc.client.get_block_hash(height).await.unwrap();
 
         poll_until_condition(
