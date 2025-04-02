@@ -205,42 +205,31 @@ fn convert_to_groth16_and_verify(
     groth16_proof.verify(image_id)
 }
 
-/// Computes the maximum verified total work and watchtower challenge flags from challenge transactions.
+/// Verifies watchtower challenge transactions and collects their outputs.
+///
+/// This function performs validation on a set of watchtower challenge transactions
+/// and their associated inputs, witnesses, and public keys. It checks that:
+/// - Each challenge input corresponds to the correct `kickoff_tx` output (P2TR),
+/// - The signature is valid under the Taproot sighash rules,
+/// - The public key matches the one registered for the watchtower,
+/// - And, if all checks pass, it marks the corresponding bit in a 20-byte bitmap
+///   (`challenge_sending_watchtowers`) and collects the first 3 outputs of the
+///   watchtower transaction into `watchtower_challenges_outputs`.
 ///
 /// # Parameters
-///
-/// - `kickoff_tx`: The kickoff transaction used as a reference for validating watchtower inputs.
-/// - `kickoff_tx_id`: The transaction ID of the kickoff transaction.
-/// - `watchtower_idxs`: A list of indices corresponding to each watchtower.
-/// - `watchtower_challenge_txs`: A list of encoded watchtower challenge transactions.
-/// - `watchtower_challenge_utxos`: A list of UTXO sets corresponding to the inputs of the challenge transactions.
-/// - `watchtower_challenge_input_idxs`: A list of input indices pointing to which input in each transaction should be verified.
-/// - `watchtower_pubkeys`: A list of 32-byte x-only public keys expected from each watchtower (used for P2TR signature verification).
-/// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
+/// - `circuit_input`: Data structure holding serialized watchtower transactions, UTXOs, input indices, and pubkeys.
+/// - `kickoff_tx`: The corresponding kickoff transaction used to validate the watchtower inputs.
+/// - `kickoff_tx_id`: The transaction ID of the `kickoff_tx`.
 ///
 /// # Returns
-///
 /// A tuple containing:
-/// - `[u8; 16]`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
-/// - `[u8; 20]`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
-///
-/// # Panics
-///
-/// - Panics if the lengths of any of the provided watchtower lists are mismatched.
+/// - A 20-byte bitmap indicating which watchtower challenges were valid,
+/// - A vector of the first 3 outputs from each valid watchtower transaction.
 ///
 /// # Notes
-///
-/// - Skips over any challenge with invalid encoding, invalid signature, or improper structure.
-/// - Each watchtower challenge is expected to contain exactly 3 outputs:
-///     - First two should be P2TR outputs containing the compressed Groth16 proof parts.
-///     - Third must be an OP_RETURN containing the rest of the proof and the total work value.
-/// - The function sorts valid commitments by total work and verifies the highest one using a Groth16 verifier.
-pub fn total_work_and_watchtower_flags(
-    kickoff_tx: &Transaction,
-    kickoff_tx_id: &Txid,
-    circuit_input: &BridgeCircuitInput,
-    work_only_image_id: &[u8; 32],
-) -> ([u8; 16], [u8; 20]) {
+/// Invalid or malformed challenge data (e.g., decoding errors, invalid signatures)
+/// will be skipped gracefully without causing the function to panic.
+fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput, kickoff_tx: &Transaction, kickoff_tx_id: &Txid) -> ([u8; 20], Vec<[TxOut; 3]>) {
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
     let mut watchtower_challenges_outputs: Vec<[TxOut; 3]> = vec![];
 
@@ -354,6 +343,49 @@ pub fn total_work_and_watchtower_flags(
             }
         }
     }
+
+    (challenge_sending_watchtowers, watchtower_challenges_outputs) 
+}
+
+/// Computes the maximum verified total work and watchtower challenge flags from challenge transactions.
+///
+/// # Parameters
+///
+/// - `kickoff_tx`: The kickoff transaction used as a reference for validating watchtower inputs.
+/// - `kickoff_tx_id`: The transaction ID of the kickoff transaction.
+/// - `watchtower_idxs`: A list of indices corresponding to each watchtower.
+/// - `watchtower_challenge_txs`: A list of encoded watchtower challenge transactions.
+/// - `watchtower_challenge_utxos`: A list of UTXO sets corresponding to the inputs of the challenge transactions.
+/// - `watchtower_challenge_input_idxs`: A list of input indices pointing to which input in each transaction should be verified.
+/// - `watchtower_pubkeys`: A list of 32-byte x-only public keys expected from each watchtower (used for P2TR signature verification).
+/// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
+///
+/// # Returns
+///
+/// A tuple containing:
+/// - `[u8; 16]`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
+/// - `[u8; 20]`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
+///
+/// # Panics
+///
+/// - Panics if the lengths of any of the provided watchtower lists are mismatched.
+///
+/// # Notes
+///
+/// - Skips over any challenge with invalid encoding, invalid signature, or improper structure.
+/// - Each watchtower challenge is expected to contain exactly 3 outputs:
+///     - First two should be P2TR outputs containing the compressed Groth16 proof parts.
+///     - Third must be an OP_RETURN containing the rest of the proof and the total work value.
+/// - The function sorts valid commitments by total work and verifies the highest one using a Groth16 verifier.
+pub fn total_work_and_watchtower_flags(
+    kickoff_tx: &Transaction,
+    kickoff_tx_id: &Txid,
+    circuit_input: &BridgeCircuitInput,
+    work_only_image_id: &[u8; 32],
+) -> ([u8; 16], [u8; 20]) {
+
+    let (challenge_sending_watchtowers, watchtower_challenges_outputs) =
+        verify_watchtower_challenges(circuit_input, kickoff_tx, kickoff_tx_id);
 
     let mut valid_watchtower_challenge_commitments: Vec<WatchTowerChallengeTxCommitment> = vec![];
 
