@@ -197,6 +197,32 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_payout_info_from_move_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        move_to_vault_txid: Txid,
+    ) -> Result<Option<(u32, BlockHash)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, BlockHashDB)>(
+            "SELECT w.payout_payer_operator_idx, w.payout_tx_blockhash
+             FROM withdrawals w
+             WHERE w.move_to_vault_txid = $1",
+        )
+        .bind(TxidDB(move_to_vault_txid));
+
+        let result: Option<(i32, BlockHashDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        result
+            .map(|(operator_idx, block_hash)| {
+                Ok((
+                    u32::try_from(operator_idx)
+                        .wrap_err("Failed to convert operator index to u32")?,
+                    block_hash.0,
+                ))
+            })
+            .transpose()
+    }
+
     pub async fn get_first_unhandled_payout_by_operator_id(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

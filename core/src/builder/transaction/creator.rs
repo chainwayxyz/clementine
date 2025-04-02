@@ -120,13 +120,14 @@ impl ReimburseDbCache {
         }
     }
 
-    pub fn from_context(db: Database, context: ContractContext) -> Self {
+    pub fn from_context(db: Database, context: &ContractContext) -> Self {
         if context.deposit_data.is_some() {
             Self::new_for_deposit(
                 db,
                 context.operator_idx,
                 context
                     .deposit_data
+                    .as_ref()
                     .expect("checked in if statement")
                     .get_deposit_outpoint(),
                 context.paramset,

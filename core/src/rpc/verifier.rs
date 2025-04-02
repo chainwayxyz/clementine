@@ -15,6 +15,7 @@ use crate::{
     rpc::parser::{self},
 };
 use bitcoin::secp256k1::PublicKey;
+use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
 use secp256k1::musig::MusigAggNonce;
 use tokio::sync::mpsc::{self, error::SendError};
@@ -428,13 +429,20 @@ where
         request: Request<clementine::Txid>,
     ) -> Result<Response<Empty>, Status> {
         let txid = request.into_inner();
+        let txid = bitcoin::Txid::try_from(txid).expect("Should be able to convert");
         let mut dbtx = self.verifier.db.begin_transaction().await?;
-        self.verifier
-            .handle_kickoff(
-                &mut dbtx,
-                bitcoin::Txid::try_from(txid).expect("Should be able to convert"),
-            )
+        let kickoff_data = self
+            .verifier
+            .db
+            .get_deposit_data_with_kickoff_txid(None, txid)
             .await?;
+        if let Some((deposit_data, kickoff_id)) = kickoff_data {
+            self.verifier
+                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id)
+                .await?;
+        } else {
+            return Err(Status::not_found("Kickoff txid not found"));
+        }
         dbtx.commit().await.expect("Failed to commit transaction");
         Ok(Response::new(Empty {}))
     }

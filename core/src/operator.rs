@@ -682,6 +682,7 @@ where
             deposit_data,
             kickoff_id,
         };
+
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
@@ -1053,9 +1054,9 @@ where
                 );
                 let kickoff_data = self
                     .db
-                    .get_deposit_signatures_with_kickoff_txid(None, txid)
+                    .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
-                if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
+                if let Some((deposit_data, kickoff_id)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
                     StateManager::<Self>::dispatch_new_kickoff_machine(
@@ -1079,8 +1080,7 @@ where
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        let mut db_cache =
-            ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
+        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
         let txhandlers = create_txhandlers(
             tx_type,
             contract_context,
