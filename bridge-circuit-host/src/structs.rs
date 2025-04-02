@@ -20,7 +20,7 @@ pub struct BridgeCircuitHostParams {
     pub light_client_proof: LightClientProof,
     pub lcp_receipt: Receipt,
     pub storage_proof: StorageProof,
-    pub num_of_watchtowers: u32,
+    pub num_of_watchtowers: u8,
 }
 
 #[derive(Debug, Clone, Copy)]
