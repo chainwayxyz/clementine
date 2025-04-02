@@ -179,22 +179,22 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     guest.commit(journal_hash.as_bytes());
 }
 
-/// Converts a message into a Groth16 proof structure and verifies it against a given pre-state. (only for work-only circuit)
+/// Converts a compressed Groth16 proof into a proof structure and verifies it against a given image ID.
 ///
 /// # Parameters
 ///
-/// - `message`: A byte slice containing the proof data.
-/// - `pre_state`: A 32-byte array representing the initial state for verification.
+/// - `compressed_proof`: A reference to a 128-byte array containing the compressed Groth16 proof.
+/// - `total_work`: A 16-byte array representing the total accumulated work associated with the proof.
+/// - `image_id`: A reference to a 32-byte array representing the image ID used for verification.
 ///
 /// # Returns
 ///
-/// - `true` if the Groth16 proof is successfully verified.
-/// - `false` if any step in the process fails (e.g., invalid message length, failed deserialization, or failed proof verification).
+/// - `true` if the Groth16 proof is successfully deserialized and verified.
+/// - `false` if any step in the process fails (e.g., failed deserialization or proof verification).
 ///
 /// # Failure Cases
 ///
-/// - If the message is shorter than `144` bytes, the function returns `false`.
-/// - If deserialization of the compressed seal fails, it returns `false`.
+/// - If deserialization of the compressed proof fails, it returns `false`.
 /// - If Groth16 proof verification fails, it returns `false`.
 fn convert_to_groth16_and_verify(
     compressed_proof: &[u8; 128],
@@ -250,7 +250,7 @@ pub fn total_work_and_watchtower_flags(
         num_watchtowers as usize
     );
 
-    for (_, (((tx, &idx) , utxos), (input_idx))) in watchtower_challenge_txs
+    for (_, (((tx, &idx) , utxos), input_idx)) in watchtower_challenge_txs
         .iter()
         .zip(watchtower_idxs.iter())
         .zip(watchtower_challenge_utxos.iter())
