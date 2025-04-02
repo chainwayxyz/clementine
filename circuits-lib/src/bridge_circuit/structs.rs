@@ -3,6 +3,9 @@ use final_spv::spv::SPV;
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
+
+const NUM_OF_WATCHTOWERS: u8 = 160;
+
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitInput {
     pub header_chain_circuit_output: BlockHeaderCircuitOutput,
@@ -35,6 +38,9 @@ pub struct StorageProof {
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BridgeCircuitInput {
+    pub kickoff_tx : Vec<u8>,
+    pub watchtower_idxs: Vec<u8>,
+    pub watchtower_pubkeys: Vec<Vec<u8>>,
     pub watchtower_challenge_input_idxs: Vec<u8>,
     pub watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
     pub watchtower_challenge_txs: Vec<Vec<u8>>,
@@ -42,11 +48,14 @@ pub struct BridgeCircuitInput {
     pub payout_spv: SPV,
     pub lcp: LightClientProof,
     pub sp: StorageProof,
-    pub num_watchtowers: u32,
+    pub num_watchtowers: u8,
 }
 
 impl BridgeCircuitInput {
     pub fn new(
+        kickoff_tx: Vec<u8>,
+        watchtower_idxs: Vec<u8>,
+        watchtower_pubkeys: Vec<Vec<u8>>,
         watchtower_challenge_input_idxs: Vec<u8>,
         watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
         watchtower_challenge_txs: Vec<Vec<u8>>,
@@ -54,12 +63,23 @@ impl BridgeCircuitInput {
         payout_spv: SPV,
         lcp: LightClientProof,
         sp: StorageProof,
-        num_watchtowers: u32,
+        num_watchtowers: u8,
     ) -> Result<Self, &'static str> {
-        if num_watchtowers > 160 {
+        if num_watchtowers > NUM_OF_WATCHTOWERS {
             return Err("num_watchtowers exceeds the limit: 160");
         }
+
+        // ALL idxs should be less than the number of watchtowers
+        for idx in &watchtower_idxs {
+            if *idx >= NUM_OF_WATCHTOWERS {
+                return Err("watchtower_idx exceeds the number of watchtowers");
+            }
+        }
+        
         Ok(Self {
+            kickoff_tx,
+            watchtower_idxs,
+            watchtower_pubkeys,
             watchtower_challenge_input_idxs,
             watchtower_challenge_utxos,
             watchtower_challenge_txs,

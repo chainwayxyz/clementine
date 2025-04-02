@@ -58,7 +58,10 @@ pub fn prove_bridge_circuit(
     BridgeCircuitBitvmInputs,
 ) {
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
+        kickoff_tx: vec![],
+        watchtower_idxs: vec![],
         watchtower_challenge_input_idxs: vec![],
+        watchtower_pubkeys: vec![],
         watchtower_challenge_utxos: vec![],
         watchtower_challenge_txs: vec![],
         hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
@@ -458,16 +461,16 @@ mod tests {
 
         let num_of_watchtowers: u32 = 1;
 
-        let bridge_circuit_host_params = BridgeCircuitHostParams {
-            winternitz_details: vec![winternitz_details],
-            light_client_proof,
-            storage_proof,
-            headerchain_receipt,
-            spv,
-            lcp_receipt,
-            block_header_circuit_output,
-            num_of_watchtowers,
-        };
+        // let bridge_circuit_host_params = BridgeCircuitHostParams {
+        //     winternitz_details: vec![winternitz_details],
+        //     light_client_proof,
+        //     storage_proof,
+        //     headerchain_receipt,
+        //     spv,
+        //     lcp_receipt,
+        //     block_header_circuit_output,
+        //     num_of_watchtowers,
+        // };
 
         // // Do what a normal bridge circuit guest is supposed to do
         // (_, _) = total_work_and_watchtower_flags(
