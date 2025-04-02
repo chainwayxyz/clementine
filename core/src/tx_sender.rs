@@ -967,7 +967,7 @@ impl TxSender {
                 )
                 .await;
 
-            return Err(SendTxError::UnconfirmedFeePayerUTXOsLeft);
+            return Ok(());
         }
 
         tracing::debug!(try_to_send_id, "Attempting to send CPFP tx");
@@ -1025,7 +1025,7 @@ impl TxSender {
                         )
                         .await;
 
-                    return Err(e.into());
+                    return Ok(());
                 }
                 _ => {
                     tracing::error!(try_to_send_id, "Failed to create CPFP package: {:?}", e);
@@ -1334,17 +1334,7 @@ impl TxSender {
             };
 
             if let Err(e) = result {
-                match e {
-                    SendTxError::UnconfirmedFeePayerUTXOsLeft => {
-                        tracing::debug!(try_to_send_id = id, "Unconfirmed fee payer UTXOs left");
-                    }
-                    SendTxError::InsufficientFeePayerAmount => {
-                        tracing::debug!(try_to_send_id = id, "Insufficient fee payer amount");
-                    }
-                    SendTxError::Other(e) => {
-                        tracing::error!(try_to_send_id = id, "Failed to send tx: {:?}", e);
-                    }
-                }
+                tracing::error!(try_to_send_id = id, "Failed to send tx: {:?}", e);
             }
         }
 
@@ -1502,10 +1492,10 @@ impl TxSenderClient {
                 .map_to_eyre()?;
         }
 
-        self.db
+        let _ = self
+            .db
             .update_tx_debug_sending_state(try_to_send_id, "inserted", 0, 0, false)
-            .await
-            .map_to_eyre()?;
+            .await;
 
         Ok(try_to_send_id)
     }

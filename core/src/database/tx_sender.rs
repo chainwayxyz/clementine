@@ -627,7 +627,7 @@ impl Database {
     }
 
     /// Updates or inserts the TX's sending state in the debug table
-    pub async fn    update_tx_debug_sending_state(
+    pub async fn update_tx_debug_sending_state(
         &self,
         tx_id: u32,
         state: &str,
