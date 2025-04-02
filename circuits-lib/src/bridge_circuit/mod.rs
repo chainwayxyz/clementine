@@ -91,14 +91,15 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     guest.verify(input.hcp.method_id, &input.hcp);
 
 
-    let kickcoff_tx: Transaction = match Decodable::consensus_decode(&mut Cursor::new(&input.kickoff_tx)) {
+    let kickoff_tx: Transaction = match Decodable::consensus_decode(&mut Cursor::new(&input.kickoff_tx)) {
         Ok(tx) => tx,
         Err(_) => panic!("Invalid kickoff transaction"),
     };
 
-    let kickoff_tx_id = kickcoff_tx.compute_txid();
+    let kickoff_tx_id = kickoff_tx.compute_txid();
 
     let (max_total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+        &kickoff_tx,
         &kickoff_tx_id,
         &input.watchtower_idxs,
         &input.watchtower_challenge_txs,
@@ -227,6 +228,7 @@ fn convert_to_groth16_and_verify(
 ///
 /// - If `winternitz_details.len()` does not match `num_watchtowers`.
 pub fn total_work_and_watchtower_flags(
+    kickoff_tx: &Transaction,
     kickoff_tx_id: &Txid,
     watchtower_idxs: &[u8],
     watchtower_challenge_txs: &[Vec<u8>],
@@ -273,11 +275,6 @@ pub fn total_work_and_watchtower_flags(
 
         let input = watchtower_tx.input[*input_idx as usize].clone();
 
-        // IS THIS CHECK SHOULD BE HERE?
-        if input.previous_output.txid != *kickoff_tx_id {
-            continue;
-        };
-
         let witness = input.witness.to_vec();
 
         if witness.len() != 1 {
@@ -308,7 +305,13 @@ pub fn total_work_and_watchtower_flags(
             Err(_) => continue,
         };
 
-        let pubkey = outputs[*input_idx as usize].script_pubkey.clone();
+        if input.previous_output.txid != *kickoff_tx_id || kickoff_tx.output.len() <= input.previous_output.vout as usize {
+            continue;
+        };
+
+        let output = kickoff_tx.output[input.previous_output.vout as usize].clone(); 
+
+        let pubkey = output.script_pubkey.clone();
 
         // IS THIS CHECK CORRECT?
         if !pubkey.is_p2tr() {
@@ -609,6 +612,8 @@ mod tests {
         let raw_tx_bytes = decode(wt_raw_tx).unwrap();
         let wt_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&raw_tx_bytes)).unwrap();
+
+        println!("wt input previous output: {:?}", wt_tx.input[0].previous_output.vout);
 
         let kickoff_raw_tx_bytes = decode(kick_off_raw_tx).unwrap();
         let kickoff_tx: Transaction =
