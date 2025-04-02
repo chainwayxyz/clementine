@@ -1,3 +1,4 @@
+use bitcoin::hashes::Hash;
 use bitcoin::taproot::{self, TaprootSpendInfo};
 use eyre::{eyre, OptionExt};
 use std::{collections::BTreeMap, env, time::Duration};
@@ -14,6 +15,7 @@ use tonic::async_trait;
 
 use crate::errors::{ErrorExt, ResultExt};
 use crate::extended_rpc::BitcoinRPCError;
+use crate::rpc;
 use crate::task::{IgnoreError, WithDelay};
 use crate::{
     actor::Actor,
@@ -568,6 +570,13 @@ impl TxSender {
     ) -> Result<()> {
         tracing::debug!(?tx_metadata, "Sending RBF tx",);
 
+        tracing::debug!(?try_to_send_id, "Attempting to send.");
+
+        let _ = self
+            .db
+            .update_tx_debug_sending_state(try_to_send_id, "preparing_rbf", 0, 0, true)
+            .await;
+
         let mut dbtx = self
             .db
             .begin_transaction()
@@ -581,15 +590,23 @@ impl TxSender {
             .wrap_err("Failed to get last RBF txid")?;
 
         if let Some(last_rbf_txid) = last_rbf_txid {
-            tracing::debug!("Bumping existing RBF tx");
+            tracing::debug!(
+                ?try_to_send_id,
+                "Attempting to bump fee for txid {last_rbf_txid}"
+            );
+
             let bumped_txid = self
                 .rpc
+                // TODO: convert to psbt_bump_fee
                 .bump_fee_with_fee_rate(last_rbf_txid, fee_rate)
                 .await;
+
+            // signer.sign_tx
 
             match bumped_txid {
                 Err(e) => {
                     let e = e.into_eyre();
+
                     match e.root_cause().downcast_ref::<BitcoinRPCError>() {
                         Some(
                             err @ (BitcoinRPCError::TransactionAlreadyInBlock(_)
@@ -600,26 +617,69 @@ impl TxSender {
                                 last_rbf_txid,
                                 err
                             );
+
+                            tracing::debug!(?try_to_send_id, "RBF tx {last_rbf_txid}: {err}");
+
+                            dbtx.commit()
+                                .await
+                                .wrap_err("Failed to commit database transaction")?;
                             return Ok(());
                         }
                         _ => {
+                            // Record error in debug log
+                            let error_message = format!("RBF bump error: {}", e);
+                            let _ = self
+                                .db
+                                .save_tx_debug_submission_error(try_to_send_id, &error_message)
+                                .await;
+
+                            let _ = self
+                                .db
+                                .update_tx_debug_sending_state(
+                                    try_to_send_id,
+                                    "rbf_bump_failed",
+                                    0,
+                                    0,
+                                    true,
+                                )
+                                .await;
+
+                            tracing::debug!(?try_to_send_id, "RBF bump failed: {e:?}");
+
                             return Err(e.into_eyre().into());
                         }
                     }
                 }
-                Ok(bumped_txid) => {
-                    if bumped_txid != last_rbf_txid {
-                        self.db
-                            .save_rbf_txid(Some(&mut dbtx), try_to_send_id, bumped_txid)
-                            .await
-                            .wrap_err("Failed to save RBF txid")?;
-                    }
+                Ok(bumped_txid) if bumped_txid != last_rbf_txid => {
+                    tracing::debug!(
+                        ?try_to_send_id,
+                        "RBF tx {last_rbf_txid} bumped to {bumped_txid}"
+                    );
+
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(try_to_send_id, "rbf_bumped", 0, 0, true)
+                        .await;
+
+                    self.db
+                        .save_rbf_txid(Some(&mut dbtx), try_to_send_id, bumped_txid)
+                        .await
+                        .wrap_err("Failed to save RBF txid")?;
+                }
+                Ok(_) => {
+                    tracing::debug!(?try_to_send_id, "RBF tx was not bumped: {last_rbf_txid}");
                 }
             }
         } else {
-            tracing::debug!("Funding RBF tx for the first time");
+            tracing::debug!(?try_to_send_id, "Funding initial RBF tx");
 
-            let funded_tx = self
+            let _ = self
+                .db
+                .update_tx_debug_sending_state(try_to_send_id, "funding_initial_rbf", 0, 0, true)
+                .await;
+
+            // Attempt to fund the transaction
+            let fund_result = self
                 .rpc
                 .client
                 .fund_raw_transaction(
@@ -639,51 +699,169 @@ impl TxSender {
                     }),
                     None,
                 )
-                .await
-                .wrap_err("Failed to fund raw transaction")?
-                .hex;
+                .await;
 
-            let funded_tx: Transaction =
-                consensus::deserialize(&(funded_tx)).wrap_err("Failed to deserialize funded tx")?;
-            if funded_tx.output.len() != tx.output.len() {
-                let mut should_warn = false;
-                for inp in tx.input.iter() {
-                    if inp.witness.len() == 1 {
-                        // taproot keyspend witness
-                        if let Ok(sig) = taproot::Signature::from_slice(&inp.witness[0]) {
-                            if sig.sighash_type != bitcoin::TapSighashType::SinglePlusAnyoneCanPay {
-                                should_warn = true;
+            match fund_result {
+                Err(e) => {
+                    // Record funding error in debug log
+                    let error_message = format!("Failed to fund RBF tx: {:?}", e);
+
+                    let _ = self
+                        .db
+                        .save_tx_debug_submission_error(try_to_send_id, &error_message)
+                        .await;
+                    tracing::warn!(try_to_send_id, "Failed to fund RBF tx: {:?}", e);
+
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "rbf_funding_failed",
+                            0,
+                            0,
+                            true,
+                        )
+                        .await;
+
+                    dbtx.commit()
+                        .await
+                        .wrap_err("Failed to commit database transaction")?;
+                    return Err(eyre::eyre!(e).into());
+                }
+                Ok(funded_result) => {
+                    let funded_tx = &funded_result.hex;
+
+                    // Record successful funding in debug log
+                    tracing::debug!(
+                        try_to_send_id,
+                        "Successfully funded RBF tx with fee {}",
+                        funded_result.fee
+                    );
+
+                    // Deserialize the funded transaction
+                    let funded_tx_deser: Transaction = consensus::deserialize(&funded_result.hex)
+                        .wrap_err("failed to deserialize tx")?;
+
+                    if funded_tx_deser.output.len() != tx.output.len() {
+                        let mut should_warn = false;
+                        for inp in tx.input.iter() {
+                            if inp.witness.len() == 1 {
+                                // taproot keyspend witness
+                                if let Ok(sig) = taproot::Signature::from_slice(&inp.witness[0]) {
+                                    if sig.sighash_type
+                                        != bitcoin::TapSighashType::SinglePlusAnyoneCanPay
+                                    {
+                                        should_warn = true;
+                                    }
+                                }
+                            }
+                        }
+                        if should_warn {
+                            let warning = "Funded tx output length is not equal to the original tx output length, Tx Sender currently does not support this";
+                            tracing::warn!(try_to_send_id, "{}", warning);
+                        }
+                    }
+
+                    // Attempt to sign the transaction
+                    let sign_result = self
+                        .rpc
+                        .client
+                        .sign_raw_transaction_with_wallet(funded_tx, None, None)
+                        .await;
+
+                    match sign_result {
+                        Err(e) => {
+                            let error_message = format!("Failed to sign RBF tx: {:?}", e);
+
+                            let _ = self
+                                .db
+                                .save_tx_debug_submission_error(try_to_send_id, &error_message)
+                                .await;
+
+                            tracing::warn!(try_to_send_id, "{}", error_message);
+
+                            return Err(eyre::eyre!(e).into());
+                        }
+                        Ok(signed_result) => {
+                            // Record successful signing in debug log
+                            tracing::debug!(try_to_send_id, "Successfully signed RBF tx");
+
+                            // Deserialize the signed transaction
+                            let signed_tx: Transaction =
+                                match bitcoin::consensus::deserialize(&signed_result.hex) {
+                                    Ok(tx) => tx,
+                                    Err(e) => {
+                                        let _ = self
+                                            .db
+                                            .save_tx_debug_submission_error(
+                                                try_to_send_id,
+                                                &format!(
+                                                    "Failed to deserialize signed tx: {:?}",
+                                                    e
+                                                ),
+                                            )
+                                            .await;
+
+                                        tracing::warn!(
+                                            try_to_send_id,
+                                            "Failed to deserialize signed tx: {e:?}"
+                                        );
+
+                                        return Err(eyre::eyre!(
+                                            "Failed to deserialize signed tx: {}",
+                                            e
+                                        )
+                                        .into());
+                                    }
+                                };
+
+                            // Attempt to broadcast the transaction
+                            let send_result =
+                                self.rpc.client.send_raw_transaction(&signed_tx).await;
+
+                            match send_result {
+                                Err(e) => {
+                                    let _ = self
+                                        .db
+                                        .save_tx_debug_submission_error(
+                                            try_to_send_id,
+                                            &format!("Failed to broadcast RBF tx: {}", e),
+                                        )
+                                        .await;
+                                    tracing::warn!(try_to_send_id, "RBF broadcast failed: {e:?}");
+
+                                    return Err(eyre::eyre!(e).into());
+                                }
+                                Ok(txid) => {
+                                    // Record successful broadcast in debug log
+                                    tracing::debug!(
+                                        try_to_send_id,
+                                        "Successfully sent RBF tx with txid {}",
+                                        txid
+                                    );
+
+                                    // Update debug sending state
+                                    let _ = self
+                                        .db
+                                        .update_tx_debug_sending_state(
+                                            try_to_send_id,
+                                            "sent",
+                                            0,
+                                            0,
+                                            true,
+                                        )
+                                        .await;
+
+                                    self.db
+                                        .save_rbf_txid(Some(&mut dbtx), try_to_send_id, txid)
+                                        .await
+                                        .wrap_err("Failed to save RBF txid")?;
+                                }
                             }
                         }
                     }
                 }
-                if should_warn {
-                    tracing::warn!("Funded tx output length is not equal to the original tx output length, Tx Sender currently does not support this");
-                }
             }
-
-            let signed_tx: Transaction = bitcoin::consensus::deserialize(
-                &self
-                    .rpc
-                    .client
-                    .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                    .await
-                    .wrap_err("Failed to sign raw transaction")?
-                    .hex,
-            )
-            .wrap_err("Failed to deserialize signed transaction")?;
-
-            let txid = self
-                .rpc
-                .client
-                .send_raw_transaction(&signed_tx)
-                .await
-                .wrap_err("Failed to send raw transaction")?;
-
-            self.db
-                .save_rbf_txid(Some(&mut dbtx), try_to_send_id, txid)
-                .await
-                .wrap_err("Failed to save RBF txid")?;
         }
 
         dbtx.commit()
@@ -701,7 +879,10 @@ impl TxSender {
     ///
     /// # Returns
     /// A `Vec` of `SpendableTxIn`, ready to be included as inputs in the CPFP child tx.
-    async fn get_fee_payer_utxos(&self, try_to_send_id: u32) -> Result<Vec<SpendableTxIn>> {
+    async fn get_confirmed_fee_payer_utxos(
+        &self,
+        try_to_send_id: u32,
+    ) -> Result<Vec<SpendableTxIn>> {
         Ok(self
             .db
             .get_confirmed_fee_payer_utxos(None, try_to_send_id)
@@ -755,7 +936,6 @@ impl TxSender {
         tx_metadata: Option<TxMetadata>,
         fee_rate: FeeRate,
     ) -> Result<()> {
-        tracing::debug!("Sending CPFP tx",);
         let unconfirmed_fee_payer_utxos = self
             .db
             .get_bumpable_fee_payer_txs(None, try_to_send_id)
@@ -763,18 +943,101 @@ impl TxSender {
             .map_to_eyre()?;
 
         if !unconfirmed_fee_payer_utxos.is_empty() {
+            // Log that we're waiting for unconfirmed UTXOs
+            tracing::debug!(
+                try_to_send_id,
+                "Waiting for {} UTXOs to confirm",
+                unconfirmed_fee_payer_utxos.len()
+            );
+            let confirmed_utxos = self
+                .db
+                .get_confirmed_fee_payer_utxos(None, try_to_send_id)
+                .await
+                .map_to_eyre()?;
+
+            // Update the sending state
+            let _ = self
+                .db
+                .update_tx_debug_sending_state(
+                    try_to_send_id,
+                    "waiting_for_utxo_confirmation",
+                    (unconfirmed_fee_payer_utxos.len() + confirmed_utxos.len()) as u32,
+                    confirmed_utxos.len() as u32,
+                    true,
+                )
+                .await;
+
             return Err(SendTxError::UnconfirmedFeePayerUTXOsLeft);
         }
 
-        let fee_payer_utxos = self.get_fee_payer_utxos(try_to_send_id).await?;
+        tracing::debug!(try_to_send_id, "Attempting to send CPFP tx");
+
+        let confirmed_fee_payers = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
+        let confirmed_fee_payer_len = confirmed_fee_payers.len();
+
+        let _ = self
+            .db
+            .update_tx_debug_sending_state(
+                try_to_send_id,
+                "creating_package",
+                confirmed_fee_payer_len as u32,
+                confirmed_fee_payer_len as u32,
+                true,
+            )
+            .await;
+
+        // to be used below
+        let total_fee_payer_amount = confirmed_fee_payers
+            .iter()
+            .map(|txi| txi.get_prevout().value)
+            .sum::<Amount>();
 
         let package = self
-            .create_package(tx, fee_rate, fee_payer_utxos)
-            .wrap_err("Failed to create CPFP package")?;
+            .create_package(tx.clone(), fee_rate, confirmed_fee_payers)
+            .wrap_err("Failed to create CPFP package");
+
+        let package = match package {
+            Ok(package) => package,
+            Err(e) => match e.root_cause().downcast_ref::<SendTxError>() {
+                Some(SendTxError::InsufficientFeePayerAmount) => {
+                    tracing::debug!(
+                        try_to_send_id,
+                        "Insufficient fee payer amount, creating new fee payer utxo."
+                    );
+
+                    self.create_fee_payer_utxo(
+                        try_to_send_id,
+                        &tx,
+                        fee_rate,
+                        total_fee_payer_amount,
+                        confirmed_fee_payer_len,
+                    )
+                    .await?;
+
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "waiting_for_fee_payer_utxos",
+                            confirmed_fee_payer_len as u32 + 1,
+                            confirmed_fee_payer_len as u32,
+                            true,
+                        )
+                        .await;
+
+                    return Err(e.into());
+                }
+                _ => {
+                    tracing::error!(try_to_send_id, "Failed to create CPFP package: {:?}", e);
+                    return Err(e.into());
+                }
+            },
+        };
 
         let package_refs: Vec<&Transaction> = package.iter().collect();
 
         tracing::debug!(
+            try_to_send_id,
             "Submitting package\n Pkg tx hexs: {:?}",
             if env::var("DBG_PACKAGE_HEX").is_ok() {
                 package
@@ -786,14 +1049,27 @@ impl TxSender {
             }
         );
 
-        let test_mempool_result = self
-            .rpc
-            .client
-            .test_mempool_accept(&package_refs)
-            .await
-            .wrap_err("Failed to test mempool accept")?;
+        // Update sending state to submitting_package
+        let _ = self
+            .db
+            .update_tx_debug_sending_state(
+                try_to_send_id,
+                "submitting_package",
+                confirmed_fee_payer_len as u32,
+                confirmed_fee_payer_len as u32,
+                true,
+            )
+            .await;
 
-        tracing::trace!("Test mempool result: {test_mempool_result:?}");
+        tracing::debug!(try_to_send_id, "Submitting package, size {}", package.len());
+
+        // TODO: this currently doesn't return valid results as TRUC is not fully supported.
+        // let test_mempool_result = self
+        //     .rpc
+        //     .client
+        //     .test_mempool_accept(&package_refs)
+        //     .await
+        //     .wrap_err("Failed to test mempool accept")?;
 
         let submit_package_result: PackageSubmissionResult = self
             .rpc
@@ -802,7 +1078,10 @@ impl TxSender {
             .await
             .wrap_err("Failed to submit package")?;
 
-        tracing::debug!("Submit package result: {submit_package_result:?}");
+        tracing::debug!(
+            try_to_send_id,
+            "Submit package result: {submit_package_result:?}"
+        );
 
         // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_package_result.tx_results.is_empty() {
@@ -812,7 +1091,10 @@ impl TxSender {
         let mut early_exit = false;
         for (_txid, result) in submit_package_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
-                tracing::error!(consumer= ?self.btc_syncer_consumer_id, ?tx_metadata, "Error submitting package: {:?}", error);
+                tracing::error!(try_to_send_id, "Error submitting package: {:?}", error);
+
+                // TODO: implement txid checking so we can save the correct error.
+
                 early_exit = true;
             }
         }
@@ -994,55 +1276,73 @@ impl TxSender {
         }
 
         for id in txs {
-            self.bump_fees_of_fee_payer_txs(id, new_fee_rate).await?;
+            // Update debug state
+            tracing::debug!(
+                try_to_send_id = id,
+                "Processing TX in try_to_send_unconfirmed_txs with fee rate {new_fee_rate}",
+            );
 
-            let send_tx_result = self.send_tx(id, new_fee_rate).await;
+            let (tx_metadata, tx, fee_paying_type, seen_block_id) =
+                match self.db.get_tx(None, id).await {
+                    Ok(res) => res,
+                    Err(e) => {
+                        tracing::error!("Sending Tx {}: Failed to get tx details: {:?}", id, e);
 
-            match send_tx_result {
-                Ok(_) => {}
-                Err(e) => {
-                    let e = e.into_eyre();
-                    match e.root_cause().downcast_ref::<SendTxError>() {
-                        Some(SendTxError::UnconfirmedFeePayerUTXOsLeft) => {
-                            tracing::debug!(
-                                "Sending Tx {}: Unconfirmed fee payer UTXOs left, skipping for now",
-                                id
-                            );
-                            continue;
-                        }
-                        Some(SendTxError::InsufficientFeePayerAmount) => {
-                            tracing::debug!(
-                                "Sending Tx {}: Insufficient fee payer amount, creating new fee payer UTXO",
-                                id
-                            );
-                            let (_, tx, _, _) = self.db.get_tx(None, id).await.map_to_eyre()?;
-
-                            let fee_payer_utxos = self
-                                .db
-                                .get_confirmed_fee_payer_utxos(None, id)
-                                .await
-                                .map_to_eyre()?;
-
-                            let total_fee_payer_amount = fee_payer_utxos
-                                .iter()
-                                .map(|(_, _, amount)| *amount)
-                                .sum::<Amount>();
-
-                            self.create_fee_payer_utxo(
+                        // Update debug error
+                        let _ = self
+                            .db
+                            .save_tx_debug_submission_error(
                                 id,
-                                &tx,
-                                new_fee_rate,
-                                total_fee_payer_amount,
-                                fee_payer_utxos.len(),
+                                &format!("Failed to get tx details: {}", e),
                             )
-                            .await?;
+                            .await;
 
-                            continue;
-                        }
-                        _ => {
-                            tracing::error!("Sending Tx {}: Failed to send tx: {:?}", id, e);
-                            continue;
-                        }
+                        continue;
+                    }
+                };
+
+            // Check if the transaction is already confirmed
+            if let Some(block_id) = seen_block_id {
+                // Update debug state to confirm
+                tracing::debug!(
+                    try_to_send_id = id,
+                    "Transaction confirmed in block {}",
+                    block_id
+                );
+
+                // Update sending state
+                let _ = self
+                    .db
+                    .update_tx_debug_sending_state(
+                        id,
+                        "confirmed",
+                        0, // Not relevant for confirmed tx
+                        0,
+                        true,
+                    )
+                    .await;
+
+                // We could purge debug info here if needed
+                // self.db.purge_tx_debug_info(None, id).await.ok();
+
+                continue;
+            }
+
+            let result = match fee_paying_type {
+                FeePayingType::CPFP => self.send_cpfp_tx(id, tx, tx_metadata, new_fee_rate).await,
+                FeePayingType::RBF => self.send_rbf_tx(id, tx, tx_metadata, new_fee_rate).await,
+            };
+
+            if let Err(e) = result {
+                match e {
+                    SendTxError::UnconfirmedFeePayerUTXOsLeft => {
+                        tracing::debug!(try_to_send_id = id, "Unconfirmed fee payer UTXOs left");
+                    }
+                    SendTxError::InsufficientFeePayerAmount => {
+                        tracing::debug!(try_to_send_id = id, "Insufficient fee payer amount");
+                    }
+                    SendTxError::Other(e) => {
+                        tracing::error!(try_to_send_id = id, "Failed to send tx: {:?}", e);
                     }
                 }
             }
@@ -1202,6 +1502,11 @@ impl TxSenderClient {
                 .map_to_eyre()?;
         }
 
+        self.db
+            .update_tx_debug_sending_state(try_to_send_id, "inserted", 0, 0, false)
+            .await
+            .map_to_eyre()?;
+
         Ok(try_to_send_id)
     }
 
@@ -1346,6 +1651,80 @@ impl TxSenderClient {
             | TransactionType::ReplacementDeposit => unimplemented!(),
         }
     }
+
+    /// Returns debugging information for a transaction
+    ///
+    /// This function gathers all debugging information about a transaction from the database,
+    /// including its state history, fee payer UTXOs, submission errors, and current state.
+    ///
+    /// # Arguments
+    /// * `tx_id` - The ID of the transaction to debug
+    ///
+    /// # Returns
+    /// A comprehensive debug info structure with all available information about the transaction
+    pub async fn debug_tx(&self, tx_id: u32) -> Result<crate::rpc::clementine::TxDebugInfo> {
+        use crate::rpc::clementine::{TxDebugFeePayerUtxo, TxDebugInfo, TxDebugSubmissionError};
+
+        let (tx_metadata, tx, fee_paying_type, seen_block_id) =
+            self.db.get_tx(None, tx_id).await.map_to_eyre()?;
+
+        let submission_errors = self
+            .db
+            .get_tx_debug_submission_errors(None, tx_id)
+            .await
+            .map_to_eyre()?;
+
+        let submission_errors = submission_errors
+            .into_iter()
+            .map(|(error_message, timestamp)| TxDebugSubmissionError {
+                error_message,
+                timestamp,
+            })
+            .collect();
+
+        let (current_state, fee_payer_utxos_count, fee_payer_utxos_confirmed_count) =
+            self.db.get_tx_debug_info(None, tx_id).await.map_to_eyre()?;
+
+        let fee_payer_utxos = self
+            .db
+            .get_tx_debug_fee_payer_utxos(None, tx_id)
+            .await
+            .map_to_eyre()?;
+        let fee_payer_utxos = fee_payer_utxos
+            .into_iter()
+            .map(|(txid, vout, amount, confirmed)| TxDebugFeePayerUtxo {
+                txid: txid.as_raw_hash().to_byte_array().to_vec(),
+                vout,
+                amount: amount.to_sat(),
+                confirmed,
+            })
+            .collect();
+
+        let txid = tx.compute_txid();
+        let debug_info = TxDebugInfo {
+            tx_id,
+            is_active: seen_block_id.is_none(),
+            current_state: current_state.unwrap_or_else(|| "unknown".to_string()),
+            submission_errors,
+            fee_payer_utxos,
+            created_at: "".to_string(),
+            txid: txid.as_raw_hash().to_byte_array().to_vec(),
+            fee_paying_type: format!("{:?}", fee_paying_type),
+            fee_payer_utxos_count: fee_payer_utxos_count.unwrap_or(0),
+            fee_payer_utxos_confirmed_count: fee_payer_utxos_confirmed_count.unwrap_or(0),
+            raw_tx: bitcoin::consensus::serialize(&tx),
+            metadata: tx_metadata.map(|metadata| rpc::clementine::TxMetadata {
+                deposit_outpoint: metadata.deposit_outpoint.map(Into::into),
+                operator_idx: metadata.operator_idx.unwrap_or(0),
+                verifier_idx: metadata.verifier_idx.unwrap_or(0),
+                round_idx: metadata.round_idx.unwrap_or(0),
+                kickoff_idx: metadata.kickoff_idx.unwrap_or(0),
+                tx_type: Some(metadata.tx_type.into()),
+            }),
+        };
+
+        Ok(debug_info)
+    }
 }
 
 #[cfg(test)]
@@ -1488,7 +1867,9 @@ mod tests {
             ))
             .finalize();
 
-        signer.tx_sign_and_fill_sigs(&mut txhandler, &[], None).unwrap();
+        signer
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+            .unwrap();
 
         let tx = txhandler.get_cached_tx().clone();
         Ok(tx)

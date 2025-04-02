@@ -437,4 +437,21 @@ where
         dbtx.commit().await.expect("Failed to commit transaction");
         Ok(Response::new(Empty {}))
     }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn debug_tx(
+        &self,
+        request: tonic::Request<super::TxDebugRequest>,
+    ) -> std::result::Result<tonic::Response<super::TxDebugInfo>, tonic::Status> {
+        let tx_id = request.into_inner().tx_id;
+
+        // Get debug info from tx_sender
+        match self.verifier.tx_sender.debug_tx(tx_id).await {
+            Ok(debug_info) => Ok(tonic::Response::new(debug_info)),
+            Err(e) => Err(tonic::Status::internal(format!(
+                "Failed to debug TX {}: {}",
+                tx_id, e
+            ))),
+        }
+    }
 }

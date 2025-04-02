@@ -353,6 +353,74 @@ pub struct VerifierPublicKeys {
     #[prost(bytes = "vec", repeated, tag = "1")]
     pub verifier_public_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TxDebugRequest {
+    #[prost(uint32, tag = "1")]
+    pub tx_id: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TxDebugSubmissionError {
+    #[prost(string, tag = "1")]
+    pub error_message: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub timestamp: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TxDebugFeePayerUtxo {
+    #[prost(bytes = "vec", tag = "1")]
+    pub txid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "2")]
+    pub vout: u32,
+    #[prost(uint64, tag = "3")]
+    pub amount: u64,
+    #[prost(bool, tag = "4")]
+    pub confirmed: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TxMetadata {
+    /// Optional outpoint of the deposit transaction
+    #[prost(message, optional, tag = "1")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+    /// Deposit identification
+    #[prost(uint32, tag = "2")]
+    pub operator_idx: u32,
+    #[prost(uint32, tag = "3")]
+    pub verifier_idx: u32,
+    #[prost(uint32, tag = "4")]
+    pub round_idx: u32,
+    #[prost(uint32, tag = "5")]
+    pub kickoff_idx: u32,
+    /// Transaction ID
+    #[prost(message, optional, tag = "6")]
+    pub tx_type: ::core::option::Option<GrpcTransactionId>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TxDebugInfo {
+    #[prost(uint32, tag = "1")]
+    pub tx_id: u32,
+    #[prost(bool, tag = "2")]
+    pub is_active: bool,
+    #[prost(string, tag = "3")]
+    pub current_state: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub submission_errors: ::prost::alloc::vec::Vec<TxDebugSubmissionError>,
+    #[prost(message, repeated, tag = "5")]
+    pub fee_payer_utxos: ::prost::alloc::vec::Vec<TxDebugFeePayerUtxo>,
+    #[prost(string, tag = "6")]
+    pub created_at: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "7")]
+    pub txid: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag = "8")]
+    pub fee_paying_type: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "9")]
+    pub fee_payer_utxos_count: u32,
+    #[prost(uint32, tag = "10")]
+    pub fee_payer_utxos_confirmed_count: u32,
+    #[prost(bytes = "vec", tag = "11")]
+    pub raw_tx: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "12")]
+    pub metadata: ::core::option::Option<TxMetadata>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedTx {
     #[prost(bytes = "vec", tag = "1")]
@@ -1410,6 +1478,28 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// Debug a transaction by retrieving its current state and history
+        pub async fn debug_tx(
+            &mut self,
+            request: impl tonic::IntoRequest<super::TxDebugRequest>,
+        ) -> std::result::Result<tonic::Response<super::TxDebugInfo>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/DebugTx",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("clementine.ClementineVerifier", "DebugTx"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated client implementations.
@@ -2383,6 +2473,11 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::Txid>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        /// Debug a transaction by retrieving its current state and history
+        async fn debug_tx(
+            &self,
+            request: tonic::Request<super::TxDebugRequest>,
+        ) -> std::result::Result<tonic::Response<super::TxDebugInfo>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ClementineVerifierServer<T> {
@@ -2922,6 +3017,51 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalHandleKickoffSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineVerifier/DebugTx" => {
+                    #[allow(non_camel_case_types)]
+                    struct DebugTxSvc<T: ClementineVerifier>(pub Arc<T>);
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::UnaryService<super::TxDebugRequest>
+                    for DebugTxSvc<T> {
+                        type Response = super::TxDebugInfo;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::TxDebugRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineVerifier>::debug_tx(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = DebugTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

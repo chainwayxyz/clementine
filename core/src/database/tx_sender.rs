@@ -13,6 +13,7 @@ use bitcoin::{
     Amount, FeeRate, Transaction, Txid,
 };
 use eyre::{Context, OptionExt};
+use sqlx::Executor;
 use std::ops::DerefMut;
 // Add this at the top with other imports
 
@@ -107,6 +108,19 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
+        // Get confirmed direct transactions for debugging
+        let confirmed_direct_txs: Vec<(i32, TxidDB)> = sqlx::query_as(&format!(
+            "{}
+            SELECT txs.id, txs.txid
+            FROM tx_sender_try_to_send_txs AS txs
+            WHERE txs.txid IN (SELECT txid FROM relevant_txs)
+            AND txs.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .fetch_all(tx.deref_mut())
+        .await?;
+
         // Update tx_sender_try_to_send_txs for CPFP txid confirmation
         sqlx::query(&format!(
             "{}
@@ -118,6 +132,19 @@ impl Database {
         ))
         .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
+        .await?;
+
+        // Get confirmed RBF transactions for debugging
+        let confirmed_rbf_txs: Vec<(i32,)> = sqlx::query_as(&format!(
+            "{}
+            SELECT txs.id
+            FROM tx_sender_try_to_send_txs AS txs
+            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
+            AND txs.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .fetch_all(tx.deref_mut())
         .await?;
 
         // Update tx_sender_try_to_send_txs for RBF txid confirmation
@@ -132,6 +159,43 @@ impl Database {
         .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
+
+        // Record debug info for confirmed transactions
+        for (tx_id, txid) in confirmed_direct_txs {
+            // Add debug state change
+            tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: direct confirmation of txid {}",
+            block_id, txid.0);
+
+            // Update sending state
+            let _ = self
+                .update_tx_debug_sending_state(
+                    u32::try_from(tx_id).wrap_err("Failed to convert tx_id to u32")?,
+                    "confirmed",
+                    0,
+                    0,
+                    true
+                )
+                .await;
+        }
+
+        // Record debug info for confirmed RBF transactions
+        for (tx_id,) in confirmed_rbf_txs {
+            // Add debug state change
+
+            tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: RBF confirmation",
+            block_id);
+
+            // Update sending state
+            let _ = self
+                .update_tx_debug_sending_state(
+                    u32::try_from(tx_id).wrap_err("Failed to convert tx_id to u32")?,
+                    "confirmed",
+                    0,
+                    0,
+                    true
+                )
+                .await;
+        }
 
         Ok(())
     }
@@ -542,6 +606,172 @@ impl Database {
                 .transpose()
                 .wrap_err("Failed to convert seen_block_id to u32")?,
         ))
+    }
+
+    // Debug Functions
+
+    /// Saves a TX submission error to the debug table
+    pub async fn save_tx_debug_submission_error(
+        &self,
+        tx_id: u32,
+        error_message: &str,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO tx_sender_debug_submission_errors (tx_id, error_message) VALUES ($1, $2)",
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?)
+        .bind(error_message);
+
+        self.connection.execute(query).await?;
+        Ok(())
+    }
+
+    /// Updates or inserts the TX's sending state in the debug table
+    pub async fn    update_tx_debug_sending_state(
+        &self,
+        tx_id: u32,
+        state: &str,
+        fee_payer_utxos_count: u32,
+        fee_payer_utxos_confirmed_count: u32,
+        activated: bool,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            r#"
+            INSERT INTO tx_sender_debug_sending_state
+            (tx_id, state, fee_payer_utxos_count, fee_payer_utxos_confirmed_count, last_update, activated_timestamp)
+            VALUES ($1, $2, $3, $4, NOW(),
+                CASE
+                    WHEN $5 = TRUE THEN NOW()
+                    ELSE NULL
+                END
+            )
+            ON CONFLICT (tx_id) DO UPDATE SET
+            state = $2,
+            fee_payer_utxos_count = $3,
+            fee_payer_utxos_confirmed_count = $4,
+            last_update = NOW(),
+            activated_timestamp = COALESCE(tx_sender_debug_sending_state.activated_timestamp,
+                CASE
+                    WHEN $5 = TRUE THEN NOW()
+                    ELSE NULL
+                END
+            )
+            "#,
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?)
+        .bind(state)
+        .bind(
+            i32::try_from(fee_payer_utxos_count)
+                .wrap_err("Failed to convert fee_payer_utxos_count to i32")?,
+        )
+        .bind(
+            i32::try_from(fee_payer_utxos_confirmed_count)
+                .wrap_err("Failed to convert fee_payer_utxos_confirmed_count to i32")?,
+        )
+        .bind(activated);
+
+        self.connection.execute(query).await?;
+        Ok(())
+    }
+
+    /// Gets the current debug state of a TX
+    pub async fn get_tx_debug_info(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_id: u32,
+    ) -> Result<(Option<String>, Option<u32>, Option<u32>), BridgeError> {
+        let query = sqlx::query_as::<_, (Option<String>, Option<i32>, Option<i32>)>(
+            r#"
+            SELECT state, fee_payer_utxos_count, fee_payer_utxos_confirmed_count
+            FROM tx_sender_debug_sending_state
+            WHERE tx_id = $1
+            "#,
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        match result {
+            Some((state, utxos_count, confirmed_count)) => Ok((
+                state,
+                utxos_count.map(|c| u32::try_from(c).unwrap_or_default()),
+                confirmed_count.map(|c| u32::try_from(c).unwrap_or_default()),
+            )),
+            None => Ok((None, None, None)),
+        }
+    }
+
+    /// Gets all TX submission errors
+    pub async fn get_tx_debug_submission_errors(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_id: u32,
+    ) -> Result<Vec<(String, String)>, BridgeError> {
+        let query = sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT error_message, timestamp::TEXT
+            FROM tx_sender_debug_submission_errors
+            WHERE tx_id = $1
+            ORDER BY timestamp ASC
+            "#,
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
+
+        execute_query_with_tx!(self.connection, tx, query, fetch_all).map_err(Into::into)
+    }
+
+    /// Gets all fee payer UTXOs for a TX with their confirmation status
+    pub async fn get_tx_debug_fee_payer_utxos(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_id: u32,
+    ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, i32, i64, Option<i32>)>(
+            r#"
+            SELECT fee_payer_txid, vout, amount, seen_block_id IS NOT NULL as confirmed
+            FROM tx_sender_fee_payer_utxos
+            WHERE bumped_id = $1
+            "#,
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
+
+        let results: Vec<(TxidDB, i32, i64, Option<i32>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        results
+            .iter()
+            .map(|(fee_payer_txid, vout, amount, confirmed)| {
+                Ok((
+                    fee_payer_txid.0,
+                    u32::try_from(*vout).wrap_err("Failed to convert vout to u32")?,
+                    Amount::from_sat(
+                        u64::try_from(*amount).wrap_err("Failed to convert amount to u64")?,
+                    ),
+                    confirmed.is_some(),
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Purges debug information for a successfully sent TX
+    pub async fn purge_tx_debug_info(
+        &self,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_id: u32,
+    ) -> Result<(), BridgeError> {
+        let queries = [
+            "DELETE FROM tx_sender_debug_state_changes WHERE tx_id = $1",
+            "DELETE FROM tx_sender_debug_submission_errors WHERE tx_id = $1",
+            "DELETE FROM tx_sender_debug_sending_state WHERE tx_id = $1",
+        ];
+
+        for query_str in queries {
+            let query = sqlx::query(query_str)
+                .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
+
+            execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
+        }
+
+        Ok(())
     }
 }
 
