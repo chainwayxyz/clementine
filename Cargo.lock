@@ -2099,6 +2099,7 @@ dependencies = [
  "itertools 0.14.0",
  "jmt 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "k256",
+ "lazy_static",
  "num-bigint 0.4.6",
  "num-traits",
  "once_cell",

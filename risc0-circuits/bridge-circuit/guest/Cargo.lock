@@ -1189,6 +1189,7 @@ dependencies = [
  "itertools 0.14.0",
  "jmt",
  "k256",
+ "lazy_static",
  "num-bigint",
  "num-traits",
  "once_cell",

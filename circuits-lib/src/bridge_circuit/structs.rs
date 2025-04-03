@@ -27,12 +27,32 @@ pub struct LightClientProof {
     pub l2_height: String,
 }
 
+impl Default for LightClientProof {
+    fn default() -> Self {
+        Self {
+            lc_journal: vec![],
+            l2_height: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
 pub struct StorageProof {
     pub storage_proof_utxo: String, // This will be an Outpoint but only a txid is given
     pub storage_proof_deposit_idx: String, // This is the index of the withdrawal
     pub index: u32,                 // For now this is 18, for a specifix withdrawal
     pub txid_hex: [u8; 32],         // Move txid
+}
+
+impl Default for StorageProof {
+    fn default() -> Self {
+        Self {
+            storage_proof_utxo: String::new(),
+            storage_proof_deposit_idx: String::new(),
+            index: 0,
+            txid_hex: [0; 32],
+        }
+    }
 }
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
