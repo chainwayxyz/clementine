@@ -518,7 +518,6 @@ fn deposit_constant(
     Sha256::digest(&pre_deposit_constant).into()
 }
 
-
 fn sighash(
     wt_tx: &Transaction,
     prevouts: &Prevouts<TxOut>,
@@ -536,10 +535,14 @@ mod tests {
 
     use super::*;
     use bitcoin::{
-        consensus::{Decodable, Encodable}, ScriptBuf, Transaction
+        consensus::{Decodable, Encodable},
+        ScriptBuf, Transaction,
     };
     use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
-    use header_chain::{header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader}, mmr_native::MMRInclusionProof};
+    use header_chain::{
+        header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader},
+        mmr_native::MMRInclusionProof,
+    };
     use hex::decode;
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;
@@ -583,7 +586,7 @@ mod tests {
 
         let operator_idx: u8 = 50;
 
-        watchtower_pubkeys[operator_idx as usize] = pubkey; 
+        watchtower_pubkeys[operator_idx as usize] = pubkey;
 
         let input = BridgeCircuitInput {
             kickoff_tx: kickoff_raw_tx_bytes,
@@ -592,11 +595,14 @@ mod tests {
             watchtower_challenge_input_idxs: vec![0],
             watchtower_challenge_utxos: vec![vec![encoded_tx_out]],
             watchtower_challenge_txs: vec![raw_tx_bytes],
-            hcp: BlockHeaderCircuitOutput { method_id: [0; 8], chain_state: ChainState::new() },
-            payout_spv:  SPV {
+            hcp: BlockHeaderCircuitOutput {
+                method_id: [0; 8],
+                chain_state: ChainState::new(),
+            },
+            payout_spv: SPV {
                 transaction: CircuitTransaction(wt_tx),
                 block_inclusion_proof: BlockInclusionProof::new(0, vec![]),
-                block_header: CircuitBlockHeader{
+                block_header: CircuitBlockHeader {
                     version: 0,
                     prev_block_hash: [0u8; 32],
                     merkle_root: [0u8; 32],
@@ -604,7 +610,11 @@ mod tests {
                     bits: 0,
                     nonce: 0,
                 },
-                mmr_inclusion_proof: MMRInclusionProof { subroot_idx: 0, internal_idx: 0, inclusion_proof: vec![] }
+                mmr_inclusion_proof: MMRInclusionProof {
+                    subroot_idx: 0,
+                    internal_idx: 0,
+                    inclusion_proof: vec![],
+                },
             },
             lcp: LightClientProof::default(),
             sp: StorageProof::default(),
@@ -615,10 +625,11 @@ mod tests {
             &kickoff_tx,
             &kickoff_tx_id,
             &input,
-            &WORK_ONLY_IMAGE_ID
+            &WORK_ONLY_IMAGE_ID,
         );
 
-        let expected_challenge_sending_watchtowers = [0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let expected_challenge_sending_watchtowers =
+            [0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
         assert_eq!(total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
