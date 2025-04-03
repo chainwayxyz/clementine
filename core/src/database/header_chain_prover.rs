@@ -34,6 +34,19 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_latest_block_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Option<u64>, BridgeError> {
+        let query =
+            sqlx::query_as("SELECT height FROM header_chain_proofs ORDER BY height DESC LIMIT 1;");
+
+        let result: Option<(i64,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(result.map(|height| height.0 as u64))
+    }
+
     /// Gets the newest block's info that it's previous block has proven before.
     /// This block will be the candidate block for the prover.
     ///
@@ -42,7 +55,7 @@ impl Database {
     pub async fn get_non_proven_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<(BlockHash, Header, i32, Receipt), BridgeError> {
+    ) -> Result<(BlockHash, Header, u64, Receipt), BridgeError> {
         let query = sqlx::query_as(
             "SELECT h1.block_hash,
                     h1.block_header,
@@ -55,12 +68,17 @@ impl Database {
                 LIMIT 1;",
         );
 
-        let result: (BlockHashDB, BlockHeaderDB, i32, Vec<u8>) =
+        let result: (BlockHashDB, BlockHeaderDB, i64, Vec<u8>) =
             execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         let receipt: Receipt = borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
 
-        Ok((result.0 .0, result.1 .0, result.2, receipt))
+        Ok((
+            result.0 .0,
+            result.1 .0,
+            result.2.try_into().wrap_err("Can't convert i64 to u64")?,
+            receipt,
+        ))
     }
 
     /// Sets an existing block's (in database) proof by referring to it by it's
@@ -119,6 +137,8 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
+        assert!(db.get_latest_block_height(None).await.unwrap().is_none());
+
         // Set first block, so that get_non_proven_block won't return error.
         let block = block::Block {
             header: Header {
@@ -136,6 +156,10 @@ mod tests {
         db.set_new_block(None, block_hash, block.header, height)
             .await
             .unwrap();
+        assert_eq!(
+            db.get_latest_block_height(None).await.unwrap().unwrap(),
+            height
+        );
         let receipt =
             Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash, receipt).await.unwrap();
