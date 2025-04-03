@@ -69,7 +69,7 @@ impl BitcoinMerkleTree {
                 tree.nodes[curr_level_offset].push(combined_hash);
             }
             curr_level_offset += 1;
-            prev_level_size = prev_level_size.div_ceil(2) / 2;
+            prev_level_size = prev_level_size.div_ceil(2);
             prev_level_index_offset = 0;
         }
         tree
