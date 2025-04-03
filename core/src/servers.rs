@@ -172,10 +172,10 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
         .parse()
         .wrap_err("Failed to parse address")?;
     let operator = OperatorServer::<C>::new(config).await?;
-    tracing::info!("Operator gRPC server created");
-    let svc = ClementineOperatorServer::new(operator);
 
+    let svc = ClementineOperatorServer::new(operator);
     let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Operator").await?;
+    tracing::info!("Operator gRPC server created");
 
     match server_addr {
         ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),

@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use super::common::citrea::BRIDGE_PARAMS;
+use super::common::citrea::get_bridge_params;
 use crate::bitvm_client::SECP;
 use crate::builder::transaction::DepositData;
 use crate::citrea::mock::MockCitreaClient;
@@ -40,6 +38,7 @@ use citrea_e2e::{
     Result,
 };
 use eyre::Context;
+use std::time::Duration;
 
 struct CitreaDepositAndWithdrawE2E;
 #[async_trait]
@@ -71,7 +70,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
     fn sequencer_config() -> SequencerConfig {
         SequencerConfig {
-            bridge_initialize_params: BRIDGE_PARAMS.to_string(),
+            bridge_initialize_params: get_bridge_params(),
             ..Default::default()
         }
     }
@@ -133,6 +132,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _deposit_params,
             move_txid,
             _deposit_blockhash,
+            _,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
 
         tracing::info!(
@@ -406,6 +406,7 @@ async fn mock_citrea_run_truthful() {
         _deposit_params,
         move_txid,
         _deposit_blockhash,
+        _,
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
         .await
         .unwrap();
@@ -667,6 +668,7 @@ async fn mock_citrea_run_malicious() {
         deposit_params,
         move_txid,
         _deposit_blockhash,
+        _,
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
         .await
         .unwrap();

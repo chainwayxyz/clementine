@@ -19,6 +19,7 @@ use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use eyre::{Context, Result};
@@ -45,6 +46,15 @@ async fn base_setup(
     tracing::info!("Setting up environment and actors");
     let (verifiers, mut operators, mut aggregator, cleanup) =
         create_actors::<MockCitreaClient>(config).await;
+
+    tracing::info!("Setting up aggregator");
+    let verifiers_public_keys: Vec<PublicKey> = aggregator
+        .setup(Request::new(Empty {}))
+        .await?
+        .into_inner()
+        .try_into()
+        .unwrap();
+
     let verifier_0_config = {
         let mut config = config.clone();
         config.db_name += "0";
@@ -55,7 +65,8 @@ async fn base_setup(
         .expect("failed to create database");
     let tx_sender = TxSenderClient::new(tx_sender_db.clone(), "run_happy_path_2".to_string());
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
+    let (deposit_address, _) =
+        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
     tracing::info!("Generated deposit address: {}", deposit_address);
     let recovery_taproot_address = Actor::new(
         config.secret_key,
@@ -69,16 +80,13 @@ async fn base_setup(
             .expect("exists in test config")
             .to_sat());
     tracing::info!("Withdrawal amount set to: {} sats", withdrawal_amount);
-    tracing::info!("Setting up aggregator");
-    aggregator.setup(Request::new(Empty {})).await?;
     tracing::info!("Making deposit transaction");
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
-    let nofn_xonly_pk =
-        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+    let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
@@ -145,8 +153,18 @@ pub async fn run_operator_end_round(
     let (mut verifiers, mut operators, mut aggregator, _cleanup) =
         create_actors::<MockCitreaClient>(&config).await;
 
+    // Setup Aggregator
+    tracing::info!("Setting up aggregator");
+    let verifiers_public_keys: Vec<PublicKey> = aggregator
+        .setup(Request::new(Empty {}))
+        .await?
+        .into_inner()
+        .try_into()
+        .unwrap();
+
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address(&config, evm_address)?;
+    let (deposit_address, _) =
+        get_deposit_address(&config, evm_address, verifiers_public_keys.clone())?;
     tracing::info!("Generated deposit address: {}", deposit_address);
 
     let recovery_taproot_address = Actor::new(
@@ -155,9 +173,6 @@ pub async fn run_operator_end_round(
         config.protocol_paramset().network,
     )
     .address;
-    // Setup Aggregator
-    tracing::info!("Setting up aggregator");
-    aggregator.setup(Request::new(Empty {})).await?;
 
     // Make Deposit
     tracing::info!("Making deposit transaction");
@@ -167,8 +182,7 @@ pub async fn run_operator_end_round(
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
-    let nofn_xonly_pk =
-        XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+    let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
 
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,

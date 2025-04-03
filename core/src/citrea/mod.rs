@@ -403,7 +403,7 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
 mod tests {
     use crate::citrea::CitreaClientT;
     use crate::citrea::BRIDGE_CONTRACT::Withdrawal;
-    use crate::test::common::citrea::BRIDGE_PARAMS;
+    use crate::test::common::citrea::get_bridge_params;
     use crate::{
         citrea::CitreaClient,
         test::common::{
@@ -448,7 +448,7 @@ mod tests {
 
         fn sequencer_config() -> SequencerConfig {
             SequencerConfig {
-                bridge_initialize_params: BRIDGE_PARAMS.to_string(),
+                bridge_initialize_params: get_bridge_params().to_string(),
                 ..Default::default()
             }
         }

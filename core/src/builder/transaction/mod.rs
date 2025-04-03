@@ -3,12 +3,6 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
-use std::sync::Arc;
-
-use eyre::Context;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
 use super::script::{BaseDepositScript, CheckSig, TimelockScript};
 use super::script::{ReplacementDepositScript, SpendPath};
 use crate::builder::transaction::challenge::*;
@@ -31,6 +25,10 @@ use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
 use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+use eyre::Context;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use thiserror::Error;
 
 // Exports to the outside
 pub use crate::builder::transaction::txhandler::*;

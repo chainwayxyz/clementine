@@ -131,6 +131,7 @@ pub enum BridgeError {
     AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
     #[error("Error while encoding/decoding EVM type")]
     AlloySolTypes(#[from] alloy::sol_types::Error),
+
     #[error("Tonic status")]
     TonicStatus(#[from] tonic::Status),
 

@@ -271,8 +271,8 @@ pub struct FinalizedPayoutParams {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierParams {
-    #[prost(uint32, tag = "1")]
-    pub id: u32,
+    #[prost(uint32, optional, tag = "1")]
+    pub id: ::core::option::Option<u32>,
     #[prost(bytes = "vec", tag = "2")]
     pub public_key: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag = "3")]
@@ -1504,13 +1504,18 @@ pub mod clementine_aggregator_client {
             self
         }
         /// Sets up the system of verifiers, watchtowers and operators by:
-        /// 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
-        /// 2. Collecting all operator configs, and distributing them to all verifiers
-        /// 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
+        ///
+        /// 1. Collects verifier keys from each verifier
+        /// 2. Distributes these verifier keys to all verifiers
+        /// 3. Collects all operator configs from each operator
+        /// 4. Distributes these operator configs to all verifiers
         pub async fn setup(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::VerifierPublicKeys>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -2989,13 +2994,18 @@ pub mod clementine_aggregator_server {
     #[async_trait]
     pub trait ClementineAggregator: std::marker::Send + std::marker::Sync + 'static {
         /// Sets up the system of verifiers, watchtowers and operators by:
-        /// 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
-        /// 2. Collecting all operator configs, and distributing them to all verifiers
-        /// 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
+        ///
+        /// 1. Collects verifier keys from each verifier
+        /// 2. Distributes these verifier keys to all verifiers
+        /// 3. Collects all operator configs from each operator
+        /// 4. Distributes these operator configs to all verifiers
         async fn setup(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::VerifierPublicKeys>,
+            tonic::Status,
+        >;
         /// This will call, DepositNonceGen for every verifier,
         /// then it will aggregate one by one and then send it to DepositSign,
         /// then it will aggregate the partial sigs and send it to DepositFinalize,
@@ -3103,7 +3113,7 @@ pub mod clementine_aggregator_server {
                     impl<
                         T: ClementineAggregator,
                     > tonic::server::UnaryService<super::Empty> for SetupSvc<T> {
-                        type Response = super::Empty;
+                        type Response = super::VerifierPublicKeys;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

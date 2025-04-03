@@ -15,6 +15,7 @@ use crate::rpc::clementine::KickoffId;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
+use eyre::eyre;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
 use secp256k1::rand::seq::SliceRandom;
@@ -205,9 +206,15 @@ where
             .remove(&TransactionType::Kickoff)
             .ok_or(TxError::TxHandlerNotFound(TransactionType::Kickoff))?;
 
+        let verifier_index = self
+            .idx
+            .read()
+            .await
+            .ok_or(eyre!("Verifier index not set, yet"))?;
+
         let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
             &kickoff_txhandler,
-            self.idx,
+            verifier_index,
             commit_data,
             self.config.protocol_paramset(),
         )?;
@@ -218,7 +225,7 @@ where
         let checked_txhandler = watchtower_challenge_txhandler.promote()?;
 
         Ok((
-            TransactionType::WatchtowerChallenge(self.idx),
+            TransactionType::WatchtowerChallenge(verifier_index),
             checked_txhandler.get_cached_tx().clone(),
         ))
     }
