@@ -64,11 +64,11 @@ pub fn prove_bridge_circuit(
         watchtower_pubkeys: vec![],
         watchtower_challenge_utxos: vec![],
         watchtower_challenge_txs: vec![],
+        watchtower_challenge_witnesses: vec![],
         hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
         payout_spv: bridge_circuit_host_params.spv,
         lcp: bridge_circuit_host_params.light_client_proof,
         sp: bridge_circuit_host_params.storage_proof,
-        num_watchtowers: bridge_circuit_host_params.num_of_watchtowers,
     };
 
     let header_chain_proof_output_serialized =
