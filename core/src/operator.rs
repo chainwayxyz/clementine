@@ -19,7 +19,6 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::KickoffId;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
@@ -57,7 +56,6 @@ pub struct Operator<C: CitreaClientT> {
     pub db: Database,
     pub signer: Actor,
     pub config: BridgeConfig,
-    pub nofn_xonly_pk: XOnlyPublicKey,
     pub collateral_funding_outpoint: OutPoint,
     pub idx: usize,
     pub(crate) reimburse_addr: Address,
@@ -136,8 +134,6 @@ where
         )
         .await?;
 
-        let nofn_xonly_pk =
-            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
         let idx = config
             .operators_xonly_pks
             .iter()
@@ -201,7 +197,6 @@ where
             db: db.clone(),
             signer,
             config,
-            nofn_xonly_pk,
             idx,
             collateral_funding_outpoint,
             tx_sender,
@@ -687,6 +682,7 @@ where
             deposit_data,
             kickoff_id,
         };
+
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
@@ -1058,9 +1054,9 @@ where
                 );
                 let kickoff_data = self
                     .db
-                    .get_deposit_signatures_with_kickoff_txid(None, txid)
+                    .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
-                if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
+                if let Some((deposit_data, kickoff_id)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
                     StateManager::<Self>::dispatch_new_kickoff_machine(
@@ -1084,8 +1080,7 @@ where
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        let mut db_cache =
-            ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
+        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
         let txhandlers = create_txhandlers(
             tx_type,
             contract_context,
@@ -1115,6 +1110,7 @@ mod tests {
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::{OutPoint, Txid};
+
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let mut config = create_test_config_with_thread_name().await;

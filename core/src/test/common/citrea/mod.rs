@@ -2,6 +2,7 @@
 
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{config::BridgeConfig, errors::BridgeError};
+use bitcoin::secp256k1::PublicKey;
 use citrea_e2e::{
     bitcoin::BitcoinNode,
     config::{BatchProverConfig, EmptyConfig, LightClientProverConfig, SequencerConfig},
@@ -16,23 +17,24 @@ mod bitcoin_merkle;
 mod parameters;
 mod requests;
 
-lazy_static::lazy_static! {
-    /// Citrea bridge params. This string includes N-of-N public key for the current
-    /// test setup. If that setup changes, this string should be updated or needs to
-    /// calculated dynamically.
-    ///
-    /// CAUTION: This will create N-of-N public key using the default `BridgeConfig`!
-    pub static ref BRIDGE_PARAMS: String = {
-        let config = BridgeConfig::default();
-        let nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys, None)
+/// Calculates bridge params dynamically with the N-of-N public key which
+/// calculated from the verifier secret keys in `BridgeConfig::default`.
+pub fn get_bridge_params() -> String {
+    let config = BridgeConfig::default();
+
+    let verifiers_secret_keys = config.all_verifiers_secret_keys.unwrap();
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    let verifiers_public_keys: Vec<PublicKey> = verifiers_secret_keys
+        .iter()
+        .map(|sk| PublicKey::from_secret_key(&secp, sk))
+        .collect();
+
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)
             .unwrap()
             .to_string();
 
-        "000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a20".to_owned() +
-        &nofn_xonly_pk +
-        "ac0063066369747265611400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000"
-    };
+    format!("000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000008ac7230489e80000000000000000000000000000000000000000000000000000000000000000002d4a20{}ac0063066369747265611400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a08000000003b9aca006800000000000000000000000000000000000000000000", nofn_xonly_pk)
 }
 
 /// Citrea e2e hardcoded EVM secret keys.

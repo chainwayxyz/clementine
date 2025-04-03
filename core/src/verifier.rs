@@ -1,7 +1,8 @@
-use crate::actor::{verify_schnorr, Actor, TweakCache};
+use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::taproot_builder_with_scripts;
+use crate::builder::script::extract_winternitz_commits;
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
@@ -31,9 +32,9 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
-use bitcoin::{Address, ScriptBuf, XOnlyPublicKey};
+use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
-use eyre::{Context, OptionExt};
+use eyre::{eyre, Context, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::pin;
@@ -102,11 +103,12 @@ where
         )
         .await?;
 
+        // TODO: Removing index causes to remove the index from the tx_sender handle as well
         let tx_sender = TxSender::new(
             verifier.signer.clone(),
             rpc.clone(),
             verifier.db.clone(),
-            format!("verifier_{}", verifier.idx).to_string(),
+            "verifier_".to_string(),
             config.protocol_paramset().network,
         );
 
@@ -155,13 +157,12 @@ where
 #[derive(Debug, Clone)]
 pub struct Verifier<C: CitreaClientT> {
     rpc: ExtendedRpc,
-    pub idx: usize,
+    pub idx: Arc<tokio::sync::RwLock<Option<usize>>>,
 
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
 
-    pub(crate) nofn_xonly_pk: bitcoin::secp256k1::XOnlyPublicKey,
     pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
@@ -188,13 +189,6 @@ where
         )
         .await?;
 
-        // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
-        let idx = config
-            .verifiers_public_keys
-            .iter()
-            .position(|pk| pk == &signer.public_key)
-            .ok_or_else(|| eyre::eyre!("Could not find public key in list of verifiers"))?;
-
         let db = Database::new(&config).await?;
 
         let citrea_client = C::new(
@@ -204,20 +198,12 @@ where
         )
         .await?;
 
-        let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifiers_public_keys.clone(),
-            None,
-        )?;
-
-        let operator_xonly_pks = config.operators_xonly_pks.clone();
-
         let all_sessions = AllSessions {
             cur_id: 0,
             sessions: HashMap::new(),
         };
 
         let verifiers_pks = db.get_verifiers_public_keys(None).await?;
-
         let nofn = if !verifiers_pks.is_empty() {
             tracing::debug!("Verifier public keys found: {:?}", verifiers_pks);
             let nofn = NofN::new(signer.public_key, verifiers_pks)?;
@@ -226,13 +212,8 @@ where
             None
         };
 
-        let tx_sender = TxSenderClient::new(db.clone(), format!("verifier_{}", idx).to_string());
-
-        tracing::info!(
-            "Verifier {} created with nofn_xonly_pk: {}",
-            idx,
-            nofn_xonly_pk
-        );
+        // TODO: Removing index causes to remove the index from the tx_sender handle as well
+        let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
         let header_chain_prover = HeaderChainProverClient::new(db.clone()).await?;
 
@@ -241,11 +222,10 @@ where
             signer,
             db: db.clone(),
             config: config.clone(),
-            nofn_xonly_pk,
             nofn: Arc::new(tokio::sync::RwLock::new(nofn)),
-            _operator_xonly_pks: operator_xonly_pks,
+            _operator_xonly_pks: config.operators_xonly_pks.clone(),
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
-            idx,
+            idx: Arc::new(tokio::sync::RwLock::new(None)),
             tx_sender,
             header_chain_prover,
             citrea_client,
@@ -258,14 +238,20 @@ where
         verifiers_public_keys: Vec<PublicKey>,
     ) -> Result<(), BridgeError> {
         // Check if verifiers are already set
-        if self.nofn.read().await.clone().is_some() {
-            return Err(eyre::eyre!("Verifier already initialized").into());
+        if self.nofn.read().await.clone().is_some() && self.idx.read().await.is_some() {
+            return Err(eyre!("Verifiers already set").into());
         }
 
         // Save verifiers public keys to db
         self.db
             .set_verifiers_public_keys(None, &verifiers_public_keys)
             .await?;
+
+        let idx = verifiers_public_keys
+            .iter()
+            .position(|pk| pk == &self.signer.public_key)
+            .ok_or(eyre!("Public key is not present in received public keys"))?;
+        self.idx.write().await.replace(idx);
 
         // Save the nofn to memory for fast access
         let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
@@ -458,6 +444,12 @@ where
     ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
+        let verifier_index = self
+            .idx
+            .read()
+            .await
+            .ok_or(eyre!("Verifier index not set, yet"))?;
+        let verifiers_public_keys = self.db.get_verifiers_public_keys(None).await?;
 
         let deposit_blockhash = self
             .rpc
@@ -494,7 +486,7 @@ where
                     .next()
                     .await
                     .ok_or(eyre::eyre!("No sighash received"))??;
-                tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
+                tracing::debug!("Verifier {} found sighash: {:?}", verifier_index, sighash);
 
                 let nonce = session
                     .nonces
@@ -502,7 +494,7 @@ where
                     .ok_or(eyre::eyre!("No nonce available"))?;
 
                 let partial_sig = musig2::partial_sign(
-                    verifier.config.verifiers_public_keys.clone(),
+                    verifiers_public_keys.clone(),
                     None,
                     nonce,
                     agg_nonce,
@@ -518,7 +510,7 @@ where
                 nonce_idx += 1;
                 tracing::debug!(
                     "Verifier {} signed and sent sighash {} of {}",
-                    verifier.idx,
+                    verifier_index,
                     nonce_idx,
                     num_required_sigs
                 );
@@ -540,6 +532,7 @@ where
         Ok(partial_sig_rx)
     }
 
+    /// TODO: This function should be split in to multiple functions
     pub async fn deposit_finalize(
         &self,
         deposit_data: DepositData,
@@ -618,11 +611,17 @@ where
                 .ok_or_eyre("No signature received")?;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
+            let nofn = self
+                .nofn
+                .read()
+                .await
+                .clone()
+                .ok_or(eyre!("N-of-N not set, yet"))?;
 
             verify_schnorr(
                 &sig,
                 &Message::from(typed_sighash.0),
-                self.nofn_xonly_pk,
+                nofn.agg_xonly_pk,
                 tweak_data,
                 Some(&mut tweak_cache),
             )
@@ -765,8 +764,9 @@ where
         };
 
         // sign move tx and save everything to db if everything is correct
+        let verifiers_public_keys = self.db.get_verifiers_public_keys(None).await?;
         let partial_sig = musig2::partial_sign(
-            self.config.verifiers_public_keys.clone(),
+            verifiers_public_keys,
             None,
             movetx_secnonce,
             agg_nonce,
@@ -921,29 +921,76 @@ where
         Ok(())
     }
 
-    // TODO: #402
+    /// Checks if the operator who sent the kickoff matches the payout data saved in our db
+    /// Payout data in db is updated during citrea sync.
     async fn is_kickoff_malicious(
         &self,
-        _kickoff_txid: bitcoin::Txid,
+        kickoff_witness: Witness,
+        deposit_data: &DepositData,
+        kickoff_id: KickoffId,
     ) -> Result<bool, BridgeError> {
+        let move_txid =
+            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?
+                .get_cached_tx()
+                .compute_txid();
+        let payout_info = self
+            .db
+            .get_payout_info_from_move_txid(None, move_txid)
+            .await;
+        if let Err(e) = &payout_info {
+            tracing::warn!(
+                "Couldn't retrieve payout info from db {}, assuming malicious",
+                e
+            );
+            return Ok(true);
+        }
+        let payout_info = payout_info?;
+        if let Some((operator_idx, payout_blockhash)) = payout_info {
+            if operator_idx != kickoff_id.operator_idx {
+                return Ok(true);
+            }
+            let wt_derive_path = WinternitzDerivationPath::Kickoff(
+                kickoff_id.round_idx,
+                kickoff_id.kickoff_idx,
+                self.config.protocol_paramset(),
+            );
+            let commits = extract_winternitz_commits(
+                kickoff_witness,
+                &[wt_derive_path],
+                self.config.protocol_paramset(),
+            )?;
+            let blockhash_data = commits.first();
+            // only last 20 bytes of the blockhash is committed
+            let truncated_blockhash = &payout_blockhash[12..];
+            if let Some(committed_blockhash) = blockhash_data {
+                if committed_blockhash != truncated_blockhash {
+                    tracing::warn!("Payout blockhash does not match committed hash: committed: {:?}, truncated payout blockhash: {:?}",
+                        blockhash_data, truncated_blockhash);
+                    return Ok(true);
+                }
+            } else {
+                return Err(BridgeError::Error(
+                    "Couldn't retrieve committed data from witness".to_string(),
+                ));
+            }
+            return Ok(false);
+        }
         Ok(true)
     }
 
     pub async fn handle_kickoff<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
-        kickoff_txid: bitcoin::Txid,
+        kickoff_witness: Witness,
+        deposit_data: DepositData,
+        kickoff_id: KickoffId,
     ) -> Result<(), BridgeError> {
-        let is_malicious = self.is_kickoff_malicious(kickoff_txid).await?;
+        let is_malicious = self
+            .is_kickoff_malicious(kickoff_witness, &deposit_data, kickoff_id)
+            .await?;
         if !is_malicious {
             return Ok(());
         }
-
-        let (deposit_data, kickoff_id, _) = self
-            .db
-            .get_deposit_signatures_with_kickoff_txid(None, kickoff_txid)
-            .await?
-            .ok_or(eyre::eyre!("Kickoff txid not found"))?;
 
         let transaction_data = TransactionRequestData {
             deposit_data: deposit_data.clone(),
@@ -958,10 +1005,16 @@ where
         )
         .await?;
 
+        let verifier_idx = self
+            .idx
+            .read()
+            .await
+            .ok_or(eyre!("Verifier index not set, yet"))?;
+
         let tx_metadata = Some(TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
             operator_idx: Some(kickoff_id.operator_idx),
-            verifier_idx: Some(self.idx as u32),
+            verifier_idx: Some(verifier_idx as u32),
             round_idx: Some(kickoff_id.round_idx),
             kickoff_idx: Some(kickoff_id.kickoff_idx),
             deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -1009,6 +1062,13 @@ where
             )
             .await?;
         let mut dbtx = self.db.begin_transaction().await?;
+
+        let verifier_index = self
+            .idx
+            .read()
+            .await
+            .ok_or(eyre!("Verifier index not set, yet"))?;
+
         self.tx_sender
             .add_tx_to_queue(
                 &mut dbtx,
@@ -1018,7 +1078,7 @@ where
                 Some(TxMetadata {
                     tx_type,
                     operator_idx: None,
-                    verifier_idx: Some(self.idx as u32),
+                    verifier_idx: Some(verifier_index as u32),
                     round_idx: Some(kickoff_id.round_idx),
                     kickoff_idx: Some(kickoff_id.kickoff_idx),
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -1027,7 +1087,12 @@ where
             )
             .await?;
         dbtx.commit().await?;
-        tracing::warn!("Commited watchtower challenge for watchtower {}", self.idx);
+
+        tracing::info!(
+            "Commited watchtower challenge for watchtower {}",
+            verifier_index
+        );
+
         Ok(())
     }
 
@@ -1128,6 +1193,14 @@ where
             // ok, every kickoff spent
             return Ok(());
         }
+
+        let verifier_idx = Some(
+            self.idx
+                .read()
+                .await
+                .ok_or(eyre!("Verifier index not set, yet"))? as u32,
+        );
+
         let unspent_kickoff_txs = self
             .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_idx)
             .await?;
@@ -1146,7 +1219,7 @@ where
                         Some(TxMetadata {
                             tx_type,
                             operator_idx: Some(operator_idx),
-                            verifier_idx: Some(self.idx as u32),
+                            verifier_idx,
                             round_idx: Some(round_idx),
                             kickoff_idx: Some(kickoff_idx as u32),
                             deposit_outpoint: None,
@@ -1169,6 +1242,12 @@ where
     const OWNER_TYPE: &'static str = "verifier";
 
     async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+        let verifier_index = self
+            .idx
+            .read()
+            .await
+            .ok_or(eyre!("Verifier index not set, yet"))?;
+
         match duty {
             Duty::NewReadyToReimburse {
                 round_idx,
@@ -1177,7 +1256,7 @@ where
             } => {
                 tracing::info!(
                     "Verifier {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",
-                    self.idx, round_idx, operator_idx, used_kickoffs
+                    verifier_index, round_idx, operator_idx, used_kickoffs
                 );
                 self.send_unspent_kickoff_connectors(round_idx, operator_idx, used_kickoffs)
                     .await?;
@@ -1188,7 +1267,7 @@ where
             } => {
                 tracing::warn!(
                     "Verifier {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
-                    self.idx, kickoff_id, deposit_data
+                    verifier_index, kickoff_id, deposit_data
                 );
                 self.send_watchtower_challenge(kickoff_id, deposit_data)
                     .await?;
@@ -1201,7 +1280,7 @@ where
             } => {
                 tracing::info!(
                     "Verifier {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
-                    self.idx, kickoff_id, deposit_data, watchtower_challenges.len()
+                    verifier_index, kickoff_id, deposit_data, watchtower_challenges.len()
                 );
             }
             Duty::VerifierDisprove {
@@ -1213,7 +1292,7 @@ where
             } => {
                 tracing::warn!(
                     "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                    payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
+                    payout_blockhash: {:?}", verifier_index, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
             }
             Duty::CheckIfKickoff {
                 txid,
@@ -1222,15 +1301,15 @@ where
             } => {
                 tracing::info!(
                     "Verifier {} called check if kickoff with txid: {:?}, block_height: {:?}",
-                    self.idx,
+                    verifier_index,
                     txid,
                     block_height,
                 );
                 let kickoff_data = self
                     .db
-                    .get_deposit_signatures_with_kickoff_txid(None, txid)
+                    .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
-                if let Some((deposit_data, kickoff_id, _)) = kickoff_data {
+                if let Some((deposit_data, kickoff_id)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
                     StateManager::<Self>::dispatch_new_kickoff_machine(
@@ -1238,11 +1317,12 @@ where
                         &mut dbtx,
                         kickoff_id,
                         block_height,
-                        deposit_data,
-                        witness,
+                        deposit_data.clone(),
+                        witness.clone(),
                     )
                     .await?;
-                    self.handle_kickoff(&mut dbtx, txid).await?;
+                    self.handle_kickoff(&mut dbtx, witness, deposit_data, kickoff_id)
+                        .await?;
                     dbtx.commit().await?;
                 }
             }
@@ -1255,8 +1335,7 @@ where
         tx_type: TransactionType,
         contract_context: ContractContext,
     ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        let mut db_cache =
-            ReimburseDbCache::from_context(self.db.clone(), contract_context.clone());
+        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
         let txhandlers = create_txhandlers(
             tx_type,
             contract_context,

@@ -32,8 +32,15 @@ where
     type Error = Status;
 
     fn try_from(verifier: &Verifier<C>) -> Result<Self, Self::Error> {
+        let id = futures::executor::block_on(async {
+            match *verifier.idx.read().await {
+                Some(idx) => convert_int_to_another("id", idx, u32::try_from).map(Some),
+                None => Ok(None),
+            }
+        })?;
+
         Ok(VerifierParams {
-            id: convert_int_to_another("id", verifier.idx, u32::try_from)?,
+            id,
             public_key: verifier.signer.public_key.serialize().to_vec(),
             num_verifiers: convert_int_to_another(
                 "num_verifiers",

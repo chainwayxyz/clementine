@@ -25,8 +25,8 @@ use crate::rpc::clementine::{DepositParams, Empty, FeeType, RawSignedTx, SendTxR
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
-use bitcoin::secp256k1::Message;
-use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
+use bitcoin::secp256k1::{Message, PublicKey};
+use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
 pub use setup_utils::*;
@@ -204,19 +204,20 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
         config.winternitz_secret_key,
         config.protocol_paramset().network,
     );
-    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
-    aggregator
+    let verifiers_public_keys: Vec<PublicKey> = aggregator
         .setup(Request::new(Empty {}))
-        .await
-        .wrap_err("Failed to setup aggregator")?;
+        .await?
+        .into_inner()
+        .try_into()?;
 
+    let (deposit_address, _) =
+        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
     let mut deposit_outpoints = Vec::new();
     let mut move_txids = Vec::new();
 
     let nofn_xonly_pk =
-        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-            .unwrap();
+        bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
 
     for _ in 0..count {
         let deposit_outpoint: OutPoint = rpc
@@ -286,6 +287,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         DepositParams,
         Txid,
         BlockHash,
+        Vec<PublicKey>,
     ),
     BridgeError,
 > {
@@ -297,16 +299,19 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         config.winternitz_secret_key,
         config.protocol_paramset().network,
     );
-    let (deposit_address, _) = get_deposit_address(config, evm_address)?;
 
     let setup_start = std::time::Instant::now();
-    aggregator
+    let verifiers_public_keys: Vec<PublicKey> = aggregator
         .setup(Request::new(Empty {}))
         .await
-        .wrap_err("Failed to setup aggregator")?;
+        .wrap_err("Failed to setup aggregator")?
+        .into_inner()
+        .try_into()?;
     let setup_elapsed = setup_start.elapsed();
     tracing::info!("Setup completed in: {:?}", setup_elapsed);
 
+    let (deposit_address, _) =
+        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
         .await?;
@@ -315,8 +320,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
     let nofn_xonly_pk =
-        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-            .unwrap();
+        bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
 
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
@@ -351,13 +355,17 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         deposit_params,
         move_txid,
         deposit_blockhash,
+        verifiers_public_keys,
     ))
 }
 
-fn sign_nofn_deposit_tx(deposit_tx: &TxHandler, config: &BridgeConfig) -> Transaction {
+fn sign_nofn_deposit_tx(
+    deposit_tx: &TxHandler,
+    config: &BridgeConfig,
+    verifiers_public_keys: Vec<PublicKey>,
+) -> Transaction {
     let nofn_xonly_pk =
-        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-            .unwrap();
+        bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
     let msg = Message::from_digest(
         deposit_tx
             .calculate_script_spend_sighash(
@@ -395,7 +403,7 @@ fn sign_nofn_deposit_tx(deposit_tx: &TxHandler, config: &BridgeConfig) -> Transa
         .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
             partial_sign(
-                config.verifiers_public_keys.clone(),
+                verifiers_public_keys.clone(),
                 None,
                 nonce_pair.0,
                 agg_nonce,
@@ -407,7 +415,7 @@ fn sign_nofn_deposit_tx(deposit_tx: &TxHandler, config: &BridgeConfig) -> Transa
         .collect::<Vec<_>>();
 
     let final_signature = aggregate_partial_signatures(
-        &config.verifiers_public_keys.clone(),
+        &verifiers_public_keys.clone(),
         None,
         agg_nonce,
         &partial_sigs,
@@ -450,25 +458,41 @@ pub async fn run_replacement_deposit(
     ),
     BridgeError,
 > {
-    let (verifiers, operators, mut aggregator, cleanup, dep_params, move_txid, _) =
-        run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
+    let (
+        verifiers,
+        operators,
+        mut aggregator,
+        cleanup,
+        dep_params,
+        move_txid,
+        _,
+        verifiers_public_keys,
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
 
     tracing::info!(
         "First deposit {} completed, starting replacement deposit",
-        DepositData::try_from(dep_params)?
+        DepositData::try_from(dep_params.clone())?
             .get_deposit_outpoint()
             .txid
     );
     tracing::info!("First deposit move txid: {}", move_txid);
-    let nofn_xonly_pk =
-        bitcoin::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-            .unwrap();
+    let nofn_xonly_pk = dep_params.deposit_data.expect("Exists");
+    let nofn_xonly_pk = match nofn_xonly_pk {
+        crate::rpc::clementine::deposit_params::DepositData::BaseDeposit(base_deposit) => {
+            base_deposit.nofn_xonly_pk
+        }
+        crate::rpc::clementine::deposit_params::DepositData::ReplacementDeposit(
+            replacement_deposit,
+        ) => replacement_deposit.nofn_xonly_pk,
+    };
+    let nofn_xonly_pk = XOnlyPublicKey::from_slice(&nofn_xonly_pk).unwrap();
 
     // generate replacement deposit tx
     let new_deposit_tx =
         create_replacement_deposit_txhandler(move_txid, nofn_xonly_pk, config.protocol_paramset())?;
 
-    let replacement_deposit_tx = sign_nofn_deposit_tx(&new_deposit_tx, config);
+    let replacement_deposit_tx =
+        sign_nofn_deposit_tx(&new_deposit_tx, config, verifiers_public_keys);
 
     aggregator
         .internal_send_tx(SendTxRequest {

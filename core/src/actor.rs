@@ -252,7 +252,7 @@ impl Actor {
     }
 
     /// Returns derivied Winternitz secret key from given path.
-    fn get_derived_winternitz_sk(
+    pub fn get_derived_winternitz_sk(
         &self,
         path: WinternitzDerivationPath,
     ) -> Result<winternitz::SecretKey, BridgeError> {

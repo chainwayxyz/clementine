@@ -15,6 +15,7 @@ use crate::{
     rpc::parser::{self},
 };
 use bitcoin::secp256k1::PublicKey;
+use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
 use secp256k1::musig::MusigAggNonce;
 use tokio::sync::mpsc::{self, error::SendError};
@@ -74,7 +75,7 @@ where
         Ok(Response::new(Empty {}))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_operator(
         &self,
         req: Request<Streaming<OperatorParams>>,
@@ -157,6 +158,12 @@ where
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
         let verifier = self.verifier.clone();
+        let verifier_index = self
+            .verifier
+            .idx
+            .read()
+            .await
+            .ok_or(Status::internal("Verifier index not set, yet"))?;
 
         let (tx, rx) = mpsc::channel(1280);
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
@@ -172,7 +179,7 @@ where
                     deposit_sign_session,
                 ) => parser::verifier::parse_deposit_sign_session(
                     deposit_sign_session,
-                    verifier.idx,
+                    verifier_index,
                 )?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
@@ -227,7 +234,7 @@ where
                 nonce_idx += 1;
                 tracing::trace!(
                     "Verifier {} signed and sent sighash {} of {} through rpc deposit_sign",
-                    verifier.idx,
+                    verifier_index,
                     nonce_idx,
                     num_required_sigs
                 );
@@ -251,7 +258,13 @@ where
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
         let mut in_stream = req.into_inner();
-        tracing::trace!("In verifier {} deposit_finalize()", self.verifier.idx);
+        let verifier_index = self
+            .verifier
+            .idx
+            .read()
+            .await
+            .ok_or(Status::internal("Verifier index not set, yet"))?;
+        tracing::trace!("In verifier {} deposit_finalize()", verifier_index);
 
         let (sig_tx, sig_rx) = mpsc::channel(1280);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
@@ -260,16 +273,13 @@ where
         let params = fetch_next_message_from_stream!(in_stream, params)?;
         let (deposit_data, session_id) = match params {
             Params::DepositSignFirstParam(deposit_sign_session) => {
-                parser::verifier::parse_deposit_sign_session(
-                    deposit_sign_session,
-                    self.verifier.idx,
-                )?
+                parser::verifier::parse_deposit_sign_session(deposit_sign_session, verifier_index)?
             }
             _ => Err(Status::internal("Expected DepositOutpoint"))?,
         };
         tracing::trace!(
             "verifier {} got DepositSignFirstParam in deposit_finalize()",
-            self.verifier.idx
+            verifier_index
         );
 
         // Start deposit finalize job.
@@ -419,13 +429,20 @@ where
         request: Request<clementine::Txid>,
     ) -> Result<Response<Empty>, Status> {
         let txid = request.into_inner();
+        let txid = bitcoin::Txid::try_from(txid).expect("Should be able to convert");
         let mut dbtx = self.verifier.db.begin_transaction().await?;
-        self.verifier
-            .handle_kickoff(
-                &mut dbtx,
-                bitcoin::Txid::try_from(txid).expect("Should be able to convert"),
-            )
+        let kickoff_data = self
+            .verifier
+            .db
+            .get_deposit_data_with_kickoff_txid(None, txid)
             .await?;
+        if let Some((deposit_data, kickoff_id)) = kickoff_data {
+            self.verifier
+                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id)
+                .await?;
+        } else {
+            return Err(Status::not_found("Kickoff txid not found"));
+        }
         dbtx.commit().await.expect("Failed to commit transaction");
         Ok(Response::new(Empty {}))
     }

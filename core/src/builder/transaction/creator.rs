@@ -120,13 +120,14 @@ impl ReimburseDbCache {
         }
     }
 
-    pub fn from_context(db: Database, context: ContractContext) -> Self {
+    pub fn from_context(db: Database, context: &ContractContext) -> Self {
         if context.deposit_data.is_some() {
             Self::new_for_deposit(
                 db,
                 context.operator_idx,
                 context
                     .deposit_data
+                    .as_ref()
                     .expect("checked in if statement")
                     .get_deposit_outpoint(),
                 context.paramset,
@@ -991,7 +992,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash) =
+        let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash, _) =
             run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
                 .await
                 .unwrap();
