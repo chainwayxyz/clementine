@@ -682,7 +682,7 @@ mod tests {
         // Save initial blocks, because VerifierServer won't.
         let count = rpc.client.get_block_count().await.unwrap();
         tracing::info!("Block count: {}", count);
-        for i in 1..count {
+        for i in 1..count + 1 {
             let hash = rpc.client.get_block_hash(i).await.unwrap();
             let block = rpc.client.get_block(&hash).await.unwrap();
 
