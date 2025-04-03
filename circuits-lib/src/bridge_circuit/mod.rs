@@ -270,6 +270,10 @@ fn verify_watchtower_challenges(
 
         let prevouts = Prevouts::All(&outputs);
 
+        if watchtower_tx.input.len() <= *input_idx as usize {
+            continue;
+        }
+
         let input = watchtower_tx.input[*input_idx as usize].clone();
 
         let witness = input.witness.to_vec();
