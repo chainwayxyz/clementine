@@ -17,6 +17,11 @@ message XonlyPublicKey {
   bytes xonly_pk = 1;
 }
 
+message NofNResponse {
+  bytes nofn_xonly_pk = 1;
+  uint32 num_verifiers = 2;
+}
+
 enum NormalSignatureKind {
   NormalSignatureUnknown = 0;
   // Used for TxHandlers that verifiers don't care. These will have signatures created
@@ -490,5 +495,5 @@ service ClementineAggregator {
   // send a pre-signed tx
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
-  rpc GetNofNAggregatedXonlyPk(Empty) returns (XonlyPublicKey) {}
+  rpc GetNofNAggregatedXonlyPk(Empty) returns (NofNResponse) {}
 }

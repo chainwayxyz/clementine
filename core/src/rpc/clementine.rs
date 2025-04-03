@@ -19,6 +19,13 @@ pub struct XonlyPublicKey {
     #[prost(bytes = "vec", tag = "1")]
     pub xonly_pk: ::prost::alloc::vec::Vec<u8>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NofNResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "2")]
+    pub num_verifiers: u32,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NormalSignatureId {
     #[prost(enumeration = "NormalSignatureKind", tag = "1")]
@@ -1645,7 +1652,7 @@ pub mod clementine_aggregator_client {
         pub async fn get_nof_n_aggregated_xonly_pk(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::XonlyPublicKey>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::NofNResponse>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -3142,7 +3149,7 @@ pub mod clementine_aggregator_server {
         async fn get_nof_n_aggregated_xonly_pk(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::XonlyPublicKey>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::NofNResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ClementineAggregatorServer<T> {
@@ -3414,7 +3421,7 @@ pub mod clementine_aggregator_server {
                         T: ClementineAggregator,
                     > tonic::server::UnaryService<super::Empty>
                     for GetNofNAggregatedXonlyPkSvc<T> {
-                        type Response = super::XonlyPublicKey;
+                        type Response = super::NofNResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

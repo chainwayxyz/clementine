@@ -1,13 +1,13 @@
 use std::str::FromStr;
 
-use bitcoin::Amount;
+use bitcoin::{hashes::Hash, Amount};
 use clap::{Parser, Subcommand};
 use clementine_core::{
     rpc::clementine::{
         clementine_aggregator_client::ClementineAggregatorClient,
         clementine_operator_client::ClementineOperatorClient,
         clementine_verifier_client::ClementineVerifierClient, deposit_params::DepositData,
-        BaseDeposit, DepositParams, Empty, Outpoint, XonlyPublicKey,
+        BaseDeposit, DepositParams, Empty, Outpoint,
     },
     EVMAddress,
 };
@@ -102,13 +102,13 @@ enum AggregatorCommands {
         #[arg(long)]
         deposit_outpoint_vout: u32,
         #[arg(long)]
-        evm_address: String,
+        evm_address: Option<String>,
         #[arg(long)]
-        recovery_taproot_address: String,
+        recovery_taproot_address: Option<String>,
         #[arg(long)]
-        nofn_xonly_pk: String,
+        nofn_xonly_pk: Option<String>,
         #[arg(long)]
-        num_verifiers: u64,
+        num_verifiers: Option<u64>,
     },
     /// Get the aggregated NofN x-only public key
     GetNofnAggregatedKey,
@@ -266,29 +266,82 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             nofn_xonly_pk,
             num_verifiers,
         } => {
+            let nofn_xonly_pk = match nofn_xonly_pk {
+                Some(xonly_pk) => xonly_pk.as_bytes().to_vec(),
+                None => aggregator
+                    .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
+                    .await
+                    .expect("Failed to make a request")
+                    .get_ref()
+                    .nofn_xonly_pk
+                    .clone(),
+            };
+
+            let num_verifiers = match num_verifiers {
+                Some(num) => num,
+                None => {
+                    aggregator
+                        .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
+                        .await
+                        .expect("Failed to make a request")
+                        .get_ref()
+                        .num_verifiers as u64
+                }
+            };
+
+            let recovery_taproot_address = match recovery_taproot_address {
+                Some(address) => bitcoin::Address::from_str(&address)
+                    .expect("Failed to parse recovery taproot address"),
+                None => bitcoin::Address::from_str(
+                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
+                )
+                .expect("Failed to parse recovery taproot address"),
+            };
+
+            let evm_address = match evm_address {
+                Some(address) => EVMAddress(
+                    hex::decode(address)
+                        .expect("Failed to decode evm address")
+                        .try_into()
+                        .expect("Failed to convert evm address to array"),
+                ),
+                None => EVMAddress([1; 20]),
+            };
+
+            let mut deposit_outpoint_txid =
+                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
+            deposit_outpoint_txid.reverse();
             let deposit = aggregator
                 .new_deposit(DepositParams {
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
                         deposit_outpoint: Some(Outpoint {
-                            txid: deposit_outpoint_txid.as_bytes().to_vec(),
+                            txid: deposit_outpoint_txid,
                             vout: deposit_outpoint_vout,
                         }),
-                        evm_address: evm_address.as_bytes().to_vec(),
-                        recovery_taproot_address,
-                        nofn_xonly_pk: nofn_xonly_pk.as_bytes().to_vec(),
+                        evm_address: evm_address.0.to_vec(),
+                        recovery_taproot_address: recovery_taproot_address
+                            .assume_checked()
+                            .to_string(),
+                        nofn_xonly_pk,
                         num_verifiers,
                     })),
                 })
                 .await
                 .expect("Failed to make a request");
-            println!("{:?}", deposit);
+            let move_txid = deposit.get_ref().txid.clone();
+            let txid = bitcoin::Txid::from_byte_array(
+                move_txid
+                    .try_into()
+                    .expect("Failed to convert txid to array"),
+            );
+            println!("Move txid: {}", txid);
         }
         AggregatorCommands::GetNofnAggregatedKey => {
             let response = aggregator
                 .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
                 .await
                 .expect("Failed to make a request");
-            let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().xonly_pk)
+            let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
                 .expect("Failed to parse xonly_pk");
             println!("{:?}", xonly_pk.to_string());
         }
@@ -303,14 +356,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
                 .await
                 .expect("Failed to make a request");
-            let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().xonly_pk)
+            let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
                 .expect("Failed to parse xonly_pk");
 
             let recovery_taproot_address = match recovery_taproot_address {
                 Some(address) => bitcoin::Address::from_str(&address)
                     .expect("Failed to parse recovery taproot address"),
                 None => bitcoin::Address::from_str(
-                    "bc1p000000000000000000000000000000000000000000000000000000000000",
+                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
                 )
                 .expect("Failed to parse recovery taproot address"),
             };

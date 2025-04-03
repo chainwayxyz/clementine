@@ -3,7 +3,6 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{AggregatorWithdrawResponse, VerifierPublicKeys, WithdrawParams};
-use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
@@ -24,7 +23,6 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
-use bitcoin::key::Keypair;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::TapSighash;
@@ -611,10 +609,7 @@ impl Aggregator {
             .into_iter()
             .unzip();
 
-        let nofn = NofN::new(
-            Keypair::from_secret_key(&SECP, &self.config.secret_key).public_key(),
-            verifier_public_keys,
-        )?;
+        let nofn = NofN::new_without_idx(verifier_public_keys)?;
         self.nofn.write().await.replace(nofn);
 
         Ok(clementine::VerifierPublicKeys {
@@ -1041,7 +1036,7 @@ impl ClementineAggregator for Aggregator {
     async fn get_nof_n_aggregated_xonly_pk(
         &self,
         _: tonic::Request<super::Empty>,
-    ) -> std::result::Result<tonic::Response<super::XonlyPublicKey>, tonic::Status> {
+    ) -> std::result::Result<tonic::Response<super::NofNResponse>, tonic::Status> {
         let verifiers = self.verifier_clients.clone();
         let nofn_xonly_pk_responses = try_join_all(verifiers.iter().map(|verifier| {
             let mut verifier = verifier.clone();
@@ -1062,8 +1057,9 @@ impl ClementineAggregator for Aggregator {
         if nofn_xonly_pks.iter().any(|x| x != &first_xonly_pk) {
             Err(Status::internal("NofN xonly pks are not the same"))
         } else {
-            Ok(Response::new(super::XonlyPublicKey {
-                xonly_pk: first_xonly_pk,
+            Ok(Response::new(super::NofNResponse {
+                nofn_xonly_pk: first_xonly_pk,
+                num_verifiers: nofn_xonly_pks.len() as u32,
             }))
         }
     }
