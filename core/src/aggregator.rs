@@ -18,7 +18,7 @@ use crate::{
     },
 };
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::{schnorr, Message};
+use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use eyre::eyre;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
@@ -40,8 +40,9 @@ pub struct Aggregator {
     pub(crate) config: BridgeConfig,
     pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     pub(crate) tx_sender: TxSenderClient,
-    pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+    verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+    verifier_keys: Arc<tokio::sync::RwLock<Vec<PublicKey>>>,
 }
 
 impl Aggregator {
@@ -93,7 +94,16 @@ impl Aggregator {
             tx_sender,
             verifier_clients,
             operator_clients,
+            verifier_keys: Arc::new(tokio::sync::RwLock::new(Vec::new())),
         })
+    }
+
+    pub fn get_verifier_clients(&self) -> &[ClementineVerifierClient<tonic::transport::Channel>] {
+        &self.verifier_clients
+    }
+
+    pub async fn set_verifier_keys(&self, verifier_keys: &[PublicKey]) {
+        *self.verifier_keys.write().await = verifier_keys.to_vec();
     }
 
     /// collects and distributes keys to verifiers from operators and watchtowers for the new deposit
@@ -109,10 +119,13 @@ impl Aggregator {
         tracing::info!("Starting collect_and_distribute_keys");
         let start_time = std::time::Instant::now();
 
+        let deposit_data: DepositData = deposit_params.clone().try_into()?;
+
         // Create channels with larger capacity to prevent blocking
-        let (operator_keys_tx, operator_keys_rx) =
-            tokio::sync::broadcast::channel(self.config.num_operators * self.config.num_verifiers);
-        let operator_rx_handles = (0..self.config.num_verifiers)
+        let (operator_keys_tx, operator_keys_rx) = tokio::sync::broadcast::channel(
+            self.config.num_operators * deposit_data.get_num_verifiers(),
+        );
+        let operator_rx_handles = (0..deposit_data.get_num_verifiers())
             .map(|_| operator_keys_rx.resubscribe())
             .collect::<Vec<_>>();
 
@@ -271,5 +284,24 @@ impl Aggregator {
         )?;
 
         Ok(final_sig)
+    }
+
+    /// Returns a list of verifier clients that are participating in the deposit.
+    pub async fn get_participating_verifiers(
+        &self,
+        deposit_data: &DepositData,
+    ) -> Result<Vec<ClementineVerifierClient<tonic::transport::Channel>>, BridgeError> {
+        let verifier_keys = self.verifier_keys.read().await.clone();
+        let mut participating_verifiers = Vec::new();
+
+        let verifiers = deposit_data.get_verifiers();
+
+        for (idx, verifier_key) in verifier_keys.iter().enumerate() {
+            if verifiers.contains(verifier_key) {
+                participating_verifiers.push(self.verifier_clients[idx].clone());
+            }
+        }
+
+        Ok(participating_verifiers)
     }
 }

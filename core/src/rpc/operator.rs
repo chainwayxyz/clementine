@@ -171,7 +171,7 @@ where
             .generate_assert_winternitz_pubkeys(deposit_data.get_deposit_outpoint())?;
         let hashes = self
             .operator
-            .generate_challenge_ack_preimages_and_hashes(deposit_data.get_deposit_outpoint())?;
+            .generate_challenge_ack_preimages_and_hashes(&deposit_data)?;
         tracing::info!("Generated deposit keys in {:?}", start.elapsed());
 
         Ok(Response::new(OperatorKeys {

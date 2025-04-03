@@ -97,7 +97,7 @@ message ReplacementDeposit {
   Txid old_move_txid = 2;
   // nofn public key used to sign the deposit
   bytes nofn_xonly_pk = 3;
-  /// X-only public keys of verifiers that will participate in the deposit.
+  /// Public keys of verifiers that will participate in the deposit.
   repeated bytes verifiers = 4;
   /// X-only public keys of watchtowers that will participate in the deposit.
   /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
@@ -114,7 +114,7 @@ message BaseDeposit {
   string recovery_taproot_address = 3;
   // nofn public key used to sign the deposit
   bytes nofn_xonly_pk = 4;
-  /// X-only public keys of verifiers that will participate in the deposit.
+  /// Public keys of verifiers that will participate in the deposit.
   repeated bytes verifiers = 5;
   /// X-only public keys of watchtowers that will participate in the deposit.
   /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
@@ -346,9 +346,8 @@ service ClementineOperator {
 
 message VerifierParams {
   bytes public_key = 1;
-  uint32 num_verifiers = 2;
-  uint32 num_operators = 3;
-  uint32 num_round_txs = 4;
+  uint32 num_operators = 2;
+  uint32 num_round_txs = 3;
 }
 
 message PartialSig {
@@ -411,8 +410,8 @@ service ClementineVerifier {
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
 
-  // Saves all verifiers public keys.
-  rpc SetVerifiers(VerifierPublicKeys) returns (Empty) {}
+  // // Saves all verifiers public keys.
+  // rpc SetVerifiers(VerifierPublicKeys) returns (Empty) {}
 
   // Saves an operator.
   rpc SetOperator(stream OperatorParams) returns (Empty) {}

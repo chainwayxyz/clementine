@@ -6,7 +6,7 @@ use super::clementine::{AggregatorWithdrawResponse, VerifierPublicKeys, Withdraw
 use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
-    create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
+    create_move_to_vault_txhandler, DepositData, Signed, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
@@ -472,8 +472,14 @@ impl Aggregator {
             }))
                 .await?;
 
+        let deposit_data: DepositData = deposit_sign_session
+            .deposit_params
+            .clone()
+            .ok_or_else(|| eyre::eyre!("No deposit params found in deposit sign session"))?
+            .try_into()?;
+
         // calculate number of signatures needed from each operator
-        let needed_sigs = config.get_num_required_operator_sigs();
+        let needed_sigs = config.get_num_required_operator_sigs(&deposit_data);
 
         // get signatures from each operator's signature streams
         let operator_sigs = try_join_all(operator_sigs_streams.iter_mut().enumerate().map(
@@ -581,14 +587,11 @@ impl Aggregator {
     }
 
     /// Fetches verifier public keys from verifiers and sets up N-of-N.
-    async fn collect_verifier_public_keys(
-        &self,
-        verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
-    ) -> Result<VerifierPublicKeys, BridgeError> {
+    pub async fn collect_verifier_public_keys(&self) -> Result<VerifierPublicKeys, BridgeError> {
         tracing::info!("Collecting verifier public keys...");
 
         let (vpks, verifier_public_keys): (Vec<Vec<u8>>, Vec<PublicKey>) =
-            try_join_all(verifier_clients.iter().map(|client| {
+            try_join_all(self.get_verifier_clients().iter().map(|client| {
                 let mut client = client.clone();
 
                 async move {
@@ -609,6 +612,8 @@ impl Aggregator {
             .wrap_err("Failed to collect verifier public keys")?
             .into_iter()
             .unzip();
+
+        self.set_verifier_keys(&verifier_public_keys).await;
 
         let nofn = NofN::new(
             Keypair::from_secret_key(&SECP, &self.config.secret_key).public_key(),
@@ -659,43 +664,40 @@ impl ClementineAggregator for Aggregator {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<VerifierPublicKeys>, Status> {
-        let verifier_public_keys = self
-            .collect_verifier_public_keys(self.verifier_clients.clone())
-            .await?;
+        let verifier_public_keys = self.collect_verifier_public_keys().await?;
         tracing::debug!(
             "Verifier public keys: {:?}",
             verifier_public_keys.verifier_public_keys
         );
 
-        let verifier_public_keys_move = verifier_public_keys.clone();
-        let set_verifier_keys_handle = tokio::spawn({
-            let verifier_clients = self.verifier_clients.clone();
+        // let verifier_public_keys_move = verifier_public_keys.clone();
+        // let verifier_clients = self.get_verifier_clients().to_vec();
+        // let set_verifier_keys_handle = tokio::spawn({
+        //     async move {
+        //         tracing::info!("Setting up verifiers...");
 
-            async move {
-                tracing::info!("Setting up verifiers...");
+        //         try_join_all(verifier_clients.into_iter().map(|mut verifier| {
+        //             let verifier_public_keys = verifier_public_keys_move.clone();
 
-                try_join_all(verifier_clients.into_iter().map(|mut verifier| {
-                    let verifier_public_keys = verifier_public_keys_move.clone();
+        //             async move {
+        //                 verifier
+        //                     .set_verifiers(Request::new(verifier_public_keys))
+        //                     .await?;
 
-                    async move {
-                        verifier
-                            .set_verifiers(Request::new(verifier_public_keys))
-                            .await?;
+        //                 Ok::<_, Status>(())
+        //             }
+        //         }))
+        //         .await?;
 
-                        Ok::<_, Status>(())
-                    }
-                }))
-                .await?;
-
-                Ok::<_, Status>(())
-            }
-        });
+        //         Ok::<_, Status>(())
+        //     }
+        // });
 
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =
             tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
-        let operator_params_rx_handles = (0..self.config.num_verifiers)
+        let operator_params_rx_handles = (0..self.get_verifier_clients().len())
             .map(|_| operator_params_rx.resubscribe())
             .collect::<Vec<_>>();
 
@@ -721,7 +723,7 @@ impl ClementineAggregator for Aggregator {
             Ok::<_, Status>(())
         });
 
-        let verifiers = self.verifier_clients.clone();
+        let verifiers = self.get_verifier_clients().to_vec();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers of existing operators...");
             try_join_all(verifiers.iter().zip(operator_params_rx_handles).map(
@@ -745,7 +747,7 @@ impl ClementineAggregator for Aggregator {
         });
 
         try_join_all([
-            set_verifier_keys_handle,
+            //set_verifier_keys_handle,
             get_operator_params_chunked_handle,
             set_operator_params_handle,
         ])
@@ -782,21 +784,25 @@ impl ClementineAggregator for Aggregator {
         &self,
         request: Request<DepositParams>,
     ) -> Result<Response<clementine::Txid>, Status> {
-        todo!("order verifier clients somehow");
         let deposit_params: DepositParams = request.into_inner();
+        let deposit_data: DepositData = deposit_params.clone().try_into()?;
         // Collect and distribute keys needed keys from operators and watchtowers to verifiers
         let start = std::time::Instant::now();
         self.collect_and_distribute_keys(&deposit_params).await?;
         tracing::info!("Collected and distributed keys in {:?}", start.elapsed());
 
+        let participating_verifiers = self.get_participating_verifiers(&deposit_data).await?;
+
         // Generate nonce streams for all verifiers.
-        let num_required_sigs = self.config.get_num_required_nofn_sigs();
-        let (first_responses, nonce_streams) =
-            create_nonce_streams(self.verifier_clients.clone(), num_required_sigs as u32 + 1)
-                .await?; // ask for +1 for the final movetx signature, but don't send it on deposit_sign stage
+        let num_required_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
+        let (first_responses, nonce_streams) = create_nonce_streams(
+            participating_verifiers.clone(),
+            num_required_sigs as u32 + 1,
+        )
+        .await?; // ask for +1 for the final movetx signature, but don't send it on deposit_sign stage
 
         let mut partial_sig_streams =
-            try_join_all(self.verifier_clients.iter().map(|verifier_client| {
+            try_join_all(participating_verifiers.iter().map(|verifier_client| {
                 let mut verifier_client = verifier_client.clone();
 
                 async move {
@@ -827,7 +833,7 @@ impl ClementineAggregator for Aggregator {
         }
 
         // Set up deposit finalization streams
-        let deposit_finalize_clients = self.verifier_clients.clone();
+        let deposit_finalize_clients = participating_verifiers.clone();
         let deposit_finalize_streams = try_join_all(deposit_finalize_clients.into_iter().map(
             |mut verifier_client| async move {
                 let (tx, rx) = tokio::sync::mpsc::channel(1280);
@@ -1116,17 +1122,12 @@ mod tests {
             .unwrap();
         rpc.mine_blocks(18).await.unwrap();
 
-        let verifiers_xonly_pks = verifiers_public_keys
-            .iter()
-            .map(|pk| pk.x_only_public_key().0)
-            .collect::<Vec<_>>();
-
         let deposit_data = DepositData::BaseDeposit(BaseDepositData {
             deposit_outpoint,
             evm_address,
             recovery_taproot_address: signer.address.as_unchecked().clone(),
             nofn_xonly_pk,
-            verifiers: verifiers_xonly_pks,
+            verifiers: verifiers_public_keys,
             watchtowers: vec![],
         });
 

@@ -30,10 +30,10 @@ use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
-use bitcoin::{secp256k1::PublicKey, OutPoint};
+use bitcoin::OutPoint;
 use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
-use eyre::{eyre, Context, OptionExt, Result};
+use eyre::{Context, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::pin;
@@ -158,7 +158,6 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
 
-    pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub tx_sender: TxSenderClient,
@@ -197,15 +196,6 @@ where
             sessions: HashMap::new(),
         };
 
-        let verifiers_pks = db.get_verifiers_public_keys(None).await?;
-        let nofn = if !verifiers_pks.is_empty() {
-            tracing::debug!("Verifier public keys found: {:?}", verifiers_pks);
-            let nofn = NofN::new(signer.public_key, verifiers_pks)?;
-            Some(nofn)
-        } else {
-            None
-        };
-
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
@@ -214,7 +204,6 @@ where
             signer,
             db: db.clone(),
             config: config.clone(),
-            nofn: Arc::new(tokio::sync::RwLock::new(nofn)),
             _operator_xonly_pks: config.operators_xonly_pks.clone(),
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             tx_sender,
@@ -223,26 +212,26 @@ where
         Ok(verifier)
     }
 
-    pub async fn set_verifiers(
-        &self,
-        verifiers_public_keys: Vec<PublicKey>,
-    ) -> Result<(), BridgeError> {
-        // Check if verifiers are already set
-        if self.nofn.read().await.clone().is_some() {
-            return Err(eyre!("Verifiers already set").into());
-        }
+    // pub async fn set_verifiers(
+    //     &self,
+    //     verifiers_public_keys: Vec<PublicKey>,
+    // ) -> Result<(), BridgeError> {
+    //     // Check if verifiers are already set
+    //     if self.nofn.read().await.clone().is_some() {
+    //         return Err(eyre!("Verifiers already set").into());
+    //     }
 
-        // Save verifiers public keys to db
-        self.db
-            .set_verifiers_public_keys(None, &verifiers_public_keys)
-            .await?;
+    //     // Save verifiers public keys to db
+    //     self.db
+    //         .set_verifiers_public_keys(None, &verifiers_public_keys)
+    //         .await?;
 
-        // Save the nofn to memory for fast access
-        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
-        self.nofn.write().await.replace(nofn);
+    //     // Save the nofn to memory for fast access
+    //     let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
+    //     self.nofn.write().await.replace(nofn);
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Verifies all unspent kickoff signatures sent by the operator, converts them to TaggedSignature
     /// as they will be saved as TaggedSignatures to the db.
@@ -429,7 +418,7 @@ where
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
         let verifier_index = deposit_data.get_watchtower_index(&self.signer.xonly_public_key)?;
-        let verifiers_public_keys = self.db.get_verifiers_public_keys(None).await?;
+        let verifiers_public_keys = deposit_data.get_verifiers();
 
         let deposit_blockhash = self
             .rpc
@@ -449,11 +438,11 @@ where
             let mut sighash_stream = Box::pin(create_nofn_sighash_stream(
                 verifier.db.clone(),
                 verifier.config.clone(),
-                deposit_data,
+                deposit_data.clone(),
                 deposit_blockhash,
                 false,
             ));
-            let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
+            let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
 
             assert_eq!(
                 num_required_sigs + 1,
@@ -535,12 +524,14 @@ where
             true,
         ));
 
-        let num_required_nofn_sigs = self.config.get_num_required_nofn_sigs();
-        let num_required_nofn_sigs_per_kickoff =
-            self.config.get_num_required_nofn_sigs_per_kickoff();
-        let num_required_op_sigs = self.config.get_num_required_operator_sigs();
-        let num_required_op_sigs_per_kickoff =
-            self.config.get_num_required_operator_sigs_per_kickoff();
+        let num_required_nofn_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
+        let num_required_nofn_sigs_per_kickoff = self
+            .config
+            .get_num_required_nofn_sigs_per_kickoff(&deposit_data);
+        let num_required_op_sigs = self.config.get_num_required_operator_sigs(&deposit_data);
+        let num_required_op_sigs_per_kickoff = self
+            .config
+            .get_num_required_operator_sigs_per_kickoff(&deposit_data);
         let &BridgeConfig { num_operators, .. } = &self.config;
 
         let ProtocolParamset {
@@ -591,17 +582,11 @@ where
                 .ok_or_eyre("No signature received")?;
 
             tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
-            let nofn = self
-                .nofn
-                .read()
-                .await
-                .clone()
-                .ok_or(eyre!("N-of-N not set, yet"))?;
 
             verify_schnorr(
                 &sig,
                 &Message::from(typed_sighash.0),
-                nofn.agg_xonly_pk,
+                deposit_data.get_nofn_xonly_pk(),
                 tweak_data,
                 Some(&mut tweak_cache),
             )
@@ -744,9 +729,8 @@ where
         };
 
         // sign move tx and save everything to db if everything is correct
-        let verifiers_public_keys = self.db.get_verifiers_public_keys(None).await?;
         let partial_sig = musig2::partial_sign(
-            verifiers_public_keys,
+            deposit_data.get_verifiers(),
             None,
             movetx_secnonce,
             agg_nonce,
@@ -821,12 +805,12 @@ where
             })
             .collect::<Result<Vec<[u8; 20]>, eyre::Report>>()?;
 
-        if hashes.len() != self.config.get_num_challenge_ack_hashes() {
+        if hashes.len() != self.config.get_num_challenge_ack_hashes(&deposit_data) {
             return Err(eyre::eyre!(
                 "Invalid number of challenge ack hashes received from operator {}: got: {} expected: {}",
                 operator_idx,
                 hashes.len(),
-                self.config.get_num_challenge_ack_hashes()
+                self.config.get_num_challenge_ack_hashes(&deposit_data)
             ).into());
         }
 

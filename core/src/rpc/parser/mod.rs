@@ -10,6 +10,7 @@ use crate::tx_sender::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use eyre::Context;
@@ -300,6 +301,15 @@ fn parse_xonly_public_keys(pk: &[Vec<u8>]) -> Result<Vec<XOnlyPublicKey>, Status
         .collect::<Result<Vec<_>, _>>()
 }
 
+fn parse_public_keys(pk: &[Vec<u8>]) -> Result<Vec<PublicKey>, Status> {
+    pk.iter()
+        .map(|pk| {
+            PublicKey::from_slice(pk)
+                .map_err(|e| Status::invalid_argument(format!("Failed to parse public key: {}", e)))
+        })
+        .collect::<Result<Vec<_>, _>>()
+}
+
 fn parse_base_deposit_data(data: BaseDeposit) -> Result<DepositData, Status> {
     let deposit_outpoint: bitcoin::OutPoint = data
         .deposit_outpoint
@@ -326,7 +336,7 @@ fn parse_base_deposit_data(data: BaseDeposit) -> Result<DepositData, Status> {
         evm_address,
         recovery_taproot_address,
         nofn_xonly_pk,
-        verifiers: parse_xonly_public_keys(&data.verifiers)?,
+        verifiers: parse_public_keys(&data.verifiers)?,
         watchtowers: parse_xonly_public_keys(&data.watchtowers)?,
     }))
 }
@@ -356,7 +366,7 @@ fn parse_replacement_deposit_data(data: ReplacementDeposit) -> Result<DepositDat
         deposit_outpoint,
         old_move_txid: move_txid,
         nofn_xonly_pk,
-        verifiers: parse_xonly_public_keys(&data.verifiers)?,
+        verifiers: parse_public_keys(&data.verifiers)?,
         watchtowers: parse_xonly_public_keys(&data.watchtowers)?,
     }))
 }

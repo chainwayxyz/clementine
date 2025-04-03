@@ -120,7 +120,6 @@ impl BridgeConfig {
             index: read_string_from_env_then_parse::<u32>("INDEX")?,
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
             winternitz_secret_key,
-            num_verifiers: read_string_from_env_then_parse::<usize>("NUM_VERIFIERS")?,
             operators_xonly_pks,
             num_operators: read_string_from_env_then_parse::<usize>("NUM_OPERATORS")?,
             operator_withdrawal_fee_sats,
@@ -242,7 +241,6 @@ mod tests {
                 winternitz_secret_key.display_secret().to_string(),
             );
         }
-        std::env::set_var("NUM_VERIFIERS", default_config.num_verifiers.to_string());
         std::env::set_var(
             "OPERATOR_XONLY_PKS",
             default_config

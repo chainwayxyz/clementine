@@ -23,6 +23,7 @@ use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 use eyre::Context;
@@ -110,7 +111,7 @@ impl DepositData {
             DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk,
         }
     }
-    fn get_num_verifiers(&self) -> usize {
+    pub fn get_num_verifiers(&self) -> usize {
         match self {
             DepositData::BaseDeposit(data) => data.verifiers.len(),
             DepositData::ReplacementDeposit(data) => data.verifiers.len(),
@@ -123,11 +124,11 @@ impl DepositData {
                 DepositData::ReplacementDeposit(data) => data.watchtowers.len(),
             }
     }
-    pub fn get_verifier_index(&self, xonly_pk: &XOnlyPublicKey) -> Result<usize, eyre::Report> {
+    pub fn get_verifier_index(&self, public_key: &PublicKey) -> Result<usize, eyre::Report> {
         self.get_verifiers()
             .iter()
-            .position(|pk| pk == xonly_pk)
-            .ok_or_else(|| eyre::eyre!("Verifier with public key {} not found", xonly_pk))
+            .position(|pk| pk == public_key)
+            .ok_or_else(|| eyre::eyre!("Verifier with public key {} not found", public_key))
     }
     pub fn get_watchtower_index(&self, xonly_pk: &XOnlyPublicKey) -> Result<usize, eyre::Report> {
         self.get_watchtowers()
@@ -136,7 +137,7 @@ impl DepositData {
             .ok_or_else(|| eyre::eyre!("Watchtower with public key {} not found", xonly_pk))
     }
     /// Returns sorted verifiers, they are sorted so that their order is deterministic.
-    pub fn get_verifiers(&self) -> Vec<XOnlyPublicKey> {
+    pub fn get_verifiers(&self) -> Vec<PublicKey> {
         let mut verifiers = match self {
             DepositData::BaseDeposit(data) => data.verifiers.clone(),
             DepositData::ReplacementDeposit(data) => data.verifiers.clone(),
@@ -146,7 +147,11 @@ impl DepositData {
     }
     /// Returns sorted watchtowers, they are sorted so that their order is deterministic.
     pub fn get_watchtowers(&self) -> Vec<XOnlyPublicKey> {
-        let mut watchtowers = self.get_verifiers().to_vec();
+        let mut watchtowers = self
+            .get_verifiers()
+            .iter()
+            .map(|pk| pk.x_only_public_key().0)
+            .collect::<Vec<_>>();
         match self {
             DepositData::BaseDeposit(data) => watchtowers.extend(data.watchtowers.iter()),
             DepositData::ReplacementDeposit(data) => watchtowers.extend(data.watchtowers.iter()),
@@ -173,8 +178,8 @@ pub struct BaseDepositData {
     pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
     /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
-    /// X-only public keys of verifiers that will participate in the deposit.
-    pub verifiers: Vec<XOnlyPublicKey>,
+    /// Public keys of verifiers that will participate in the deposit.
+    pub verifiers: Vec<PublicKey>,
     /// X-only public keys of watchtowers that will participate in the deposit.
     /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
     pub watchtowers: Vec<XOnlyPublicKey>,
@@ -189,7 +194,7 @@ pub struct ReplacementDepositData {
     /// nofn xonly public key used for deposit.
     pub nofn_xonly_pk: XOnlyPublicKey,
     /// X-only public keys of verifiers that will participate in the deposit.
-    pub verifiers: Vec<XOnlyPublicKey>,
+    pub verifiers: Vec<PublicKey>,
     /// X-only public keys of watchtowers that will participate in the deposit.
     /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
     pub watchtowers: Vec<XOnlyPublicKey>,

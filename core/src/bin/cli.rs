@@ -81,11 +81,11 @@ enum VerifierCommands {
         #[arg(long)]
         num_nonces: u32,
     },
-    /// Set verifier public keys
-    SetVerifiers {
-        #[arg(long, num_args = 1.., value_delimiter = ',')]
-        public_keys: Vec<String>,
-    },
+    // /// Set verifier public keys
+    // SetVerifiers {
+    //     #[arg(long, num_args = 1.., value_delimiter = ',')]
+    //     public_keys: Vec<String>,
+    // },
     // Add other verifier commands as needed
 }
 
@@ -226,17 +226,16 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .await
                 .expect("Failed to make a request");
             println!("Noncegen response: {:?}", response);
-        }
-        VerifierCommands::SetVerifiers { public_keys } => {
-            let params = clementine_core::rpc::clementine::VerifierPublicKeys {
-                verifier_public_keys: public_keys.iter().map(|k| k.as_bytes().to_vec()).collect(),
-            };
-            let response = verifier
-                .set_verifiers(Request::new(params))
-                .await
-                .expect("Failed to make a request");
-            println!("Set verifier public keys response: {:?}", response);
-        }
+        } // VerifierCommands::SetVerifiers { public_keys } => {
+          //     let params = clementine_core::rpc::clementine::VerifierPublicKeys {
+          //         verifier_public_keys: public_keys.iter().map(|k| k.as_bytes().to_vec()).collect(),
+          //     };
+          //     let response = verifier
+          //         .set_verifiers(Request::new(params))
+          //         .await
+          //         .expect("Failed to make a request");
+          //     println!("Set verifier public keys response: {:?}", response);
+          // }
     }
 }
 

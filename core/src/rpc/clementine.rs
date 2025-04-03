@@ -86,7 +86,7 @@ pub struct ReplacementDeposit {
     /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "3")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
-    /// / X-only public keys of verifiers that will participate in the deposit.
+    /// / Public keys of verifiers that will participate in the deposit.
     #[prost(bytes = "vec", repeated, tag = "4")]
     pub verifiers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
     /// / X-only public keys of watchtowers that will participate in the deposit.
@@ -109,7 +109,7 @@ pub struct BaseDeposit {
     /// nofn public key used to sign the deposit
     #[prost(bytes = "vec", tag = "4")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
-    /// / X-only public keys of verifiers that will participate in the deposit.
+    /// / Public keys of verifiers that will participate in the deposit.
     #[prost(bytes = "vec", repeated, tag = "5")]
     pub verifiers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
     /// / X-only public keys of watchtowers that will participate in the deposit.
@@ -282,10 +282,8 @@ pub struct VerifierParams {
     #[prost(bytes = "vec", tag = "1")]
     pub public_key: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag = "2")]
-    pub num_verifiers: u32,
-    #[prost(uint32, tag = "3")]
     pub num_operators: u32,
-    #[prost(uint32, tag = "4")]
+    #[prost(uint32, tag = "3")]
     pub num_round_txs: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1258,30 +1256,6 @@ pub mod clementine_verifier_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "GetParams"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Saves all verifiers public keys.
-        pub async fn set_verifiers(
-            &mut self,
-            request: impl tonic::IntoRequest<super::VerifierPublicKeys>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineVerifier/SetVerifiers",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("clementine.ClementineVerifier", "SetVerifiers"),
-                );
             self.inner.unary(req, path, codec).await
         }
         /// Saves an operator.
@@ -2342,11 +2316,6 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::VerifierParams>, tonic::Status>;
-        /// Saves all verifiers public keys.
-        async fn set_verifiers(
-            &self,
-            request: tonic::Request<super::VerifierPublicKeys>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Saves an operator.
         async fn set_operator(
             &self,
@@ -2648,52 +2617,6 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetParamsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/clementine.ClementineVerifier/SetVerifiers" => {
-                    #[allow(non_camel_case_types)]
-                    struct SetVerifiersSvc<T: ClementineVerifier>(pub Arc<T>);
-                    impl<
-                        T: ClementineVerifier,
-                    > tonic::server::UnaryService<super::VerifierPublicKeys>
-                    for SetVerifiersSvc<T> {
-                        type Response = super::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::VerifierPublicKeys>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ClementineVerifier>::set_verifiers(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = SetVerifiersSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

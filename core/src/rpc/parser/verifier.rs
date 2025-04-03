@@ -21,7 +21,6 @@ use crate::{
 use bitcoin::secp256k1::schnorr;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tonic::Status;
@@ -35,11 +34,6 @@ where
     fn try_from(verifier: &Verifier<C>) -> Result<Self, Self::Error> {
         Ok(VerifierParams {
             public_key: verifier.signer.public_key.serialize().to_vec(),
-            num_verifiers: convert_int_to_another(
-                "num_verifiers",
-                verifier.config.num_verifiers,
-                u32::try_from,
-            )?,
             num_operators: convert_int_to_another(
                 "num_operators",
                 verifier.config.num_operators,
@@ -141,7 +135,7 @@ impl From<MusigPartialSignature> for PartialSig {
 
 pub fn parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
-    verifier_xonly_pk: XOnlyPublicKey,
+    verifier_pk: &PublicKey,
 ) -> Result<(DepositData, u32), Status> {
     let deposit_params = deposit_sign_session
         .deposit_params
@@ -150,7 +144,7 @@ pub fn parse_deposit_sign_session(
     let deposit_data: DepositData = deposit_params.try_into()?;
 
     let verifier_idx = deposit_data
-        .get_verifier_index(&verifier_xonly_pk)
+        .get_verifier_index(verifier_pk)
         .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
     let session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;

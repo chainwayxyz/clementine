@@ -88,17 +88,12 @@ async fn base_setup(
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
     let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
 
-    let verifiers_xonly_pks = verifiers_public_keys
-        .iter()
-        .map(|pk| pk.x_only_public_key().0)
-        .collect::<Vec<_>>();
-
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
         nofn_xonly_pk,
-        verifiers: verifiers_xonly_pks,
+        verifiers: verifiers_public_keys,
         watchtowers: vec![],
     });
     let dep_params: DepositParams = deposit_data.into();
@@ -191,17 +186,12 @@ pub async fn run_operator_end_round(
 
     let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
 
-    let verifiers_xonly_pks = verifiers_public_keys
-        .iter()
-        .map(|pk| pk.x_only_public_key().0)
-        .collect::<Vec<_>>();
-
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
         nofn_xonly_pk,
-        verifiers: verifiers_xonly_pks,
+        verifiers: verifiers_public_keys,
         watchtowers: vec![],
     });
 
@@ -355,6 +345,8 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     tracing::info!("Sending challenge transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
+    let deposit_data: DepositData = dep_params.clone().try_into()?;
+
     // Send Watchtower Challenge Transactions
     for (verifier_idx, verifier) in verifiers.iter_mut().enumerate() {
         let watchtower_challenge_tx = verifier
@@ -370,7 +362,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             &tx_sender,
             &rpc,
             watchtower_challenge_tx.raw_tx.as_slice(),
-            TxType::WatchtowerChallenge(verifier_idx),
+            TxType::try_from(watchtower_challenge_tx.transaction_type.unwrap()).unwrap(),
         )
         .await
         .context(format!(
@@ -380,7 +372,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     }
 
     // Send Operator Challenge Acknowledgment Transactions
-    for verifier_idx in 0..config.num_verifiers {
+    for verifier_idx in 0..deposit_data.get_num_verifiers() {
         tracing::info!(
             "Sending operator challenge ack transaction for verifier {}",
             verifier_idx
@@ -684,7 +676,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         _operators,
         _verifiers,
         tx_sender,
-        _dep_params,
+        dep_params,
         _kickoff_idx,
         _base_tx_req,
         all_txs,
@@ -702,8 +694,10 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     tracing::info!("Sending challenge transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
+    let deposit_data: DepositData = dep_params.try_into()?;
+
     // Send Watchtower Challenge Transactions
-    for watchtower_idx in 0..config.num_verifiers {
+    for watchtower_idx in 0..deposit_data.get_num_watchtowers() {
         tracing::info!(
             "Sending watchtower challenge transaction for watchtower {}",
             watchtower_idx
@@ -718,7 +712,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     }
 
     // Send Operator Challenge Acknowledgment Transactions
-    for verifier_idx in 0..config.num_verifiers {
+    for verifier_idx in 0..deposit_data.get_num_watchtowers() {
         tracing::info!(
             "Sending operator challenge ack transaction for watchtower {}",
             verifier_idx

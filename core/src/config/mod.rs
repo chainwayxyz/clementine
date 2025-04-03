@@ -54,8 +54,6 @@ pub struct BridgeConfig {
     pub secret_key: SecretKey,
     /// Additional secret key that will be used for creating Winternitz one time signature.
     pub winternitz_secret_key: Option<SecretKey>,
-    /// Number of verifiers.
-    pub num_verifiers: usize,
     /// Operators x-only public keys.
     pub operators_xonly_pks: Vec<XOnlyPublicKey>,
     /// Number of operators.
@@ -157,8 +155,6 @@ impl Default for BridgeConfig {
                 "1111111111111111111111111111111111111111111111111111111111111111",
             )
             .expect("known valid input"),
-
-            num_verifiers: 4,
 
             num_operators: 2,
             operators_xonly_pks: vec![

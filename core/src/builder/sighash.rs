@@ -24,28 +24,29 @@ use futures_core::stream::Stream;
 
 impl BridgeConfig {
     /// Returns the number of required signatures for N-of-N signing session.
-    pub fn get_num_required_nofn_sigs(&self) -> usize {
+    pub fn get_num_required_nofn_sigs(&self, deposit_data: &DepositData) -> usize {
         self.num_operators
             * self.protocol_paramset().num_round_txs
             * self.protocol_paramset().num_signed_kickoffs
-            * self.get_num_required_nofn_sigs_per_kickoff()
+            * self.get_num_required_nofn_sigs_per_kickoff(deposit_data)
     }
 
     // WIP: For now, this is equal to the number of sighashes we yield in create_operator_sighash_stream.
     // This will change as we implement the system design.
-    pub fn get_num_required_operator_sigs(&self) -> usize {
+    pub fn get_num_required_operator_sigs(&self, deposit_data: &DepositData) -> usize {
         self.protocol_paramset().num_round_txs
             * self.protocol_paramset().num_signed_kickoffs
-            * self.get_num_required_operator_sigs_per_kickoff()
+            * self.get_num_required_operator_sigs_per_kickoff(deposit_data)
     }
 
-    pub fn get_num_required_nofn_sigs_per_kickoff(&self) -> usize {
-        6 + 4 * self.num_verifiers
+    pub fn get_num_required_nofn_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
+        6 + 4 * deposit_data.get_num_verifiers()
             + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
     }
 
-    pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {
-        2 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() + self.num_verifiers
+    pub fn get_num_required_operator_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
+        2 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
+            + deposit_data.get_num_verifiers()
     }
 
     /// Returns the total number of winternitz pks used in kickoff utxos for blockhash commits
@@ -60,8 +61,8 @@ impl BridgeConfig {
     }
 
     /// Returns the number of challenge ack hashes needed for a single operator for each round
-    pub fn get_num_challenge_ack_hashes(&self) -> usize {
-        self.num_verifiers
+    pub fn get_num_challenge_ack_hashes(&self, deposit_data: &DepositData) -> usize {
+        deposit_data.get_num_watchtowers()
     }
 
     // /// Returns the number of winternitz pks needed for a single operator for each round
@@ -228,8 +229,8 @@ pub fn create_nofn_sighash_stream(
                     }
 
 
-                    if sum != config.get_num_required_nofn_sigs_per_kickoff() {
-                        Err(eyre::eyre!("NofN sighash count does not match: expected {0}, got {1}", config.get_num_required_nofn_sigs_per_kickoff(), sum))?;
+                    if sum != config.get_num_required_nofn_sigs_per_kickoff(&deposit_data) {
+                        Err(eyre::eyre!("NofN sighash count does not match: expected {0}, got {1}", config.get_num_required_nofn_sigs_per_kickoff(&deposit_data), sum))?;
                     }
                     // recollect round_tx, ready_to_reimburse_tx, and move_to_vault_tx for the next kickoff_utxo
                     txhandler_cache.store_for_next_kickoff(&mut txhandlers)?;
@@ -304,8 +305,8 @@ pub fn create_operator_sighash_stream(
                         yield sighash;
                     }
                 }
-                if sum != config.get_num_required_operator_sigs_per_kickoff() {
-                    Err(eyre::eyre!("Operator sighash count does not match: expected {0}, got {1}", config.get_num_required_operator_sigs_per_kickoff(), sum))?;
+                if sum != config.get_num_required_operator_sigs_per_kickoff(&deposit_data) {
+                    Err(eyre::eyre!("Operator sighash count does not match: expected {0}, got {1}", config.get_num_required_operator_sigs_per_kickoff(&deposit_data), sum))?;
                 }
                 // recollect round_tx, ready_to_reimburse_tx, and move_to_vault_tx for the next kickoff_utxo
                 txhandler_cache.store_for_next_kickoff(&mut txhandlers)?;

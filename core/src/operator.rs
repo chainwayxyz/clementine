@@ -626,24 +626,24 @@ where
 
     pub fn generate_challenge_ack_preimages_and_hashes(
         &self,
-        deposit_outpoint: OutPoint,
+        deposit_data: &DepositData,
     ) -> Result<Vec<PublicHash>, BridgeError> {
-        let mut hashes = Vec::with_capacity(self.config.get_num_challenge_ack_hashes());
+        let mut hashes = Vec::with_capacity(self.config.get_num_challenge_ack_hashes(deposit_data));
 
-        for verifier_idx in 0..self.config.num_verifiers {
+        for watchtower_idx in 0..deposit_data.get_num_watchtowers() {
             let path = WinternitzDerivationPath::ChallengeAckHash(
-                verifier_idx as u32,
-                deposit_outpoint,
+                watchtower_idx as u32,
+                deposit_data.get_deposit_outpoint(),
                 self.config.protocol_paramset(),
             );
             let hash = self.signer.generate_public_hash_from_path(path)?;
             hashes.push(hash);
         }
 
-        if hashes.len() != self.config.get_num_challenge_ack_hashes() {
+        if hashes.len() != self.config.get_num_challenge_ack_hashes(deposit_data) {
             return Err(BridgeError::Error(format!(
                 "Expected {} number of challenge ack hashes, but got {}",
-                self.config.get_num_challenge_ack_hashes(),
+                self.config.get_num_challenge_ack_hashes(deposit_data),
                 hashes.len()
             )));
         }
@@ -1197,26 +1197,6 @@ mod tests {
             config.protocol_paramset().num_round_txs
                 * config.protocol_paramset().num_kickoffs_per_round
         );
-    }
-
-    #[tokio::test]
-    async fn test_generate_preimages_and_hashes() {
-        let mut config = create_test_config_with_thread_name().await;
-        let _regtest = create_regtest_rpc(&mut config).await;
-
-        let operator = Operator::<MockCitreaClient>::new(config.clone())
-            .await
-            .unwrap();
-
-        let deposit_outpoint = OutPoint {
-            txid: Txid::all_zeros(),
-            vout: 2,
-        };
-
-        let preimages = operator
-            .generate_challenge_ack_preimages_and_hashes(deposit_outpoint)
-            .unwrap();
-        assert_eq!(preimages.len(), config.num_verifiers as usize);
     }
 
     #[tokio::test]
