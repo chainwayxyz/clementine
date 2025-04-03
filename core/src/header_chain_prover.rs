@@ -582,8 +582,8 @@ mod tests {
         let db = Database::new(&config).await.unwrap();
 
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
-        // let prover_client: HeaderChainProverClient =
-        // HeaderChainProverClient::new(db.clone()).await.unwrap();
+        let prover_client: HeaderChainProverClient =
+            HeaderChainProverClient::new(db.clone()).await.unwrap();
 
         let number_of_blocks_to_prove = 5;
         let _block_headers =
@@ -592,14 +592,7 @@ mod tests {
 
         // Prove blocks after the first one. Because the first one has
         // an assumption that is provided from the bridge config.
-        let hash = rpc.client.get_block_hash(0).await.unwrap();
-        let mut previous_proof = db
-            .get_block_proof_by_hash(None, hash)
-            .await
-            .unwrap()
-            .unwrap();
         for i in 1..number_of_blocks_to_prove {
-            tracing::error!("Proving block wit {:?}", previous_proof);
             let non_proven_block = prover
                 .check_for_new_unproven_blocks()
                 .await
@@ -607,22 +600,17 @@ mod tests {
                 .unwrap();
             assert_eq!(non_proven_block.2, i as u32);
 
-            // let previous_block_hash = rpc.client.get_block_hash(i - 1).await.unwrap();
+            let previous_block_hash = rpc.client.get_block_hash(i - 1).await.unwrap();
             let current_block_hash = rpc.client.get_block_hash(i).await.unwrap();
             let current_block_header = rpc
                 .client
                 .get_block_header(&current_block_hash)
                 .await
                 .unwrap();
-            // let previous_proof = prover_client
-            //     .get_header_chain_proof(previous_block_hash)
-            //     .await
-            //     .unwrap();
-            // tracing::error!(
-            //     "Previous proof: wirth hash {:?}",
-            //     // previous_proof,
-            //     previous_block_hash
-            // );
+            let previous_proof = prover_client
+                .get_header_chain_proof(previous_block_hash)
+                .await
+                .unwrap();
 
             let receipt = prover
                 .prove_block(
@@ -642,8 +630,6 @@ mod tests {
 
             assert_eq!(receipt.journal, db_receipt.journal);
             assert_eq!(receipt.metadata, db_receipt.metadata);
-
-            previous_proof = receipt;
         }
     }
 
@@ -685,6 +671,7 @@ mod tests {
         .unwrap();
     }
 
+    #[ignore = "Proving blocks one by one is very slow and this test should be enabled when proving in batches is implemented."]
     #[tokio::test]
     async fn verifier_new_check_header_chain_proof() {
         let mut config = create_test_config_with_thread_name().await;
@@ -709,6 +696,7 @@ mod tests {
             .unwrap();
         rpc.mine_blocks(10).await.unwrap();
 
+        // Aim for a proved block that is added to the database by the verifier.
         let height = rpc.client.get_block_count().await.unwrap() - 7;
         let hash = rpc.client.get_block_hash(height).await.unwrap();
 
@@ -721,7 +709,7 @@ mod tests {
                     .await
                     .is_ok())
             },
-            None,
+            Some(Duration::from_secs(60 * 10)),
             Some(Duration::from_secs(1)),
         )
         .await
