@@ -63,11 +63,11 @@ pub struct BridgeCircuitInput {
     pub watchtower_challenge_input_idxs: Vec<u8>,
     pub watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
     pub watchtower_challenge_txs: Vec<Vec<u8>>,
+    pub watchtower_challenge_witnesses: Vec<Vec<u8>>,
     pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
     pub lcp: LightClientProof,
     pub sp: StorageProof,
-    pub num_watchtowers: u8,
 }
 
 impl BridgeCircuitInput {
@@ -78,15 +78,12 @@ impl BridgeCircuitInput {
         watchtower_challenge_input_idxs: Vec<u8>,
         watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
         watchtower_challenge_txs: Vec<Vec<u8>>,
+        watchtower_challenge_witnesses: Vec<Vec<u8>>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
         lcp: LightClientProof,
         sp: StorageProof,
-        num_watchtowers: u8,
     ) -> Result<Self, &'static str> {
-        if num_watchtowers > NUM_OF_WATCHTOWERS {
-            return Err("num_watchtowers exceeds the limit: 160");
-        }
 
         // ALL idxs should be less than the number of watchtowers
         for idx in &watchtower_idxs {
@@ -102,11 +99,11 @@ impl BridgeCircuitInput {
             watchtower_challenge_input_idxs,
             watchtower_challenge_utxos,
             watchtower_challenge_txs,
+            watchtower_challenge_witnesses,
             hcp,
             payout_spv,
             lcp,
             sp,
-            num_watchtowers,
         })
     }
 }
