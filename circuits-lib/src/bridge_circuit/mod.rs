@@ -301,9 +301,8 @@ fn verify_watchtower_challenges(
             }
         };
 
-        let sighash = match sighash(&watchtower_tx, &prevouts, *input_idx as usize, sighash_type) {
-            Ok(sighash) => sighash,
-            Err(_) => continue,
+        let Ok(sighash) = sighash(&watchtower_tx, &prevouts, *input_idx as usize, sighash_type) else {
+            continue;
         };
 
         if input.previous_output.txid != *kickoff_tx_id
@@ -322,7 +321,7 @@ fn verify_watchtower_challenges(
         };
 
         // IS THIS CHECK CORRECT?
-        if circuit_input.watchtower_pubkeys[idx as usize] != pubkey.as_bytes()[2..34] {
+        if idx as usize >= circuit_input.watchtower_pubkeys.len() || circuit_input.watchtower_pubkeys[idx as usize] != pubkey.as_bytes()[2..34] {
             continue;
         }
 
