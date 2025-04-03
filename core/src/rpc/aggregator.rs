@@ -1037,6 +1037,36 @@ impl ClementineAggregator for Aggregator {
                 .collect(),
         }))
     }
+
+    async fn get_nof_n_aggregated_xonly_pk(
+        &self,
+        _: tonic::Request<super::Empty>,
+    ) -> std::result::Result<tonic::Response<super::XonlyPublicKey>, tonic::Status> {
+        let verifiers = self.verifier_clients.clone();
+        let nofn_xonly_pk_responses = try_join_all(verifiers.iter().map(|verifier| {
+            let mut verifier = verifier.clone();
+            async move {
+                verifier
+                    .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
+                    .await
+            }
+        }))
+        .await?;
+
+        let nofn_xonly_pks = nofn_xonly_pk_responses
+            .iter()
+            .map(|r| r.get_ref().xonly_pk.clone())
+            .collect::<Vec<_>>();
+
+        let first_xonly_pk = nofn_xonly_pks[0].clone();
+        if nofn_xonly_pks.iter().any(|x| x != &first_xonly_pk) {
+            Err(Status::internal("NofN xonly pks are not the same"))
+        } else {
+            Ok(Response::new(super::XonlyPublicKey {
+                xonly_pk: first_xonly_pk,
+            }))
+        }
+    }
 }
 
 #[cfg(test)]

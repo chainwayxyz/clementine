@@ -13,6 +13,10 @@ message Outpoint {
   uint32 vout = 2;
 }
 
+message XonlyPublicKey {
+  bytes xonly_pk = 1;
+}
+
 enum NormalSignatureKind {
   NormalSignatureUnknown = 0;
   // Used for TxHandlers that verifiers don't care. These will have signatures created
@@ -430,6 +434,8 @@ service ClementineVerifier {
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
+
+  rpc GetNofNAggregatedXonlyPk(Empty) returns (XonlyPublicKey) {}
 }
 
 // Aggregator ------------------------------------------------------------------
@@ -483,4 +489,6 @@ service ClementineAggregator {
 
   // send a pre-signed tx
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
+
+  rpc GetNofNAggregatedXonlyPk(Empty) returns (XonlyPublicKey) {}
 }
