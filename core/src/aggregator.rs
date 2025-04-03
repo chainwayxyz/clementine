@@ -235,7 +235,7 @@ impl Aggregator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    fn aggregate_move_partial_sigs(
+    async fn aggregate_move_partial_sigs(
         &self,
         deposit_data: DepositData,
         agg_nonce: &MusigAggNonce,
@@ -251,16 +251,13 @@ impl Aggregator {
                 .to_byte_array(),
         );
 
-        let verifiers_public_keys = futures::executor::block_on(async {
-            Ok::<_, BridgeError>(
-                self.nofn
-                    .read()
-                    .await
-                    .clone()
-                    .ok_or(eyre!("N-of-N not set, yet"))?
-                    .public_keys,
-            )
-        })?;
+        let verifiers_public_keys = self
+            .nofn
+            .read()
+            .await
+            .clone()
+            .ok_or(eyre!("N-of-N not set, yet"))?
+            .public_keys;
 
         let final_sig = aggregate_partial_signatures(
             &verifiers_public_keys,
