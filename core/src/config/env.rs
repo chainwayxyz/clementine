@@ -215,6 +215,9 @@ impl ProtocolParamset {
             time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
+            header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
+                "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            )?,
         };
 
         tracing::debug!("ProtocolParamset from env: {:?}", config);
@@ -421,6 +424,10 @@ mod tests {
         );
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
+        std::env::set_var(
+            "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            default_config.header_chain_proof_batch_size.to_string(),
+        );
 
         assert_eq!(super::ProtocolParamset::from_env().unwrap(), default_config);
     }
