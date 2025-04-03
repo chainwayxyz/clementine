@@ -84,7 +84,6 @@ impl BridgeCircuitInput {
         lcp: LightClientProof,
         sp: StorageProof,
     ) -> Result<Self, &'static str> {
-
         // ALL idxs should be less than the number of watchtowers
         for idx in &watchtower_idxs {
             if *idx >= NUM_OF_WATCHTOWERS {

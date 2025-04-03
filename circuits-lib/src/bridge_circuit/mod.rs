@@ -16,6 +16,7 @@ use bitcoin::{
     Script, TapSighash, TapSighashType, Transaction, TxOut, Txid,
 };
 
+use core::panic;
 use groth16::CircuitGroth16Proof;
 use groth16_verifier::CircuitGroth16WithTotalWork;
 use k256::{
@@ -25,7 +26,6 @@ use k256::{
 use lc_proof::lc_proof_verifier;
 use sha2::{Digest, Sha256};
 use signature::hazmat::PrehashVerifier;
-use core::panic;
 use std::{io::Cursor, str::FromStr};
 use storage_proof::verify_storage_proofs;
 use structs::{BridgeCircuitInput, WatchTowerChallengeTxCommitment};
@@ -263,7 +263,10 @@ fn verify_watchtower_challenges(
         let Ok(watchtower_tx): Result<Transaction, _> =
             Decodable::consensus_decode(&mut Cursor::new(tx))
         else {
-            panic!("Invalid watchtower challenge transaction, operator index: {}", idx);
+            panic!(
+                "Invalid watchtower challenge transaction, operator index: {}",
+                idx
+            );
         };
 
         println!("Watchtower tx: {:?}", watchtower_tx.input[0].witness);
@@ -273,7 +276,10 @@ fn verify_watchtower_challenges(
             .map(|utxo| Decodable::consensus_decode(&mut Cursor::new(utxo)))
             .collect::<Result<_, _>>()
         else {
-            panic!("Invalid watchtower challenge UTXOs, operator index: {}", idx);
+            panic!(
+                "Invalid watchtower challenge UTXOs, operator index: {}",
+                idx
+            );
         };
 
         let prevouts = Prevouts::All(&outputs);
@@ -294,10 +300,7 @@ fn verify_watchtower_challenges(
                         sighash_type,
                         intput_witness[0..64].try_into().expect("Cannot fail"),
                     ),
-                    Err(_) => panic!(
-                        "Invalid sighash type, operator index: {}",
-                        idx
-                    ),
+                    Err(_) => panic!("Invalid sighash type, operator index: {}", idx),
                 }
             } else {
                 panic!(
@@ -307,7 +310,8 @@ fn verify_watchtower_challenges(
             }
         };
 
-        let Ok(sighash) = sighash(&watchtower_tx, &prevouts, *input_idx as usize, sighash_type) else {
+        let Ok(sighash) = sighash(&watchtower_tx, &prevouts, *input_idx as usize, sighash_type)
+        else {
             panic!("Sighash could not be computed, operator index: {}", idx);
         };
 
@@ -330,15 +334,17 @@ fn verify_watchtower_challenges(
 
         // IS THIS CHECK CORRECT?
         if !pubkey.is_p2tr() {
-            panic!("Invalid output script type - kickoff, operator index: {}", idx);
+            panic!(
+                "Invalid output script type - kickoff, operator index: {}",
+                idx
+            );
         };
 
         // IS THIS CHECK CORRECT?
-        if idx as usize >= circuit_input.watchtower_pubkeys.len() || circuit_input.watchtower_pubkeys[idx as usize] != pubkey.as_bytes()[2..34] {
-            panic!(
-                "Invalid watchtower public key, operator index: {}",
-                idx
-            );
+        if idx as usize >= circuit_input.watchtower_pubkeys.len()
+            || circuit_input.watchtower_pubkeys[idx as usize] != pubkey.as_bytes()[2..34]
+        {
+            panic!("Invalid watchtower public key, operator index: {}", idx);
         }
 
         let Ok(verifying_key) = VerifyingKey::from_bytes(&pubkey.as_bytes()[2..]) else {
@@ -551,7 +557,9 @@ mod tests {
 
     use super::*;
     use bitcoin::{
-        consensus::{Decodable, Encodable}, transaction::Version, ScriptBuf, Transaction
+        consensus::{Decodable, Encodable},
+        transaction::Version,
+        ScriptBuf, Transaction,
     };
     use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
     use header_chain::{
@@ -582,11 +590,10 @@ mod tests {
 
         let mut wt_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&wt_tx_bytes)).unwrap();
-        
+
         let witness = wt_tx.input[0].witness[0].to_vec();
 
         wt_tx.input[0].witness.clear();
-
 
         let kickoff_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&kickoff_raw_tx_bytes))
