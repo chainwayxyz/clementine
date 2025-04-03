@@ -269,8 +269,6 @@ fn verify_watchtower_challenges(
             );
         };
 
-        println!("Watchtower tx: {:?}", watchtower_tx.input[0].witness);
-
         let Ok(outputs): Result<Vec<TxOut>, _> = utxos
             .iter()
             .map(|utxo| Decodable::consensus_decode(&mut Cursor::new(utxo)))
