@@ -1,6 +1,10 @@
 use bitcoin::hashes::Hash;
+use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::{self, TaprootSpendInfo};
+use bitcoin::{psbt, Psbt, TapSighashType};
+use bitcoincore_rpc::json::{BumpFeeOptions, BumpFeeResult, FinalizePsbtResult};
 use eyre::{eyre, OptionExt};
+use std::str::FromStr;
 use std::{collections::BTreeMap, env, time::Duration};
 
 use bitcoin::{
@@ -126,6 +130,9 @@ pub enum SendTxError {
     UnconfirmedFeePayerUTXOsLeft,
     #[error("Insufficient fee payer amount")]
     InsufficientFeePayerAmount,
+
+    #[error("Failed to create a PSBT for fee bump")]
+    PsbtError(String),
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -538,16 +545,72 @@ impl TxSender {
         Ok(vec![tx, child_tx])
     }
 
+    /// Given a PSBT with inputs that've been signed by the wallet except for our new input,
+    /// we have to sign the first input with our self.signer actor.
+    ///
+    /// Assumes that the first input is the input with our key.
+    ///
+    pub async fn attempt_sign_psbt(&self, psbt: String) -> Result<String> {
+        // Parse the PSBT from string
+        let mut decoded_psbt = Psbt::from_str(&psbt).map_err(|e| eyre!(e))?;
+
+        // Ensure we have inputs to sign
+        if decoded_psbt.inputs.is_empty() {
+            return Err(eyre!("PSBT has no inputs to sign").into());
+        }
+
+        // We're assuming the first input is the one we need to sign
+        let input_index = 0;
+
+        // Get the transaction to calculate the sighash
+        let tx = decoded_psbt.unsigned_tx.clone();
+        let mut sighash_cache = SighashCache::new(&tx);
+
+        // Determine the sighash type (default to ALL if not specified)
+        let sighash_type = decoded_psbt.inputs[input_index]
+            .sighash_type
+            .unwrap_or((TapSighashType::All).into());
+
+        // For Taproot key path spending
+        if let Ok(tap_sighash_type) = sighash_type.taproot_hash_ty() {
+            // Calculate the sighash for this input
+            let sighash = sighash_cache
+                .taproot_key_spend_signature_hash(
+                    input_index,
+                    &Prevouts::All(&[]),
+                    tap_sighash_type,
+                )
+                .map_err(|e| eyre!("Failed to calculate sighash: {}", e))?;
+
+            // Sign the sighash with our signer
+            let signature = self
+                .signer
+                .sign_with_tweak_data(sighash, builder::sighash::TapTweakData::KeyPath(None), None)
+                .map_err(|e| eyre!("Failed to sign input: {}", e))?;
+
+            // Add the signature to the PSBT
+            decoded_psbt.inputs[input_index].tap_key_sig = Some(taproot::Signature {
+                signature,
+                sighash_type: tap_sighash_type,
+            });
+
+            // Serialize the signed PSBT back to base64
+            Ok(decoded_psbt.to_string())
+        } else {
+            Err(eyre!("Only Taproot key path signing is currently supported").into())
+        }
+    }
+
     /// Sends or bumps a transaction using the Replace-By-Fee (RBF) strategy.
     ///
     /// It interacts with the database to track the latest RBF attempt (`last_rbf_txid`).
     ///
     /// # Logic:
     /// 1.  **Check for Existing RBF Tx:** Retrieves `last_rbf_txid` for the `try_to_send_id`.
-    /// 2.  **Bump Existing Tx:** If `last_rbf_txid` exists, it calls `rpc.bump_fee_with_fee_rate`.
-    ///     - This internally uses the Bitcoin Core `bumpfee` RPC.
-    ///     - It handles cases where the tx is already confirmed or its inputs are spent.
-    ///     - If `bumpfee` succeeds and returns a *new* txid, the database is updated.
+    /// 2.  **Bump Existing Tx:** If `psbt_bump_fee` exists, it calls `rpc.client.psbt_bump_fee`.
+    ///     - This internally uses the Bitcoin Core `psbtbumpfee` RPC.
+    ///     - We then sign the inputs that we can using our Actor and have the wallet sign the rest.
+    ///
     /// 3.  **Send Initial RBF Tx:** If no `last_rbf_txid` exists (first attempt):
     ///     - It uses `fund_raw_transaction` RPC to let the wallet add inputs, potentially
     ///       outputs, set the fee according to `fee_rate`, and mark the transaction as replaceable.
@@ -590,84 +653,269 @@ impl TxSender {
             .wrap_err("Failed to get last RBF txid")?;
 
         if let Some(last_rbf_txid) = last_rbf_txid {
+            // --- Bump existing RBF transaction using PSBT ---
             tracing::debug!(
                 ?try_to_send_id,
-                "Attempting to bump fee for txid {last_rbf_txid}"
+                "Attempting to bump fee for txid {last_rbf_txid} using psbt_bump_fee"
             );
 
-            let bumped_txid = self
+            let psbt_bump_opts = BumpFeeOptions {
+                conf_target: None, // Use fee_rate instead
+                fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(Amount::from_sat(
+                    fee_rate.to_sat_per_vb_ceil(),
+                ))),
+                replaceable: Some(true), // Ensure the bumped tx is also replaceable
+                estimate_mode: Some(EstimateMode::Conservative),
+            };
+
+            let bump_result = self
                 .rpc
-                // TODO: convert to psbt_bump_fee
-                .bump_fee_with_fee_rate(last_rbf_txid, fee_rate)
+                .client
+                .psbt_bump_fee(&last_rbf_txid, Some(&psbt_bump_opts))
                 .await;
 
-            // signer.sign_tx
-
-            match bumped_txid {
+            let bumped_psbt = match bump_result {
                 Err(e) => {
-                    let e = e.into_eyre();
-
-                    match e.root_cause().downcast_ref::<BitcoinRPCError>() {
-                        Some(
-                            err @ (BitcoinRPCError::TransactionAlreadyInBlock(_)
-                            | BitcoinRPCError::BumpFeeUTXOSpent(_)),
-                        ) => {
-                            tracing::debug!(
-                                "RBF tx {} either already in block or UTXO spent, skipping: {:?}",
-                                last_rbf_txid,
-                                err
-                            );
-
-                            tracing::debug!(?try_to_send_id, "RBF tx {last_rbf_txid}: {err}");
-
-                            dbtx.commit()
-                                .await
-                                .wrap_err("Failed to commit database transaction")?;
-                            return Ok(());
-                        }
-                        _ => {
-                            // Record error in debug log
-                            let error_message = format!("RBF bump error: {}", e);
-                            let _ = self
-                                .db
-                                .save_tx_debug_submission_error(try_to_send_id, &error_message)
-                                .await;
-
-                            let _ = self
-                                .db
-                                .update_tx_debug_sending_state(
-                                    try_to_send_id,
-                                    "rbf_bump_failed",
-                                    0,
-                                    0,
-                                    true,
-                                )
-                                .await;
-
-                            tracing::debug!(?try_to_send_id, "RBF bump failed: {e:?}");
-
-                            return Err(e.into_eyre().into());
-                        }
+                    // Check for common errors indicating the tx is already confirmed or spent
+                    let rpc_error_str = e.to_string();
+                    if rpc_error_str.contains("Transaction already in block chain") {
+                        tracing::debug!(
+                            ?try_to_send_id,
+                            "RBF bump failed for {last_rbf_txid}, likely confirmed or spent: {e}"
+                        );
+                        // No need to return error, just log and proceed
+                        dbtx.commit().await.wrap_err(
+                            "Failed to commit database transaction after failed bump check",
+                        )?;
+                        return Ok(());
+                    } else {
+                        // Other potentially transient errors
+                        let error_message = format!("psbt_bump_fee error: {}", e);
+                        let _ = self
+                            .db
+                            .save_tx_debug_submission_error(try_to_send_id, &error_message)
+                            .await;
+                        let _ = self
+                            .db
+                            .update_tx_debug_sending_state(
+                                try_to_send_id,
+                                "rbf_psbt_bump_failed",
+                                0,
+                                0,
+                                true,
+                            )
+                            .await;
+                        tracing::warn!(?try_to_send_id, "psbt_bump_fee failed: {e:?}");
+                        // Commit DB changes before returning error
+                        dbtx.commit().await.wrap_err(
+                            "Failed to commit database transaction after psbt_bump_fee error",
+                        )?;
+                        return Err(SendTxError::Other(eyre!(e)));
                     }
                 }
-                Ok(bumped_txid) if bumped_txid != last_rbf_txid => {
+                Ok(bumpfeeresult) => {
+                    // TODO: print better msg and update state
+                    tracing::error!(try_to_send_id, "received no psbt and no error");
+                    todo!()
+                }
+                Ok(BumpFeeResult { errors, .. }) if errors.len() > 0 => {
+                    // TODO: handle errors here and update the state
+                    todo!()
+                }
+                Ok(BumpFeeResult {
+                    psbt: Some(psbt), ..
+                }) => {
                     tracing::debug!(
                         ?try_to_send_id,
-                        "RBF tx {last_rbf_txid} bumped to {bumped_txid}"
+                        "psbt_bump_fee successful for {last_rbf_txid}, processing PSBT..."
                     );
 
+                    psbt
+                }
+            };
+
+            // Sign the PSBT using the wallet
+            // We rely on the node's wallet here because psbt_bump_fee might add inputs from it.
+            let process_result = self
+                .rpc
+                .client
+                .wallet_process_psbt(&bumped_psbt, Some(true), None, None) // sign=true
+                .await;
+
+            let processed_psbt = match process_result {
+                Ok(res) if res.complete => res.psbt,
+                Ok(res) => self.attempt_sign_psbt(res.psbt).await?,
+                Err(e) => {
+                    let err_msg = format!("wallet_process_psbt error: {}", e);
+                    tracing::warn!(?try_to_send_id, "{}", err_msg);
                     let _ = self
                         .db
-                        .update_tx_debug_sending_state(try_to_send_id, "rbf_bumped", 0, 0, true)
+                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
                         .await;
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "rbf_psbt_sign_failed",
+                            0,
+                            0,
+                            true,
+                        )
+                        .await;
+                    dbtx.commit()
+                        .await
+                        .wrap_err("Failed to commit db tx after sign error")?;
+                    return Err(SendTxError::Other(eyre!(e)));
+                }
+            };
 
+            // Finalize the PSBT
+            let finalize_result = self
+                .rpc
+                .client
+                .finalize_psbt(&processed_psbt, None) // extract=true by default
+                .await;
+
+            let final_tx_hex = match finalize_result {
+                Ok(FinalizePsbtResult {
+                    hex: Some(hex),
+                    complete: true,
+                    ..
+                }) => hex,
+                Ok(res) => {
+                    let err_msg = format!("Could not finalize PSBT: {:?}", res);
+                    tracing::warn!(?try_to_send_id, "{}", err_msg);
+                    let _ = self
+                        .db
+                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
+                        .await;
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "rbf_psbt_finalize_incomplete",
+                            0,
+                            0,
+                            true,
+                        )
+                        .await;
+                    dbtx.commit()
+                        .await
+                        .wrap_err("Failed to commit db tx after incomplete finalize")?;
+                    return Err(SendTxError::PsbtError(err_msg));
+                }
+                Err(e) => {
+                    let err_msg = format!("finalize_psbt error: {}", e);
+                    tracing::warn!(?try_to_send_id, "{}", err_msg);
+                    let _ = self
+                        .db
+                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
+                        .await;
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "rbf_psbt_finalize_failed",
+                            0,
+                            0,
+                            true,
+                        )
+                        .await;
+                    dbtx.commit()
+                        .await
+                        .wrap_err("Failed to commit db tx after finalize error")?;
+                    return Err(SendTxError::Other(eyre!(e)));
+                }
+            };
+
+            // Deserialize final tx to get txid
+            let final_tx: Transaction = match consensus::deserialize(&final_tx_hex) {
+                Ok(tx) => tx,
+                Err(e) => {
+                    let err_msg = format!("Failed to deserialize final RBF tx hex: {}", e);
+                    tracing::error!(?try_to_send_id, "{}", err_msg);
+                    let _ = self
+                        .db
+                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
+                        .await;
+                    dbtx.commit()
+                        .await
+                        .wrap_err("Failed to commit db tx after deserialize error")?;
+                    return Err(SendTxError::Other(eyre!(e)));
+                }
+            };
+            let bumped_txid = final_tx.compute_txid();
+
+            // Broadcast the finalized transaction
+            match self.rpc.client.send_raw_transaction(&final_tx).await {
+                Ok(sent_txid) if sent_txid == bumped_txid => {
+                    tracing::debug!(
+                        ?try_to_send_id,
+                        "RBF tx {last_rbf_txid} successfully bumped and sent as {bumped_txid}"
+                    );
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "rbf_bumped_sent",
+                            0,
+                            0,
+                            true,
+                        )
+                        .await;
+                    // Save the *new* txid
                     self.db
                         .save_rbf_txid(Some(&mut dbtx), try_to_send_id, bumped_txid)
                         .await
-                        .wrap_err("Failed to save RBF txid")?;
+                        .wrap_err("Failed to save new RBF txid after bump")?;
                 }
-                Ok(_) => {
-                    tracing::debug!(?try_to_send_id, "RBF tx was not bumped: {last_rbf_txid}");
+                Ok(other_txid) => {
+                    // Should ideally not happen if deserialization worked
+                    let err_msg = format!(
+                        "send_raw_transaction returned unexpected txid {} (expected {})",
+                        other_txid, bumped_txid
+                    );
+                    tracing::error!(?try_to_send_id, "{}", err_msg);
+                    let _ = self
+                        .db
+                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
+                        .await;
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "rbf_send_txid_mismatch",
+                            0,
+                            0,
+                            true,
+                        )
+                        .await;
+                    dbtx.commit()
+                        .await
+                        .wrap_err("Failed to commit db tx after send mismatch")?;
+                    return Err(SendTxError::Other(eyre!(err_msg)));
+                }
+                Err(e) => {
+                    let err_msg = format!("send_raw_transaction error for bumped RBF tx: {}", e);
+                    tracing::warn!(?try_to_send_id, "{}", err_msg);
+                    let _ = self
+                        .db
+                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
+                        .await;
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "rbf_bump_send_failed",
+                            0,
+                            0,
+                            true,
+                        )
+                        .await;
+                    dbtx.commit()
+                        .await
+                        .wrap_err("Failed to commit db tx after send error")?;
+                    return Err(SendTxError::Other(eyre!(e)));
                 }
             }
         } else {

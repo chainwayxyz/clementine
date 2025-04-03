@@ -173,7 +173,7 @@ impl Database {
                     "confirmed",
                     0,
                     0,
-                    true
+                    true,
                 )
                 .await;
         }
@@ -192,7 +192,7 @@ impl Database {
                     "confirmed",
                     0,
                     0,
-                    true
+                    true,
                 )
                 .await;
         }
@@ -1036,4 +1036,5 @@ mod tests {
 
         dbtx.commit().await.unwrap();
     }
+
 }
