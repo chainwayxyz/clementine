@@ -2,7 +2,6 @@ use crate::builder::transaction::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
 use crate::tx_sender::TxSenderClient;
-use crate::verifier::NofN;
 use crate::{
     builder::{self},
     config::BridgeConfig,
@@ -19,7 +18,6 @@ use crate::{
 };
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
-use eyre::eyre;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::sync::Arc;
@@ -38,7 +36,6 @@ pub struct Aggregator {
     pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     pub(crate) tx_sender: TxSenderClient,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
@@ -84,13 +81,10 @@ impl Aggregator {
             operator_clients.len(),
         );
 
-        let nofn = Arc::new(tokio::sync::RwLock::new(None));
-
         Ok(Aggregator {
             rpc,
             db,
             config,
-            nofn,
             tx_sender,
             verifier_clients,
             operator_clients,
@@ -264,16 +258,7 @@ impl Aggregator {
                 .to_byte_array(),
         );
 
-        let verifiers_public_keys = futures::executor::block_on(async {
-            Ok::<_, BridgeError>(
-                self.nofn
-                    .read()
-                    .await
-                    .clone()
-                    .ok_or(eyre!("N-of-N not set, yet"))?
-                    .public_keys,
-            )
-        })?;
+        let verifiers_public_keys = deposit_data.get_verifiers();
 
         let final_sig = aggregate_partial_signatures(
             &verifiers_public_keys,

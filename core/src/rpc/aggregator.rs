@@ -3,7 +3,6 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{AggregatorWithdrawResponse, VerifierPublicKeys, WithdrawParams};
-use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, DepositData, Signed, TransactionType, TxHandler,
@@ -15,7 +14,6 @@ use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
 use crate::tx_sender::{FeePayingType, TxMetadata};
-use crate::verifier::NofN;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -24,7 +22,6 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
-use bitcoin::key::Keypair;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::TapSighash;
@@ -538,13 +535,7 @@ impl Aggregator {
         )?;
 
         // aggregate partial signatures
-        let verifiers_public_keys = self
-            .nofn
-            .read()
-            .await
-            .clone()
-            .ok_or(Status::internal("N-of-N not set"))?
-            .public_keys;
+        let verifiers_public_keys = deposit_data.get_verifiers();
         let final_sig = crate::musig2::aggregate_partial_signatures(
             &verifiers_public_keys,
             None,
@@ -615,12 +606,6 @@ impl Aggregator {
             .unzip();
 
         self.set_verifier_keys(&verifier_public_keys).await;
-
-        let nofn = NofN::new(
-            Keypair::from_secret_key(&SECP, &self.config.secret_key).public_key(),
-            verifier_public_keys,
-        )?;
-        self.nofn.write().await.replace(nofn);
 
         Ok(clementine::VerifierPublicKeys {
             verifier_public_keys: vpks,
@@ -878,6 +863,8 @@ impl ClementineAggregator for Aggregator {
             .await
             .map_to_status()?;
 
+        let verifiers_public_keys = deposit_data.get_verifiers();
+
         // Create sighash stream for transaction signing
         let sighash_stream = Box::pin(create_nofn_sighash_stream(
             self.db.clone(),
@@ -907,13 +894,6 @@ impl ClementineAggregator for Aggregator {
         ));
 
         // Start the signature aggregation pipe.
-        let verifiers_public_keys = self
-            .nofn
-            .read()
-            .await
-            .clone()
-            .ok_or(Status::internal("N-of-N not set"))?
-            .public_keys;
         let sig_agg_handle = tokio::spawn(signature_aggregator(
             partial_sig_receiver,
             verifiers_public_keys,

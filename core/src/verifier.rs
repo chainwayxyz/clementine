@@ -20,7 +20,7 @@ use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{self, AggregateFromPublicKeys};
+use crate::musig2::{self};
 use crate::rpc::clementine::{KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
@@ -53,32 +53,6 @@ pub struct NonceSession {
 pub struct AllSessions {
     pub cur_id: u32,
     pub sessions: HashMap<u32, NonceSession>,
-}
-
-#[derive(Debug, Clone)]
-pub struct NofN {
-    pub public_keys: Vec<bitcoin::secp256k1::PublicKey>,
-    pub agg_xonly_pk: bitcoin::secp256k1::XOnlyPublicKey,
-    pub idx: usize,
-}
-
-impl NofN {
-    pub fn new(
-        self_pk: bitcoin::secp256k1::PublicKey,
-        public_keys: Vec<bitcoin::secp256k1::PublicKey>,
-    ) -> Result<Self, BridgeError> {
-        let idx = public_keys
-            .iter()
-            .position(|pk| pk == &self_pk)
-            .ok_or_else(|| eyre::eyre!("Could not find public key in list of verifiers"))?;
-        let agg_xonly_pk =
-            bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
-        Ok(NofN {
-            public_keys,
-            agg_xonly_pk,
-            idx,
-        })
-    }
 }
 
 pub struct VerifierServer<C: CitreaClientT> {
