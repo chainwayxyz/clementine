@@ -70,6 +70,7 @@ pub enum HeaderChainProverError {
 pub struct HeaderChainProver {
     db: Database,
     network: bitcoin::Network,
+    batch_size: u64,
 }
 
 impl HeaderChainProver {
@@ -135,6 +136,10 @@ impl HeaderChainProver {
 
         Ok(HeaderChainProver {
             db,
+            batch_size: config
+                .protocol_paramset()
+                .header_chain_proof_batch_size
+                .into(),
             network: config.protocol_paramset().network,
         })
     }
@@ -239,6 +244,28 @@ impl HeaderChainProver {
     }
 
     #[tracing::instrument(skip_all)]
+    pub async fn is_batch_ready(&self) -> Result<bool, BridgeError> {
+        let non_proven_block = self.db.get_non_proven_block(None).await?;
+        let tip_height = self
+            .db
+            .get_latest_block_height(None)
+            .await?
+            .ok_or(eyre::eyre!("No tip block found"))?;
+
+        tracing::error!(
+            "Tip height: {}, non proven block height: {}, {}",
+            tip_height,
+            non_proven_block.2,
+            self.batch_size
+        );
+        if tip_height - non_proven_block.2 >= self.batch_size {
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    #[tracing::instrument(skip_all)]
     pub async fn prove_block(
         &self,
         current_block_hash: BlockHash,
@@ -257,6 +284,28 @@ impl HeaderChainProver {
 
         self.db
             .set_block_proof(None, current_block_hash, receipt.clone())
+            .await?;
+
+        Ok(receipt)
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn prove_blocks(
+        &self,
+        last_block_hash: BlockHash,
+        block_headers: Vec<Header>,
+        previous_proof: Receipt,
+    ) -> Result<Receipt, BridgeError> {
+        tracing::info!(
+            "Prover starts proving for blocks till the block with hash {}",
+            last_block_hash
+        );
+
+        let headers: Vec<CircuitBlockHeader> = block_headers.into_iter().map(Into::into).collect();
+        let receipt = self.prove_block_headers(Some(previous_proof), headers)?;
+
+        self.db
+            .set_block_proof(None, last_block_hash, receipt.clone())
             .await?;
 
         Ok(receipt)
@@ -346,6 +395,10 @@ impl Task for HeaderChainProverTask {
             } else {
                 return Ok(false);
             };
+
+        if !self.inner.is_batch_ready().await? {
+            return Ok(false);
+        }
 
         let receipt = self
             .inner
@@ -665,13 +718,12 @@ mod tests {
         poll_until_condition(
             async || Ok(hcp_client.get_header_chain_proof(hash).await.is_ok()),
             None,
-            Some(Duration::from_secs(1)),
+            None,
         )
         .await
         .unwrap();
     }
 
-    #[ignore = "Proving blocks one by one is very slow and this test should be enabled when proving in batches is implemented."]
     #[tokio::test]
     async fn verifier_new_check_header_chain_proof() {
         let mut config = create_test_config_with_thread_name().await;
@@ -710,9 +762,57 @@ mod tests {
                     .is_ok())
             },
             Some(Duration::from_secs(60 * 10)),
-            Some(Duration::from_secs(1)),
+            Some(Duration::from_millis(100)),
         )
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn is_batch_ready() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        let db = Database::new(&config).await.unwrap();
+
+        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
+        let prover_client = HeaderChainProverClient::new(db.clone()).await.unwrap();
+
+        let genesis_hash = rpc.client.get_block_hash(0).await.unwrap();
+        let genesis_block_proof = prover_client
+            .get_header_chain_proof(genesis_hash)
+            .await
+            .unwrap();
+        let db_proof = db
+            .get_block_proof_by_hash(None, genesis_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(genesis_block_proof.journal, db_proof.journal);
+
+        // TODO: Non proven block check returns an error instead of None. Later remove these lines
+        let block_height = 1;
+        let block_hash = rpc.client.get_block_hash(block_height).await.unwrap();
+        let block_header = rpc.client.get_block_header(&block_hash).await.unwrap();
+        db.set_new_block(None, block_hash, block_header, block_height)
+            .await
+            .unwrap();
+
+        // Batch can't be ready because there are less than `batch_size` blocks
+        // between non-proven tip and last proven block
+        assert!(!prover.is_batch_ready().await.unwrap());
+
+        // Mining required amount of blocks should make batch proving ready.
+        let _headers = mine_and_get_first_n_block_headers(
+            rpc.clone(),
+            db,
+            block_height + batch_size as u64 + 1,
+        )
+        .await;
+        assert!(prover.is_batch_ready().await.unwrap());
     }
 }
