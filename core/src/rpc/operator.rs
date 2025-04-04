@@ -2,8 +2,7 @@ use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
     self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
-    TransactionRequest, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
-    XOnlyPublicKey,
+    TransactionRequest, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams, XOnlyPublicKeyRpc,
 };
 use super::error::*;
 use super::parser::ParserError;
@@ -262,9 +261,9 @@ where
     async fn get_x_only_public_key(
         &self,
         _request: Request<Empty>,
-    ) -> Result<Response<XOnlyPublicKey>, Status> {
+    ) -> Result<Response<XOnlyPublicKeyRpc>, Status> {
         let xonly_pk = self.operator.signer.xonly_public_key.serialize();
-        Ok(Response::new(XOnlyPublicKey {
+        Ok(Response::new(XOnlyPublicKeyRpc {
             xonly_public_key: xonly_pk.to_vec(),
         }))
     }

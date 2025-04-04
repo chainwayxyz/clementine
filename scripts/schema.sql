@@ -48,12 +48,17 @@ create table if not exists deposits (
 -- Deposit signatures
 create table if not exists deposit_signatures (
     deposit_id int not null references deposits (deposit_id),
-    operator_idx int not null,
+    operator_xonly_pk text not null,
     round_idx int not null,
     kickoff_idx int not null,
     kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
     signatures bytea not null,
-    primary key (deposit_id, operator_idx, round_idx, kickoff_idx)
+    primary key (
+        deposit_id,
+        operator_xonly_pk,
+        round_idx,
+        kickoff_idx
+    )
 );
 -- Signatures of the operator for unspent kickoffs
 create table if not exists unspent_kickoff_signatures (

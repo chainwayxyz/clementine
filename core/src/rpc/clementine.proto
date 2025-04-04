@@ -172,13 +172,13 @@ message GrpcTransactionId {
 }
 
 message KickoffId {
-  uint32 operator_idx = 1;
+  bytes operator_xonly_pk = 1;
   uint32 round_idx = 2;
   uint32 kickoff_idx = 3;
 }
 
 message TransactionRequest {
-  DepositParams deposit_params = 1;
+  Outpoint deposit_outpoint = 1;
   KickoffId kickoff_id = 2;
 }
 
@@ -264,7 +264,7 @@ message FinalizedPayoutParams {
   Outpoint deposit_outpoint = 2;
 }
 
-message XOnlyPublicKey {
+message XOnlyPublicKeyRpc {
   bytes xonly_public_key = 1;
 }
 
@@ -345,7 +345,7 @@ service ClementineOperator {
   rpc InternalEndRound(Empty) returns (Empty) {}
 
   // Returns the operator's xonly public key
-  rpc GetXOnlyPublicKey(Empty) returns (XOnlyPublicKey) {}
+  rpc GetXOnlyPublicKey(Empty) returns (XOnlyPublicKeyRpc) {}
 }
 
 // Verifier --------------------------------------------------------------------

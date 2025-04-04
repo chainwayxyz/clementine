@@ -139,11 +139,10 @@ pub mod grpc_transaction_id {
         NumberedTransaction(super::NumberedTransactionId),
     }
 }
-#[derive(Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct KickoffId {
-    #[prost(uint32, tag = "1")]
-    pub operator_idx: u32,
+    #[prost(bytes = "vec", tag = "1")]
+    pub operator_xonly_pk: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag = "2")]
     pub round_idx: u32,
     #[prost(uint32, tag = "3")]
@@ -152,7 +151,7 @@ pub struct KickoffId {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransactionRequest {
     #[prost(message, optional, tag = "1")]
-    pub deposit_params: ::core::option::Option<DepositParams>,
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
     #[prost(message, optional, tag = "2")]
     pub kickoff_id: ::core::option::Option<KickoffId>,
 }
@@ -276,7 +275,7 @@ pub struct FinalizedPayoutParams {
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct XOnlyPublicKey {
+pub struct XOnlyPublicKeyRpc {
     #[prost(bytes = "vec", tag = "1")]
     pub xonly_public_key: ::prost::alloc::vec::Vec<u8>,
 }
@@ -1052,7 +1051,10 @@ pub mod clementine_operator_client {
         pub async fn get_x_only_public_key(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::XOnlyPublicKey>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::XOnlyPublicKeyRpc>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1746,7 +1748,10 @@ pub mod clementine_operator_server {
         async fn get_x_only_public_key(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::XOnlyPublicKey>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::XOnlyPublicKeyRpc>,
+            tonic::Status,
+        >;
     }
     /// An operator is responsible for paying withdrawals. It has an unique ID and
     /// chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
@@ -2262,7 +2267,7 @@ pub mod clementine_operator_server {
                     struct GetXOnlyPublicKeySvc<T: ClementineOperator>(pub Arc<T>);
                     impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty>
                     for GetXOnlyPublicKeySvc<T> {
-                        type Response = super::XOnlyPublicKey;
+                        type Response = super::XOnlyPublicKeyRpc;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

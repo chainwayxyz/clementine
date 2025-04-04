@@ -9,7 +9,7 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, DepositData,
+    create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
     TxHandlerCache,
 };
@@ -19,7 +19,6 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::KickoffId;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
@@ -652,7 +651,7 @@ where
         deposit_outpoint: OutPoint,
         payout_tx_blockhash: BlockHash,
     ) -> Result<bitcoin::Txid, BridgeError> {
-        let (deposit_id, deposit_data) = self
+        let (deposit_id, _) = self
             .db
             .get_deposit_data(Some(dbtx), deposit_outpoint)
             .await?
@@ -666,15 +665,15 @@ where
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 
         // get signed txs,
-        let kickoff_id = KickoffId {
-            operator_idx: deposit_data.get_operator_index(self.signer.xonly_public_key)? as u32,
+        let kickoff_data = KickoffData {
+            operator_xonly_pk: self.signer.xonly_public_key,
             round_idx,
             kickoff_idx,
         };
 
         let transaction_data = TransactionRequestData {
-            deposit_data,
-            kickoff_id,
+            deposit_outpoint,
+            kickoff_data,
         };
 
         let signed_txs = create_and_sign_txs(
@@ -938,15 +937,15 @@ where
 
     async fn send_asserts(
         &self,
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         deposit_data: DepositData,
         _watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
     ) -> Result<(), BridgeError> {
         let assert_txs = self
             .create_assert_commitment_txs(TransactionRequestData {
-                kickoff_id,
-                deposit_data: deposit_data.clone(),
+                kickoff_data,
+                deposit_outpoint: deposit_data.get_deposit_outpoint(),
             })
             .await?;
         let mut dbtx = self.db.begin_transaction().await?;
@@ -960,8 +959,8 @@ where
                     Some(TxMetadata {
                         tx_type,
                         operator_xonly_pk: Some(self.signer.xonly_public_key),
-                        round_idx: Some(kickoff_id.round_idx),
-                        kickoff_idx: Some(kickoff_id.kickoff_idx),
+                        round_idx: Some(kickoff_data.round_idx),
+                        kickoff_idx: Some(kickoff_data.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     &self.config,
@@ -998,24 +997,24 @@ where
                     self.signer.xonly_public_key, round_idx, operator_xonly_pk, used_kickoffs);
             }
             Duty::WatchtowerChallenge {
-                kickoff_id,
+                kickoff_data,
                 deposit_data,
             } => {
                 tracing::info!(
-                    "Operator {:?} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
-                    self.signer.xonly_public_key, kickoff_id, deposit_data
+                    "Operator {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
+                    self.signer.xonly_public_key, kickoff_data, deposit_data
                 );
             }
             Duty::SendOperatorAsserts {
-                kickoff_id,
+                kickoff_data,
                 deposit_data,
                 watchtower_challenges,
                 payout_blockhash,
             } => {
-                tracing::warn!("Operator {:?} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", 
-                    self.signer.xonly_public_key, kickoff_id, deposit_data, watchtower_challenges.len());
+                tracing::warn!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", 
+                    self.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
                 self.send_asserts(
-                    kickoff_id,
+                    kickoff_data,
                     deposit_data,
                     watchtower_challenges,
                     payout_blockhash,
@@ -1023,14 +1022,14 @@ where
                 .await?;
             }
             Duty::VerifierDisprove {
-                kickoff_id,
+                kickoff_data,
                 deposit_data,
                 operator_asserts,
                 operator_acks,
                 payout_blockhash,
             } => {
-                tracing::info!("Operator {:?} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                payout_blockhash: {:?}", self.signer.xonly_public_key, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
+                tracing::info!("Operator {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
+                payout_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
             }
             Duty::CheckIfKickoff {
                 txid,
@@ -1047,13 +1046,13 @@ where
                     .db
                     .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
-                if let Some((deposit_data, kickoff_id)) = kickoff_data {
+                if let Some((deposit_data, kickoff_data)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
                     StateManager::<Self>::dispatch_new_kickoff_machine(
                         self.db.clone(),
                         &mut dbtx,
-                        kickoff_id,
+                        kickoff_data,
                         block_height,
                         deposit_data,
                         witness,

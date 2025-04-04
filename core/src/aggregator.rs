@@ -299,9 +299,11 @@ impl Aggregator {
 
         let verifiers = deposit_data.get_verifiers();
 
-        for (idx, verifier_key) in verifier_keys.iter().enumerate() {
-            if verifiers.contains(verifier_key) {
-                participating_verifiers.push(self.verifier_clients[idx].clone());
+        for verifier_pk in verifiers {
+            if let Some(pos) = verifier_keys.iter().position(|key| key == &verifier_pk) {
+                participating_verifiers.push(self.verifier_clients[pos].clone());
+            } else {
+                return Err(BridgeError::VerifierNotFound(verifier_pk));
             }
         }
 
@@ -318,9 +320,11 @@ impl Aggregator {
 
         let operators = deposit_data.get_operators();
 
-        for (idx, operator_key) in operator_keys.iter().enumerate() {
-            if operators.contains(operator_key) {
-                participating_operators.push(self.operator_clients[idx].clone());
+        for operator_pk in operators {
+            if let Some(pos) = operator_keys.iter().position(|key| key == &operator_pk) {
+                participating_operators.push(self.operator_clients[pos].clone());
+            } else {
+                return Err(BridgeError::OperatorNotFound(operator_pk));
             }
         }
 

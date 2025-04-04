@@ -2,6 +2,7 @@ use super::input::SpendableTxIn;
 use super::op_return_txout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use super::DepositData;
+use super::KickoffData;
 use super::Signed;
 use super::TransactionType;
 use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
@@ -13,7 +14,6 @@ use crate::config::protocol::ProtocolParamset;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
-use crate::rpc::clementine::KickoffId;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::{builder, UTXO};
 use bitcoin::hashes::Hash;
@@ -33,7 +33,7 @@ pub enum AssertScripts<'a> {
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
-    kickoff_id: KickoffId,
+    kickoff_data: KickoffData,
     round_txhandler: &TxHandler,
     move_txhandler: &TxHandler,
     deposit_data: &mut DepositData,
@@ -44,8 +44,7 @@ pub fn create_kickoff_txhandler(
     operator_unlock_hashes: &[[u8; 20]],
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let kickoff_idx: usize = kickoff_id.kickoff_idx as usize;
-    let operator_idx: usize = kickoff_id.operator_idx as usize;
+    let kickoff_idx = kickoff_data.kickoff_idx as usize;
     let move_txid: Txid = *move_txhandler.get_txid();
     let mut builder =
         TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(3));
@@ -200,7 +199,7 @@ pub fn create_kickoff_txhandler(
     }
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
-    op_return_script.extend(crate::utils::usize_to_var_len_bytes(operator_idx));
+    op_return_script.extend(kickoff_data.operator_xonly_pk.serialize());
 
     let push_bytes = PushBytesBuf::try_from(op_return_script)
         .expect("Can't fail since the script is shorter than 4294967296 bytes");

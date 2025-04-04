@@ -3,7 +3,9 @@ use crate::actor::Actor;
 use crate::bitvm_client::{self};
 use crate::builder::transaction::input::get_watchtower_challenge_utxo_vout;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-use crate::builder::transaction::{BaseDepositData, DepositData, TransactionType as TxType};
+use crate::builder::transaction::{
+    BaseDepositData, DepositData, KickoffData, TransactionType as TxType,
+};
 use crate::citrea::mock::MockCitreaClient;
 use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
@@ -12,14 +14,14 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::{
-    DepositParams, Empty, FinalizedPayoutParams, KickoffId, SignedTxsWithType, TransactionRequest,
+    DepositParams, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
 };
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::{OutPoint, Txid};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use eyre::{Context, Result};
 use tonic::Request;
@@ -39,6 +41,7 @@ async fn base_setup(
         TransactionRequest,
         SignedTxsWithType,
         ActorsCleanup,
+        XOnlyPublicKey,
     ),
     eyre::Error,
 > {
@@ -121,12 +124,15 @@ async fn base_setup(
         deposit_outpoint,
     )[0] as u32;
     let base_tx_req = TransactionRequest {
-        kickoff_id: Some(KickoffId {
-            operator_idx: 0,
-            round_idx: 0,
-            kickoff_idx,
-        }),
-        deposit_params: Some(dep_params.clone()),
+        kickoff_id: Some(
+            KickoffData {
+                operator_xonly_pk: op0_xonly_pk,
+                round_idx: 0,
+                kickoff_idx,
+            }
+            .into(),
+        ),
+        deposit_outpoint: Some(deposit_outpoint.into()),
     };
     let all_txs = operators[0]
         .internal_create_signed_txs(base_tx_req.clone())
@@ -141,6 +147,7 @@ async fn base_setup(
         base_tx_req,
         all_txs,
         cleanup,
+        op0_xonly_pk,
     ))
 }
 
@@ -261,6 +268,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         base_tx_req,
         all_txs,
         _cleanup,
+        op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     tracing::info!("Sending round transaction");
@@ -285,11 +293,14 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     tracing::info!("Sending round 2 transaction");
     let all_txs_2 = operators[0]
         .internal_create_signed_txs(TransactionRequest {
-            kickoff_id: Some(KickoffId {
-                operator_idx: 0,
-                round_idx: 1,
-                kickoff_idx: 0,
-            }),
+            kickoff_id: Some(
+                KickoffData {
+                    operator_xonly_pk: op0_xonly_pk,
+                    round_idx: 1,
+                    kickoff_idx: 0,
+                }
+                .into(),
+            ),
             ..base_tx_req.clone()
         })
         .await?
@@ -329,6 +340,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         base_tx_req,
         all_txs,
         _cleanup,
+        op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     // Send Round Transaction
@@ -344,6 +356,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
     let deposit_data: DepositData = dep_params.clone().try_into()?;
+    let deposit_outpoint = deposit_data.get_deposit_outpoint();
 
     // Send Watchtower Challenge Transactions
     for (verifier_idx, verifier) in verifiers.iter_mut().enumerate() {
@@ -391,12 +404,15 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     // Send Assert Transactions
     let assert_txs = operators[0]
         .internal_create_assert_commitment_txs(TransactionRequest {
-            deposit_params: Some(dep_params.clone()),
-            kickoff_id: Some(KickoffId {
-                operator_idx: 0,
-                round_idx: 0,
-                kickoff_idx,
-            }),
+            deposit_outpoint: Some(deposit_outpoint.into()),
+            kickoff_id: Some(
+                KickoffData {
+                    operator_xonly_pk: op0_xonly_pk,
+                    round_idx: 0,
+                    kickoff_idx,
+                }
+                .into(),
+            ),
         })
         .await?
         .into_inner();
@@ -430,11 +446,14 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     tracing::info!("Sending round 2 transaction");
     let all_txs_2 = operators[0]
         .internal_create_signed_txs(TransactionRequest {
-            kickoff_id: Some(KickoffId {
-                operator_idx: 0,
-                round_idx: 1,
-                kickoff_idx: 0,
-            }),
+            kickoff_id: Some(
+                KickoffData {
+                    operator_xonly_pk: op0_xonly_pk,
+                    round_idx: 1,
+                    kickoff_idx: 0,
+                }
+                .into(),
+            ),
             ..base_tx_req.clone()
         })
         .await?
@@ -476,6 +495,7 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
         _base_tx_req,
         all_txs,
         _cleanup,
+        op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     // Send Round Transaction
@@ -493,19 +513,22 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
     tracing::info!("Creating and sending assert transactions directly");
 
     // Get deposit data and kickoff ID for assert creation
-    let kickoff_id = KickoffId {
-        operator_idx: 0,
+    let kickoff_data = KickoffData {
+        operator_xonly_pk: op0_xonly_pk,
         round_idx: 0,
         kickoff_idx,
     };
 
     rpc.mine_blocks(8 * BLOCKS_PER_HOUR as u64).await?;
 
+    let deposit_data: DepositData = dep_params.clone().try_into()?;
+    let deposit_outpoint = deposit_data.get_deposit_outpoint();
+
     // Create assert transactions for operator 0
     let assert_txs = operators[0]
         .internal_create_assert_commitment_txs(TransactionRequest {
-            kickoff_id: Some(kickoff_id),
-            deposit_params: Some(dep_params.clone()),
+            kickoff_id: Some(kickoff_data.into()),
+            deposit_outpoint: Some(deposit_outpoint.into()),
         })
         .await?
         .into_inner();
@@ -552,6 +575,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         base_tx_req,
         all_txs,
         _cleanup,
+        _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     // Send Round Transaction
@@ -633,6 +657,7 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         _base_tx_req,
         all_txs,
         _cleanup,
+        _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     // Send Round Transaction
@@ -679,6 +704,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         _base_tx_req,
         all_txs,
         _cleanup,
+        _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     // Send Round Transaction
@@ -769,6 +795,7 @@ pub async fn run_challenge_with_state_machine(
         _base_tx_req,
         all_txs,
         _cleanup,
+        op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     // Send Round Transaction
@@ -783,6 +810,7 @@ pub async fn run_challenge_with_state_machine(
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
     let deposit_data: DepositData = dep_params.clone().try_into()?;
+    let deposit_outpoint = deposit_data.get_deposit_outpoint();
     let kickoff_tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::Kickoff)?;
     let kickoff_txid = kickoff_tx.compute_txid();
 
@@ -822,8 +850,8 @@ pub async fn run_challenge_with_state_machine(
 
     // check if operator asserts are sent by state machine
     // Get deposit data and kickoff ID for assert creation
-    let kickoff_id = KickoffId {
-        operator_idx: 0,
+    let kickoff_data = KickoffData {
+        operator_xonly_pk: op0_xonly_pk,
         round_idx: 0,
         kickoff_idx,
     };
@@ -831,8 +859,8 @@ pub async fn run_challenge_with_state_machine(
     // Create assert transactions for operator 0
     let assert_txs = operators[0]
         .internal_create_assert_commitment_txs(TransactionRequest {
-            kickoff_id: Some(kickoff_id),
-            deposit_params: Some(dep_params.clone()),
+            kickoff_id: Some(kickoff_data.into()),
+            deposit_outpoint: Some(deposit_outpoint.into()),
         })
         .await?
         .into_inner();
@@ -870,6 +898,7 @@ pub async fn run_unspent_kickoffs_with_state_machine(
         _base_tx_req,
         all_txs,
         _cleanup,
+        _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
 
     // Send Round Transaction

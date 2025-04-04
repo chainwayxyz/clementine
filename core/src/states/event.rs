@@ -5,10 +5,9 @@ use pgmq::PGMQueueExt;
 use statig::awaitable::IntoStateMachineExt;
 
 use crate::{
-    builder::transaction::{DepositData, OperatorData},
+    builder::transaction::{DepositData, KickoffData, OperatorData},
     database::{Database, DatabaseTransaction},
     errors::BridgeError,
-    rpc::clementine::KickoffId,
 };
 
 use super::{
@@ -16,6 +15,7 @@ use super::{
 };
 
 #[derive(Debug, serde::Serialize, Clone, serde::Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum SystemEvent {
     NewBlock {
         block_id: u32,
@@ -26,7 +26,7 @@ pub enum SystemEvent {
         operator_data: OperatorData,
     },
     NewKickoff {
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         kickoff_height: u32,
         deposit_data: DepositData,
         payout_blockhash: Witness,
@@ -52,7 +52,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn dispatch_new_kickoff_machine(
         db: Database,
         tx: DatabaseTransaction<'_, '_>,
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         kickoff_height: u32,
         deposit_data: DepositData,
         payout_blockhash: Witness,
@@ -60,7 +60,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let queue_name = StateManager::<T>::queue_name();
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
         let message = SystemEvent::NewKickoff {
-            kickoff_id,
+            kickoff_data,
             kickoff_height,
             deposit_data,
             payout_blockhash,
@@ -115,13 +115,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 .await?;
             }
             SystemEvent::NewKickoff {
-                kickoff_id,
+                kickoff_data,
                 kickoff_height,
                 deposit_data,
                 payout_blockhash,
             } => {
                 let kickoff_machine = KickoffStateMachine::new(
-                    kickoff_id,
+                    kickoff_data,
                     kickoff_height,
                     deposit_data,
                     payout_blockhash,

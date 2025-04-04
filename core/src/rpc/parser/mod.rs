@@ -369,20 +369,46 @@ fn parse_deposit_params(deposit_params: clementine::DepositParams) -> Result<Dep
 pub fn parse_transaction_request(
     request: TransactionRequest,
 ) -> Result<TransactionRequestData, Status> {
-    let deposit_data = parse_deposit_params(
-        request
-            .deposit_params
-            .ok_or(Status::invalid_argument("No deposit params received"))?,
-    )?;
+    let deposit_outpoint: OutPoint = request
+        .deposit_outpoint
+        .ok_or(Status::invalid_argument("No deposit params received"))?
+        .try_into()?;
 
     let kickoff_id = request
         .kickoff_id
         .ok_or(Status::invalid_argument("No kickoff params received"))?;
 
     Ok(TransactionRequestData {
-        deposit_data,
-        kickoff_id,
+        deposit_outpoint,
+        kickoff_data: kickoff_id.try_into()?,
     })
+}
+
+impl TryFrom<clementine::KickoffId> for crate::builder::transaction::KickoffData {
+    type Error = Status;
+
+    fn try_from(value: clementine::KickoffId) -> Result<Self, Self::Error> {
+        let operator_xonly_pk =
+            XOnlyPublicKey::from_slice(&value.operator_xonly_pk).map_err(|e| {
+                Status::invalid_argument(format!("Failed to parse operator_xonly_pk: {}", e))
+            })?;
+
+        Ok(crate::builder::transaction::KickoffData {
+            operator_xonly_pk,
+            round_idx: value.round_idx,
+            kickoff_idx: value.kickoff_idx,
+        })
+    }
+}
+
+impl From<crate::builder::transaction::KickoffData> for clementine::KickoffId {
+    fn from(value: crate::builder::transaction::KickoffData) -> Self {
+        clementine::KickoffId {
+            operator_xonly_pk: value.operator_xonly_pk.serialize().to_vec(),
+            round_idx: value.round_idx,
+            kickoff_idx: value.kickoff_idx,
+        }
+    }
 }
 
 #[cfg(test)]

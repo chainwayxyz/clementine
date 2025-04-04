@@ -12,10 +12,9 @@ use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
-use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
 
-use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
+use super::{remove_txhandler_from_map, DepositData, KickoffData, RoundTxInput};
 
 // helper function to get a txhandler from a hashmap
 fn get_txhandler(
@@ -276,15 +275,15 @@ impl ContractContext {
 
     /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
     pub fn new_context_for_kickoffs(
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
-            operator_xonly_pk: deposit_data.get_ith_operator(kickoff_id.operator_idx),
-            round_idx: kickoff_id.round_idx,
+            operator_xonly_pk: kickoff_data.operator_xonly_pk,
+            round_idx: kickoff_data.round_idx,
             paramset,
-            kickoff_idx: Some(kickoff_id.kickoff_idx),
+            kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: None,
         }
@@ -293,16 +292,16 @@ impl ContractContext {
     /// Contains all necessary context for creating txhandlers for a specific operator, kickoff utxo, and a deposit
     /// Additionally holds signer of an actor that can generate the actual winternitz public keys.
     pub fn new_context_for_asserts(
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
         signer: Actor,
     ) -> Self {
         Self {
-            operator_xonly_pk: deposit_data.get_ith_operator(kickoff_id.operator_idx),
-            round_idx: kickoff_id.round_idx,
+            operator_xonly_pk: kickoff_data.operator_xonly_pk,
+            round_idx: kickoff_data.round_idx,
             paramset,
-            kickoff_idx: Some(kickoff_id.kickoff_idx),
+            kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: Some(signer),
         }
@@ -425,8 +424,8 @@ pub async fn create_txhandlers(
     )?;
 
     let mut deposit_data = context.deposit_data.ok_or(TxError::InsufficientContext)?;
-    let kickoff_id = KickoffId {
-        operator_idx: deposit_data.get_operator_index(operator_xonly_pk)? as u32,
+    let kickoff_data = KickoffData {
+        operator_xonly_pk,
         round_idx,
         kickoff_idx: context.kickoff_idx.ok_or(TxError::InsufficientContext)?,
     };
@@ -454,7 +453,7 @@ pub async fn create_txhandlers(
         let assert_scripts = bitvm_pks.get_assert_scripts(operator_data.xonly_pk);
 
         let kickoff_txhandler = create_kickoff_txhandler(
-            kickoff_id,
+            kickoff_data,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
             &mut deposit_data,
@@ -477,7 +476,7 @@ pub async fn create_txhandlers(
         let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
         // use db data for scripts
         create_kickoff_txhandler(
-            kickoff_id,
+            kickoff_data,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
             &mut deposit_data,
@@ -595,7 +594,7 @@ pub async fn create_txhandlers(
         get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
         &next_round_txhandler,
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-        kickoff_id.kickoff_idx as usize,
+        kickoff_data.kickoff_idx as usize,
         paramset.num_kickoffs_per_round,
         &operator_data.reimburse_addr,
     )?;
@@ -690,12 +689,14 @@ mod tests {
     use crate::actor::Actor;
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
-    use crate::builder::transaction::{DepositData, TransactionType, TxHandlerBuilder};
+    use crate::builder::transaction::{
+        DepositData, KickoffData, TransactionType, TxHandlerBuilder,
+    };
     use crate::citrea::mock::MockCitreaClient;
     use crate::config::BridgeConfig;
     use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-    use crate::rpc::clementine::{DepositParams, KickoffId, SignedTxsWithType, TransactionRequest};
+    use crate::rpc::clementine::{DepositParams, SignedTxsWithType, TransactionRequest};
     use crate::test::common::*;
     use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     use futures::future::try_join_all;
@@ -769,17 +770,17 @@ mod tests {
             .collect();
         let mut utxo_idxs: Vec<Vec<usize>> = Vec::with_capacity(operator_xonly_pks.len());
 
-        for op_xonly_pk in operator_xonly_pks {
+        for op_xonly_pk in &operator_xonly_pks {
             utxo_idxs.push(get_kickoff_utxos_to_sign(
                 config.protocol_paramset(),
-                op_xonly_pk,
+                *op_xonly_pk,
                 deposit_blockhash,
                 deposit_outpoint,
             ));
         }
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut created_txs: HashMap<(KickoffId, TransactionType), Vec<bitcoin::Txid>> =
+        let mut created_txs: HashMap<(KickoffData, TransactionType), Vec<bitcoin::Txid>> =
             HashMap::new();
 
         // try to sign everything for all operators
@@ -788,23 +789,23 @@ mod tests {
             .enumerate()
             .map(|(operator_idx, operator_rpc)| {
                 let txs_operator_can_sign = txs_operator_can_sign.clone();
-                let deposit_params = deposit_params.clone();
                 let mut operator_rpc = operator_rpc.clone();
                 let utxo_idxs = utxo_idxs.clone();
                 let tx = tx.clone();
+                let operator_xonly_pk = operator_xonly_pks[operator_idx];
                 async move {
                     for round_idx in 0..paramset.num_round_txs {
                         for &kickoff_idx in &utxo_idxs[operator_idx] {
-                            let kickoff_id = KickoffId {
-                                operator_idx: operator_idx as u32,
+                            let kickoff_data = KickoffData {
+                                operator_xonly_pk,
                                 round_idx: round_idx as u32,
                                 kickoff_idx: kickoff_idx as u32,
                             };
                             let start_time = std::time::Instant::now();
                             let raw_txs = operator_rpc
                                 .internal_create_signed_txs(TransactionRequest {
-                                    deposit_params: deposit_params.clone().into(),
-                                    kickoff_id: Some(kickoff_id),
+                                    deposit_outpoint: Some(deposit_outpoint.into()),
+                                    kickoff_id: Some(kickoff_data.into()),
                                 })
                                 .await
                                 .unwrap()
@@ -826,11 +827,12 @@ mod tests {
                                 TransactionType::AllNeededForDeposit,
                                 start_time.elapsed()
                             );
-                            tx.send((kickoff_id, signed_txs_to_txid(raw_txs))).unwrap();
+                            tx.send((kickoff_data, signed_txs_to_txid(raw_txs)))
+                                .unwrap();
                             let raw_assert_txs = operator_rpc
                                 .internal_create_assert_commitment_txs(TransactionRequest {
-                                    deposit_params: deposit_params.clone().into(),
-                                    kickoff_id: Some(kickoff_id),
+                                    deposit_outpoint: Some(deposit_outpoint.into()),
+                                    kickoff_id: Some(kickoff_data.into()),
                                 })
                                 .await
                                 .unwrap()
@@ -839,7 +841,7 @@ mod tests {
                                 "Operator Signed Assert txs of size: {}",
                                 raw_assert_txs.signed_txs.len()
                             );
-                            tx.send((kickoff_id, signed_txs_to_txid(raw_assert_txs)))
+                            tx.send((kickoff_data, signed_txs_to_txid(raw_assert_txs)))
                                 .unwrap();
                         }
                     }
@@ -873,24 +875,24 @@ mod tests {
             .iter_mut()
             .map(|verifier_rpc| {
                 let txs_verifier_can_sign = txs_verifier_can_sign.clone();
-                let deposit_params = deposit_params.clone();
                 let mut verifier_rpc = verifier_rpc.clone();
                 let utxo_idxs = utxo_idxs.clone();
                 let tx = tx.clone();
+                let operator_xonly_pks = operator_xonly_pks.clone();
                 async move {
                     for (operator_idx, utxo_idx) in utxo_idxs.iter().enumerate() {
                         for round_idx in 0..paramset.num_round_txs {
                             for &kickoff_idx in utxo_idx {
-                                let kickoff_id = KickoffId {
-                                    operator_idx: operator_idx as u32,
+                                let kickoff_data = KickoffData {
+                                    operator_xonly_pk: operator_xonly_pks[operator_idx],
                                     round_idx: round_idx as u32,
                                     kickoff_idx: kickoff_idx as u32,
                                 };
                                 let start_time = std::time::Instant::now();
                                 let raw_txs = verifier_rpc
                                     .internal_create_signed_txs(TransactionRequest {
-                                        deposit_params: deposit_params.clone().into(),
-                                        kickoff_id: Some(kickoff_id),
+                                        deposit_outpoint: Some(deposit_outpoint.into()),
+                                        kickoff_id: Some(kickoff_data.into()),
                                     })
                                     .await
                                     .unwrap()
@@ -912,17 +914,18 @@ mod tests {
                                     TransactionType::AllNeededForDeposit,
                                     start_time.elapsed()
                                 );
-                                tx.send((kickoff_id, signed_txs_to_txid(raw_txs))).unwrap();
+                                tx.send((kickoff_data, signed_txs_to_txid(raw_txs)))
+                                    .unwrap();
                                 let watchtower_challenge_tx = verifier_rpc
                                     .internal_create_watchtower_challenge(TransactionRequest {
-                                        deposit_params: deposit_params.clone().into(),
-                                        kickoff_id: Some(kickoff_id),
+                                        deposit_outpoint: Some(deposit_outpoint.into()),
+                                        kickoff_id: Some(kickoff_data.into()),
                                     })
                                     .await
                                     .unwrap()
                                     .into_inner();
                                 tx.send((
-                                    kickoff_id,
+                                    kickoff_data,
                                     signed_txs_to_txid(SignedTxsWithType {
                                         signed_txs: vec![watchtower_challenge_tx],
                                     }),

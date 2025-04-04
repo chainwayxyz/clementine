@@ -68,7 +68,7 @@ use crate::{
     states::StateMachineError,
     tx_sender::SendTxError,
 };
-use bitcoin::XOnlyPublicKey;
+use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
 use core::fmt::Debug;
 use hex::FromHexError;
 use thiserror::Error;
@@ -118,6 +118,13 @@ pub enum BridgeError {
     BorshError,
     #[error("Operator x-only public key {:?} was not found in the DB", 0)]
     OperatorNotFound(XOnlyPublicKey),
+    #[error(
+        "Verifier with public key {:?} was not found among the verifier clients",
+        0
+    )]
+    VerifierNotFound(PublicKey),
+    #[error("Deposit not found in DB: {0:?}")]
+    DepositNotFound(OutPoint),
 
     // External crate error wrappers
     #[error("Failed to call database")]

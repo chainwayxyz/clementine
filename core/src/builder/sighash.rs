@@ -10,13 +10,14 @@ use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandlerCache,
+    create_txhandlers, ContractContext, KickoffData, ReimburseDbCache, TransactionType,
+    TxHandlerCache,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::{KickoffId, NormalSignatureKind};
+use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;
 use bitcoin::hashes::Hash;
 use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
@@ -186,8 +187,8 @@ pub fn create_nofn_sighash_stream(
                     let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
                     let context = ContractContext::new_context_for_kickoffs(
-                        KickoffId {
-                            operator_idx: operator_idx as u32,
+                        KickoffData {
+                            operator_xonly_pk: *op_xonly_pk,
                             round_idx: round_idx as u32,
                             kickoff_idx: kickoff_idx as u32,
                         },
@@ -279,8 +280,8 @@ pub fn create_operator_sighash_stream(
                 let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
                 let context = ContractContext::new_context_for_kickoffs(
-                    KickoffId {
-                        operator_idx: operator_idx as u32,
+                    KickoffData {
+                        operator_xonly_pk,
                         round_idx: round_idx as u32,
                         kickoff_idx: kickoff_idx as u32,
                     },

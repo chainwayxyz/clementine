@@ -93,6 +93,15 @@ pub enum TxError {
     Other(#[from] eyre::Report),
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
+)]
+pub struct KickoffData {
+    pub operator_xonly_pk: XOnlyPublicKey,
+    pub round_idx: u32,
+    pub kickoff_idx: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum DepositData {
     BaseDeposit(BaseDepositData),

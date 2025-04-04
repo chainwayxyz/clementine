@@ -9,10 +9,7 @@ use super::{
     },
     Database, DatabaseTransaction,
 };
-use crate::{
-    builder::transaction::{DepositData, OperatorData},
-    rpc::clementine::KickoffId,
-};
+use crate::builder::transaction::{DepositData, KickoffData, OperatorData};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -430,7 +427,7 @@ impl Database {
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
-        operator_idx: usize,
+        operator_xonly_pk: XOnlyPublicKey,
         round_idx: usize,
         kickoff_idx: usize,
         kickoff_txid: Txid,
@@ -442,11 +439,11 @@ impl Database {
 
         let query = sqlx::query(
             "
-            INSERT INTO deposit_signatures (deposit_id, operator_idx, round_idx, kickoff_idx, kickoff_txid, signatures)
+            INSERT INTO deposit_signatures (deposit_id, operator_xonly_pk, round_idx, kickoff_idx, kickoff_txid, signatures)
             VALUES ($1, $2, $3, $4, $5, $6);"
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
-        .bind(operator_idx as i32)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32)
         .bind(TxidDB(kickoff_txid))
@@ -481,7 +478,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
-        operator_idx: usize,
+        operator_xonly_pk: XOnlyPublicKey,
         round_idx: usize,
         kickoff_idx: usize,
     ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
@@ -489,12 +486,12 @@ impl Database {
             "SELECT ds.signatures FROM deposit_signatures ds
                     INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
                  WHERE d.deposit_outpoint = $1
-                 AND ds.operator_idx = $2
+                 AND ds.operator_xonly_pk = $2
                  AND ds.round_idx = $3
                  AND ds.kickoff_idx = $4;",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(operator_idx as i32)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32);
 
@@ -512,9 +509,9 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         kickoff_txid: Txid,
-    ) -> Result<Option<(DepositData, KickoffId)>, BridgeError> {
-        let query = sqlx::query_as::<_, (DepositParamsDB, i32, i32, i32)>(
-            "SELECT d.deposit_params, ds.operator_idx, ds.round_idx, ds.kickoff_idx
+    ) -> Result<Option<(DepositData, KickoffData)>, BridgeError> {
+        let query = sqlx::query_as::<_, (DepositParamsDB, XOnlyPublicKeyDB, i32, i32)>(
+            "SELECT d.deposit_params, ds.operator_xonly_pk, ds.round_idx, ds.kickoff_idx
              FROM deposit_signatures ds
              INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
              WHERE ds.kickoff_txid = $1;",
@@ -524,11 +521,10 @@ impl Database {
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((deposit_params, operator_idx, round_idx, kickoff_idx)) => Ok(Some((
+            Some((deposit_params, operator_xonly_pk, round_idx, kickoff_idx)) => Ok(Some((
                 deposit_params.0.try_into()?,
-                KickoffId {
-                    operator_idx: u32::try_from(operator_idx)
-                        .wrap_err("Failed to convert operator idx to u32")?,
+                KickoffData {
+                    operator_xonly_pk: operator_xonly_pk.0,
                     round_idx: u32::try_from(round_idx)
                         .wrap_err("Failed to convert round idx to u32")?,
                     kickoff_idx: u32::try_from(kickoff_idx)
@@ -1047,7 +1043,8 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
-        let operator_idx = 0x45;
+        let operator_xonly_pk = generate_random_xonly_pk();
+        let unset_operator_xonly_pk = generate_random_xonly_pk();
         let deposit_outpoint = OutPoint {
             txid: Txid::from_slice(&[0x45; 32]).unwrap(),
             vout: 0x1F,
@@ -1071,7 +1068,7 @@ mod tests {
             .set_deposit_signatures(
                 None,
                 deposit_outpoint,
-                operator_idx,
+                operator_xonly_pk,
                 round_idx,
                 kickoff_idx,
                 Txid::all_zeros(),
@@ -1081,7 +1078,13 @@ mod tests {
             .unwrap();
 
         let result = database
-            .get_deposit_signatures(None, deposit_outpoint, operator_idx, round_idx, kickoff_idx)
+            .get_deposit_signatures(
+                None,
+                deposit_outpoint,
+                operator_xonly_pk,
+                round_idx,
+                kickoff_idx,
+            )
             .await
             .unwrap()
             .unwrap();
@@ -1091,7 +1094,7 @@ mod tests {
             .get_deposit_signatures(
                 None,
                 deposit_outpoint,
-                operator_idx + 1,
+                operator_xonly_pk,
                 round_idx + 1,
                 kickoff_idx + 1,
             )
@@ -1100,16 +1103,10 @@ mod tests {
         assert!(non_existent.is_none());
 
         let non_existent = database
-            .get_deposit_signatures(None, OutPoint::null(), operator_idx, round_idx, kickoff_idx)
-            .await
-            .unwrap();
-        assert!(non_existent.is_none());
-
-        let non_existent = database
             .get_deposit_signatures(
                 None,
                 OutPoint::null(),
-                operator_idx + 1,
+                unset_operator_xonly_pk,
                 round_idx,
                 kickoff_idx,
             )

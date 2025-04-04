@@ -296,7 +296,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     format!("Failed to serialize kickoff machine: {:?}", machine)
                 })?;
                 let kickoff_id =
-                    serde_json::to_string(&machine.kickoff_id).wrap_err_with(|| {
+                    serde_json::to_string(&machine.kickoff_data).wrap_err_with(|| {
                         format!("Failed to serialize kickoff id for machine: {:?}", machine)
                     })?;
 

@@ -799,6 +799,8 @@ impl ClementineAggregator for Aggregator {
             deposit_data.set_operators(self.get_operator_keys().await);
         }
 
+        let deposit_params = deposit_data.clone().into();
+
         // Collect and distribute keys needed keys from operators and watchtowers to verifiers
         let start = std::time::Instant::now();
         self.collect_and_distribute_keys(&deposit_params).await?;
