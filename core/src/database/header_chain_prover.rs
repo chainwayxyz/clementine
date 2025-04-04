@@ -52,10 +52,10 @@ impl Database {
     ///
     /// TODO: Return none if there is no block to prove, not an error (errors
     /// get mixed up).
-    pub async fn get_non_proven_block(
+    pub async fn get_next_non_proven_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<(BlockHash, Header, u64, Receipt), BridgeError> {
+    ) -> Result<Option<(BlockHash, Header, u64, Receipt)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT h1.block_hash,
                     h1.block_header,
@@ -68,17 +68,20 @@ impl Database {
                 LIMIT 1;",
         );
 
-        let result: (BlockHashDB, BlockHeaderDB, i64, Vec<u8>) =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        let result: Option<(BlockHashDB, BlockHeaderDB, i64, Vec<u8>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        let receipt: Receipt = borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
+        let result = match result {
+            Some(result) => {
+                let receipt: Receipt =
+                    borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
+                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+                Some((result.0 .0, result.1 .0, height, receipt))
+            }
+            None => None,
+        };
 
-        Ok((
-            result.0 .0,
-            result.1 .0,
-            result.2.try_into().wrap_err("Can't convert i64 to u64")?,
-            receipt,
-        ))
+        Ok(result)
     }
 
     /// Sets an existing block's (in database) proof by referring to it by it's
@@ -182,7 +185,7 @@ mod tests {
             .unwrap();
 
         let (read_block_hash, read_block_header, _, _) =
-            db.get_non_proven_block(None).await.unwrap();
+            db.get_next_non_proven_block(None).await.unwrap().unwrap();
         assert_eq!(block_hash, read_block_hash);
         assert_eq!(block.header, read_block_header);
     }
@@ -238,7 +241,7 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
-        assert!(db.get_non_proven_block(None).await.is_err());
+        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
 
         let base_height = 0x45;
 
@@ -259,7 +262,7 @@ mod tests {
         db.set_new_block(None, block_hash, block.header, height)
             .await
             .unwrap();
-        assert!(db.get_non_proven_block(None).await.is_err());
+        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
 
         // Save second block with a proof.
         let block = block::Block {
@@ -283,7 +286,7 @@ mod tests {
         db.set_block_proof(None, block_hash1, receipt.clone())
             .await
             .unwrap();
-        assert!(db.get_non_proven_block(None).await.is_err());
+        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
 
         // Save third block without a proof.
         let block = block::Block {
@@ -304,7 +307,7 @@ mod tests {
             .unwrap();
 
         // This time, `get_non_proven_block` should return third block's details.
-        let res = db.get_non_proven_block(None).await.unwrap();
+        let res = db.get_next_non_proven_block(None).await.unwrap().unwrap();
         assert_eq!(res.0, block_hash2);
         assert_eq!(res.2 as u64, height2);
 
@@ -332,7 +335,7 @@ mod tests {
             .unwrap();
 
         // This time, `get_non_proven_block` should return fourth block's details.
-        let res = db.get_non_proven_block(None).await.unwrap();
+        let res = db.get_next_non_proven_block(None).await.unwrap().unwrap();
         assert_eq!(res.0, block_hash3);
         assert_eq!(res.2 as u64, height3);
     }
