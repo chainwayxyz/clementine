@@ -48,6 +48,21 @@ const POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_secs(1)
 };
 
+// Define a macro for logging errors and saving them to the database
+macro_rules! log_error_for_tx {
+    ($db:expr, $try_to_send_id:expr, $err:expr) => {{
+        let db = $db.clone();
+        let try_to_send_id = $try_to_send_id;
+        let err = $err.to_string();
+        tracing::warn!(try_to_send_id, "{}", err);
+        tokio::spawn(async move {
+            let _ = db
+                .save_tx_debug_submission_error(try_to_send_id, &err)
+                .await;
+        });
+    }};
+}
+
 /// Manages the process of sending Bitcoin transactions, including handling fee bumping
 /// strategies like Replace-By-Fee (RBF) and Child-Pays-For-Parent (CPFP).
 ///
@@ -1018,29 +1033,7 @@ impl TxSender {
                         funded_result.fee
                     );
 
-                    // Deserialize the funded transaction
-                    let funded_tx_deser: Transaction = consensus::deserialize(&funded_result.hex)
-                        .wrap_err("failed to deserialize tx")?;
-
-                    if funded_tx_deser.output.len() != tx.output.len() {
-                        let mut should_warn = false;
-                        for inp in tx.input.iter() {
-                            if inp.witness.len() == 1 {
-                                // taproot keyspend witness
-                                if let Ok(sig) = taproot::Signature::from_slice(&inp.witness[0]) {
-                                    if sig.sighash_type
-                                        != bitcoin::TapSighashType::SinglePlusAnyoneCanPay
-                                    {
-                                        should_warn = true;
-                                    }
-                                }
-                            }
-                        }
-                        if should_warn {
-                            let warning = "Funded tx output length is not equal to the original tx output length, Tx Sender currently does not support this";
-                            tracing::warn!(try_to_send_id, "{}", warning);
-                        }
-                    }
+                    warn_if_tx_output_length_mismatch(try_to_send_id, &tx, &funded_result.hex);
 
                     // Attempt to sign the transaction
                     let sign_result = self
@@ -1049,97 +1042,63 @@ impl TxSender {
                         .sign_raw_transaction_with_wallet(funded_tx, None, None)
                         .await;
 
-                    match sign_result {
-                        Err(e) => {
-                            let error_message = format!("Failed to sign RBF tx: {:?}", e);
+                    let signed_result = sign_result
+                        .inspect_err(|e| {
+                            log_error_for_tx!(
+                                self.db,
+                                try_to_send_id,
+                                format!("Failed to sign RBF tx: {}", e)
+                            );
+                        })
+                        .map_err(|e| eyre::eyre!(e))?;
 
-                            let _ = self
-                                .db
-                                .save_tx_debug_submission_error(try_to_send_id, &error_message)
-                                .await;
+                    // Record successful signing in debug log
+                    tracing::debug!(try_to_send_id, "Successfully signed RBF tx");
 
-                            tracing::warn!(try_to_send_id, "{}", error_message);
+                    // Deserialize the signed transaction
+                    let signed_tx: Transaction =
+                        bitcoin::consensus::deserialize(&signed_result.hex)
+                            .inspect_err(|e| {
+                                log_error_for_tx!(
+                                    self.db,
+                                    try_to_send_id,
+                                    format!("Failed to deserialize signed tx: {}", e)
+                                );
+                            })
+                            .map_err(|e| eyre::eyre!(e))?;
 
-                            return Err(eyre::eyre!(e).into());
-                        }
-                        Ok(signed_result) => {
-                            // Record successful signing in debug log
-                            tracing::debug!(try_to_send_id, "Successfully signed RBF tx");
+                    // Attempt to broadcast the transaction
+                    let txid = self
+                        .rpc
+                        .client
+                        .send_raw_transaction(&signed_tx)
+                        .await
+                        .inspect_err(|e| {
+                            log_error_for_tx!(
+                                self.db,
+                                try_to_send_id,
+                                format!("Failed to broadcast RBF tx: {}", e)
+                            );
+                        })
+                        .map_err(|e| eyre::eyre!(e))?;
 
-                            // Deserialize the signed transaction
-                            let signed_tx: Transaction =
-                                match bitcoin::consensus::deserialize(&signed_result.hex) {
-                                    Ok(tx) => tx,
-                                    Err(e) => {
-                                        let _ = self
-                                            .db
-                                            .save_tx_debug_submission_error(
-                                                try_to_send_id,
-                                                &format!(
-                                                    "Failed to deserialize signed tx: {:?}",
-                                                    e
-                                                ),
-                                            )
-                                            .await;
+                    // Record successful broadcast in debug log
+                    tracing::debug!(
+                        try_to_send_id,
+                        "Successfully sent RBF tx with txid {}",
+                        txid
+                    );
 
-                                        tracing::warn!(
-                                            try_to_send_id,
-                                            "Failed to deserialize signed tx: {e:?}"
-                                        );
+                    // Update debug sending state
+                    let _ = self
+                        .db
+                        .update_tx_debug_sending_state(try_to_send_id, "sent", 0, 0, true)
+                        .await;
 
-                                        return Err(eyre::eyre!(
-                                            "Failed to deserialize signed tx: {}",
-                                            e
-                                        )
-                                        .into());
-                                    }
-                                };
-
-                            // Attempt to broadcast the transaction
-                            let send_result =
-                                self.rpc.client.send_raw_transaction(&signed_tx).await;
-
-                            match send_result {
-                                Err(e) => {
-                                    let _ = self
-                                        .db
-                                        .save_tx_debug_submission_error(
-                                            try_to_send_id,
-                                            &format!("Failed to broadcast RBF tx: {}", e),
-                                        )
-                                        .await;
-                                    tracing::warn!(try_to_send_id, "RBF broadcast failed: {e:?}");
-
-                                    return Err(eyre::eyre!(e).into());
-                                }
-                                Ok(txid) => {
-                                    // Record successful broadcast in debug log
-                                    tracing::debug!(
-                                        try_to_send_id,
-                                        "Successfully sent RBF tx with txid {}",
-                                        txid
-                                    );
-
-                                    // Update debug sending state
-                                    let _ = self
-                                        .db
-                                        .update_tx_debug_sending_state(
-                                            try_to_send_id,
-                                            "sent",
-                                            0,
-                                            0,
-                                            true,
-                                        )
-                                        .await;
-
-                                    self.db
-                                        .save_rbf_txid(Some(&mut dbtx), try_to_send_id, txid)
-                                        .await
-                                        .wrap_err("Failed to save RBF txid")?;
-                                }
-                            }
-                        }
-                    }
+                    self.db
+                        .save_rbf_txid(Some(&mut dbtx), try_to_send_id, txid)
+                        .await
+                        .wrap_err("Failed to save RBF txid")?;
                 }
             }
         }
@@ -1566,17 +1525,7 @@ impl TxSender {
                 match self.db.get_tx(None, id).await {
                     Ok(res) => res,
                     Err(e) => {
-                        tracing::error!("Sending Tx {}: Failed to get tx details: {:?}", id, e);
-
-                        // Update debug error
-                        let _ = self
-                            .db
-                            .save_tx_debug_submission_error(
-                                id,
-                                &format!("Failed to get tx details: {}", e),
-                            )
-                            .await;
-
+                        log_error_for_tx!(self.db, id, format!("Failed to get tx details: {}", e));
                         continue;
                     }
                 };
@@ -1623,6 +1572,41 @@ impl TxSender {
 
     pub fn client(&self) -> TxSenderClient {
         TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
+    }
+}
+
+fn warn_if_tx_output_length_mismatch(try_to_send_id: u32, tx: &Transaction, rawtx: &[u8]) {
+    // Deserialize the funded transaction
+    let funded_tx_deser: Transaction =
+        match consensus::deserialize(rawtx).wrap_err("failed to deserialize tx") {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::warn!(
+                    try_to_send_id,
+                    "Failed to deserialize tx after funding: {}",
+                    e
+                );
+                return;
+            }
+        };
+
+    if funded_tx_deser.output.len() != tx.output.len() {
+        let mut should_warn = false;
+        for inp in tx.input.iter() {
+            if inp.witness.len() == 1 {
+                // taproot keyspend witness
+                if let Ok(sig) = taproot::Signature::from_slice(&inp.witness[0]) {
+                    if sig.sighash_type != bitcoin::TapSighashType::SinglePlusAnyoneCanPay {
+                        should_warn = true;
+                    }
+                }
+            }
+        }
+
+        if should_warn {
+            let warning = "Funded tx output length is not equal to the original tx output length, Tx Sender currently does not support this";
+            tracing::warn!(try_to_send_id, "{}", warning);
+        }
     }
 }
 
