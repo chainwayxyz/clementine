@@ -50,8 +50,15 @@ impl Database {
     /// Gets the newest block's info that it's previous block has proven before.
     /// This block will be the candidate block for the prover.
     ///
-    /// TODO: Return none if there is no block to prove, not an error (errors
-    /// get mixed up).
+    /// # Returns
+    ///
+    /// Returns `None` if either no proved blocks are exists or blockchain tip
+    /// is already proven.
+    ///
+    /// - [`BlockHash`] - Hash of the block
+    /// - [`Header`] - Header of the block
+    /// - [`u64`] - Height of the block
+    /// - [`Receipt`] - Previous block's proof
     pub async fn get_next_non_proven_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -77,6 +84,37 @@ impl Database {
                     borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
                 let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
                 Some((result.0 .0, result.1 .0, height, receipt))
+            }
+            None => None,
+        };
+
+        Ok(result)
+    }
+
+    /// Gets the latest block's info that it's proven.
+    ///
+    /// # Returns
+    ///
+    /// Returns `None` if no block is proven.
+    ///
+    /// - [`BlockHash`] - Hash of the block
+    /// - [`Header`] - Header of the block
+    /// - [`u64`] - Height of the block
+    pub async fn get_latest_proven_block_info(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Option<(BlockHash, Header, u64)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT block_hash, block_header, height FROM header_chain_proofs WHERE proof IS NOT NULL ORDER BY height DESC LIMIT 1;",
+        );
+
+        let result: Option<(BlockHashDB, BlockHeaderDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        let result = match result {
+            Some(result) => {
+                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+                Some((result.0 .0, result.1 .0, height))
             }
             None => None,
         };
@@ -166,6 +204,14 @@ mod tests {
         let receipt =
             Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash, receipt).await.unwrap();
+        let latest_proven_block = db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest_proven_block.0, block_hash);
+        assert_eq!(latest_proven_block.1, block.header);
+        assert_eq!(latest_proven_block.2, height);
 
         let block = block::Block {
             header: Header {
@@ -242,6 +288,11 @@ mod tests {
         let db = Database::new(&config).await.unwrap();
 
         assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .is_none());
 
         let base_height = 0x45;
 
@@ -263,6 +314,11 @@ mod tests {
             .await
             .unwrap();
         assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .is_none());
 
         // Save second block with a proof.
         let block = block::Block {
@@ -287,6 +343,14 @@ mod tests {
             .await
             .unwrap();
         assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        let latest_proven_block = db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest_proven_block.0, block_hash1);
+        assert_eq!(latest_proven_block.1, block.header);
+        assert_eq!(latest_proven_block.2 as u64, height1);
 
         // Save third block without a proof.
         let block = block::Block {
