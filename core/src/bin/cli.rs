@@ -405,9 +405,9 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             )
             .expect("Failed to generate deposit address");
 
-            println!("Deposit address: {}", deposit_address.0.to_string());
+            println!("Deposit address: {}", deposit_address.0);
         }
-        AggregatorCommands::GetTxParamsOfMoveTx { move_txid } => {
+        AggregatorCommands::GetTxParamsOfMoveTx { move_txid: _ } => {
             // TODO: Implement get_tx_params_of_move_tx handler
             println!("GetTxParamsOfMoveTx command not implemented yet");
         }
