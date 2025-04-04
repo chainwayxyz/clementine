@@ -2,7 +2,7 @@
 
 use super::{protocol::ProtocolParamset, BridgeConfig};
 use crate::errors::BridgeError;
-use bitcoin::{secp256k1::SecretKey, Amount, Network, XOnlyPublicKey};
+use bitcoin::{secp256k1::SecretKey, Amount, Network};
 use std::{path::PathBuf, str::FromStr};
 
 fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
@@ -22,14 +22,6 @@ where
 
 impl BridgeConfig {
     pub fn from_env() -> Result<Self, BridgeError> {
-        let operators_xonly_pks = read_string_from_env("OPERATOR_XONLY_PKS")?;
-        let operators_xonly_pks = operators_xonly_pks.split(",").collect::<Vec<&str>>();
-        let operators_xonly_pks = operators_xonly_pks
-            .iter()
-            .map(|x| XOnlyPublicKey::from_str(x))
-            .collect::<Result<Vec<XOnlyPublicKey>, _>>()
-            .map_err(|e| BridgeError::EnvVarMalformed("OPERATOR_XONLY_PKS", e.to_string()))?;
-
         let verifier_endpoints =
             std::env::var("VERIFIER_ENDPOINTS")
                 .ok()
@@ -120,8 +112,6 @@ impl BridgeConfig {
             index: read_string_from_env_then_parse::<u32>("INDEX")?,
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
             winternitz_secret_key,
-            operators_xonly_pks,
-            num_operators: read_string_from_env_then_parse::<usize>("NUM_OPERATORS")?,
             operator_withdrawal_fee_sats,
             bitcoin_rpc_url: read_string_from_env("BITCOIN_RPC_URL")?,
             bitcoin_rpc_user: read_string_from_env("BITCOIN_RPC_USER")?,
@@ -241,16 +231,6 @@ mod tests {
                 winternitz_secret_key.display_secret().to_string(),
             );
         }
-        std::env::set_var(
-            "OPERATOR_XONLY_PKS",
-            default_config
-                .operators_xonly_pks
-                .iter()
-                .map(|pk| pk.to_string())
-                .collect::<Vec<String>>()
-                .join(","),
-        );
-        std::env::set_var("NUM_OPERATORS", default_config.num_operators.to_string());
         if let Some(ref operator_withdrawal_fee_sats) = default_config.operator_withdrawal_fee_sats
         {
             std::env::set_var(

@@ -6,6 +6,7 @@ use crate::rpc::clementine::KickoffId;
 use bitcoin::Transaction;
 use bitcoin::Txid;
 use bitcoin::Witness;
+use bitcoin::XOnlyPublicKey;
 use statig::awaitable::InitializedStateMachine;
 use tonic::async_trait;
 
@@ -42,7 +43,7 @@ pub enum Duty {
     /// If there are unspent kickoffs, the owner can send a unspent kickoff connector tx.
     NewReadyToReimburse {
         round_idx: u32,
-        operator_idx: u32,
+        operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
     },
     /// This duty is sent after a kickoff utxo is spent by the operator.

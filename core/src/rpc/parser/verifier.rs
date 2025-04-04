@@ -1,4 +1,4 @@
-use super::{convert_int_to_another, ParserError};
+use super::ParserError;
 use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
 use crate::errors::BridgeError;
@@ -21,6 +21,7 @@ use crate::{
 use bitcoin::secp256k1::schnorr;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;
+use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tonic::Status;
@@ -34,16 +35,6 @@ where
     fn try_from(verifier: &Verifier<C>) -> Result<Self, Self::Error> {
         Ok(VerifierParams {
             public_key: verifier.signer.public_key.serialize().to_vec(),
-            num_operators: convert_int_to_another(
-                "num_operators",
-                verifier.config.num_operators,
-                u32::try_from,
-            )?,
-            num_round_txs: convert_int_to_another(
-                "num_round_txs",
-                verifier.config.protocol_paramset().num_round_txs,
-                u32::try_from,
-            )?,
         })
     }
 }
@@ -171,7 +162,7 @@ pub fn parse_partial_sigs(
 
 pub fn parse_op_keys_with_deposit(
     data: OperatorKeysWithDeposit,
-) -> Result<(DepositData, OperatorKeys, u32), Status> {
+) -> Result<(DepositData, OperatorKeys, XOnlyPublicKey), Status> {
     let deposit_params = data
         .deposit_params
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
@@ -182,7 +173,11 @@ pub fn parse_op_keys_with_deposit(
         .operator_keys
         .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
 
-    Ok((deposit_data, op_keys, data.operator_idx))
+    let operator_xonly_pk = XOnlyPublicKey::from_slice(&data.operator_xonly_pk).map_err(
+        invalid_argument("operator_xonly_pk", "Invalid xonly public key"),
+    )?;
+
+    Ok((deposit_data, op_keys, operator_xonly_pk))
 }
 
 pub async fn parse_next_deposit_finalize_param_schnorr_sig(

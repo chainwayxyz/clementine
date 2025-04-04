@@ -89,7 +89,9 @@ pub async fn create_and_sign_txs(
         &mut TxHandlerCache::new(),
         &mut ReimburseDbCache::new_for_deposit(
             db.clone(),
-            transaction_data.kickoff_id.operator_idx,
+            transaction_data
+                .deposit_data
+                .get_ith_operator(transaction_data.kickoff_id.operator_idx),
             transaction_data.deposit_data.get_deposit_outpoint(),
             config.protocol_paramset(),
         ),
@@ -112,7 +114,9 @@ pub async fn create_and_sign_txs(
     let setup_sigs_query = db
         .get_unspent_kickoff_sigs(
             None,
-            transaction_data.kickoff_id.operator_idx as usize,
+            transaction_data
+                .deposit_data
+                .get_ith_operator(transaction_data.kickoff_id.operator_idx),
             transaction_data.kickoff_id.round_idx as usize,
         )
         .await?;
@@ -194,7 +198,9 @@ where
             &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
-                transaction_data.kickoff_id.operator_idx,
+                transaction_data
+                    .deposit_data
+                    .get_ith_operator(transaction_data.kickoff_id.operator_idx),
                 transaction_data.deposit_data.get_deposit_outpoint(),
                 self.config.protocol_paramset(),
             ),
@@ -232,10 +238,10 @@ where
     pub async fn create_and_sign_unspent_kickoff_connector_txs(
         &self,
         round_idx: u32,
-        operator_idx: u32,
+        operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_rounds(
-            operator_idx,
+            operator_xonly_pk,
             round_idx,
             self.config.protocol_paramset(),
         );
@@ -246,7 +252,7 @@ where
             &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_rounds(
                 self.db.clone(),
-                operator_idx,
+                operator_xonly_pk,
                 self.config.protocol_paramset(),
             ),
         )
@@ -255,11 +261,11 @@ where
         // signatures saved during setup
         let unspent_kickoff_sigs = self
             .db
-            .get_unspent_kickoff_sigs(None, operator_idx as usize, round_idx as usize)
+            .get_unspent_kickoff_sigs(None, operator_xonly_pk, round_idx as usize)
             .await?
             .ok_or(BridgeError::Error(format!(
-                "No unspent kickoff signatures found for operator {} and round {}",
-                operator_idx, round_idx
+                "No unspent kickoff signatures found for operator {:?} and round {}",
+                operator_xonly_pk, round_idx
             )))?;
 
         let mut signed_txs = Vec::with_capacity(txhandlers.len());
@@ -317,7 +323,7 @@ where
             &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
-                assert_data.kickoff_id.operator_idx,
+                self.signer.xonly_public_key,
                 assert_data.deposit_data.get_deposit_outpoint(),
                 self.config.protocol_paramset(),
             ),

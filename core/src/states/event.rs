@@ -24,7 +24,6 @@ pub enum SystemEvent {
     },
     NewOperator {
         operator_data: OperatorData,
-        operator_idx: u32,
     },
     NewKickoff {
         kickoff_id: KickoffId,
@@ -39,14 +38,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         db: Database,
         tx: DatabaseTransaction<'_, '_>,
         operator_data: OperatorData,
-        operator_idx: u32,
     ) -> Result<(), eyre::Report> {
         let queue_name = StateManager::<T>::queue_name();
         let queue = PGMQueueExt::new_with_pool(db.get_pool()).await;
-        let message = SystemEvent::NewOperator {
-            operator_data,
-            operator_idx,
-        };
+        let message = SystemEvent::NewOperator { operator_data };
         queue
             .send_with_cxn(&queue_name, &message, &mut *(*tx))
             .await
@@ -107,11 +102,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     .await?;
                 self.process_block_parallel(height).await?;
             }
-            SystemEvent::NewOperator {
-                operator_data,
-                operator_idx,
-            } => {
-                let operator_machine = RoundStateMachine::new(operator_data, operator_idx)
+            SystemEvent::NewOperator { operator_data } => {
+                let operator_machine = RoundStateMachine::new(operator_data)
                     .uninitialized_state_machine()
                     .init_with_context(&mut self.context)
                     .await;

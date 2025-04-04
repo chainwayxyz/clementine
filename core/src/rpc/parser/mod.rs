@@ -43,6 +43,7 @@ impl From<ParserError> for tonic::Status {
     }
 }
 
+#[allow(dead_code)]
 /// Converts an integer type in to another integer type. This is needed because
 /// tonic defaults to wrong integer types for some parameters.
 pub fn convert_int_to_another<SOURCE, TARGET>(
@@ -187,22 +188,21 @@ impl From<winternitz::PublicKey> for WinternitzPubkey {
     }
 }
 
+macro_rules! serialize_keys_to_vec {
+    ($pubkeys:expr) => {
+        $pubkeys.iter().map(|pk| pk.serialize().to_vec()).collect()
+    };
+}
+
 impl From<BaseDepositData> for BaseDeposit {
     fn from(data: BaseDepositData) -> Self {
         BaseDeposit {
             deposit_outpoint: Some(data.deposit_outpoint.into()),
             evm_address: data.evm_address.0.to_vec(),
             recovery_taproot_address: data.recovery_taproot_address.assume_checked().to_string(),
-            verifiers: data
-                .verifiers
-                .iter()
-                .map(|pk| pk.serialize().to_vec())
-                .collect(),
-            watchtowers: data
-                .watchtowers
-                .iter()
-                .map(|pk| pk.serialize().to_vec())
-                .collect(),
+            verifiers: serialize_keys_to_vec!(&data.verifiers),
+            watchtowers: serialize_keys_to_vec!(&data.watchtowers),
+            operators: serialize_keys_to_vec!(&data.operators),
         }
     }
 }
@@ -212,16 +212,9 @@ impl From<ReplacementDepositData> for ReplacementDeposit {
         ReplacementDeposit {
             deposit_outpoint: Some(data.deposit_outpoint.into()),
             old_move_txid: Some(data.old_move_txid.into()),
-            verifiers: data
-                .verifiers
-                .iter()
-                .map(|pk| pk.serialize().to_vec())
-                .collect(),
-            watchtowers: data
-                .watchtowers
-                .iter()
-                .map(|pk| pk.serialize().to_vec())
-                .collect(),
+            verifiers: serialize_keys_to_vec!(&data.verifiers),
+            watchtowers: serialize_keys_to_vec!(&data.watchtowers),
+            operators: serialize_keys_to_vec!(&data.operators),
         }
     }
 }
@@ -331,6 +324,7 @@ fn parse_base_deposit_data(data: BaseDeposit) -> Result<DepositData, Status> {
         nofn_xonly_pk: None,
         verifiers: parse_public_keys(&data.verifiers)?,
         watchtowers: parse_xonly_public_keys(&data.watchtowers)?,
+        operators: parse_xonly_public_keys(&data.operators)?,
     }))
 }
 
@@ -356,6 +350,7 @@ fn parse_replacement_deposit_data(data: ReplacementDeposit) -> Result<DepositDat
         nofn_xonly_pk: None,
         verifiers: parse_public_keys(&data.verifiers)?,
         watchtowers: parse_xonly_public_keys(&data.watchtowers)?,
+        operators: parse_xonly_public_keys(&data.operators)?,
     }))
 }
 

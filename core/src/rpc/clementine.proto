@@ -100,6 +100,8 @@ message ReplacementDeposit {
   /// X-only public keys of watchtowers that will participate in the deposit.
   /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
   repeated bytes watchtowers = 4;
+  /// X-only public keys of operators that will participate in the deposit.
+  repeated bytes operators = 5;
 }
 
 // A new original deposit request's details.
@@ -115,6 +117,8 @@ message BaseDeposit {
   /// X-only public keys of watchtowers that will participate in the deposit.
   /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
   repeated bytes watchtowers = 5;
+  /// X-only public keys of operators that will participate in the deposit.
+  repeated bytes operators = 6;
 }
 
 enum FeeType {
@@ -187,10 +191,9 @@ message DepositSignSession {
 // Operator --------------------------------------------------------------------
 
 message OperatorConfig {
-  uint32 operator_idx = 1;
-  Outpoint collateral_funding_outpoint = 2;
-  string xonly_pk = 3;
-  string wallet_reimburse_address = 4;
+  Outpoint collateral_funding_outpoint = 1;
+  string xonly_pk = 2;
+  string wallet_reimburse_address = 3;
 }
 
 message OperatorParams {
@@ -207,7 +210,7 @@ message OperatorParams {
 message OperatorKeysWithDeposit {
   OperatorKeys operator_keys = 1;
   DepositParams deposit_params = 2;
-  uint32 operator_idx = 3;
+  bytes operator_xonly_pk = 3;
 }
 
 message OperatorKeys {
@@ -259,6 +262,10 @@ message WithdrawalFinalizedParams {
 message FinalizedPayoutParams {
   bytes payout_blockhash = 1;
   Outpoint deposit_outpoint = 2;
+}
+
+message XOnlyPublicKey {
+  bytes xonly_public_key = 1;
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
@@ -336,14 +343,15 @@ service ClementineOperator {
   rpc InternalFinalizedPayout(FinalizedPayoutParams) returns (Txid) {}
 
   rpc InternalEndRound(Empty) returns (Empty) {}
+
+  // Returns the operator's xonly public key
+  rpc GetXOnlyPublicKey(Empty) returns (XOnlyPublicKey) {}
 }
 
 // Verifier --------------------------------------------------------------------
 
 message VerifierParams {
   bytes public_key = 1;
-  uint32 num_operators = 2;
-  uint32 num_round_txs = 3;
 }
 
 message PartialSig {

@@ -57,7 +57,6 @@ pub struct Operator<C: CitreaClientT> {
     pub signer: Actor,
     pub config: BridgeConfig,
     pub collateral_funding_outpoint: OutPoint,
-    pub idx: usize,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSenderClient,
     pub citrea_client: C,
@@ -134,13 +133,10 @@ where
         )
         .await?;
 
-        let idx = config
-            .operators_xonly_pks
-            .iter()
-            .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
-            .ok_or_else(|| eyre::eyre!("Operator's key not found in list of operator x-only public keys, operator's key: {0}", signer.xonly_public_key))?;
-
-        let tx_sender = TxSenderClient::new(db.clone(), format!("operator_{}", idx).to_string());
+        let tx_sender = TxSenderClient::new(
+            db.clone(),
+            format!("operator_{:?}", signer.xonly_public_key).to_string(),
+        );
 
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
@@ -156,7 +152,9 @@ where
 
         // check if we store our collateral outpoint already in db
         let mut dbtx = db.begin_transaction().await?;
-        let op_data = db.get_operator(Some(&mut dbtx), idx as i32).await?;
+        let op_data = db
+            .get_operator(Some(&mut dbtx), signer.xonly_public_key)
+            .await?;
         let collateral_funding_outpoint = match op_data {
             Some(op_data) => op_data.collateral_funding_outpoint,
             None => {
@@ -168,7 +166,6 @@ where
                     .await?;
                 db.set_operator(
                     Some(&mut dbtx),
-                    idx as i32,
                     signer.xonly_public_key,
                     reimburse_addr.to_string(),
                     outpoint,
@@ -187,8 +184,8 @@ where
         .await?;
 
         tracing::debug!(
-            "Operator idx: {:?}, db created with name: {:?}",
-            idx,
+            "Operator xonly pk: {:?}, db created with name: {:?}",
+            signer.xonly_public_key,
             config.db_name
         );
 
@@ -197,7 +194,6 @@ where
             db: db.clone(),
             signer,
             config,
-            idx,
             collateral_funding_outpoint,
             tx_sender,
             citrea_client,
@@ -256,7 +252,7 @@ where
                 &mut dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
-                    operator_idx: Some(self.idx as u32),
+                    operator_xonly_pk: None,
                     round_idx: Some(0),
                     kickoff_idx: None,
                     deposit_outpoint: None,
@@ -306,7 +302,7 @@ where
 
         let mut sighash_stream = Box::pin(create_operator_sighash_stream(
             self.db.clone(),
-            self.idx,
+            self.signer.xonly_public_key,
             self.config.clone(),
             deposit_data,
             deposit_blockhash,
@@ -341,7 +337,6 @@ where
             self.db.clone(),
             &mut dbtx,
             self.data(),
-            self.idx as u32,
         )
         .await?;
         dbtx.commit().await?;
@@ -453,7 +448,7 @@ where
         let payout_txhandler = builder::transaction::create_payout_txhandler(
             input_utxo,
             output_txout,
-            self.idx,
+            self.signer.xonly_public_key,
             in_signature,
             self.config.protocol_paramset().network,
         )?;
@@ -591,7 +586,7 @@ where
                     txhandler.get_transaction_type()
                 {
                     let partial = PartialSignatureInfo {
-                        operator_idx: self.idx,
+                        operator_idx: 0, // dummy value
                         round_idx: idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };
@@ -672,7 +667,7 @@ where
 
         // get signed txs,
         let kickoff_id = KickoffId {
-            operator_idx: self.idx as u32,
+            operator_idx: deposit_data.get_operator_index(self.signer.xonly_public_key)? as u32,
             round_idx,
             kickoff_idx,
         };
@@ -697,7 +692,7 @@ where
 
         let tx_metadata = Some(TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
-            operator_idx: Some(self.idx as u32),
+            operator_xonly_pk: Some(self.signer.xonly_public_key),
             round_idx: Some(round_idx),
             kickoff_idx: Some(kickoff_idx),
             deposit_outpoint: Some(deposit_outpoint),
@@ -759,7 +754,7 @@ where
 
         let operator_winternitz_public_keys = self
             .db
-            .get_operator_kickoff_winternitz_public_keys(None, self.idx as u32)
+            .get_operator_kickoff_winternitz_public_keys(None, self.signer.xonly_public_key)
             .await?;
         let kickoff_wpks = KickoffWinternitzKeys::new(
             operator_winternitz_public_keys,
@@ -872,7 +867,7 @@ where
                 dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::BurnUnusedKickoffConnectors,
-                    operator_idx: Some(self.idx as u32),
+                    operator_xonly_pk: Some(self.signer.xonly_public_key),
                     round_idx: Some(current_round_index),
                     kickoff_idx: None,
                     deposit_outpoint: None,
@@ -892,7 +887,7 @@ where
                 dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::ReadyToReimburse,
-                    operator_idx: Some(self.idx as u32),
+                    operator_xonly_pk: Some(self.signer.xonly_public_key),
                     round_idx: Some(current_round_index),
                     kickoff_idx: None,
                     deposit_outpoint: None,
@@ -912,7 +907,7 @@ where
                 dbtx,
                 Some(TxMetadata {
                     tx_type: TransactionType::Round,
-                    operator_idx: Some(self.idx as u32),
+                    operator_xonly_pk: Some(self.signer.xonly_public_key),
                     round_idx: Some(current_round_index + 1),
                     kickoff_idx: None,
                     deposit_outpoint: None,
@@ -964,7 +959,7 @@ where
                     &[],
                     Some(TxMetadata {
                         tx_type,
-                        operator_idx: Some(self.idx as u32),
+                        operator_xonly_pk: Some(self.signer.xonly_public_key),
                         round_idx: Some(kickoff_id.round_idx),
                         kickoff_idx: Some(kickoff_id.kickoff_idx),
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -996,18 +991,19 @@ where
         match duty {
             Duty::NewReadyToReimburse {
                 round_idx,
-                operator_idx,
+                operator_xonly_pk,
                 used_kickoffs,
             } => {
-                tracing::info!("Operator {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", self.idx, round_idx, operator_idx, used_kickoffs);
+                tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}", 
+                    self.signer.xonly_public_key, round_idx, operator_xonly_pk, used_kickoffs);
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
                 deposit_data,
             } => {
                 tracing::info!(
-                    "Operator {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
-                    self.idx, kickoff_id, deposit_data
+                    "Operator {:?} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
+                    self.signer.xonly_public_key, kickoff_id, deposit_data
                 );
             }
             Duty::SendOperatorAsserts {
@@ -1016,7 +1012,8 @@ where
                 watchtower_challenges,
                 payout_blockhash,
             } => {
-                tracing::warn!("Operator {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", self.idx, kickoff_id, deposit_data, watchtower_challenges.len());
+                tracing::warn!("Operator {:?} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", 
+                    self.signer.xonly_public_key, kickoff_id, deposit_data, watchtower_challenges.len());
                 self.send_asserts(
                     kickoff_id,
                     deposit_data,
@@ -1032,8 +1029,8 @@ where
                 operator_acks,
                 payout_blockhash,
             } => {
-                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
+                tracing::info!("Operator {:?} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
+                payout_blockhash: {:?}", self.signer.xonly_public_key, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
             }
             Duty::CheckIfKickoff {
                 txid,
@@ -1041,8 +1038,8 @@ where
                 witness,
             } => {
                 tracing::info!(
-                    "Operator {} called check if kickoff with txid: {:?}, block_height: {:?}",
-                    self.idx,
+                    "Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
+                    self.signer.xonly_public_key,
                     txid,
                     block_height,
                 );

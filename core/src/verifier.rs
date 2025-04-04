@@ -131,8 +131,6 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-
-    _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub tx_sender: TxSenderClient,
     pub citrea_client: C,
@@ -178,7 +176,6 @@ where
             signer,
             db: db.clone(),
             config: config.clone(),
-            _operator_xonly_pks: config.operators_xonly_pks.clone(),
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             tx_sender,
             citrea_client,
@@ -211,7 +208,6 @@ where
     /// as they will be saved as TaggedSignatures to the db.
     fn verify_unspent_kickoff_sigs(
         &self,
-        operator_index: u32,
         collateral_funding_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
         wallet_reimburse_address: Address,
@@ -240,7 +236,7 @@ where
                     txhandler.get_transaction_type()
                 {
                     let partial = PartialSignatureInfo {
-                        operator_idx: operator_index as usize,
+                        operator_idx: 0, // dummy value
                         round_idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };
@@ -279,7 +275,6 @@ where
 
     pub async fn set_operator(
         &self,
-        operator_index: u32,
         collateral_funding_outpoint: OutPoint,
         operator_xonly_pk: XOnlyPublicKey,
         wallet_reimburse_address: Address,
@@ -291,7 +286,6 @@ where
             self.config.protocol_paramset().num_kickoffs_per_round,
         );
         let tagged_sigs = self.verify_unspent_kickoff_sigs(
-            operator_index,
             collateral_funding_outpoint,
             operator_xonly_pk,
             wallet_reimburse_address.clone(),
@@ -305,7 +299,6 @@ where
         self.db
             .set_operator(
                 Some(&mut dbtx),
-                operator_index as i32,
                 operator_xonly_pk,
                 wallet_reimburse_address.to_string(),
                 collateral_funding_outpoint,
@@ -315,7 +308,7 @@ where
         self.db
             .set_operator_kickoff_winternitz_public_keys(
                 Some(&mut dbtx),
-                operator_index,
+                operator_xonly_pk,
                 operator_winternitz_public_keys,
             )
             .await?;
@@ -329,7 +322,7 @@ where
 
         for (round_idx, sigs) in tagged_sigs_per_round.into_iter().enumerate() {
             self.db
-                .set_unspent_kickoff_sigs(Some(&mut dbtx), operator_index as usize, round_idx, sigs)
+                .set_unspent_kickoff_sigs(Some(&mut dbtx), operator_xonly_pk, round_idx, sigs)
                 .await?;
         }
 
@@ -339,13 +332,8 @@ where
             reimburse_addr: wallet_reimburse_address,
         };
 
-        StateManager::<Self>::dispatch_new_round_machine(
-            self.db.clone(),
-            &mut dbtx,
-            operator_data,
-            operator_index,
-        )
-        .await?;
+        StateManager::<Self>::dispatch_new_round_machine(self.db.clone(), &mut dbtx, operator_data)
+            .await?;
 
         dbtx.commit().await?;
 
@@ -506,7 +494,8 @@ where
         let num_required_op_sigs_per_kickoff = self
             .config
             .get_num_required_operator_sigs_per_kickoff(deposit_data);
-        let &BridgeConfig { num_operators, .. } = &self.config;
+
+        let num_operators = deposit_data.get_num_operators();
 
         let ProtocolParamset {
             num_round_txs,
@@ -594,20 +583,19 @@ where
 
         // ------ OPERATOR SIGNATURES VERIFICATION ------
 
-        let num_required_total_op_sigs = num_required_op_sigs * self.config.num_operators;
+        let num_required_total_op_sigs = num_required_op_sigs * deposit_data.get_num_operators();
         let mut total_op_sig_count = 0;
 
         // get operator data
-        let operators_data: Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)> =
-            self.db.get_operators(None).await?;
+        let operators_data = deposit_data.get_operators();
 
         // get signatures of operators and verify them
-        for (operator_idx, (op_xonly_pk, _, _)) in operators_data.iter().enumerate() {
+        for (operator_idx, &op_xonly_pk) in operators_data.iter().enumerate() {
             let mut op_sig_count = 0;
             // generate the sighash stream for operator
             let mut sighash_stream = pin!(create_operator_sighash_stream(
                 self.db.clone(),
-                operator_idx,
+                op_xonly_pk,
                 self.config.clone(),
                 deposit_data.clone(),
                 deposit_blockhash,
@@ -637,7 +625,7 @@ where
                 verify_schnorr(
                     &operator_sig,
                     &Message::from(typed_sighash.0),
-                    *op_xonly_pk,
+                    op_xonly_pk,
                     tweak_data,
                     Some(&mut tweak_cache),
                 )
@@ -767,7 +755,7 @@ where
         &self,
         deposit_data: DepositData,
         keys: OperatorKeys,
-        operator_idx: u32,
+        operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
         let hashes: Vec<[u8; 20]> = keys
             .challenge_ack_digests
@@ -781,8 +769,8 @@ where
 
         if hashes.len() != self.config.get_num_challenge_ack_hashes(&deposit_data) {
             return Err(eyre::eyre!(
-                "Invalid number of challenge ack hashes received from operator {}: got: {} expected: {}",
-                operator_idx,
+                "Invalid number of challenge ack hashes received from operator {:?}: got: {} expected: {}",
+                operator_xonly_pk,
                 hashes.len(),
                 self.config.get_num_challenge_ack_hashes(&deposit_data)
             ).into());
@@ -790,14 +778,14 @@ where
 
         let operator_data = self
             .db
-            .get_operator(None, operator_idx as i32)
+            .get_operator(None, operator_xonly_pk)
             .await?
-            .ok_or(BridgeError::OperatorNotFound(operator_idx))?;
+            .ok_or(BridgeError::OperatorNotFound(operator_xonly_pk))?;
 
         self.db
             .set_operator_challenge_ack_hashes(
                 None,
-                operator_idx as i32,
+                operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 &hashes,
             )
@@ -811,14 +799,14 @@ where
 
         if winternitz_keys.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
             tracing::error!(
-                "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
-                operator_idx,
+                "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
+                operator_xonly_pk,
                 winternitz_keys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
             );
             return Err(eyre::eyre!(
-                "Invalid number of winternitz keys received from operator {}: got: {} expected: {}",
-                operator_idx,
+                "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
+                operator_xonly_pk,
                 winternitz_keys.len(),
                 ClementineBitVMPublicKeys::number_of_flattened_wpks()
             )
@@ -849,7 +837,7 @@ where
         self.db
             .set_bitvm_setup(
                 None,
-                operator_idx as i32,
+                operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 &assert_tx_addrs,
                 &root_hash_bytes,
@@ -883,8 +871,8 @@ where
             return Ok(true);
         }
         let payout_info = payout_info?;
-        if let Some((operator_idx, payout_blockhash)) = payout_info {
-            if operator_idx != kickoff_id.operator_idx {
+        if let Some((operator_xonly_pk, payout_blockhash)) = payout_info {
+            if operator_xonly_pk != deposit_data.get_ith_operator(kickoff_id.operator_idx) {
                 return Ok(true);
             }
             let wt_derive_path = WinternitzDerivationPath::Kickoff(
@@ -945,7 +933,7 @@ where
 
         let tx_metadata = Some(TxMetadata {
             tx_type: TransactionType::Dummy, // will be replaced in add_tx_to_queue
-            operator_idx: Some(kickoff_id.operator_idx),
+            operator_xonly_pk: Some(deposit_data.get_ith_operator(kickoff_id.operator_idx)),
             round_idx: Some(kickoff_id.round_idx),
             kickoff_idx: Some(kickoff_id.kickoff_idx),
             deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -1002,7 +990,7 @@ where
                 &[],
                 Some(TxMetadata {
                     tx_type,
-                    operator_idx: None,
+                    operator_xonly_pk: None,
                     round_idx: Some(kickoff_id.round_idx),
                     kickoff_idx: Some(kickoff_id.kickoff_idx),
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
@@ -1092,16 +1080,24 @@ where
             tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
 
             // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
-            let mut operator_idx_bytes = [0u8; 4]; // Create a 4-byte array initialized with zeros
-            operator_idx_bytes[..last_output.len() - 3]
-                .copy_from_slice(&last_output[2..last_output.len() - 1]);
-            let operator_idx = u32::from_le_bytes(operator_idx_bytes);
+            let mut operator_idx_bytes = [0u8; 32]; // Create a 4-byte array initialized with zeros
+            operator_idx_bytes.copy_from_slice(&last_output[2..last_output.len()]);
+            let operator_xonly_pk =
+                XOnlyPublicKey::from_slice(&operator_idx_bytes).expect("Invalid operator xonly_pk");
 
-            payout_txs_and_payer_operator_idx.push((idx, payout_txid, operator_idx, block_hash));
+            payout_txs_and_payer_operator_idx.push((
+                idx,
+                payout_txid,
+                operator_xonly_pk,
+                block_hash,
+            ));
         }
 
         self.db
-            .set_payout_txs_and_payer_operator_idx(Some(dbtx), payout_txs_and_payer_operator_idx)
+            .set_payout_txs_and_payer_operator_xonly_pk(
+                Some(dbtx),
+                payout_txs_and_payer_operator_idx,
+            )
             .await?;
 
         Ok(())
@@ -1110,7 +1106,7 @@ where
     async fn send_unspent_kickoff_connectors(
         &self,
         round_idx: u32,
-        operator_idx: u32,
+        operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
     ) -> Result<(), BridgeError> {
         if used_kickoffs.len() == self.config.protocol_paramset().num_kickoffs_per_round {
@@ -1119,7 +1115,7 @@ where
         }
 
         let unspent_kickoff_txs = self
-            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_idx)
+            .create_and_sign_unspent_kickoff_connector_txs(round_idx, operator_xonly_pk)
             .await?;
         let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in unspent_kickoff_txs {
@@ -1135,7 +1131,7 @@ where
                         &[],
                         Some(TxMetadata {
                             tx_type,
-                            operator_idx: Some(operator_idx),
+                            operator_xonly_pk: Some(operator_xonly_pk),
                             round_idx: Some(round_idx),
                             kickoff_idx: Some(kickoff_idx as u32),
                             deposit_outpoint: None,
@@ -1162,14 +1158,14 @@ where
         match duty {
             Duty::NewReadyToReimburse {
                 round_idx,
-                operator_idx,
+                operator_xonly_pk,
                 used_kickoffs,
             } => {
                 tracing::info!(
-                    "Verifier {:?} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}",
-                    verifier_xonly_pk, round_idx, operator_idx, used_kickoffs
+                    "Verifier {:?} called new ready to reimburse with round_idx: {:?}, operator_idx: {}, used_kickoffs: {:?}",
+                    verifier_xonly_pk, round_idx, operator_xonly_pk, used_kickoffs
                 );
-                self.send_unspent_kickoff_connectors(round_idx, operator_idx, used_kickoffs)
+                self.send_unspent_kickoff_connectors(round_idx, operator_xonly_pk, used_kickoffs)
                     .await?;
             }
             Duty::WatchtowerChallenge {

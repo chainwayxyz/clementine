@@ -68,6 +68,7 @@ use crate::{
     states::StateMachineError,
     tx_sender::SendTxError,
 };
+use bitcoin::XOnlyPublicKey;
 use core::fmt::Debug;
 use hex::FromHexError;
 use thiserror::Error;
@@ -115,8 +116,8 @@ pub enum BridgeError {
     IntConversionError,
     #[error("Failed to encode/decode data using borsh")]
     BorshError,
-    #[error("Operator idx {0} was not found in the DB")]
-    OperatorNotFound(u32),
+    #[error("Operator x-only public key {:?} was not found in the DB", 0)]
+    OperatorNotFound(XOnlyPublicKey),
 
     // External crate error wrappers
     #[error("Failed to call database")]

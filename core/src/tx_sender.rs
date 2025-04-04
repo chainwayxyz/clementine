@@ -1,3 +1,4 @@
+use bitcoin::XOnlyPublicKey;
 use eyre::{eyre, OptionExt};
 use std::{collections::BTreeMap, env, time::Duration};
 
@@ -71,7 +72,7 @@ pub struct ActivatedWithOutpoint {
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TxMetadata {
     pub deposit_outpoint: Option<OutPoint>,
-    pub operator_idx: Option<u32>,
+    pub operator_xonly_pk: Option<XOnlyPublicKey>,
     pub round_idx: Option<u32>,
     pub kickoff_idx: Option<u32>,
     pub tx_type: TransactionType,

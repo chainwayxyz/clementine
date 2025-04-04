@@ -97,13 +97,13 @@ async fn test_save_and_load_state() {
     let mut round_machines = new_state_manager.round_machines();
     let mut kickoff_machines = new_state_manager.kickoff_machines();
 
-    round_machines.sort_by_key(|m| m.operator_idx);
+    round_machines.sort_by_key(|m| m.operator_data.xonly_pk);
     kickoff_machines.sort_by_key(|m| m.kickoff_id);
 
     let mut round_machines_old = state_manager.round_machines();
     let mut kickoff_machines_old = state_manager.kickoff_machines();
 
-    round_machines_old.sort_by_key(|m| m.operator_idx);
+    round_machines_old.sort_by_key(|m| m.operator_data.xonly_pk);
     kickoff_machines_old.sort_by_key(|m| m.kickoff_id);
 
     assert_eq!(round_machines, round_machines_old);

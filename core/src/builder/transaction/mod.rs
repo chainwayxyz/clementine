@@ -82,8 +82,8 @@ pub enum TxError {
     SignatureNotFound(TransactionType),
     #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
     TxHandlerNotFound(TransactionType),
-    #[error("BitvmSetupNotFound for operator {0}, deposit_txid {1}")]
-    BitvmSetupNotFound(i32, Txid),
+    #[error("BitvmSetupNotFound for operator {0:?}, deposit_txid {1}")]
+    BitvmSetupNotFound(XOnlyPublicKey, Txid),
     #[error("Transaction input is missing spend info")]
     MissingSpendInfo,
     #[error("Incorrect watchtower challenge data length")]
@@ -153,7 +153,13 @@ impl DepositData {
         self.get_watchtowers()
             .iter()
             .position(|pk| pk == xonly_pk)
-            .ok_or_else(|| eyre::eyre!("Watchtower with public key {} not found", xonly_pk))
+            .ok_or_else(|| eyre::eyre!("Watchtower with xonly key {} not found", xonly_pk))
+    }
+    pub fn get_operator_index(&self, xonly_pk: XOnlyPublicKey) -> Result<usize, eyre::Report> {
+        self.get_operators()
+            .iter()
+            .position(|pk| pk == &xonly_pk)
+            .ok_or_else(|| eyre::eyre!("Operator with xonly key {} not found", xonly_pk))
     }
     /// Returns sorted verifiers, they are sorted so that their order is deterministic.
     pub fn get_verifiers(&self) -> Vec<PublicKey> {
@@ -163,6 +169,18 @@ impl DepositData {
         };
         verifiers.sort();
         verifiers
+    }
+    pub fn set_verifiers(&mut self, verifiers: Vec<PublicKey>) {
+        match self {
+            DepositData::BaseDeposit(data) => data.verifiers = verifiers,
+            DepositData::ReplacementDeposit(data) => data.verifiers = verifiers,
+        }
+    }
+    pub fn set_operators(&mut self, operators: Vec<XOnlyPublicKey>) {
+        match self {
+            DepositData::BaseDeposit(data) => data.operators = operators,
+            DepositData::ReplacementDeposit(data) => data.operators = operators,
+        }
     }
     /// Returns sorted watchtowers, they are sorted so that their order is deterministic.
     pub fn get_watchtowers(&self) -> Vec<XOnlyPublicKey> {
@@ -178,12 +196,23 @@ impl DepositData {
         watchtowers.sort();
         watchtowers
     }
-    // pub fn get_num_verifiers(&self) -> usize {
-    //     match self {
-    //         DepositData::BaseDeposit(data) => data.num_verifiers,
-    //         DepositData::ReplacementDeposit(data) => data.num_verifiers,
-    //     }
-    // }
+    pub fn get_operators(&self) -> Vec<XOnlyPublicKey> {
+        let mut operators = match self {
+            DepositData::BaseDeposit(data) => data.operators.clone(),
+            DepositData::ReplacementDeposit(data) => data.operators.clone(),
+        };
+        operators.sort();
+        operators
+    }
+    pub fn get_ith_operator(&self, i: u32) -> XOnlyPublicKey {
+        self.get_operators()[i as usize]
+    }
+    pub fn get_num_operators(&self) -> usize {
+        match self {
+            DepositData::BaseDeposit(data) => data.operators.len(),
+            DepositData::ReplacementDeposit(data) => data.operators.len(),
+        }
+    }
 }
 
 /// Type to uniquely identify a deposit.
@@ -202,6 +231,8 @@ pub struct BaseDepositData {
     /// X-only public keys of watchtowers that will participate in the deposit.
     /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
     pub watchtowers: Vec<XOnlyPublicKey>,
+    /// X-only public keys of operators that will participate in the deposit.
+    pub operators: Vec<XOnlyPublicKey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -217,6 +248,8 @@ pub struct ReplacementDepositData {
     /// X-only public keys of watchtowers that will participate in the deposit.
     /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
     pub watchtowers: Vec<XOnlyPublicKey>,
+    /// X-only public keys of operators that will participate in the deposit.
+    pub operators: Vec<XOnlyPublicKey>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]

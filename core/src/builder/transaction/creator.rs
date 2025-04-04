@@ -1,3 +1,5 @@
+use bitcoin::XOnlyPublicKey;
+
 use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -58,7 +60,7 @@ impl KickoffWinternitzKeys {
 #[derive(Debug, Clone)]
 pub struct ReimburseDbCache {
     pub db: Database,
-    pub operator_idx: u32,
+    pub operator_xonly_pk: XOnlyPublicKey,
     pub deposit_outpoint: Option<bitcoin::OutPoint>,
     pub paramset: &'static ProtocolParamset,
     /// winternitz keys to sign the kickoff tx with the blockhash
@@ -77,13 +79,13 @@ impl ReimburseDbCache {
     /// Creates a db cache that can be used to create txhandlers for a specific operator and deposit/kickoff
     pub fn new_for_deposit(
         db: Database,
-        operator_idx: u32,
+        operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: bitcoin::OutPoint,
         paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
             db,
-            operator_idx,
+            operator_xonly_pk,
             deposit_outpoint: Some(deposit_outpoint),
             paramset,
             kickoff_winternitz_keys: None,
@@ -97,12 +99,12 @@ impl ReimburseDbCache {
     /// Creates a db cache that can be used to create txhandlers for a specific operator and collateral chain
     pub fn new_for_rounds(
         db: Database,
-        operator_idx: u32,
+        operator_xonly_pk: XOnlyPublicKey,
         paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
             db,
-            operator_idx,
+            operator_xonly_pk,
             deposit_outpoint: None,
             paramset,
             kickoff_winternitz_keys: None,
@@ -115,18 +117,18 @@ impl ReimburseDbCache {
 
     pub fn from_context(db: Database, context: &ContractContext) -> Self {
         if context.deposit_data.is_some() {
+            let deposit_data = context
+                .deposit_data
+                .as_ref()
+                .expect("checked in if statement");
             Self::new_for_deposit(
                 db,
-                context.operator_idx,
-                context
-                    .deposit_data
-                    .as_ref()
-                    .expect("checked in if statement")
-                    .get_deposit_outpoint(),
+                context.operator_xonly_pk,
+                deposit_data.get_deposit_outpoint(),
                 context.paramset,
             )
         } else {
-            Self::new_for_rounds(db, context.operator_idx, context.paramset)
+            Self::new_for_rounds(db, context.operator_xonly_pk, context.paramset)
         }
     }
 
@@ -136,9 +138,9 @@ impl ReimburseDbCache {
             None => {
                 self.operator_data = Some(
                     self.db
-                        .get_operator(None, self.operator_idx as i32)
+                        .get_operator(None, self.operator_xonly_pk)
                         .await?
-                        .ok_or(BridgeError::OperatorNotFound(self.operator_idx))?,
+                        .ok_or(BridgeError::OperatorNotFound(self.operator_xonly_pk))?,
                 );
                 Ok(self.operator_data.as_ref().expect("Inserted before"))
             }
@@ -153,7 +155,7 @@ impl ReimburseDbCache {
             None => {
                 self.kickoff_winternitz_keys = Some(KickoffWinternitzKeys::new(
                     self.db
-                        .get_operator_kickoff_winternitz_public_keys(None, self.operator_idx)
+                        .get_operator_kickoff_winternitz_public_keys(None, self.operator_xonly_pk)
                         .await?,
                     self.paramset.num_kickoffs_per_round,
                 ));
@@ -172,10 +174,10 @@ impl ReimburseDbCache {
                 None => {
                     let (assert_addr, bitvm_hash) = self
                         .db
-                        .get_bitvm_setup(None, self.operator_idx as i32, *deposit_outpoint)
+                        .get_bitvm_setup(None, self.operator_xonly_pk, *deposit_outpoint)
                         .await?
                         .ok_or(TxError::BitvmSetupNotFound(
-                            self.operator_idx as i32,
+                            self.operator_xonly_pk,
                             deposit_outpoint.txid,
                         ))?;
                     self.bitvm_assert_addr = Some(assert_addr);
@@ -197,13 +199,13 @@ impl ReimburseDbCache {
                         self.db
                             .get_operators_challenge_ack_hashes(
                                 None,
-                                self.operator_idx as i32,
+                                self.operator_xonly_pk,
                                 *deposit_outpoint,
                             )
                             .await?
                             .ok_or(eyre::eyre!(
-                                "Watchtower public hashes not found for operator {0} and deposit {1}",
-                                self.operator_idx as i32,
+                                "Watchtower public hashes not found for operator {0:?} and deposit {1}",
+                                self.operator_xonly_pk,
                                 deposit_outpoint.txid,
                             ))?,
                     );
@@ -222,10 +224,10 @@ impl ReimburseDbCache {
                 None => {
                     let bitvm_hash = self
                         .db
-                        .get_bitvm_root_hash(None, self.operator_idx as i32, *deposit_outpoint)
+                        .get_bitvm_root_hash(None, self.operator_xonly_pk, *deposit_outpoint)
                         .await?
                         .ok_or(TxError::BitvmSetupNotFound(
-                            self.operator_idx as i32,
+                            self.operator_xonly_pk,
                             deposit_outpoint.txid,
                         ))?;
                     self.bitvm_disprove_root_hash = Some(bitvm_hash);
@@ -245,7 +247,7 @@ impl ReimburseDbCache {
 /// Context for a single operator and round, and optionally a single deposit
 pub struct ContractContext {
     /// required
-    operator_idx: u32,
+    operator_xonly_pk: XOnlyPublicKey,
     round_idx: u32,
     paramset: &'static ProtocolParamset,
     /// optional (only used for after kickoff)
@@ -258,12 +260,12 @@ pub struct ContractContext {
 impl ContractContext {
     /// Contains all necessary context for creating txhandlers for a specific operator and collateral chain
     pub fn new_context_for_rounds(
-        operator_idx: u32,
+        operator_xonly_pk: XOnlyPublicKey,
         round_idx: u32,
         paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
-            operator_idx,
+            operator_xonly_pk,
             round_idx,
             paramset,
             kickoff_idx: None,
@@ -279,7 +281,7 @@ impl ContractContext {
         paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
-            operator_idx: kickoff_id.operator_idx,
+            operator_xonly_pk: deposit_data.get_ith_operator(kickoff_id.operator_idx),
             round_idx: kickoff_id.round_idx,
             paramset,
             kickoff_idx: Some(kickoff_id.kickoff_idx),
@@ -297,7 +299,7 @@ impl ContractContext {
         signer: Actor,
     ) -> Self {
         Self {
-            operator_idx: kickoff_id.operator_idx,
+            operator_xonly_pk: deposit_data.get_ith_operator(kickoff_id.operator_idx),
             round_idx: kickoff_id.round_idx,
             paramset,
             kickoff_idx: Some(kickoff_id.kickoff_idx),
@@ -379,7 +381,7 @@ pub async fn create_txhandlers(
     let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?;
 
     let ContractContext {
-        operator_idx,
+        operator_xonly_pk,
         round_idx,
         ..
     } = context;
@@ -422,12 +424,12 @@ pub async fn create_txhandlers(
         paramset,
     )?;
 
+    let mut deposit_data = context.deposit_data.ok_or(TxError::InsufficientContext)?;
     let kickoff_id = KickoffId {
-        operator_idx,
+        operator_idx: deposit_data.get_operator_index(operator_xonly_pk)? as u32,
         round_idx,
         kickoff_idx: context.kickoff_idx.ok_or(TxError::InsufficientContext)?,
     };
-    let mut deposit_data = context.deposit_data.ok_or(TxError::InsufficientContext)?;
 
     if !txhandlers.contains_key(&TransactionType::MoveToVault) {
         // if not cached create move_txhandler

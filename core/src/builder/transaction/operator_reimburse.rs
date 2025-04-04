@@ -287,7 +287,7 @@ pub fn create_reimburse_txhandler(
 pub fn create_payout_txhandler(
     input_utxo: UTXO,
     output_txout: TxOut,
-    operator_idx: usize,
+    operator_xonly_pk: XOnlyPublicKey,
     user_sig: Signature,
     _network: bitcoin::Network,
 ) -> Result<TxHandler<Signed>, BridgeError> {
@@ -299,10 +299,7 @@ pub fn create_payout_txhandler(
 
     let output_txout = UnspentTxOut::from_partial(output_txout.clone());
 
-    let op_return_txout = op_return_txout(
-        PushBytesBuf::try_from(crate::utils::usize_to_var_len_bytes(operator_idx))
-            .expect("operator idx size < 8 bytes"),
-    );
+    let op_return_txout = op_return_txout(PushBytesBuf::from(operator_xonly_pk.serialize()));
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
         .with_version(Version::non_standard(3))

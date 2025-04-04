@@ -3,11 +3,11 @@
 //! This module includes database functions which are mainly used by a verifier.
 
 use super::{
-    wrapper::{BlockHashDB, TxidDB},
+    wrapper::{BlockHashDB, TxidDB, XOnlyPublicKeyDB},
     Database, DatabaseTransaction,
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{BlockHash, OutPoint, Txid};
+use bitcoin::{BlockHash, OutPoint, Txid, XOnlyPublicKey};
 use eyre::Context;
 use sqlx::QueryBuilder;
 
@@ -117,23 +117,27 @@ impl Database {
     }
 
     /// Sets the given payout txs' txid and operator index for the given index.
-    pub async fn set_payout_txs_and_payer_operator_idx(
+    pub async fn set_payout_txs_and_payer_operator_xonly_pk(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        payout_txs_and_payer_operator_idx: Vec<(u32, Txid, u32, bitcoin::BlockHash)>,
+        payout_txs_and_payer_operator_xonly_pk: Vec<(
+            u32,
+            Txid,
+            XOnlyPublicKey,
+            bitcoin::BlockHash,
+        )>,
     ) -> Result<(), BridgeError> {
-        if payout_txs_and_payer_operator_idx.is_empty() {
+        if payout_txs_and_payer_operator_xonly_pk.is_empty() {
             return Ok(());
         }
         // Convert all values first, propagating any errors
-        let converted_values: Result<Vec<_>, BridgeError> = payout_txs_and_payer_operator_idx
+        let converted_values: Result<Vec<_>, BridgeError> = payout_txs_and_payer_operator_xonly_pk
             .iter()
-            .map(|(idx, txid, operator_idx, block_hash)| {
+            .map(|(idx, txid, operator_xonly_pk, block_hash)| {
                 Ok((
                     i32::try_from(*idx).wrap_err("Failed to convert payout index to i32")?,
                     TxidDB(*txid),
-                    i32::try_from(*operator_idx)
-                        .wrap_err("Failed to convert payout payer operator index to i32")?,
+                    XOnlyPublicKeyDB(*operator_xonly_pk),
                     BlockHashDB(*block_hash),
                 ))
             })
@@ -143,23 +147,23 @@ impl Database {
         let mut query_builder = QueryBuilder::new(
             "UPDATE withdrawals AS w SET
                 payout_txid = c.payout_txid,
-                payout_payer_operator_idx = c.payout_payer_operator_idx,
+                payout_payer_operator_xonly_pk = c.payout_payer_operator_xonly_pk,
                 payout_tx_blockhash = c.payout_tx_blockhash
                 FROM (",
         );
 
         query_builder.push_values(
             converted_values.into_iter(),
-            |mut b, (idx, txid, operator_idx, block_hash)| {
+            |mut b, (idx, txid, operator_xonly_pk, block_hash)| {
                 b.push_bind(idx)
                     .push_bind(txid)
-                    .push_bind(operator_idx)
+                    .push_bind(operator_xonly_pk)
                     .push_bind(block_hash);
             },
         );
 
         query_builder
-            .push(") AS c(idx, payout_txid, payout_payer_operator_idx, payout_tx_blockhash) WHERE w.idx = c.idx");
+            .push(") AS c(idx, payout_txid, payout_payer_operator_xonly_pk, payout_tx_blockhash) WHERE w.idx = c.idx");
 
         let query = query_builder.build();
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -171,43 +175,37 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         move_to_vault_txid: Txid,
-    ) -> Result<Option<(u32, BlockHash)>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32, BlockHashDB)>(
-            "SELECT w.payout_payer_operator_idx, w.payout_tx_blockhash
+    ) -> Result<Option<(XOnlyPublicKey, BlockHash)>, BridgeError> {
+        let query = sqlx::query_as::<_, (XOnlyPublicKeyDB, BlockHashDB)>(
+            "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash
              FROM withdrawals w
              WHERE w.move_to_vault_txid = $1",
         )
         .bind(TxidDB(move_to_vault_txid));
 
-        let result: Option<(i32, BlockHashDB)> =
+        let result: Option<(XOnlyPublicKeyDB, BlockHashDB)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         result
-            .map(|(operator_idx, block_hash)| {
-                Ok((
-                    u32::try_from(operator_idx)
-                        .wrap_err("Failed to convert operator index to u32")?,
-                    block_hash.0,
-                ))
-            })
+            .map(|(operator_xonly_pk, block_hash)| Ok((operator_xonly_pk.0, block_hash.0)))
             .transpose()
     }
 
     pub async fn get_first_unhandled_payout_by_operator_id(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_id: u32,
+        operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Option<(u32, Txid, BlockHash)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, Option<TxidDB>, Option<BlockHashDB>)>(
             "SELECT w.idx, w.move_to_vault_txid, w.payout_tx_blockhash
              FROM withdrawals w
              WHERE w.payout_txid IS NOT NULL
                 AND w.is_payout_handled = FALSE
-                AND w.payout_payer_operator_idx = $1
+                AND w.payout_payer_operator_xonly_pk = $1
                 ORDER BY w.idx ASC
              LIMIT 1",
         )
-        .bind(i32::try_from(operator_id).wrap_err("Failed to convert operator id to i32")?);
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk));
 
         let results = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -262,7 +260,10 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::{database::Database, test::common::create_test_config_with_thread_name};
+    use crate::{
+        database::Database,
+        test::common::{create_test_config_with_thread_name, generate_random_xonly_pk},
+    };
     use bitcoin::{hashes::Hash, BlockHash, Txid};
 
     #[tokio::test]
@@ -272,7 +273,7 @@ mod tests {
 
         let txid = Txid::from_byte_array([0x45; 32]);
         let index = 0x1F;
-        let operator_index = 0x45;
+        let operator_xonly_pk = generate_random_xonly_pk();
         let utxo = bitcoin::OutPoint {
             txid: bitcoin::Txid::from_byte_array([0x45; 32]),
             vout: 0,
@@ -310,9 +311,9 @@ mod tests {
 
         let block_hash = BlockHash::all_zeros();
 
-        db.set_payout_txs_and_payer_operator_idx(
+        db.set_payout_txs_and_payer_operator_xonly_pk(
             Some(&mut dbtx),
-            vec![(index, txid, operator_index, block_hash)],
+            vec![(index, txid, operator_xonly_pk, block_hash)],
         )
         .await
         .unwrap();

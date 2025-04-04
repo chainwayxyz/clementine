@@ -91,8 +91,9 @@ async fn base_setup(
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
         nofn_xonly_pk: None,
-        verifiers: verifiers_public_keys,
+        verifiers: vec![],
         watchtowers: vec![],
+        operators: vec![],
     });
     let dep_params: DepositParams = deposit_data.into();
     tracing::info!("Creating move transaction");
@@ -187,8 +188,9 @@ pub async fn run_operator_end_round(
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
         nofn_xonly_pk: None,
-        verifiers: verifiers_public_keys,
+        verifiers: vec![],
         watchtowers: vec![],
+        operators: vec![],
     });
 
     let dep_params: DepositParams = deposit_data.into();

@@ -26,9 +26,10 @@ use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
+use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
+use secp256k1::rand;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
@@ -37,6 +38,15 @@ use tx_utils::get_txid_where_utxo_is_spent;
 pub mod citrea;
 mod setup_utils;
 pub mod tx_utils;
+
+/// Generate a random XOnlyPublicKey
+pub fn generate_random_xonly_pk() -> XOnlyPublicKey {
+    let (pubkey, _parity) = SECP
+        .generate_keypair(&mut rand::thread_rng())
+        .1
+        .x_only_public_key();
+    pubkey
+}
 
 /// Polls a closure until it returns true, or the timeout is reached. Exits
 /// early if the closure throws an error.
@@ -226,8 +236,9 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             deposit_outpoint,
             evm_address,
             recovery_taproot_address: actor.address.as_unchecked().to_owned(),
-            verifiers: verifiers_public_keys.clone(),
+            verifiers: vec![],
             watchtowers: vec![],
+            operators: vec![],
             nofn_xonly_pk: None,
         });
 
@@ -322,8 +333,9 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         evm_address,
         recovery_taproot_address: actor.address.as_unchecked().to_owned(),
         nofn_xonly_pk: None,
-        verifiers: verifiers_public_keys.clone(),
+        verifiers: vec![],
         watchtowers: vec![],
+        operators: vec![],
     });
 
     let deposit_params: DepositParams = deposit_data.into();
@@ -513,8 +525,9 @@ pub async fn run_replacement_deposit(
         },
         nofn_xonly_pk: None,
         old_move_txid: move_txid,
-        verifiers: verifiers_public_keys,
+        verifiers: vec![],
         watchtowers: vec![],
+        operators: vec![],
     });
 
     let deposit_params: DepositParams = deposit_data.into();

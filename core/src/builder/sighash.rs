@@ -19,13 +19,13 @@ use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{KickoffId, NormalSignatureKind};
 use async_stream::try_stream;
 use bitcoin::hashes::Hash;
-use bitcoin::{OutPoint, TapNodeHash, TapSighash, XOnlyPublicKey};
+use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
 impl BridgeConfig {
     /// Returns the number of required signatures for N-of-N signing session.
     pub fn get_num_required_nofn_sigs(&self, deposit_data: &DepositData) -> usize {
-        self.num_operators
+        deposit_data.get_num_operators()
             * self.protocol_paramset().num_round_txs
             * self.protocol_paramset().num_signed_kickoffs
             * self.get_num_required_nofn_sigs_per_kickoff(deposit_data)
@@ -155,17 +155,14 @@ pub fn create_nofn_sighash_stream(
     yield_kickoff_txid: bool,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
-        let operators: Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)> =
-            db.get_operators(None).await?;
         let paramset = config.protocol_paramset();
-        if operators.len() < config.num_operators {
-            Err(eyre::eyre!("Not enough operators"))?;
-        }
 
-        for (operator_idx, (op_xonly_pk, _, _)) in
+        let operators = deposit_data.get_operators();
+
+        for (operator_idx, op_xonly_pk) in
             operators.iter().enumerate()
         {
+
             let utxo_idxs = get_kickoff_utxos_to_sign(
                 config.protocol_paramset(),
                 *op_xonly_pk,
@@ -173,7 +170,7 @@ pub fn create_nofn_sighash_stream(
                 deposit_data.get_deposit_outpoint(),
             );
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
             let mut txhandler_cache = TxHandlerCache::new();
 
@@ -250,19 +247,19 @@ pub fn create_nofn_sighash_stream(
 /// It is possible to for verifiers somehow return the required sighashes for operator signatures there too. But operators only needs to use sighashes included in this function.
 pub fn create_operator_sighash_stream(
     db: Database,
-    operator_idx: usize,
+    operator_xonly_pk: XOnlyPublicKey,
     config: BridgeConfig,
     deposit_data: DepositData,
     deposit_blockhash: bitcoin::BlockHash,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
-        let operator = db.get_operator(None, operator_idx as i32).await?;
+        let operator = db.get_operator(None, operator_xonly_pk).await?;
 
         let operator = match operator {
             Some(operator) => operator,
-            None => Err(BridgeError::OperatorNotFound(operator_idx as u32))?,
+            None => Err(BridgeError::OperatorNotFound(operator_xonly_pk))?,
         };
 
         let utxo_idxs = get_kickoff_utxos_to_sign(
@@ -274,6 +271,7 @@ pub fn create_operator_sighash_stream(
 
         let paramset = config.protocol_paramset();
         let mut txhandler_cache = TxHandlerCache::new();
+        let operator_idx = deposit_data.get_operator_index(operator_xonly_pk)?;
 
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
         for round_idx in 0..paramset.num_round_txs {

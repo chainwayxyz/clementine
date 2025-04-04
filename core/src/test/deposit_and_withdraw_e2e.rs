@@ -132,7 +132,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _deposit_params,
             move_txid,
             _deposit_blockhash,
-            _,
+            verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
 
         tracing::info!(
@@ -309,13 +309,15 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config
         };
 
+        let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
+
         let db = Database::new(&verifier_0_config)
             .await
             .expect("failed to create database");
 
         // wait until payout part is not null
         while db
-            .get_first_unhandled_payout_by_operator_id(None, 0)
+            .get_first_unhandled_payout_by_operator_id(None, op0_xonly_pk)
             .await?
             .is_none()
         {
@@ -325,7 +327,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         tracing::info!("Waiting until payout is handled");
         // wait until payout is handled
         while db
-            .get_first_unhandled_payout_by_operator_id(None, 0)
+            .get_first_unhandled_payout_by_operator_id(None, op0_xonly_pk)
             .await?
             .is_some()
         {
@@ -406,7 +408,7 @@ async fn mock_citrea_run_truthful() {
         _deposit_params,
         move_txid,
         _deposit_blockhash,
-        _,
+        verifiers_public_keys,
     ) = run_single_deposit::<MockCitreaClient>(&mut config, rpc.clone(), None)
         .await
         .unwrap();
@@ -563,6 +565,8 @@ async fn mock_citrea_run_truthful() {
         config
     };
 
+    let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
+
     let db = Database::new(&verifier_0_config)
         .await
         .expect("failed to create database");
@@ -571,7 +575,7 @@ async fn mock_citrea_run_truthful() {
     poll_until_condition(
         async || {
             Ok(db
-                .get_first_unhandled_payout_by_operator_id(None, 0)
+                .get_first_unhandled_payout_by_operator_id(None, op0_xonly_pk)
                 .await?
                 .is_some())
         },
@@ -587,7 +591,7 @@ async fn mock_citrea_run_truthful() {
     poll_until_condition(
         async || {
             Ok(db
-                .get_first_unhandled_payout_by_operator_id(None, 0)
+                .get_first_unhandled_payout_by_operator_id(None, op0_xonly_pk)
                 .await?
                 .is_none())
         },

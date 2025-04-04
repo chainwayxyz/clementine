@@ -37,7 +37,10 @@ where
         let mut dbtx = self.db.begin_transaction().await?;
         let unhandled_payout = self
             .db
-            .get_first_unhandled_payout_by_operator_id(Some(&mut dbtx), self.operator.idx as u32)
+            .get_first_unhandled_payout_by_operator_id(
+                Some(&mut dbtx),
+                self.operator.signer.xonly_public_key,
+            )
             .await?;
 
         if unhandled_payout.is_none() {

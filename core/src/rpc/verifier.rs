@@ -69,12 +69,8 @@ where
     ) -> Result<Response<Empty>, Status> {
         let mut in_stream = req.into_inner();
 
-        let (
-            operator_index,
-            collateral_funding_outpoint,
-            operator_xonly_pk,
-            wallet_reimburse_address,
-        ) = parser::operator::parse_details(&mut in_stream).await?;
+        let (collateral_funding_outpoint, operator_xonly_pk, wallet_reimburse_address) =
+            parser::operator::parse_details(&mut in_stream).await?;
 
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
@@ -97,7 +93,6 @@ where
 
         self.verifier
             .set_operator(
-                operator_index,
                 collateral_funding_outpoint,
                 operator_xonly_pk,
                 wallet_reimburse_address,
@@ -321,9 +316,9 @@ where
             let num_required_op_sigs = verifier
                 .config
                 .get_num_required_operator_sigs(&deposit_data);
-            let num_required_total_op_sigs = num_required_op_sigs * verifier.config.num_operators;
+            let num_operators = deposit_data.get_num_operators();
+            let num_required_total_op_sigs = num_required_op_sigs * num_operators;
             let mut total_op_sig_count = 0;
-            let num_operators = verifier.db.get_operators(None).await?.len();
             for _ in 0..num_operators {
                 let mut op_sig_count = 0;
 
@@ -374,10 +369,10 @@ where
         request: tonic::Request<super::OperatorKeysWithDeposit>,
     ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
         let data = request.into_inner();
-        let (deposit_params, op_keys, operator_idx) =
+        let (deposit_params, op_keys, operator_xonly_pk) =
             parser::verifier::parse_op_keys_with_deposit(data)?;
         self.verifier
-            .set_operator_keys(deposit_params, op_keys, operator_idx)
+            .set_operator_keys(deposit_params, op_keys, operator_xonly_pk)
             .await?;
         Ok(Response::new(Empty {}))
     }
