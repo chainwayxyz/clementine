@@ -62,18 +62,6 @@ where
         Ok(Response::new(params))
     }
 
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // async fn set_verifiers(
-    //     &self,
-    //     request: Request<VerifierPublicKeys>,
-    // ) -> Result<Response<Empty>, Status> {
-    //     let verifiers_public_keys: Vec<PublicKey> = request.into_inner().try_into()?;
-
-    //     self.verifier.set_verifiers(verifiers_public_keys).await?;
-
-    //     Ok(Response::new(Empty {}))
-    // }
-
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_operator(
         &self,

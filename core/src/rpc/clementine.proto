@@ -406,9 +406,6 @@ service ClementineVerifier {
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
 
-  // // Saves all verifiers public keys.
-  // rpc SetVerifiers(VerifierPublicKeys) returns (Empty) {}
-
   // Saves an operator.
   rpc SetOperator(stream OperatorParams) returns (Empty) {}
 

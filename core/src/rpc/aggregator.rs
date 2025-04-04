@@ -656,29 +656,6 @@ impl ClementineAggregator for Aggregator {
             verifier_public_keys.verifier_public_keys
         );
 
-        // let verifier_public_keys_move = verifier_public_keys.clone();
-        // let verifier_clients = self.get_verifier_clients().to_vec();
-        // let set_verifier_keys_handle = tokio::spawn({
-        //     async move {
-        //         tracing::info!("Setting up verifiers...");
-
-        //         try_join_all(verifier_clients.into_iter().map(|mut verifier| {
-        //             let verifier_public_keys = verifier_public_keys_move.clone();
-
-        //             async move {
-        //                 verifier
-        //                     .set_verifiers(Request::new(verifier_public_keys))
-        //                     .await?;
-
-        //                 Ok::<_, Status>(())
-        //             }
-        //         }))
-        //         .await?;
-
-        //         Ok::<_, Status>(())
-        //     }
-        // });
-
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, operator_params_rx) =

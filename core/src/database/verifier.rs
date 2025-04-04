@@ -12,36 +12,6 @@ use eyre::Context;
 use sqlx::QueryBuilder;
 
 impl Database {
-    // /// Sets the all verifiers' public keys. Given array **must** be in the same
-    // /// order as the verifiers' indexes.
-    // pub async fn set_verifiers_public_keys(
-    //     &self,
-    //     tx: Option<DatabaseTransaction<'_, '_>>,
-    //     public_keys: &[PublicKey],
-    // ) -> Result<(), BridgeError> {
-    //     let mut query = QueryBuilder::new("INSERT INTO verifier_public_keys (public_key) ");
-    //     query.push_values(public_keys.iter(), |mut builder, pk| {
-    //         builder.push_bind(PublicKeyDB(*pk));
-    //     });
-    //     let query = query.build();
-
-    //     execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-    //     Ok(())
-    // }
-
-    // pub async fn get_verifiers_public_keys(
-    //     &self,
-    //     tx: Option<DatabaseTransaction<'_, '_>>,
-    // ) -> Result<Vec<PublicKey>, BridgeError> {
-    //     let query = sqlx::query_as("SELECT * FROM verifier_public_keys;");
-
-    //     let pks: Vec<(PublicKeyDB,)> =
-    //         execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-
-    //     Ok(pks.into_iter().map(|(pk,)| pk.0).collect())
-    // }
-
     pub async fn set_move_to_vault_txid_from_citrea_deposit(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -294,30 +264,6 @@ impl Database {
 mod tests {
     use crate::{database::Database, test::common::create_test_config_with_thread_name};
     use bitcoin::{hashes::Hash, BlockHash, Txid};
-
-    // #[tokio::test]
-    // async fn set_get_verifiers_public_keys() {
-    //     let config = create_test_config_with_thread_name().await;
-    //     let db = Database::new(&config).await.unwrap();
-
-    //     let pks = vec![
-    //         bitcoin::secp256k1::SecretKey::from_slice(&[1; 32])
-    //             .unwrap()
-    //             .public_key(&SECP),
-    //         bitcoin::secp256k1::SecretKey::from_slice(&[2; 32])
-    //             .unwrap()
-    //             .public_key(&SECP),
-    //         bitcoin::secp256k1::SecretKey::from_slice(&[3; 32])
-    //             .unwrap()
-    //             .public_key(&SECP),
-    //     ];
-
-    //     db.set_verifiers_public_keys(None, &pks).await.unwrap();
-
-    //     let fetched_pks = db.get_verifiers_public_keys(None).await.unwrap();
-
-    //     assert_eq!(pks, fetched_pks);
-    // }
 
     #[tokio::test]
     async fn set_get_payout_txs_from_citrea_withdrawal() {
