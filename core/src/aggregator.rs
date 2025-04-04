@@ -250,7 +250,7 @@ impl Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     fn aggregate_move_partial_sigs(
         &self,
-        deposit_data: DepositData,
+        deposit_data: &mut DepositData,
         agg_nonce: &MusigAggNonce,
         partial_sigs: Vec<MusigPartialSignature>,
     ) -> Result<schnorr::Signature, BridgeError> {

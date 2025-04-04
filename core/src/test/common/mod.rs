@@ -26,7 +26,7 @@ use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness, XOnlyPublicKey};
+use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
 pub use setup_utils::*;
@@ -216,9 +216,6 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
     let mut deposit_outpoints = Vec::new();
     let mut move_txids = Vec::new();
 
-    let nofn_xonly_pk =
-        bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
-
     for _ in 0..count {
         let deposit_outpoint: OutPoint = rpc
             .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
@@ -229,9 +226,9 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             deposit_outpoint,
             evm_address,
             recovery_taproot_address: actor.address.as_unchecked().to_owned(),
-            nofn_xonly_pk,
             verifiers: verifiers_public_keys.clone(),
             watchtowers: vec![],
+            nofn_xonly_pk: None,
         });
 
         let deposit_params: DepositParams = deposit_data.into();
@@ -320,14 +317,11 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None).await?;
     let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
-    let nofn_xonly_pk =
-        bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
-
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: actor.address.as_unchecked().to_owned(),
-        nofn_xonly_pk,
+        nofn_xonly_pk: None,
         verifiers: verifiers_public_keys.clone(),
         watchtowers: vec![],
     });
@@ -471,23 +465,14 @@ pub async fn run_replacement_deposit(
         verifiers_public_keys,
     ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
 
+    let mut dep_data: DepositData = dep_params.clone().try_into()?;
+    let nofn_xonly_pk = dep_data.get_nofn_xonly_pk()?;
+
     tracing::info!(
         "First deposit {} completed, starting replacement deposit",
-        DepositData::try_from(dep_params.clone())?
-            .get_deposit_outpoint()
-            .txid
+        dep_data.get_deposit_outpoint().txid
     );
     tracing::info!("First deposit move txid: {}", move_txid);
-    let nofn_xonly_pk = dep_params.deposit_data.expect("Exists");
-    let nofn_xonly_pk = match nofn_xonly_pk {
-        crate::rpc::clementine::deposit_params::DepositData::BaseDeposit(base_deposit) => {
-            base_deposit.nofn_xonly_pk
-        }
-        crate::rpc::clementine::deposit_params::DepositData::ReplacementDeposit(
-            replacement_deposit,
-        ) => replacement_deposit.nofn_xonly_pk,
-    };
-    let nofn_xonly_pk = XOnlyPublicKey::from_slice(&nofn_xonly_pk).unwrap();
 
     // generate replacement deposit tx
     let new_deposit_tx =
@@ -526,7 +511,7 @@ pub async fn run_replacement_deposit(
             txid: replacement_deposit_txid,
             vout: 0,
         },
-        nofn_xonly_pk,
+        nofn_xonly_pk: None,
         old_move_txid: move_txid,
         verifiers: verifiers_public_keys,
         watchtowers: vec![],

@@ -277,10 +277,16 @@ where
 
         // Start deposit finalize job.
         let verifier = self.verifier.clone();
-        let dep_data = deposit_data.clone();
+        let mut dep_data = deposit_data.clone();
         let deposit_finalize_handle = tokio::spawn(async move {
             verifier
-                .deposit_finalize(dep_data, session_id, sig_rx, agg_nonce_rx, operator_sig_rx)
+                .deposit_finalize(
+                    &mut dep_data,
+                    session_id,
+                    sig_rx,
+                    agg_nonce_rx,
+                    operator_sig_rx,
+                )
                 .await
         });
 
@@ -426,9 +432,9 @@ where
             .db
             .get_deposit_data_with_kickoff_txid(None, txid)
             .await?;
-        if let Some((deposit_data, kickoff_id)) = kickoff_data {
+        if let Some((mut deposit_data, kickoff_id)) = kickoff_data {
             self.verifier
-                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id)
+                .handle_kickoff(&mut dbtx, Witness::new(), &mut deposit_data, kickoff_id)
                 .await?;
         } else {
             return Err(Status::not_found("Kickoff txid not found"));

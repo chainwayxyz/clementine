@@ -504,7 +504,7 @@ where
     /// TODO: This function should be split in to multiple functions
     pub async fn deposit_finalize(
         &self,
-        deposit_data: DepositData,
+        deposit_data: &mut DepositData,
         session_id: u32,
         mut sig_receiver: mpsc::Receiver<Signature>,
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
@@ -524,14 +524,14 @@ where
             true,
         ));
 
-        let num_required_nofn_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
+        let num_required_nofn_sigs = self.config.get_num_required_nofn_sigs(deposit_data);
         let num_required_nofn_sigs_per_kickoff = self
             .config
-            .get_num_required_nofn_sigs_per_kickoff(&deposit_data);
-        let num_required_op_sigs = self.config.get_num_required_operator_sigs(&deposit_data);
+            .get_num_required_nofn_sigs_per_kickoff(deposit_data);
+        let num_required_op_sigs = self.config.get_num_required_operator_sigs(deposit_data);
         let num_required_op_sigs_per_kickoff = self
             .config
-            .get_num_required_operator_sigs_per_kickoff(&deposit_data);
+            .get_num_required_operator_sigs_per_kickoff(deposit_data);
         let &BridgeConfig { num_operators, .. } = &self.config;
 
         let ProtocolParamset {
@@ -586,7 +586,7 @@ where
             verify_schnorr(
                 &sig,
                 &Message::from(typed_sighash.0),
-                deposit_data.get_nofn_xonly_pk(),
+                deposit_data.get_nofn_xonly_pk()?,
                 tweak_data,
                 Some(&mut tweak_cache),
             )
@@ -703,7 +703,7 @@ where
 
         // Generate partial signature for move transaction
         let move_txhandler =
-            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?;
+            create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?;
 
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
@@ -890,11 +890,11 @@ where
     async fn is_kickoff_malicious(
         &self,
         kickoff_witness: Witness,
-        deposit_data: &DepositData,
+        deposit_data: &mut DepositData,
         kickoff_id: KickoffId,
     ) -> Result<bool, BridgeError> {
         let move_txid =
-            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?
+            create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
                 .get_cached_tx()
                 .compute_txid();
         let payout_info = self
@@ -946,11 +946,11 @@ where
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
         kickoff_witness: Witness,
-        deposit_data: DepositData,
+        deposit_data: &mut DepositData,
         kickoff_id: KickoffId,
     ) -> Result<(), BridgeError> {
         let is_malicious = self
-            .is_kickoff_malicious(kickoff_witness, &deposit_data, kickoff_id)
+            .is_kickoff_malicious(kickoff_witness, deposit_data, kickoff_id)
             .await?;
         if !is_malicious {
             return Ok(());
@@ -1246,7 +1246,7 @@ where
                     .db
                     .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
-                if let Some((deposit_data, kickoff_id)) = kickoff_data {
+                if let Some((mut deposit_data, kickoff_id)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
                     StateManager::<Self>::dispatch_new_kickoff_machine(
@@ -1258,7 +1258,7 @@ where
                         witness.clone(),
                     )
                     .await?;
-                    self.handle_kickoff(&mut dbtx, witness, deposit_data, kickoff_id)
+                    self.handle_kickoff(&mut dbtx, witness, &mut deposit_data, kickoff_id)
                         .await?;
                     dbtx.commit().await?;
                 }

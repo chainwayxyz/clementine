@@ -36,7 +36,7 @@ pub fn create_kickoff_txhandler(
     kickoff_id: KickoffId,
     round_txhandler: &TxHandler,
     move_txhandler: &TxHandler,
-    deposit_data: DepositData,
+    deposit_data: &mut DepositData,
     operator_xonly_pk: XOnlyPublicKey,
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
@@ -56,7 +56,7 @@ pub fn create_kickoff_txhandler(
         DEFAULT_SEQUENCE,
     );
 
-    let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()));
+    let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()?));
 
     let operator_1week = Arc::new(TimelockScript::new(
         Some(operator_xonly_pk),
@@ -118,7 +118,7 @@ pub fn create_kickoff_txhandler(
 
     // add nofn_4 week to all assert scripts
     let nofn_4week = Arc::new(TimelockScript::new(
-        Some(deposit_data.get_nofn_xonly_pk()),
+        Some(deposit_data.get_nofn_xonly_pk()?),
         paramset.assert_timeout_timelock,
     ));
 
@@ -167,7 +167,7 @@ pub fn create_kickoff_txhandler(
 
     for (watchtower_idx, watchtower_xonly_pk) in watchtower_xonly_pks.iter().enumerate() {
         let nofn_2week = Arc::new(TimelockScript::new(
-            Some(deposit_data.get_nofn_xonly_pk()),
+            Some(deposit_data.get_nofn_xonly_pk()?),
             paramset.watchtower_challenge_timeout_timelock,
         ));
         // UTXO for watchtower challenge or watchtower challenge timeouts
@@ -180,7 +180,7 @@ pub fn create_kickoff_txhandler(
 
         // UTXO for operator challenge ack, nack, and watchtower challenge timeouts
         let nofn_3week = Arc::new(TimelockScript::new(
-            Some(deposit_data.get_nofn_xonly_pk()),
+            Some(deposit_data.get_nofn_xonly_pk()?),
             paramset.operator_challenge_nack_timelock,
         ));
         let operator_with_preimage = Arc::new(PreimageRevealScript::new(

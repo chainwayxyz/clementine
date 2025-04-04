@@ -9,7 +9,6 @@ use crate::config::protocol::BLOCKS_PER_HOUR;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::{
@@ -20,7 +19,7 @@ use crate::tx_sender::TxSenderClient;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::RpcApi;
 use eyre::{Context, Result};
 use tonic::Request;
@@ -86,13 +85,12 @@ async fn base_setup(
         .await?;
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
-    let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
 
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        nofn_xonly_pk,
+        nofn_xonly_pk: None,
         verifiers: verifiers_public_keys,
         watchtowers: vec![],
     });
@@ -184,13 +182,11 @@ pub async fn run_operator_end_round(
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
-    let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
-
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        nofn_xonly_pk,
+        nofn_xonly_pk: None,
         verifiers: verifiers_public_keys,
         watchtowers: vec![],
     });

@@ -83,15 +83,12 @@ pub struct ReplacementDeposit {
     /// Move to vault txid that is being replaced.
     #[prost(message, optional, tag = "2")]
     pub old_move_txid: ::core::option::Option<Txid>,
-    /// nofn public key used to sign the deposit
-    #[prost(bytes = "vec", tag = "3")]
-    pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
     /// / Public keys of verifiers that will participate in the deposit.
-    #[prost(bytes = "vec", repeated, tag = "4")]
+    #[prost(bytes = "vec", repeated, tag = "3")]
     pub verifiers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
     /// / X-only public keys of watchtowers that will participate in the deposit.
     /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-    #[prost(bytes = "vec", repeated, tag = "5")]
+    #[prost(bytes = "vec", repeated, tag = "4")]
     pub watchtowers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 /// A new original deposit request's details.
@@ -106,15 +103,12 @@ pub struct BaseDeposit {
     /// User's recovery taproot address.
     #[prost(string, tag = "3")]
     pub recovery_taproot_address: ::prost::alloc::string::String,
-    /// nofn public key used to sign the deposit
-    #[prost(bytes = "vec", tag = "4")]
-    pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
     /// / Public keys of verifiers that will participate in the deposit.
-    #[prost(bytes = "vec", repeated, tag = "5")]
+    #[prost(bytes = "vec", repeated, tag = "4")]
     pub verifiers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
     /// / X-only public keys of watchtowers that will participate in the deposit.
     /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-    #[prost(bytes = "vec", repeated, tag = "6")]
+    #[prost(bytes = "vec", repeated, tag = "5")]
     pub watchtowers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]

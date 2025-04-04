@@ -523,12 +523,13 @@ impl Aggregator {
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -> Result<TxHandler<Signed>, Status> {
-        let deposit_data: crate::builder::transaction::DepositData = deposit_params.try_into()?;
+        let mut deposit_data: crate::builder::transaction::DepositData =
+            deposit_params.try_into()?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
         let mut move_txhandler =
-            create_move_to_vault_txhandler(deposit_data.clone(), self.config.protocol_paramset())?;
+            create_move_to_vault_txhandler(&mut deposit_data, self.config.protocol_paramset())?;
 
         let sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
@@ -1126,7 +1127,7 @@ mod tests {
             deposit_outpoint,
             evm_address,
             recovery_taproot_address: signer.address.as_unchecked().clone(),
-            nofn_xonly_pk,
+            nofn_xonly_pk: None,
             verifiers: verifiers_public_keys,
             watchtowers: vec![],
         });

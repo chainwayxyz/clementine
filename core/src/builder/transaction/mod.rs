@@ -14,6 +14,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
+use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::grpc_transaction_id;
 use crate::rpc::clementine::GrpcTransactionId;
 use crate::rpc::clementine::{
@@ -105,10 +106,28 @@ impl DepositData {
             DepositData::ReplacementDeposit(data) => data.deposit_outpoint,
         }
     }
-    pub fn get_nofn_xonly_pk(&self) -> XOnlyPublicKey {
+    pub fn get_nofn_xonly_pk(&mut self) -> Result<XOnlyPublicKey, BridgeError> {
         match self {
-            DepositData::BaseDeposit(data) => data.nofn_xonly_pk,
-            DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk,
+            DepositData::BaseDeposit(data) => {
+                if let Some(pk) = data.nofn_xonly_pk {
+                    return Ok(pk);
+                }
+            }
+            DepositData::ReplacementDeposit(data) => {
+                if let Some(pk) = data.nofn_xonly_pk {
+                    return Ok(pk);
+                }
+            }
+        };
+        let verifiers = self.get_verifiers();
+        let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers, None)?;
+        self.set_nofn_xonly_pk(nofn_xonly_pk);
+        Ok(nofn_xonly_pk)
+    }
+    fn set_nofn_xonly_pk(&mut self, nofn_xonly_pk: XOnlyPublicKey) {
+        match self {
+            DepositData::BaseDeposit(data) => data.nofn_xonly_pk = Some(nofn_xonly_pk),
+            DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk = Some(nofn_xonly_pk),
         }
     }
     pub fn get_num_verifiers(&self) -> usize {
@@ -176,8 +195,8 @@ pub struct BaseDepositData {
     pub evm_address: EVMAddress,
     /// User's recovery taproot address.
     pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
-    /// nofn xonly public key used for deposit.
-    pub nofn_xonly_pk: XOnlyPublicKey,
+    /// Cached nofn xonly public key used for deposit.
+    pub nofn_xonly_pk: Option<XOnlyPublicKey>,
     /// Public keys of verifiers that will participate in the deposit.
     pub verifiers: Vec<PublicKey>,
     /// X-only public keys of watchtowers that will participate in the deposit.
@@ -191,8 +210,8 @@ pub struct ReplacementDepositData {
     pub deposit_outpoint: bitcoin::OutPoint,
     /// old move_to_vault txid that was replaced
     pub old_move_txid: Txid,
-    /// nofn xonly public key used for deposit.
-    pub nofn_xonly_pk: XOnlyPublicKey,
+    /// Cached nofn xonly public key used for deposit.
+    pub nofn_xonly_pk: Option<XOnlyPublicKey>,
     /// X-only public keys of verifiers that will participate in the deposit.
     pub verifiers: Vec<PublicKey>,
     /// X-only public keys of watchtowers that will participate in the deposit.
@@ -446,15 +465,16 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
 /// the funds to a NofN address from the deposit intent address, after all the signature
 /// collection operations are done.
 pub fn create_move_to_vault_txhandler(
-    deposit_data: DepositData,
+    deposit_data: &mut DepositData,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
-    let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()));
+    let nofn_xonly_pk = deposit_data.get_nofn_xonly_pk()?;
+    let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
 
     let builder = match deposit_data {
         DepositData::BaseDeposit(original_deposit_data) => {
             let deposit_script = Arc::new(BaseDepositScript::new(
-                original_deposit_data.nofn_xonly_pk,
+                nofn_xonly_pk,
                 original_deposit_data.evm_address,
                 paramset.bridge_amount,
             ));
@@ -491,7 +511,7 @@ pub fn create_move_to_vault_txhandler(
         }
         DepositData::ReplacementDeposit(replacement_deposit_data) => {
             let deposit_script = Arc::new(ReplacementDepositScript::new(
-                replacement_deposit_data.nofn_xonly_pk,
+                nofn_xonly_pk,
                 replacement_deposit_data.old_move_txid,
                 paramset.bridge_amount,
             ));

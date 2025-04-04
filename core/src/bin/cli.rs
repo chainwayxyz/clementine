@@ -103,8 +103,6 @@ enum AggregatorCommands {
         evm_address: String,
         #[arg(long)]
         recovery_taproot_address: String,
-        #[arg(long)]
-        nofn_xonly_pk: String,
         #[arg(long, num_args = 1.., value_delimiter = ',')]
         verifiers: Vec<String>,
         #[arg(long, num_args = 0.., value_delimiter = ',')]
@@ -140,7 +138,6 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                     }),
                     evm_address: vec![1; 20],
                     recovery_taproot_address: String::new(),
-                    nofn_xonly_pk: vec![1; 32],
                     verifiers: verifiers
                         .iter()
                         .map(|v| {
@@ -261,7 +258,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             deposit_outpoint_vout,
             evm_address,
             recovery_taproot_address,
-            nofn_xonly_pk,
             verifiers,
             watchtowers,
         } => {
@@ -274,7 +270,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                         }),
                         evm_address: evm_address.as_bytes().to_vec(),
                         recovery_taproot_address,
-                        nofn_xonly_pk: nofn_xonly_pk.as_bytes().to_vec(),
                         verifiers: verifiers
                             .iter()
                             .map(|v| {

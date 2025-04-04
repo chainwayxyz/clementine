@@ -427,12 +427,12 @@ pub async fn create_txhandlers(
         round_idx,
         kickoff_idx: context.kickoff_idx.ok_or(TxError::InsufficientContext)?,
     };
-    let deposit_data = context.deposit_data.ok_or(TxError::InsufficientContext)?;
+    let mut deposit_data = context.deposit_data.ok_or(TxError::InsufficientContext)?;
 
     if !txhandlers.contains_key(&TransactionType::MoveToVault) {
         // if not cached create move_txhandler
         let move_txhandler =
-            builder::transaction::create_move_to_vault_txhandler(deposit_data.clone(), paramset)?;
+            builder::transaction::create_move_to_vault_txhandler(&mut deposit_data, paramset)?;
         txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
     }
 
@@ -455,7 +455,7 @@ pub async fn create_txhandlers(
             kickoff_id,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-            deposit_data.clone(),
+            &mut deposit_data,
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             db_cache.get_bitvm_disprove_root_hash().await?,
@@ -478,7 +478,7 @@ pub async fn create_txhandlers(
             kickoff_id,
             get_txhandler(&txhandlers, TransactionType::Round)?,
             get_txhandler(&txhandlers, TransactionType::MoveToVault)?,
-            deposit_data.clone(),
+            &mut deposit_data,
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,

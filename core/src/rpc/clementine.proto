@@ -95,13 +95,11 @@ message ReplacementDeposit {
   Outpoint deposit_outpoint = 1;
   // Move to vault txid that is being replaced.
   Txid old_move_txid = 2;
-  // nofn public key used to sign the deposit
-  bytes nofn_xonly_pk = 3;
   /// Public keys of verifiers that will participate in the deposit.
-  repeated bytes verifiers = 4;
+  repeated bytes verifiers = 3;
   /// X-only public keys of watchtowers that will participate in the deposit.
   /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-  repeated bytes watchtowers = 5;
+  repeated bytes watchtowers = 4;
 }
 
 // A new original deposit request's details.
@@ -112,13 +110,11 @@ message BaseDeposit {
   bytes evm_address = 2;
   // User's recovery taproot address.
   string recovery_taproot_address = 3;
-  // nofn public key used to sign the deposit
-  bytes nofn_xonly_pk = 4;
   /// Public keys of verifiers that will participate in the deposit.
-  repeated bytes verifiers = 5;
+  repeated bytes verifiers = 4;
   /// X-only public keys of watchtowers that will participate in the deposit.
   /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-  repeated bytes watchtowers = 6;
+  repeated bytes watchtowers = 5;
 }
 
 enum FeeType {
