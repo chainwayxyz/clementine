@@ -1372,7 +1372,7 @@ where
 
         // Save block info to database for the header chain prover.
         self.header_chain_prover
-            .save_unproven_block(block_cache.as_ref(), Some(dbtx))
+            .prove_if_ready(Some(&mut dbtx))
             .await?;
 
         Ok(())
