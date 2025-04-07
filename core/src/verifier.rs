@@ -737,6 +737,14 @@ where
                         .into());
                     }
 
+                    tracing::trace!(
+                        "Setting deposit signatures for {:?}, {:?}, {:?} {:?}",
+                        operator_xonly_pk,
+                        round_idx,
+                        kickoff_idx,
+                        kickoff_txid
+                    );
+
                     self.db
                         .set_deposit_signatures(
                             Some(&mut dbtx),
@@ -1202,7 +1210,7 @@ where
                 operator_acks,
                 payout_blockhash,
             } => {
-                tracing::warn!(
+                tracing::info!(
                     "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
                     payout_blockhash: {:?}", verifier_xonly_pk, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
             }
@@ -1211,7 +1219,7 @@ where
                 block_height,
                 witness,
             } => {
-                tracing::info!(
+                tracing::debug!(
                     "Verifier {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
                     verifier_xonly_pk,
                     txid,
@@ -1222,6 +1230,11 @@ where
                     .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
                 if let Some((mut deposit_data, kickoff_data)) = db_kickoff_data {
+                    tracing::info!(
+                        "New kickoff found {:?}, for deposit: {:?}",
+                        kickoff_data,
+                        deposit_data.get_deposit_outpoint()
+                    );
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
                     StateManager::<Self>::dispatch_new_kickoff_machine(

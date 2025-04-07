@@ -190,7 +190,7 @@ impl MockCitreaClient {
         });
     }
 
-    /// Pushes a withdrawal utxo and its ondex to the given height.
+    /// Pushes a withdrawal utxo and its index to the given height.
     pub async fn insert_withdrawal_utxo(&mut self, height: u64, utxo: OutPoint) {
         let mut storage = self.storage.lock().await;
         let idx = storage.withdrawals.len() as u64 + 1;

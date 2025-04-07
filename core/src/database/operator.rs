@@ -689,7 +689,9 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_id: u32,
+        operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Option<(u32, u32)>, BridgeError> {
+        // TODO: check if AND ds.round_idx >= cr.round_idx is correct or if we should use = instead
         let query = sqlx::query_as::<_, (i32, i32)>(
             "WITH current_round AS (
                     SELECT round_idx
@@ -702,6 +704,7 @@ impl Database {
                 FROM deposit_signatures ds
                 CROSS JOIN current_round cr
                 WHERE ds.deposit_id = $1  -- Parameter for deposit_id
+                    AND ds.operator_xonly_pk = $2
                     AND ds.round_idx >= cr.round_idx
                     AND NOT EXISTS (
                         SELECT 1
@@ -712,7 +715,8 @@ impl Database {
                 ORDER BY ds.round_idx ASC
                 LIMIT 1;",
         )
-        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk));
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 

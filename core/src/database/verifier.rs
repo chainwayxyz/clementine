@@ -191,7 +191,7 @@ impl Database {
             .transpose()
     }
 
-    pub async fn get_first_unhandled_payout_by_operator_id(
+    pub async fn get_first_unhandled_payout_by_operator_xonly_pk(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         operator_xonly_pk: XOnlyPublicKey,

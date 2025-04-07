@@ -660,7 +660,11 @@ where
         // get unused kickoff connector
         let (round_idx, kickoff_idx) = self
             .db
-            .get_unused_and_signed_kickoff_connector(Some(dbtx), deposit_id)
+            .get_unused_and_signed_kickoff_connector(
+                Some(dbtx),
+                deposit_id,
+                self.signer.xonly_public_key,
+            )
             .await?
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
 

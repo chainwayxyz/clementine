@@ -225,7 +225,7 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
         .name()
         .expect("Failed to get thread name")
         .split(':')
-        .last()
+        .next_back()
         .expect("Failed to get thread name")
         .to_owned();
 
