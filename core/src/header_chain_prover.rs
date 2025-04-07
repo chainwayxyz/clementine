@@ -294,23 +294,31 @@ impl HeaderChainProver {
         Ok(receipt)
     }
 
+    /// Proves blocks till the block with hash `current_block_hash`.
+    ///
+    /// # Parameters
+    ///
+    /// - `current_block_hash`: Hash of the block to prove
+    /// - `block_headers`: Block headers to prove
+    /// - `previous_proof`: Previous proof's receipt
     #[tracing::instrument(skip_all)]
     pub async fn prove_blocks(
         &self,
-        last_block_hash: BlockHash,
+        current_block_hash: BlockHash,
         block_headers: Vec<Header>,
         previous_proof: Receipt,
     ) -> Result<Receipt, BridgeError> {
         tracing::info!(
-            "Prover starts proving for blocks till the block with hash {}",
-            last_block_hash
+            "Prover starts proving {} blocks ending with block with hash {}",
+            block_headers.len(),
+            current_block_hash
         );
 
         let headers: Vec<CircuitBlockHeader> = block_headers.into_iter().map(Into::into).collect();
         let receipt = self.prove_block_headers(Some(previous_proof), headers)?;
 
         self.db
-            .set_block_proof(None, last_block_hash, receipt.clone())
+            .set_block_proof(None, current_block_hash, receipt.clone())
             .await?;
 
         Ok(receipt)
@@ -404,6 +412,11 @@ impl Task for HeaderChainProverTask {
         if !self.inner.is_batch_ready().await? {
             return Ok(false);
         }
+
+        // let receipt = self
+        //     .inner
+        //     .prove_blocks(current_block_hash, block_headers, previous_proof)
+        //     .await?;
 
         let receipt = self
             .inner

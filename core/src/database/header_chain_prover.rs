@@ -91,6 +91,50 @@ impl Database {
         Ok(result)
     }
 
+    /// Gets the newest n number of block's info that their previous block has
+    /// proven before. These blocks will be the candidate blocks for the prover.
+    ///
+    /// # Returns
+    ///
+    /// Returns `None` if either no proved blocks are exists or blockchain tip
+    /// is already proven.
+    ///
+    /// - [`BlockHash`] - Hash of last block in the batch
+    /// - [`Header`] - Headers of the blocks
+    /// - [`u64`] - Height of the last block in the batch
+    /// - [`Receipt`] - Previous block's proof
+    pub async fn get_next_n_non_proven_block(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        count: u32,
+    ) -> Result<Vec<(BlockHash, Header, u64, Receipt)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT h1.block_hash,
+                    h1.block_header,
+                    h1.height,
+                    h2.proof
+                FROM header_chain_proofs h1
+                JOIN header_chain_proofs h2 ON h1.prev_block_hash = h2.block_hash
+                WHERE h2.proof IS NOT NULL
+                ORDER BY h1.height
+                LIMIT $1;",
+        )
+        .bind(i32::try_from(count).wrap_err(BridgeError::IntConversionError)?);
+
+        let result: Vec<(BlockHashDB, BlockHeaderDB, i64, Vec<u8>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        result
+            .iter()
+            .map(|result| {
+                let receipt: Receipt =
+                    borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
+                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+                Ok((result.0 .0, result.1 .0, height, receipt))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
     /// Gets the latest block's info that it's proven.
     ///
     /// # Returns
@@ -402,5 +446,126 @@ mod tests {
         let res = db.get_next_non_proven_block(None).await.unwrap().unwrap();
         assert_eq!(res.0, block_hash3);
         assert_eq!(res.2 as u64, height3);
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    pub async fn get_non_proven_blocks() {
+        let config = create_test_config_with_thread_name().await;
+        let db = Database::new(&config).await.unwrap();
+
+        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+
+        assert!(db
+            .get_next_n_non_proven_block(None, batch_size)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .is_none());
+
+        let mut height = 0x45;
+
+        // Save initial block without a proof.
+        let block = block::Block {
+            header: Header {
+                version: Version::TWO,
+                prev_blockhash: BlockHash::all_zeros(),
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0x1F,
+                bits: CompactTarget::default(),
+                nonce: 0x45,
+            },
+            txdata: vec![],
+        };
+        let block_hash = block.block_hash();
+        db.set_new_block(None, block_hash, block.header, height)
+            .await
+            .unwrap();
+        assert!(db
+            .get_next_n_non_proven_block(None, batch_size)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .is_none());
+
+        // Save second block with a proof.
+        let block = block::Block {
+            header: Header {
+                version: Version::TWO,
+                prev_blockhash: block_hash,
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0x1F,
+                bits: CompactTarget::default(),
+                nonce: 0x45 + 1,
+            },
+            txdata: vec![],
+        };
+        let block_hash1 = block.block_hash();
+        height += 1;
+        db.set_new_block(None, block_hash1, block.header, height)
+            .await
+            .unwrap();
+        let receipt =
+            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        db.set_block_proof(None, block_hash1, receipt.clone())
+            .await
+            .unwrap();
+        assert!(db
+            .get_next_n_non_proven_block(None, batch_size)
+            .await
+            .unwrap()
+            .is_empty());
+        let latest_proven_block = db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest_proven_block.0, block_hash1);
+        assert_eq!(latest_proven_block.1, block.header);
+        assert_eq!(latest_proven_block.2 as u64, height);
+
+        // Save next blocks without a proof.
+        let mut blocks: Vec<(BlockHash, u32)> = Vec::new();
+        for i in 0..batch_size {
+            let block = block::Block {
+                header: Header {
+                    version: Version::TWO,
+                    prev_blockhash: block_hash1,
+                    merkle_root: TxMerkleNode::all_zeros(),
+                    time: 0x1F,
+                    bits: CompactTarget::default(),
+                    nonce: 0x45 + 2 + i,
+                },
+                txdata: vec![],
+            };
+            let block_hash = block.block_hash();
+            height += 1;
+            db.set_new_block(None, block_hash, block.header, height)
+                .await
+                .unwrap();
+
+            blocks.push((block_hash, height.try_into().unwrap()));
+        }
+
+        // This time, `get_non_proven_block` should return third block's details.
+        let res = db
+            .get_next_n_non_proven_block(None, batch_size)
+            .await
+            .unwrap();
+        assert_eq!(res.len(), batch_size as usize);
+        for i in 0..batch_size {
+            tracing::error!("i: {i}");
+            let i = i as usize;
+            assert_eq!(res[i].2, blocks[i].1 as u64);
+            assert_eq!(res[i].0, blocks[i].0);
+        }
     }
 }
