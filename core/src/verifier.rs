@@ -183,27 +183,6 @@ where
         Ok(verifier)
     }
 
-    // pub async fn set_verifiers(
-    //     &self,
-    //     verifiers_public_keys: Vec<PublicKey>,
-    // ) -> Result<(), BridgeError> {
-    //     // Check if verifiers are already set
-    //     if self.nofn.read().await.clone().is_some() {
-    //         return Err(eyre!("Verifiers already set").into());
-    //     }
-
-    //     // Save verifiers public keys to db
-    //     self.db
-    //         .set_verifiers_public_keys(None, &verifiers_public_keys)
-    //         .await?;
-
-    //     // Save the nofn to memory for fast access
-    //     let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
-    //     self.nofn.write().await.replace(nofn);
-
-    //     Ok(())
-    // }
-
     /// Verifies all unspent kickoff signatures sent by the operator, converts them to TaggedSignature
     /// as they will be saved as TaggedSignatures to the db.
     fn verify_unspent_kickoff_sigs(
@@ -379,7 +358,7 @@ where
     ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
-        let verifier_index = deposit_data.get_watchtower_index(&self.signer.xonly_public_key)?;
+        let verifier_index = deposit_data.get_verifier_index(&self.signer.public_key)?;
         let verifiers_public_keys = deposit_data.get_verifiers();
 
         let deposit_blockhash = self
@@ -1003,7 +982,7 @@ where
                 &[],
                 Some(TxMetadata {
                     tx_type,
-                    operator_xonly_pk: None,
+                    operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
                     round_idx: Some(kickoff_data.round_idx),
                     kickoff_idx: Some(kickoff_data.kickoff_idx),
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),

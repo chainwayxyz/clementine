@@ -374,7 +374,6 @@ fn sign_nofn_deposit_tx(
 ) -> Transaction {
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
-
     let msg = Message::from_digest(
         deposit_tx
             .calculate_script_spend_sighash(

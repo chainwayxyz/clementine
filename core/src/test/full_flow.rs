@@ -88,7 +88,6 @@ async fn base_setup(
         .await?;
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
-
     let deposit_data = DepositData::BaseDeposit(BaseDepositData {
         deposit_outpoint,
         evm_address,

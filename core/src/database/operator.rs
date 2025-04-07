@@ -104,60 +104,6 @@ impl Database {
         }
     }
 
-    /// Get unused kickoff_utxo at ready if there are any.
-    pub async fn get_unused_kickoff_utxo_and_increase_idx(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<UTXO>, BridgeError> {
-        // Attempt to fetch the latest transaction details
-        let query = sqlx::query_as(
-            "UPDATE deposit_kickoff_generator_txs
-                SET cur_unused_kickoff_index = cur_unused_kickoff_index + 1
-                WHERE id = (
-                    SELECT id
-                    FROM deposit_kickoff_generator_txs
-                    WHERE cur_unused_kickoff_index < num_kickoffs
-                    ORDER BY id DESC
-                    LIMIT 1
-                )
-                RETURNING txid, raw_signed_tx, cur_unused_kickoff_index;", // This query returns the updated cur_unused_kickoff_index.
-        );
-
-        let result: Result<(TxidDB, String, i32), sqlx::Error> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one);
-
-        match result {
-            Ok((txid, raw_signed_tx, cur_unused_kickoff_index)) => {
-                // Deserialize the transaction
-                //
-                let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
-                    &hex::decode(raw_signed_tx).wrap_err("Failed to decode raw_signed_tx hex")?,
-                )
-                .wrap_err("Failed to deserialize raw_signed_tx")?;
-
-                // Create the outpoint and txout
-                let outpoint = OutPoint {
-                    txid: txid.0,
-                    vout: cur_unused_kickoff_index as u32 - 1,
-                };
-                let txout = tx.output[cur_unused_kickoff_index as usize - 1].clone();
-
-                Ok(Some(UTXO { outpoint, txout }))
-            }
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => {
-                if let Some(postgresql_error) = e.as_database_error() {
-                    // if error is 23514 (check_violation), it means there is no more unused kickoffs
-                    if postgresql_error.is_check_violation() {
-                        return Ok(None);
-                    }
-                };
-
-                Err(BridgeError::DatabaseError(e))
-            }
-        }
-    }
-
     /// Sets the funding UTXO for kickoffs.
     pub async fn set_funding_utxo(
         &self,
