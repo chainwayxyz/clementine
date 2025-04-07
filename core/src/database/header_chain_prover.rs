@@ -16,8 +16,8 @@ use eyre::Context;
 use risc0_zkvm::Receipt;
 
 impl Database {
-    /// Adds a new block to the database, later to be updated by a proof.
-    pub async fn set_new_block(
+    /// Adds a new block to the database, later to be updated with a proof.
+    pub async fn save_unproven_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: block::BlockHash,
@@ -133,7 +133,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 1;
-        db.set_new_block(None, block_hash, block.header, height)
+        db.save_unproven_block(None, block_hash, block.header, height)
             .await
             .unwrap();
         let receipt =
@@ -153,7 +153,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 2;
-        db.set_new_block(None, block_hash, block.header, height)
+        db.save_unproven_block(None, block_hash, block.header, height)
             .await
             .unwrap();
 
@@ -183,7 +183,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 0x45;
-        db.set_new_block(None, block_hash, block.header, height)
+        db.save_unproven_block(None, block_hash, block.header, height)
             .await
             .unwrap();
 
@@ -232,7 +232,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = base_height;
-        db.set_new_block(None, block_hash, block.header, height)
+        db.save_unproven_block(None, block_hash, block.header, height)
             .await
             .unwrap();
         assert!(db.get_non_proven_block(None).await.is_err());
@@ -251,7 +251,7 @@ mod tests {
         };
         let block_hash1 = block.block_hash();
         let height1 = base_height + 1;
-        db.set_new_block(None, block_hash1, block.header, height1)
+        db.save_unproven_block(None, block_hash1, block.header, height1)
             .await
             .unwrap();
         let receipt =
@@ -275,7 +275,7 @@ mod tests {
         };
         let block_hash2 = block.block_hash();
         let height2 = base_height + 2;
-        db.set_new_block(None, block_hash2, block.header, height2)
+        db.save_unproven_block(None, block_hash2, block.header, height2)
             .await
             .unwrap();
 
@@ -298,7 +298,7 @@ mod tests {
         };
         let block_hash3 = block.block_hash();
         let height3 = base_height + 3;
-        db.set_new_block(None, block_hash3, block.header, height3)
+        db.save_unproven_block(None, block_hash3, block.header, height3)
             .await
             .unwrap();
 

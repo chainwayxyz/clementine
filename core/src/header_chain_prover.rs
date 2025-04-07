@@ -119,7 +119,7 @@ impl HeaderChainProver {
 
             // Ignore error if block entry is in database already.
             let _ = db
-                .set_new_block(
+                .save_unproven_block(
                     None,
                     block_hash,
                     block_header,
@@ -289,8 +289,8 @@ impl HeaderChainProverClient {
         }
     }
 
-    /// Sets a new block to database, later to be proven.
-    pub async fn set_new_block(
+    /// Saves a new block to database, later to be proven.
+    pub async fn save_unproven_block(
         &self,
         block_cache: &BlockCache,
         dbtx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -308,7 +308,7 @@ impl HeaderChainProverClient {
             .header;
 
         self.db
-            .set_new_block(
+            .save_unproven_block(
                 dbtx,
                 block_hash,
                 block_header,
@@ -445,7 +445,7 @@ mod tests {
 
             headers.push(CircuitBlockHeader::from(header));
 
-            let _ignore_errors = db.set_new_block(None, hash, header, i).await;
+            let _ignore_errors = db.save_unproven_block(None, hash, header, i).await;
         }
 
         headers
@@ -514,7 +514,7 @@ mod tests {
         let header = block.header;
         prover
             .db
-            .set_new_block(None, hash, header, height)
+            .save_unproven_block(None, hash, header, height)
             .await
             .unwrap();
 
@@ -660,7 +660,10 @@ mod tests {
             txids: Default::default(),
             spent_utxos: Default::default(),
         };
-        hcp_client.set_new_block(&block_cache, None).await.unwrap();
+        hcp_client
+            .save_unproven_block(&block_cache, None)
+            .await
+            .unwrap();
 
         poll_until_condition(
             async || Ok(hcp_client.get_header_chain_proof(hash).await.is_ok()),
@@ -686,7 +689,7 @@ mod tests {
             let hash = rpc.client.get_block_hash(i).await.unwrap();
             let block = rpc.client.get_block(&hash).await.unwrap();
 
-            db.set_new_block(None, block.block_hash(), block.header, i)
+            db.save_unproven_block(None, block.block_hash(), block.header, i)
                 .await
                 .unwrap();
         }
