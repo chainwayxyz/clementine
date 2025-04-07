@@ -10,10 +10,10 @@ use borsh::{self, BorshDeserialize};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
-use final_spv::merkle_tree::BitcoinMerkleTree;
-use final_spv::spv::SPV;
-use header_chain::header_chain::CircuitBlockHeader;
-use header_chain::mmr_native::MMRNative;
+use temp_core::merkle_tree::BitcoinMerkleTree;
+use temp_core::spv::SPV;
+use temp_core::header_chain::CircuitBlockHeader;
+use temp_core::mmr_native::MMRNative;
 
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 
@@ -326,7 +326,7 @@ mod tests {
     use circuits_lib::bridge_circuit::winternitz::{
         generate_public_key, sign_digits, Parameters, WinternitzHandler,
     };
-    use header_chain::header_chain::BlockHeaderCircuitOutput;
+    use temp_core::header_chain::BlockHeaderCircuitOutput;
     use hex_literal::hex;
     use rand::rngs::SmallRng;
     use rand::{Rng, SeedableRng};
