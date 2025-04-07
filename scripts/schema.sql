@@ -28,7 +28,7 @@ create table if not exists header_chain_proofs (
     block_hash text primary key not null,
     block_header text,
     prev_block_hash text,
-    height int not null,
+    height bigint not null,
     proof bytea
 );
 create table if not exists watchtower_xonly_public_keys (

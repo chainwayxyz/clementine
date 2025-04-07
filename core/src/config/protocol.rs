@@ -141,6 +141,8 @@ pub struct ProtocolParamset {
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
     pub start_height: u32,
+    /// Batch size of the header chain proofs
+    pub header_chain_proof_batch_size: u32,
 }
 
 pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -166,6 +168,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
     finality_depth: 6,
     start_height: 1,
+    header_chain_proof_batch_size: 100,
 };
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -191,6 +194,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
     finality_depth: 1,
     start_height: 201,
+    header_chain_proof_batch_size: 100,
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -216,6 +220,7 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
     finality_depth: 60,
     start_height: 1,
+    header_chain_proof_batch_size: 100,
 };
 
 pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -241,6 +246,7 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
     finality_depth: 1,
     start_height: 201,
+    header_chain_proof_batch_size: 100,
 };
 
 lazy_static! {
