@@ -559,8 +559,8 @@ mod tests {
         transaction::Version,
         ScriptBuf, Transaction,
     };
-    use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
-    use header_chain::{
+    use temp_core::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
+    use temp_core::{
         header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader},
         mmr_native::MMRInclusionProof,
     };
