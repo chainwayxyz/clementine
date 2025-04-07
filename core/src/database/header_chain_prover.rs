@@ -482,7 +482,7 @@ mod tests {
             txdata: vec![],
         };
         let block_hash = block.block_hash();
-        db.set_new_block(None, block_hash, block.header, height)
+        db.save_unproven_block(None, block_hash, block.header, height)
             .await
             .unwrap();
         assert!(db
@@ -510,7 +510,7 @@ mod tests {
         };
         let block_hash1 = block.block_hash();
         height += 1;
-        db.set_new_block(None, block_hash1, block.header, height)
+        db.save_unproven_block(None, block_hash1, block.header, height)
             .await
             .unwrap();
         let receipt =
@@ -548,7 +548,7 @@ mod tests {
             };
             let block_hash = block.block_hash();
             height += 1;
-            db.set_new_block(None, block_hash, block.header, height)
+            db.save_unproven_block(None, block_hash, block.header, height)
                 .await
                 .unwrap();
 

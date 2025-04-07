@@ -20,7 +20,7 @@ use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverClient};
+use crate::header_chain_prover::HeaderChainProver;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::{block_cache, StateManager};
@@ -114,9 +114,6 @@ where
 
         background_tasks.loop_and_monitor(tx_sender.into_task());
 
-        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
-        background_tasks.loop_and_monitor(header_chain_prover.into_task());
-
         // initialize and run state manager
         let state_manager =
             StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
@@ -167,7 +164,7 @@ pub struct Verifier<C: CitreaClientT> {
     _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub tx_sender: TxSenderClient,
-    pub header_chain_prover: HeaderChainProverClient,
+    pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
 }
 
@@ -215,7 +212,7 @@ where
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
-        let header_chain_prover = HeaderChainProverClient::new(db.clone()).await?;
+        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
 
         let verifier = Verifier {
             rpc,
