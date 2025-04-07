@@ -2,7 +2,8 @@ use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
     self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
-    TransactionRequest, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams, XOnlyPublicKeyRpc,
+    TransactionRequest, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
+    XOnlyPublicKeyRpc,
 };
 use super::error::*;
 use super::parser::ParserError;

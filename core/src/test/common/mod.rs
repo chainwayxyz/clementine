@@ -374,6 +374,7 @@ fn sign_nofn_deposit_tx(
 ) -> Transaction {
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
     let msg = Message::from_digest(
         deposit_tx
             .calculate_script_spend_sighash(
@@ -471,19 +472,15 @@ pub async fn run_replacement_deposit(
         operators,
         mut aggregator,
         cleanup,
-        dep_params,
+        _dep_params,
         move_txid,
         _,
         verifiers_public_keys,
     ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
 
-    let mut dep_data: DepositData = dep_params.clone().try_into()?;
-    let nofn_xonly_pk = dep_data.get_nofn_xonly_pk()?;
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
 
-    tracing::info!(
-        "First deposit {} completed, starting replacement deposit",
-        dep_data.get_deposit_outpoint().txid
-    );
     tracing::info!("First deposit move txid: {}", move_txid);
 
     // generate replacement deposit tx
