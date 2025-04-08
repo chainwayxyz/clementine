@@ -607,29 +607,20 @@ mod tests {
 
         let latest_proven_block_height =
             db.get_next_non_proven_block(None).await.unwrap().unwrap().2;
-        let block_headers = mine_and_get_first_n_block_headers(
+        let _block_headers = mine_and_get_first_n_block_headers(
             rpc.clone(),
             db.clone(),
             (latest_proven_block_height + batch_size as u64).into(),
         )
         .await;
-        let height = rpc
-            .client
-            .get_block_header_info(&&block_headers.iter().next_back().unwrap().block_hash())
-            .await
-            .unwrap()
-            .height;
 
         let receipt = prover.prove_if_ready(None).await.unwrap().unwrap();
-        let get_receipt = prover
-            .get_header_chain_proof(
-                rpc.client
-                    .get_block_hash(height.try_into().unwrap())
-                    .await
-                    .unwrap(),
-            )
+        let latest_proof = db
+            .get_latest_proven_block_info(None)
             .await
+            .unwrap()
             .unwrap();
+        let get_receipt = prover.get_header_chain_proof(latest_proof.0).await.unwrap();
         assert_eq!(receipt.journal, get_receipt.journal);
         assert_eq!(receipt.metadata, get_receipt.metadata);
     }
