@@ -10,16 +10,17 @@ use borsh::{self, BorshDeserialize};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
-use temp_core::merkle_tree::BitcoinMerkleTree;
-use temp_core::spv::SPV;
 use temp_core::header_chain::CircuitBlockHeader;
+use temp_core::merkle_tree::BitcoinMerkleTree;
 use temp_core::mmr_native::MMRNative;
+use temp_core::spv::SPV;
 
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 
 const _BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/prod-testnet4-bridge-circuit-guest");
-const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
+    include_bytes!("../../risc0-circuits/elfs/prod-testnet4-bridge-circuit-guest.bin");
+const WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
 /// Generates a Groth16 proof for the Bridge Circuit after performing sanity checks.
 ///
@@ -326,19 +327,19 @@ mod tests {
     use circuits_lib::bridge_circuit::winternitz::{
         generate_public_key, sign_digits, Parameters, WinternitzHandler,
     };
-    use temp_core::header_chain::BlockHeaderCircuitOutput;
     use hex_literal::hex;
     use rand::rngs::SmallRng;
     use rand::{Rng, SeedableRng};
     use risc0_zkvm::Receipt;
     use std::convert::TryInto;
+    use temp_core::header_chain::BlockHeaderCircuitOutput;
 
     use super::*;
 
     const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest");
+        include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
     const WORK_ONLY_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
+        include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
         hex_literal::hex!("1ff9f5b6d77bbd4296e1749049d4a841088fb72f7a324da71e31fa1576d4bc0b");

@@ -1,61 +1,157 @@
-use std::env;
-use std::process::Command;
+use risc0_build::{embed_methods_with_options, DockerOptionsBuilder, GuestOptionsBuilder};
+use std::{collections::HashMap, env, fs};
 
 fn main() {
-    println!("cargo:rerun-if-changed=bridge_circuit_build.dockerfile");
-    std::env::remove_var("RUSTC_WORKSPACE_WRAPPER");
+    // Build environment variables
+    println!("cargo:rerun-if-env-changed=SKIP_GUEST_BUILD");
+    println!("cargo:rerun-if-env-changed=REPR_GUEST_BUILD");
+    println!("cargo:rerun-if-env-changed=OUT_DIR");
 
-    if env::var("REPR_GUEST_BUILD").is_ok() {
-        // Get the absolute path to the project root
-        let current_dir = env::current_dir().expect("Failed to get current directory");
-        let project_root = current_dir.parent().unwrap().parent().unwrap();
-        let output_dir = project_root.join("target/riscv-guest/riscv32im-risc0-zkvm-elf/docker");
+    // Compile time constant environment variables
+    println!("cargo:rerun-if-env-changed=BITCOIN_NETWORK");
+    println!("cargo:rerun-if-env-changed=TEST_SKIP_GUEST_BUILD");
 
-        eprintln!("Current directory: {:?}", current_dir);
-        eprintln!("Project root: {:?}", project_root);
-        eprintln!("Output directory: {:?}", output_dir);
-
-        // Ensure the output directory exists
-        std::fs::create_dir_all(&output_dir).expect("Failed to create output directory");
-
-        let output = Command::new("docker")
-            .args([
-                "buildx",
-                "build",
-                "--platform",
-                "linux/amd64",
-                "-f",
-                "build-files/bridge_circuit_build.dockerfile",
-                "--no-cache",
-                // "--target",
-                // "test",
-                "--output",
-                "type=local,dest=.",
-                ".", // Use current directory as context
-                "--build-arg",
-                &format!(
-                    "BITCOIN_NETWORK={}",
-                    std::env::var("BITCOIN_NETWORK").unwrap().as_str()
-                ),
-                "--build-arg",
-                &format!(
-                    "BRIDGE_CIRCUIT_MODE={}",
-                    std::env::var("BRIDGE_CIRCUIT_MODE").unwrap().as_str()
-                ),
-            ])
-            .current_dir(project_root) // Set working directory to project root
-            .output()
-            .expect("Failed to execute Docker command");
-
-        // println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-
-        if !output.status.success() {
-            eprintln!("Docker build failed:");
-            eprintln!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-            eprintln!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-            panic!("Docker build failed");
-        }
+    // Check if we should skip the guest build for tests
+    if let Ok("1" | "true") = env::var("TEST_SKIP_GUEST_BUILD").as_deref() {
+        println!("cargo:warning=Skipping guest build in test. Exiting");
+        return;
     }
 
-    risc0_build::embed_methods();
+    let network = env::var("BITCOIN_NETWORK").unwrap_or_else(|_| {
+        println!("cargo:warning=BITCOIN_NETWORK not set, defaulting to 'mainnet'");
+        "mainnet".to_string()
+    });
+
+    let bridge_circuit_mode = env::var("BRIDGE_CIRCUIT_MODE").unwrap_or_else(|_| {
+        println!("cargo:warning=BUILD_TYPE not set, defaulting to 'test'");
+        "test".to_string()
+    });
+
+    let is_repr_guest_build = match env::var("REPR_GUEST_BUILD") {
+        Ok(value) => match value.as_str() {
+            "1" | "true" => {
+                println!("cargo:warning=REPR_GUEST_BUILD is set to true");
+                true
+            }
+            "0" | "false" => {
+                println!("cargo:warning=REPR_GUEST_BUILD is set to false");
+                false
+            }
+            _ => {
+                println!("cargo:warning=Invalid value for REPR_GUEST_BUILD: '{}'. Expected '0', '1', 'true', or 'false'. Defaulting to false.", value);
+                false
+            }
+        },
+        Err(env::VarError::NotPresent) => {
+            println!("cargo:warning=REPR_GUEST_BUILD not set. Defaulting to false.");
+            false
+        }
+        Err(env::VarError::NotUnicode(_)) => {
+            println!(
+                "cargo:warning=REPR_GUEST_BUILD contains invalid Unicode. Defaulting to false."
+            );
+            false
+        }
+    };
+
+    println!("cargo:warning=Building for Bitcoin network: {}", network);
+
+    // Use embed_methods_with_options with our custom options
+    let guest_pkg_to_options = get_guest_options(network.clone(), bridge_circuit_mode.clone());
+    embed_methods_with_options(guest_pkg_to_options);
+
+    if is_repr_guest_build {
+        copy_binary_to_elfs_folder(network, bridge_circuit_mode);
+        println!("cargo:warning=Copying binary to elfs folder");
+    } else {
+        println!("cargo:warning=Not copying binary to elfs folder");
+    }
+}
+
+fn get_guest_options(
+    network: String,
+    bridge_circuit_mode: String,
+) -> HashMap<&'static str, risc0_build::GuestOptions> {
+    let mut guest_pkg_to_options = HashMap::new();
+    // let mut features = Vec::new();
+
+    // // Add Bitcoin network feature if specified
+    // if let Ok(network) = env::var("BITCOIN_NETWORK") {
+    //     println!("cargo:warning=Building for Bitcoin network: {}", network);
+    //     features.push(format!("network-{}", network.to_lowercase()));
+    // }
+
+    let opts = if env::var("REPR_GUEST_BUILD").is_ok() {
+        let current_dir = env::current_dir().expect("Failed to get current dir");
+        let current_dir = current_dir.to_str().expect("Failed to convert path to str");
+        let root_dir = format!("{current_dir}/../..");
+
+        let docker_opts = DockerOptionsBuilder::default()
+            .root_dir(root_dir)
+            .env(vec![
+                ("BITCOIN_NETWORK".to_string(), network.clone()),
+                (
+                    "BRIDGE_CIRCUIT_MODE".to_string(),
+                    bridge_circuit_mode.to_string(),
+                ),
+            ])
+            .build()
+            .unwrap();
+
+        println!(
+            "cargo:warning=Root dir: {}",
+            docker_opts.root_dir().display()
+        );
+
+        GuestOptionsBuilder::default()
+            // .features(features)
+            .use_docker(docker_opts)
+            .build()
+            .unwrap()
+    } else {
+        println!("cargo:warning=Guest code is not built in docker");
+        GuestOptionsBuilder::default()
+            // .features(features)
+            .build()
+            .unwrap()
+    };
+
+    guest_pkg_to_options.insert("bridge-circuit-guest", opts);
+    guest_pkg_to_options
+}
+
+fn copy_binary_to_elfs_folder(network: String, bridge_circuit_mode: String) {
+    let current_dir = env::current_dir().expect("Failed to get current dir");
+    let base_dir = current_dir.join("../..");
+
+    let elfs_dir = base_dir.join("risc0-circuits/elfs");
+
+    if !elfs_dir.exists() {
+        fs::create_dir_all(&elfs_dir).expect("Failed to create elfs directory");
+        println!("cargo:warning=Created elfs directory at {:?}", elfs_dir);
+    }
+
+    let src_path = base_dir.join("target/riscv-guest/bridge-circuit/bridge-circuit-guest/riscv32im-risc0-zkvm-elf/docker/bridge-circuit-guest.bin");
+    if !src_path.exists() {
+        println!(
+            "cargo:warning=Source binary not found at {:?}, skipping copy",
+            src_path
+        );
+        return;
+    }
+
+    let dest_filename = format!(
+        "{}-{}-bridge-circuit-guest.bin",
+        bridge_circuit_mode.to_lowercase(),
+        network.to_lowercase()
+    );
+    let dest_path = elfs_dir.join(&dest_filename);
+
+    match fs::copy(&src_path, &dest_path) {
+        Ok(_) => println!(
+            "cargo:warning=Successfully copied binary to {:?}",
+            dest_path
+        ),
+        Err(e) => println!("cargo:warning=Failed to copy binary: {}", e),
+    }
 }
