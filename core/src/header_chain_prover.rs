@@ -318,6 +318,12 @@ impl HeaderChainProver {
         if tip_height - non_proven_block.2 >= self.batch_size {
             return Ok(true);
         }
+        tracing::debug!(
+            "Batch not ready: {} - {} < {}",
+            tip_height,
+            non_proven_block.2,
+            self.batch_size
+        );
 
         Ok(false)
     }
@@ -325,13 +331,11 @@ impl HeaderChainProver {
     pub async fn prove_if_ready(
         &self,
         dbtx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> std::result::Result<bool, BridgeError> {
+    ) -> Result<Option<Receipt>, BridgeError> {
         if !self.is_batch_ready().await? {
-            return Ok(false);
+            return Ok(None);
         }
 
-        // There should be at least `self.batch_size` blocks between the last
-        // proven block and the tip; No need to check length.
         let unproven_blocks = self
             .db
             .get_next_n_non_proven_block(
@@ -341,20 +345,23 @@ impl HeaderChainProver {
                     .wrap_err("Can't convert u64 to u32")?,
             )
             .await?;
+        let (unproven_blocks, prev_proof) = match unproven_blocks {
+            Some(unproven_blocks) => unproven_blocks,
+            None => {
+                tracing::debug!("No unproven blocks found");
+                return Ok(None);
+            }
+        };
 
         let current_block_hash = unproven_blocks.iter().next_back().expect("Exists").0;
         let current_block_height = unproven_blocks.iter().next_back().expect("Exists").2;
         let block_headers = unproven_blocks
             .iter()
-            .map(|(_, header, _, _)| *header)
+            .map(|(_, header, _)| *header)
             .collect::<Vec<_>>();
 
         let receipt = self
-            .prove_blocks(
-                current_block_hash,
-                block_headers,
-                unproven_blocks[0].3.clone(),
-            )
+            .prove_blocks(current_block_hash, block_headers, prev_proof)
             .await?;
         tracing::info!(
             "Receipt for block with hash {:?} and height with: {:?}: {:?}",
@@ -363,7 +370,7 @@ impl HeaderChainProver {
             receipt
         );
 
-        Ok(true)
+        Ok(Some(receipt))
     }
 }
 
@@ -375,7 +382,7 @@ mod tests {
     use crate::header_chain_prover::HeaderChainProver;
     use crate::test::common::*;
     use crate::verifier::VerifierServer;
-    use bitcoin::{hashes::Hash, BlockHash};
+    use bitcoin::{block::Header, hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
     use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
@@ -388,18 +395,29 @@ mod tests {
         rpc: ExtendedRpc,
         db: Database,
         block_num: u64,
-    ) -> Vec<CircuitBlockHeader> {
+    ) -> Vec<Header> {
         let height = rpc.client.get_block_count().await.unwrap();
+        tracing::debug!(
+            "Current tip height: {}, target block height: {}",
+            height,
+            block_num
+        );
         if height < block_num {
-            rpc.mine_blocks(block_num - height).await.unwrap();
+            tracing::debug!(
+                "Mining {} blocks to reach block number {}",
+                block_num - height,
+                block_num
+            );
+            rpc.mine_blocks(block_num - height + 1).await.unwrap();
         }
 
+        tracing::debug!("Getting first {} block headers from blockchain", block_num);
         let mut headers = Vec::new();
-        for i in 0..block_num {
+        for i in 0..block_num + 1 {
             let hash = rpc.client.get_block_hash(i).await.unwrap();
             let header = rpc.client.get_block_header(&hash).await.unwrap();
 
-            headers.push(CircuitBlockHeader::from(header));
+            headers.push(header);
 
             let _ignore_errors = db.save_unproven_block(None, hash, header, i).await;
         }
@@ -510,7 +528,11 @@ mod tests {
         // Prove genesis block and get it's receipt.
         let receipt = prover.prove_block_headers(None, vec![]).unwrap();
 
-        let block_headers = mine_and_get_first_n_block_headers(rpc, prover.db.clone(), 3).await;
+        let block_headers = mine_and_get_first_n_block_headers(rpc, prover.db.clone(), 3)
+            .await
+            .iter()
+            .map(|header| CircuitBlockHeader::from(*header))
+            .collect::<Vec<_>>();
         let receipt = prover
             .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
             .unwrap();
@@ -520,64 +542,6 @@ mod tests {
 
         assert_eq!(output.chain_state.block_height, 1);
     }
-
-    // #[tokio::test]
-    // #[serial_test::serial]
-    // async fn check_for_new_blocks_and_prove() {
-    //     let mut config = create_test_config_with_thread_name().await;
-    //     let regtest = create_regtest_rpc(&mut config).await;
-    //     let rpc = regtest.rpc().clone();
-    //     let db = Database::new(&config).await.unwrap();
-
-    //     let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
-
-    //     let number_of_blocks_to_prove = 5;
-    //     let _block_headers =
-    //         mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), number_of_blocks_to_prove)
-    //             .await;
-
-    //     // Prove blocks after the first one. Because the first one has
-    //     // an assumption that is provided from the bridge config.
-    //     for i in 1..number_of_blocks_to_prove {
-    //         let non_proven_block = prover
-    //             .check_for_new_unproven_blocks()
-    //             .await
-    //             .unwrap()
-    //             .unwrap();
-    //         assert_eq!(non_proven_block.2, i as u32);
-
-    //         let previous_block_hash = rpc.client.get_block_hash(i - 1).await.unwrap();
-    //         let current_block_hash = rpc.client.get_block_hash(i).await.unwrap();
-    //         let current_block_header = rpc
-    //             .client
-    //             .get_block_header(&current_block_hash)
-    //             .await
-    //             .unwrap();
-    //         let previous_proof = prover
-    //             .get_header_chain_proof(previous_block_hash)
-    //             .await
-    //             .unwrap();
-
-    //         let receipt = prover
-    //             .prove_block(
-    //                 current_block_hash,
-    //                 current_block_header,
-    //                 i.try_into().unwrap(),
-    //                 previous_proof,
-    //             )
-    //             .await
-    //             .unwrap();
-
-    //         let db_receipt = db
-    //             .get_block_proof_by_hash(None, current_block_hash)
-    //             .await
-    //             .unwrap()
-    //             .unwrap();
-
-    //         assert_eq!(receipt.journal, db_receipt.journal);
-    //         assert_eq!(receipt.metadata, db_receipt.metadata);
-    //     }
-    // }
 
     #[tokio::test]
     #[serial_test::serial]
@@ -622,6 +586,52 @@ mod tests {
         )
         .await;
         assert!(prover.is_batch_ready().await.unwrap());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn prove_if_ready() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        let db = Database::new(&config).await.unwrap();
+
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Save some initial blocks.
+        mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), 2).await;
+
+        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+
+        assert!(prover.prove_if_ready(None).await.unwrap().is_none());
+
+        let latest_proven_block_height =
+            db.get_next_non_proven_block(None).await.unwrap().unwrap().2;
+        let block_headers = mine_and_get_first_n_block_headers(
+            rpc.clone(),
+            db.clone(),
+            (latest_proven_block_height + batch_size as u64).into(),
+        )
+        .await;
+        let height = rpc
+            .client
+            .get_block_header_info(&&block_headers.iter().next_back().unwrap().block_hash())
+            .await
+            .unwrap()
+            .height;
+
+        let receipt = prover.prove_if_ready(None).await.unwrap().unwrap();
+        let get_receipt = prover
+            .get_header_chain_proof(
+                rpc.client
+                    .get_block_hash(height.try_into().unwrap())
+                    .await
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(receipt.journal, get_receipt.journal);
+        assert_eq!(receipt.metadata, get_receipt.metadata);
     }
 
     #[ignore = "waiting units"]

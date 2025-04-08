@@ -107,32 +107,50 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         count: u32,
-    ) -> Result<Vec<(BlockHash, Header, u64, Receipt)>, BridgeError> {
+    ) -> Result<Option<(Vec<(BlockHash, Header, u64)>, Receipt)>, BridgeError> {
+        let next_non_proven_block = self.get_next_non_proven_block(None).await.unwrap();
+        let next_non_proven_block = match next_non_proven_block {
+            Some(next_non_proven_block) => next_non_proven_block,
+            None => return Ok(None),
+        };
+
         let query = sqlx::query_as(
-            "SELECT h1.block_hash,
-                    h1.block_header,
-                    h1.height,
-                    h2.proof
-                FROM header_chain_proofs h1
-                JOIN header_chain_proofs h2 ON h1.prev_block_hash = h2.block_hash
-                WHERE h2.proof IS NOT NULL
-                ORDER BY h1.height
-                LIMIT $1;",
+            "SELECT block_hash,
+                    block_header,
+                    height
+                FROM header_chain_proofs
+                WHERE height >= $1
+                ORDER BY height ASC
+                LIMIT $2;",
         )
-        .bind(i32::try_from(count).wrap_err(BridgeError::IntConversionError)?);
+        .bind(next_non_proven_block.2 as i64)
+        .bind(count as i64);
+        let result: Vec<(BlockHashDB, BlockHeaderDB, i64)> = execute_query_with_tx!(
+            self.connection,
+            None::<DatabaseTransaction>,
+            query,
+            fetch_all
+        )
+        .unwrap();
 
-        let result: Vec<(BlockHashDB, BlockHeaderDB, i64, Vec<u8>)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-
-        result
+        let blocks = result
             .iter()
             .map(|result| {
-                let receipt: Receipt =
-                    borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
-                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
-                Ok((result.0 .0, result.1 .0, height, receipt))
+                let height = result
+                    .2
+                    .try_into()
+                    .wrap_err("Can't convert i64 to u64")
+                    .unwrap();
+                Ok((result.0 .0, result.1 .0, height))
             })
-            .collect::<Result<Vec<_>, BridgeError>>()
+            .collect::<Result<Vec<_>, BridgeError>>()?;
+
+        // If not yet enough entries are found, return `None`.
+        if blocks.len() != count as usize {
+            return Ok(None);
+        }
+
+        Ok(Some((blocks, next_non_proven_block.3)))
     }
 
     /// Gets the latest block's info that it's proven.
@@ -460,7 +478,7 @@ mod tests {
             .get_next_n_non_proven_block(None, batch_size)
             .await
             .unwrap()
-            .is_empty());
+            .is_none());
         assert!(db
             .get_latest_proven_block_info(None)
             .await
@@ -489,7 +507,7 @@ mod tests {
             .get_next_n_non_proven_block(None, batch_size)
             .await
             .unwrap()
-            .is_empty());
+            .is_none());
         assert!(db
             .get_latest_proven_block_info(None)
             .await
@@ -522,7 +540,7 @@ mod tests {
             .get_next_n_non_proven_block(None, batch_size)
             .await
             .unwrap()
-            .is_empty());
+            .is_none());
         let latest_proven_block = db
             .get_latest_proven_block_info(None)
             .await
@@ -559,13 +577,14 @@ mod tests {
         let res = db
             .get_next_n_non_proven_block(None, batch_size)
             .await
+            .unwrap()
             .unwrap();
-        assert_eq!(res.len(), batch_size as usize);
+        assert_eq!(res.0.len(), batch_size as usize);
         for i in 0..batch_size {
             tracing::error!("i: {i}");
             let i = i as usize;
-            assert_eq!(res[i].2, blocks[i].1 as u64);
-            assert_eq!(res[i].0, blocks[i].0);
+            assert_eq!(res.0[i].2, blocks[i].1 as u64);
+            assert_eq!(res.0[i].0, blocks[i].0);
         }
     }
 }
