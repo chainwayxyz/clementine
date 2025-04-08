@@ -387,7 +387,6 @@ mod tests {
     use borsh::BorshDeserialize;
     use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use risc0_zkvm::Receipt;
-    use std::time::Duration;
 
     /// Mines `block_num` amount of blocks (if not already mined) and returns
     /// the first `block_num` block headers in blockchain.
@@ -625,13 +624,14 @@ mod tests {
         assert_eq!(receipt.metadata, get_receipt.metadata);
     }
 
-    #[ignore = "waiting units"]
     #[tokio::test]
     async fn verifier_new_check_header_chain_proof() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
         let db = Database::new(&config).await.unwrap();
+
+        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
 
         // Save initial blocks, because VerifierServer won't.
         let count = rpc.client.get_block_count().await.unwrap();
@@ -648,11 +648,12 @@ mod tests {
         let verifier = VerifierServer::<MockCitreaClient>::new(config)
             .await
             .unwrap();
-        rpc.mine_blocks(10).await.unwrap();
+        // Make sure enough blocks to prove and is confirmed.
+        rpc.mine_blocks((batch_size + 10).into()).await.unwrap();
 
         // Aim for a proved block that is added to the database by the verifier.
-        let height = rpc.client.get_block_count().await.unwrap() - 7;
-        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let height = batch_size;
+        let hash = rpc.client.get_block_hash(height.into()).await.unwrap();
 
         poll_until_condition(
             async || {
@@ -663,8 +664,8 @@ mod tests {
                     .await
                     .is_ok())
             },
-            Some(Duration::from_secs(60 * 10)),
-            Some(Duration::from_millis(100)),
+            None,
+            None,
         )
         .await
         .unwrap();
