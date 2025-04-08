@@ -16,6 +16,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/install-risc0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run Cargo fmt
       run: cargo fmt --check
 
