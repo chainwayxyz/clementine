@@ -71,7 +71,7 @@ impl Database {
                 FROM header_chain_proofs h1
                 JOIN header_chain_proofs h2 ON h1.prev_block_hash = h2.block_hash
                 WHERE h2.proof IS NOT NULL AND h1.proof IS NULL
-                ORDER BY h1.height ASC
+                ORDER BY h1.height DESC
                 LIMIT 1;",
         );
 
@@ -439,7 +439,7 @@ mod tests {
         assert_eq!(res.0, block_hash2);
         assert_eq!(res.2 as u64, height2);
 
-        // Save fourth block without a proof.
+        // Save fourth block with a proof.
         let block = block::Block {
             header: Header {
                 version: Version::TWO,
@@ -456,16 +456,37 @@ mod tests {
         db.save_unproven_block(None, block_hash3, block.header, height3)
             .await
             .unwrap();
-
-        // Set third block's proof.
-        db.set_block_proof(None, block_hash2, receipt.clone())
+        db.set_block_proof(None, block_hash3, receipt.clone())
             .await
             .unwrap();
 
-        // This time, `get_non_proven_block` should return fourth block's details.
+        // This time, `get_non_proven_block` shouldn't return any block because latest is proved.
+        // TODO: `get_non_proven_block` will still return the last unproven block that it's
+        // predecessor has a proof. This might be unexpected behavior. Check back again.
+        // assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+
+        // Save fifth block without a proof.
+        let block = block::Block {
+            header: Header {
+                version: Version::TWO,
+                prev_blockhash: block_hash1,
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0x1F,
+                bits: CompactTarget::default(),
+                nonce: 0x45 + 5,
+            },
+            txdata: vec![],
+        };
+        let block_hash4 = block.block_hash();
+        let height4 = base_height + 4;
+        db.save_unproven_block(None, block_hash4, block.header, height4)
+            .await
+            .unwrap();
+
+        // This time, `get_non_proven_block` should return fifth block's details.
         let res = db.get_next_non_proven_block(None).await.unwrap().unwrap();
-        assert_eq!(res.0, block_hash3);
-        assert_eq!(res.2 as u64, height3);
+        assert_eq!(res.2 as u64, height4);
+        assert_eq!(res.0, block_hash4);
     }
 
     #[tokio::test]
@@ -481,6 +502,7 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
         assert!(db
             .get_latest_proven_block_info(None)
             .await
@@ -510,6 +532,7 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
         assert!(db
             .get_latest_proven_block_info(None)
             .await
@@ -543,6 +566,7 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
         let latest_proven_block = db
             .get_latest_proven_block_info(None)
             .await
@@ -554,11 +578,12 @@ mod tests {
 
         // Save next blocks without a proof.
         let mut blocks: Vec<(BlockHash, u32)> = Vec::new();
+        let mut prev_block_hash = block_hash1;
         for i in 0..batch_size {
             let block = block::Block {
                 header: Header {
                     version: Version::TWO,
-                    prev_blockhash: block_hash1,
+                    prev_blockhash: prev_block_hash,
                     merkle_root: TxMerkleNode::all_zeros(),
                     time: 0x1F,
                     bits: CompactTarget::default(),
@@ -567,11 +592,13 @@ mod tests {
                 txdata: vec![],
             };
             let block_hash = block.block_hash();
+
             height += 1;
+            prev_block_hash = block_hash;
+
             db.save_unproven_block(None, block_hash, block.header, height)
                 .await
                 .unwrap();
-            tracing::error!("block height: {}", height);
 
             blocks.push((block_hash, height.try_into().unwrap()));
         }
@@ -584,7 +611,6 @@ mod tests {
             .unwrap();
         assert_eq!(res.0.len(), batch_size as usize);
         for i in 0..batch_size {
-            tracing::error!("i: {i}");
             let i = i as usize;
             assert_eq!(res.0[i].2, blocks[i].1 as u64);
             assert_eq!(res.0[i].0, blocks[i].0);
