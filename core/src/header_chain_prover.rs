@@ -58,6 +58,8 @@ pub enum HeaderChainProverError {
     ProverDeSerializationError,
     #[error("No header chain proofs for hash {0}")]
     NoHeaderChainProof(BlockHash),
+    #[error("Wait for candidate batch to be ready")]
+    BatchNotReady,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -66,6 +68,7 @@ pub enum HeaderChainProverError {
 #[derive(Debug, Clone)]
 pub struct HeaderChainProver {
     db: Database,
+    rpc: ExtendedRpc,
     network: bitcoin::Network,
     batch_size: u64,
 }
@@ -133,6 +136,7 @@ impl HeaderChainProver {
 
         Ok(HeaderChainProver {
             db,
+            rpc,
             batch_size: config
                 .protocol_paramset()
                 .header_chain_proof_batch_size
@@ -259,10 +263,64 @@ impl HeaderChainProver {
     ///
     /// - [`Receipt`]: Specified block's proof receipt
     pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
-        match self.db.get_block_proof_by_hash(None, hash).await? {
-            Some(r) => Ok(r),
-            None => Err(HeaderChainProverError::NoHeaderChainProof(hash).into()),
+        // Return cached proof if exists.
+        if let Some(proof) = self
+            .db
+            .get_block_proof_by_hash(None, hash)
+            .await
+            .wrap_err("Failed to get block proof")?
+        {
+            return Ok(proof);
         }
+
+        let latest_proven_block = self
+            .db
+            .get_latest_proven_block_info(None)
+            .await?
+            .ok_or(eyre::eyre!("No proven block found"))?;
+        let tip_height = self
+            .rpc
+            .client
+            .get_block_count()
+            .await
+            .wrap_err("Can't get block tip height")?;
+
+        if tip_height - latest_proven_block.2 > self.batch_size
+            && tip_height - latest_proven_block.2 == self.batch_size
+        {
+            return Err(HeaderChainProverError::BatchNotReady.into());
+        }
+
+        // If in limits of the batch size but not in a target block, prove block
+        // headers manually.
+        let mut block_headers = Vec::new();
+        for i in latest_proven_block.2..tip_height {
+            let block_hash = self
+                .rpc
+                .client
+                .get_block_hash(i)
+                .await
+                .wrap_err("Failed to get block hash")?;
+            let block_header = self
+                .rpc
+                .client
+                .get_block_header(&block_hash)
+                .await
+                .wrap_err("Failed to get block header")?;
+
+            block_headers.push(block_header);
+        }
+
+        let previous_proof = self
+            .db
+            .get_block_proof_by_hash(None, latest_proven_block.0)
+            .await?
+            .ok_or(eyre::eyre!("No proven block found"))?;
+        let receipt = self
+            .prove_blocks(hash, block_headers, previous_proof)
+            .await?;
+
+        Ok(receipt)
     }
 
     /// Saves a new block to database, later to be proven.
