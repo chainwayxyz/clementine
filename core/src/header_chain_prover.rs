@@ -679,6 +679,56 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
+    async fn prove_and_get_non_targeted_block() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        let db = Database::new(&config).await.unwrap();
+
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Save some initial blocks.
+        mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), 2).await;
+
+        let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
+
+        assert!(prover.prove_if_ready().await.unwrap().is_none());
+
+        let latest_proven_block_height =
+            db.get_next_non_proven_block(None).await.unwrap().unwrap().2;
+        let _block_headers = mine_and_get_first_n_block_headers(
+            rpc.clone(),
+            db.clone(),
+            (latest_proven_block_height + batch_size as u64).into(),
+        )
+        .await;
+
+        let receipt = prover.prove_if_ready().await.unwrap().unwrap();
+        let latest_proof = db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .unwrap();
+        let get_receipt = prover.get_header_chain_proof(latest_proof.0).await.unwrap();
+        assert_eq!(receipt.journal, get_receipt.journal);
+        assert_eq!(receipt.metadata, get_receipt.metadata);
+
+        // Try to get proof of the previous block that its heir is proven.
+        let target_height = latest_proof.2 - 1;
+        let target_hash = rpc.client.get_block_hash(target_height).await.unwrap();
+
+        assert!(db
+            .get_block_proof_by_hash(None, target_hash)
+            .await
+            .unwrap()
+            .is_none());
+
+        // get_header_chain_proof should calculate the proof for the block.
+        let _receipt = prover.get_header_chain_proof(target_hash).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn verifier_new_check_header_chain_proof() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
