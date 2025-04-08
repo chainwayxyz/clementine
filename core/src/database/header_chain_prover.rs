@@ -105,7 +105,6 @@ impl Database {
     /// - [`Receipt`] - Previous block's proof
     pub async fn get_next_n_non_proven_block(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
         count: u32,
     ) -> Result<Option<(Vec<(BlockHash, Header, u64)>, Receipt)>, BridgeError> {
         let next_non_proven_block = self.get_next_non_proven_block(None).await?;
@@ -498,7 +497,7 @@ mod tests {
         let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
 
         assert!(db
-            .get_next_n_non_proven_block(None, batch_size)
+            .get_next_n_non_proven_block(batch_size)
             .await
             .unwrap()
             .is_none());
@@ -528,7 +527,7 @@ mod tests {
             .await
             .unwrap();
         assert!(db
-            .get_next_n_non_proven_block(None, batch_size)
+            .get_next_n_non_proven_block(batch_size)
             .await
             .unwrap()
             .is_none());
@@ -562,7 +561,7 @@ mod tests {
             .await
             .unwrap();
         assert!(db
-            .get_next_n_non_proven_block(None, batch_size)
+            .get_next_n_non_proven_block(batch_size)
             .await
             .unwrap()
             .is_none());
@@ -605,7 +604,7 @@ mod tests {
 
         // This time, `get_non_proven_block` should return third block's details.
         let res = db
-            .get_next_n_non_proven_block(None, batch_size)
+            .get_next_n_non_proven_block(batch_size)
             .await
             .unwrap()
             .unwrap();

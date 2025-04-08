@@ -386,10 +386,7 @@ impl HeaderChainProver {
         Ok(false)
     }
 
-    pub async fn prove_if_ready(
-        &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<Receipt>, BridgeError> {
+    pub async fn prove_if_ready(&self) -> Result<Option<Receipt>, BridgeError> {
         if !self.is_batch_ready().await? {
             return Ok(None);
         }
@@ -397,7 +394,6 @@ impl HeaderChainProver {
         let unproven_blocks = self
             .db
             .get_next_n_non_proven_block(
-                dbtx,
                 self.batch_size
                     .try_into()
                     .wrap_err("Can't convert u64 to u32")?,
@@ -660,7 +656,7 @@ mod tests {
 
         let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
 
-        assert!(prover.prove_if_ready(None).await.unwrap().is_none());
+        assert!(prover.prove_if_ready().await.unwrap().is_none());
 
         let latest_proven_block_height =
             db.get_next_non_proven_block(None).await.unwrap().unwrap().2;
@@ -671,7 +667,7 @@ mod tests {
         )
         .await;
 
-        let receipt = prover.prove_if_ready(None).await.unwrap().unwrap();
+        let receipt = prover.prove_if_ready().await.unwrap().unwrap();
         let latest_proof = db
             .get_latest_proven_block_info(None)
             .await
