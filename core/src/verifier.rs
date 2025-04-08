@@ -1370,7 +1370,9 @@ where
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
 
-        // Save block info to database for the header chain prover.
+        self.header_chain_prover
+            .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
+            .await?;
         self.header_chain_prover
             .prove_if_ready(Some(&mut dbtx))
             .await?;

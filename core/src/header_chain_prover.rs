@@ -18,7 +18,6 @@ use risc0_to_bitvm2_core::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
-use sqlx::Postgres;
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -266,37 +265,11 @@ impl HeaderChainProver {
         }
     }
 
-    #[tracing::instrument(skip_all)]
-    async fn is_batch_ready(&self) -> Result<bool, BridgeError> {
-        let non_proven_block = if let Some(block) = self.db.get_next_non_proven_block(None).await? {
-            block
-        } else {
-            return Ok(false);
-        };
-        let tip_height = self
-            .db
-            .get_latest_block_height(None)
-            .await?
-            .ok_or(eyre::eyre!("No tip block found"))?;
-
-        tracing::error!(
-            "Tip height: {}, non proven block height: {}, {}",
-            tip_height,
-            non_proven_block.2,
-            self.batch_size
-        );
-        if tip_height - non_proven_block.2 >= self.batch_size {
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
     /// Saves a new block to database, later to be proven.
-    async fn save_unproven_block_cache(
+    pub async fn save_unproven_block_cache(
         &self,
+        dbtx: Option<DatabaseTransaction<'_, '_>>,
         block_cache: &BlockCache,
-        dbtx: Option<&mut sqlx::Transaction<'_, Postgres>>,
     ) -> Result<(), BridgeError> {
         let block_hash = block_cache
             .block
@@ -322,33 +295,65 @@ impl HeaderChainProver {
         Ok(())
     }
 
+    /// Checks if there are enough blocks to prove.
+    #[tracing::instrument(skip_all)]
+    async fn is_batch_ready(&self) -> Result<bool, BridgeError> {
+        let non_proven_block = if let Some(block) = self.db.get_next_non_proven_block(None).await? {
+            block
+        } else {
+            return Ok(false);
+        };
+        let tip_height = self
+            .db
+            .get_latest_block_height(None)
+            .await?
+            .ok_or(eyre::eyre!("No tip block found"))?;
+
+        tracing::debug!(
+            "Tip height: {}, non proven block height: {}, {}",
+            tip_height,
+            non_proven_block.2,
+            self.batch_size
+        );
+        if tip_height - non_proven_block.2 >= self.batch_size {
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     pub async fn prove_if_ready(
         &self,
         dbtx: Option<DatabaseTransaction<'_, '_>>,
     ) -> std::result::Result<bool, BridgeError> {
-        let unproven_block = self.db.get_next_non_proven_block(dbtx).await?;
-
-        let (current_block_hash, current_block_header, current_block_height, previous_proof) =
-            if let Some(unproven_block) = unproven_block {
-                unproven_block
-            } else {
-                return Ok(false);
-            };
-
         if !self.is_batch_ready().await? {
             return Ok(false);
         }
 
-        // let receipt = self
-        //     .inner
-        //     .prove_blocks(current_block_hash, block_headers, previous_proof)
-        //     .await?;
+        // There should be at least `self.batch_size` blocks between the last
+        // proven block and the tip; No need to check length.
+        let unproven_blocks = self
+            .db
+            .get_next_n_non_proven_block(
+                dbtx,
+                self.batch_size
+                    .try_into()
+                    .wrap_err("Can't convert u64 to u32")?,
+            )
+            .await?;
+
+        let current_block_hash = unproven_blocks.iter().next_back().expect("Exists").0;
+        let current_block_height = unproven_blocks.iter().next_back().expect("Exists").2;
+        let block_headers = unproven_blocks
+            .iter()
+            .map(|(_, header, _, _)| *header)
+            .collect::<Vec<_>>();
 
         let receipt = self
             .prove_blocks(
                 current_block_hash,
-                vec![current_block_header],
-                previous_proof,
+                block_headers,
+                unproven_blocks[0].3.clone(),
             )
             .await?;
         tracing::info!(
