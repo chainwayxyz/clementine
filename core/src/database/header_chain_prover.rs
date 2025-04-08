@@ -70,8 +70,8 @@ impl Database {
                     h2.proof
                 FROM header_chain_proofs h1
                 JOIN header_chain_proofs h2 ON h1.prev_block_hash = h2.block_hash
-                WHERE h2.proof IS NOT NULL
-                ORDER BY h1.height DESC
+                WHERE h2.proof IS NOT NULL AND h1.proof IS NULL
+                ORDER BY h1.height ASC
                 LIMIT 1;",
         );
 
@@ -108,11 +108,12 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         count: u32,
     ) -> Result<Option<(Vec<(BlockHash, Header, u64)>, Receipt)>, BridgeError> {
-        let next_non_proven_block = self.get_next_non_proven_block(None).await.unwrap();
+        let next_non_proven_block = self.get_next_non_proven_block(None).await?;
         let next_non_proven_block = match next_non_proven_block {
             Some(next_non_proven_block) => next_non_proven_block,
             None => return Ok(None),
         };
+        tracing::error!("next_non_proven_block: {:?}", next_non_proven_block.2);
 
         let query = sqlx::query_as(
             "SELECT block_hash,
@@ -130,23 +131,24 @@ impl Database {
             None::<DatabaseTransaction>,
             query,
             fetch_all
-        )
-        .unwrap();
+        )?;
 
         let blocks = result
             .iter()
             .map(|result| {
-                let height = result
-                    .2
-                    .try_into()
-                    .wrap_err("Can't convert i64 to u64")
-                    .unwrap();
+                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+
                 Ok((result.0 .0, result.1 .0, height))
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         // If not yet enough entries are found, return `None`.
         if blocks.len() != count as usize {
+            tracing::error!(
+                "Non proven block count: {}, required count: {}",
+                blocks.len(),
+                count
+            );
             return Ok(None);
         }
 
@@ -569,6 +571,7 @@ mod tests {
             db.save_unproven_block(None, block_hash, block.header, height)
                 .await
                 .unwrap();
+            tracing::error!("block height: {}", height);
 
             blocks.push((block_hash, height.try_into().unwrap()));
         }
