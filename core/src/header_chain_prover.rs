@@ -95,7 +95,7 @@ impl HeaderChainProver {
             let mut assumption = Vec::new();
             reader
                 .read_to_end(&mut assumption)
-                .wrap_err(BridgeError::BorshError)?; // TODO: Not borsh.
+                .wrap_err("Can't read assumption file")?;
 
             let proof: Receipt = borsh::from_slice(&assumption)
                 .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
@@ -629,25 +629,13 @@ mod tests {
             .unwrap();
         assert_eq!(genesis_block_proof.journal, db_proof.journal);
 
-        // TODO: Non proven block check returns an error instead of None. Later remove these lines
-        let block_height = 1;
-        let block_hash = rpc.client.get_block_hash(block_height).await.unwrap();
-        let block_header = rpc.client.get_block_header(&block_hash).await.unwrap();
-        db.save_unproven_block(None, block_hash, block_header, block_height)
-            .await
-            .unwrap();
-
         // Batch can't be ready because there are less than `batch_size` blocks
         // between non-proven tip and last proven block
         assert!(!prover.is_batch_ready().await.unwrap());
 
         // Mining required amount of blocks should make batch proving ready.
-        let _headers = mine_and_get_first_n_block_headers(
-            rpc.clone(),
-            db,
-            block_height + batch_size as u64 + 1,
-        )
-        .await;
+        let _headers =
+            mine_and_get_first_n_block_headers(rpc.clone(), db, batch_size as u64 + 1).await;
         assert!(prover.is_batch_ready().await.unwrap());
     }
 
