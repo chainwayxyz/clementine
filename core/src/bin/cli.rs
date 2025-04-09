@@ -1,6 +1,9 @@
 use clap::{Parser, Subcommand};
 use clementine_core::rpc::clementine::{
-    clementine_aggregator_client::ClementineAggregatorClient, clementine_operator_client::ClementineOperatorClient, clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors, BaseDeposit, Deposit, Empty, Outpoint
+    clementine_aggregator_client::ClementineAggregatorClient,
+    clementine_operator_client::ClementineOperatorClient,
+    clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
+    BaseDeposit, Deposit, Empty, Outpoint,
 };
 use tonic::Request;
 
