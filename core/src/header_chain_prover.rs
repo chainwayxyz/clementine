@@ -294,7 +294,7 @@ impl HeaderChainProver {
         // If in limits of the batch size but not in a target block, prove block
         // headers manually.
         let mut block_headers = Vec::new();
-        for i in latest_proven_block.2..tip_height {
+        for i in latest_proven_block.2 + 1..=tip_height {
             let block_hash = self
                 .rpc
                 .client
@@ -663,7 +663,7 @@ mod tests {
         let _block_headers = mine_and_get_first_n_block_headers(
             rpc.clone(),
             db.clone(),
-            (latest_proven_block_height + batch_size as u64).into(),
+            latest_proven_block_height + batch_size as u64,
         )
         .await;
 
@@ -700,7 +700,7 @@ mod tests {
         let _block_headers = mine_and_get_first_n_block_headers(
             rpc.clone(),
             db.clone(),
-            (latest_proven_block_height + batch_size as u64).into(),
+            latest_proven_block_height + batch_size as u64,
         )
         .await;
 
