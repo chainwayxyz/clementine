@@ -70,7 +70,6 @@ pub enum HeaderChainProverError {
 #[derive(Debug, Clone)]
 pub struct HeaderChainProver {
     db: Database,
-    rpc: ExtendedRpc,
     network: bitcoin::Network,
     batch_size: u64,
 }
@@ -127,7 +126,7 @@ impl HeaderChainProver {
             // PS: This also ignores other db errors but there are other places
             // where we check for those errors.
             let _ = db
-                .save_unproven_confirmed_block(
+                .save_unproven_finalized_block(
                     None,
                     block_hash,
                     block_header,
@@ -142,7 +141,6 @@ impl HeaderChainProver {
 
         Ok(HeaderChainProver {
             db,
-            rpc,
             batch_size: config
                 .protocol_paramset()
                 .header_chain_proof_batch_size
@@ -259,7 +257,7 @@ impl HeaderChainProver {
         Ok(receipt)
     }
 
-    /// Get the proof of confirmed blockchain tip.
+    /// Get the proof of the latest finalized blockchain tip.
     ///
     /// # Returns
     ///
@@ -272,7 +270,7 @@ impl HeaderChainProver {
             .ok_or(eyre::eyre!("No proven block found"))?;
         let tip_height = self
             .db
-            .get_latest_confirmed_block_height(None)
+            .get_latest_finalized_block_height(None)
             .await?
             .ok_or(eyre::eyre!("No tip block found"))?;
 
@@ -287,23 +285,13 @@ impl HeaderChainProver {
 
         // If in limits of the batch size but not in a target block, prove block
         // headers manually.
-        let mut block_headers = Vec::new();
-        for i in latest_proven_block.2 + 1..=tip_height {
-            let block_hash = self
-                .rpc
-                .client
-                .get_block_hash(i)
-                .await
-                .wrap_err("Failed to get block hash")?;
-            let block_header = self
-                .rpc
-                .client
-                .get_block_header(&block_hash)
-                .await
-                .wrap_err("Failed to get block header")?;
-
-            block_headers.push(block_header);
-        }
+        let block_headers = self
+            .db
+            .get_block_info_from_range(None, latest_proven_block.2 + 1, tip_height)
+            .await?
+            .into_iter()
+            .map(|(_hash, header)| header)
+            .collect::<Vec<_>>();
 
         let previous_proof = self
             .db
@@ -336,7 +324,7 @@ impl HeaderChainProver {
             .header;
 
         self.db
-            .save_unproven_confirmed_block(
+            .save_unproven_finalized_block(
                 dbtx,
                 block_hash,
                 block_header,
@@ -357,7 +345,7 @@ impl HeaderChainProver {
         };
         let tip_height = self
             .db
-            .get_latest_confirmed_block_height(None)
+            .get_latest_finalized_block_height(None)
             .await?
             .ok_or(eyre::eyre!("No tip block found"))?;
 
@@ -468,7 +456,7 @@ mod tests {
             headers.push(header);
 
             let _ignore_errors = db
-                .save_unproven_confirmed_block(None, hash, header, i)
+                .save_unproven_finalized_block(None, hash, header, i)
                 .await;
         }
 
@@ -532,7 +520,7 @@ mod tests {
         let header = block.header;
         prover
             .db
-            .save_unproven_confirmed_block(None, hash, header, height)
+            .save_unproven_finalized_block(None, hash, header, height)
             .await
             .unwrap();
 
@@ -741,7 +729,7 @@ mod tests {
             let hash = rpc.client.get_block_hash(i).await.unwrap();
             let block = rpc.client.get_block(&hash).await.unwrap();
 
-            db.save_unproven_confirmed_block(None, block.block_hash(), block.header, i)
+            db.save_unproven_finalized_block(None, block.block_hash(), block.header, i)
                 .await
                 .unwrap();
         }
@@ -749,7 +737,7 @@ mod tests {
         let verifier = VerifierServer::<MockCitreaClient>::new(config)
             .await
             .unwrap();
-        // Make sure enough blocks to prove and is confirmed.
+        // Make sure enough blocks to prove and is finalized.
         rpc.mine_blocks((batch_size + 10).into()).await.unwrap();
 
         // Aim for a proved block that is added to the database by the verifier.
