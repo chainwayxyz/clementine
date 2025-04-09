@@ -16,8 +16,9 @@ use eyre::Context;
 use risc0_zkvm::Receipt;
 
 impl Database {
-    /// Adds a new block to the database, later to be updated with a proof.
-    pub async fn save_unproven_block(
+    /// Adds a new block to the database that is confirmed and later to be
+    /// updated with a proof.
+    pub async fn save_unproven_confirmed_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: block::BlockHash,
@@ -34,7 +35,8 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_latest_block_height(
+    /// Returns latest confirmed blocks height from the database.
+    pub async fn get_latest_confirmed_block_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<u64>, BridgeError> {
@@ -47,8 +49,8 @@ impl Database {
         Ok(result.map(|height| height.0 as u64))
     }
 
-    /// Gets the newest block's info that it's previous block has proven before.
-    /// This block will be the candidate block for the prover.
+    /// Gets the newest confirmed block's info that it's previous block has
+    /// proven before. This block will be the candidate block for the prover.
     ///
     /// # Returns
     ///
@@ -245,7 +247,11 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
-        assert!(db.get_latest_block_height(None).await.unwrap().is_none());
+        assert!(db
+            .get_latest_confirmed_block_height(None)
+            .await
+            .unwrap()
+            .is_none());
 
         // Set first block, so that get_non_proven_block won't return error.
         let block = block::Block {
@@ -261,11 +267,14 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 1;
-        db.save_unproven_block(None, block_hash, block.header, height)
+        db.save_unproven_confirmed_block(None, block_hash, block.header, height)
             .await
             .unwrap();
         assert_eq!(
-            db.get_latest_block_height(None).await.unwrap().unwrap(),
+            db.get_latest_confirmed_block_height(None)
+                .await
+                .unwrap()
+                .unwrap(),
             height
         );
         let receipt =
@@ -293,7 +302,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 2;
-        db.save_unproven_block(None, block_hash, block.header, height)
+        db.save_unproven_confirmed_block(None, block_hash, block.header, height)
             .await
             .unwrap();
 
@@ -323,7 +332,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 0x45;
-        db.save_unproven_block(None, block_hash, block.header, height)
+        db.save_unproven_confirmed_block(None, block_hash, block.header, height)
             .await
             .unwrap();
 
@@ -377,7 +386,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = base_height;
-        db.save_unproven_block(None, block_hash, block.header, height)
+        db.save_unproven_confirmed_block(None, block_hash, block.header, height)
             .await
             .unwrap();
         assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
@@ -401,7 +410,7 @@ mod tests {
         };
         let block_hash1 = block.block_hash();
         let height1 = base_height + 1;
-        db.save_unproven_block(None, block_hash1, block.header, height1)
+        db.save_unproven_confirmed_block(None, block_hash1, block.header, height1)
             .await
             .unwrap();
         let receipt =
@@ -433,7 +442,7 @@ mod tests {
         };
         let block_hash2 = block.block_hash();
         let height2 = base_height + 2;
-        db.save_unproven_block(None, block_hash2, block.header, height2)
+        db.save_unproven_confirmed_block(None, block_hash2, block.header, height2)
             .await
             .unwrap();
 
@@ -456,7 +465,7 @@ mod tests {
         };
         let block_hash3 = block.block_hash();
         let height3 = base_height + 3;
-        db.save_unproven_block(None, block_hash3, block.header, height3)
+        db.save_unproven_confirmed_block(None, block_hash3, block.header, height3)
             .await
             .unwrap();
         db.set_block_proof(None, block_hash3, receipt.clone())
@@ -482,7 +491,7 @@ mod tests {
         };
         let block_hash4 = block.block_hash();
         let height4 = base_height + 4;
-        db.save_unproven_block(None, block_hash4, block.header, height4)
+        db.save_unproven_confirmed_block(None, block_hash4, block.header, height4)
             .await
             .unwrap();
 
@@ -527,7 +536,7 @@ mod tests {
             txdata: vec![],
         };
         let block_hash = block.block_hash();
-        db.save_unproven_block(None, block_hash, block.header, height)
+        db.save_unproven_confirmed_block(None, block_hash, block.header, height)
             .await
             .unwrap();
         assert!(db
@@ -556,7 +565,7 @@ mod tests {
         };
         let block_hash1 = block.block_hash();
         height += 1;
-        db.save_unproven_block(None, block_hash1, block.header, height)
+        db.save_unproven_confirmed_block(None, block_hash1, block.header, height)
             .await
             .unwrap();
         let receipt =
@@ -599,7 +608,7 @@ mod tests {
             height += 1;
             prev_block_hash = block_hash;
 
-            db.save_unproven_block(None, block_hash, block.header, height)
+            db.save_unproven_confirmed_block(None, block_hash, block.header, height)
                 .await
                 .unwrap();
 
@@ -646,7 +655,7 @@ mod tests {
         };
         let mut block_hash = block.block_hash();
         let mut height = 0x45;
-        db.save_unproven_block(None, block_hash, block.header, height)
+        db.save_unproven_confirmed_block(None, block_hash, block.header, height)
             .await
             .unwrap();
         assert!(db
@@ -670,7 +679,7 @@ mod tests {
             block_hash = block.block_hash();
             height += 1;
 
-            db.save_unproven_block(None, block_hash, block.header, height)
+            db.save_unproven_confirmed_block(None, block_hash, block.header, height)
                 .await
                 .unwrap();
             db.set_block_proof(None, block_hash, proof.clone())
