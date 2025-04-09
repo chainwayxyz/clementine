@@ -7,7 +7,7 @@ use crypto_bigint::{Encoding, U128, U256};
 use risc0_zkvm::guest::env;
 
 pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = [
-    2531205848, 135472811, 1335395342, 1429693256, 2485864912, 3110840830, 2084288568, 2813388680,
+    3831541492, 1914582284, 3478727827, 2650042822, 3245962995, 821199570, 1987041398, 1979635126,
 ];
 
 /// Executes the "work-only" zkVM circuit, verifying the total work value
