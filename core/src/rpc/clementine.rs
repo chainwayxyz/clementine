@@ -62,60 +62,57 @@ pub struct WinternitzPubkey {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositParams {
-    #[prost(oneof = "deposit_params::DepositData", tags = "1, 2")]
-    pub deposit_data: ::core::option::Option<deposit_params::DepositData>,
+    #[prost(message, optional, tag = "1")]
+    pub deposit: ::core::option::Option<Deposit>,
+    #[prost(message, optional, tag = "2")]
+    pub actors: ::core::option::Option<Actors>,
 }
-/// Nested message and enum types in `DepositParams`.
-pub mod deposit_params {
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Deposit {
+    /// / User's deposit UTXO.
+    #[prost(message, optional, tag = "1")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+    #[prost(oneof = "deposit::DepositData", tags = "2, 3")]
+    pub deposit_data: ::core::option::Option<deposit::DepositData>,
+}
+/// Nested message and enum types in `Deposit`.
+pub mod deposit {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum DepositData {
-        #[prost(message, tag = "1")]
-        BaseDeposit(super::BaseDeposit),
         #[prost(message, tag = "2")]
+        BaseDeposit(super::BaseDeposit),
+        #[prost(message, tag = "3")]
         ReplacementDeposit(super::ReplacementDeposit),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ReplacementDeposit {
-    /// Deposit UTXO.
-    #[prost(message, optional, tag = "1")]
-    pub deposit_outpoint: ::core::option::Option<Outpoint>,
-    /// Move to vault txid that is being replaced.
-    #[prost(message, optional, tag = "2")]
-    pub old_move_txid: ::core::option::Option<Txid>,
+pub struct Actors {
     /// / Public keys of verifiers that will participate in the deposit.
-    #[prost(bytes = "vec", repeated, tag = "3")]
+    #[prost(bytes = "vec", repeated, tag = "1")]
     pub verifiers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
     /// / X-only public keys of watchtowers that will participate in the deposit.
     /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-    #[prost(bytes = "vec", repeated, tag = "4")]
+    #[prost(bytes = "vec", repeated, tag = "2")]
     pub watchtowers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
     /// / X-only public keys of operators that will participate in the deposit.
-    #[prost(bytes = "vec", repeated, tag = "5")]
+    #[prost(bytes = "vec", repeated, tag = "3")]
     pub operators: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReplacementDeposit {
+    /// Move to vault txid that is being replaced.
+    #[prost(message, optional, tag = "1")]
+    pub old_move_txid: ::core::option::Option<Txid>,
 }
 /// A new original deposit request's details.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BaseDeposit {
-    /// User's deposit UTXO.
-    #[prost(message, optional, tag = "1")]
-    pub deposit_outpoint: ::core::option::Option<Outpoint>,
     /// User's EVM address.
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "1")]
     pub evm_address: ::prost::alloc::vec::Vec<u8>,
     /// User's recovery taproot address.
-    #[prost(string, tag = "3")]
+    #[prost(string, tag = "2")]
     pub recovery_taproot_address: ::prost::alloc::string::String,
-    /// / Public keys of verifiers that will participate in the deposit.
-    #[prost(bytes = "vec", repeated, tag = "4")]
-    pub verifiers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    /// / X-only public keys of watchtowers that will participate in the deposit.
-    /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-    #[prost(bytes = "vec", repeated, tag = "5")]
-    pub watchtowers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-    /// / X-only public keys of operators that will participate in the deposit.
-    #[prost(bytes = "vec", repeated, tag = "6")]
-    pub operators: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NumberedTransactionId {
@@ -1546,7 +1543,7 @@ pub mod clementine_aggregator_client {
         /// tx.
         pub async fn new_deposit(
             &mut self,
-            request: impl tonic::IntoRequest<super::DepositParams>,
+            request: impl tonic::IntoRequest<super::Deposit>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status> {
             self.inner
                 .ready()
@@ -3023,7 +3020,7 @@ pub mod clementine_aggregator_server {
         /// tx.
         async fn new_deposit(
             &self,
-            request: tonic::Request<super::DepositParams>,
+            request: tonic::Request<super::Deposit>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
         /// Call's withdraw on all operators
         async fn withdraw(
@@ -3165,8 +3162,7 @@ pub mod clementine_aggregator_server {
                     struct NewDepositSvc<T: ClementineAggregator>(pub Arc<T>);
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::DepositParams>
-                    for NewDepositSvc<T> {
+                    > tonic::server::UnaryService<super::Deposit> for NewDepositSvc<T> {
                         type Response = super::Txid;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -3174,7 +3170,7 @@ pub mod clementine_aggregator_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::DepositParams>,
+                            request: tonic::Request<super::Deposit>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {

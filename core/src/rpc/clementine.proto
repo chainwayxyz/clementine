@@ -84,41 +84,40 @@ message WinternitzPubkey {
 }
 
 message DepositParams {
+  Deposit deposit = 1;
+  Actors actors = 2;
+}
+
+message Deposit {
+  /// User's deposit UTXO.
+  Outpoint deposit_outpoint = 1;
   oneof deposit_data {
-    BaseDeposit base_deposit = 1;
-    ReplacementDeposit replacement_deposit = 2;
+    BaseDeposit base_deposit = 2;
+    ReplacementDeposit replacement_deposit = 3;
   }
 }
 
-message ReplacementDeposit {
-  // Deposit UTXO.
-  Outpoint deposit_outpoint = 1;
-  // Move to vault txid that is being replaced.
-  Txid old_move_txid = 2;
+message Actors {
   /// Public keys of verifiers that will participate in the deposit.
-  repeated bytes verifiers = 3;
+  repeated bytes verifiers = 1;
   /// X-only public keys of watchtowers that will participate in the deposit.
   /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-  repeated bytes watchtowers = 4;
+  repeated bytes watchtowers = 2;
   /// X-only public keys of operators that will participate in the deposit.
-  repeated bytes operators = 5;
+  repeated bytes operators = 3;
+}
+
+message ReplacementDeposit {
+  // Move to vault txid that is being replaced.
+  Txid old_move_txid = 1;
 }
 
 // A new original deposit request's details.
 message BaseDeposit {
-  // User's deposit UTXO.
-  Outpoint deposit_outpoint = 1;
   // User's EVM address.
-  bytes evm_address = 2;
+  bytes evm_address = 1;
   // User's recovery taproot address.
-  string recovery_taproot_address = 3;
-  /// Public keys of verifiers that will participate in the deposit.
-  repeated bytes verifiers = 4;
-  /// X-only public keys of watchtowers that will participate in the deposit.
-  /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-  repeated bytes watchtowers = 5;
-  /// X-only public keys of operators that will participate in the deposit.
-  repeated bytes operators = 6;
+  string recovery_taproot_address = 2;
 }
 
 enum FeeType {
@@ -480,7 +479,7 @@ service ClementineAggregator {
   // this will also call the operator to get their signatures and send it to
   // DepositFinalize then it will collect the partial sigs and create the move
   // tx.
-  rpc NewDeposit(DepositParams) returns (Txid) {}
+  rpc NewDeposit(Deposit) returns (Txid) {}
 
   // Call's withdraw on all operators
   rpc Withdraw(WithdrawParams)

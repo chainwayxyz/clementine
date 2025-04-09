@@ -1,9 +1,6 @@
 use clap::{Parser, Subcommand};
 use clementine_core::rpc::clementine::{
-    clementine_aggregator_client::ClementineAggregatorClient,
-    clementine_operator_client::ClementineOperatorClient,
-    clementine_verifier_client::ClementineVerifierClient, deposit_params::DepositData, BaseDeposit,
-    DepositParams, Empty, Outpoint,
+    clementine_aggregator_client::ClementineAggregatorClient, clementine_operator_client::ClementineOperatorClient, clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors, BaseDeposit, Deposit, Empty, Outpoint
 };
 use tonic::Request;
 
@@ -119,17 +116,21 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 deposit_outpoint_txid, deposit_outpoint_vout
             );
             let params = clementine_core::rpc::clementine::DepositParams {
-                deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                deposit: Some(Deposit {
                     deposit_outpoint: Some(Outpoint {
                         txid: deposit_outpoint_txid.into(),
                         vout: deposit_outpoint_vout,
                     }),
-                    evm_address: vec![1; 20],
-                    recovery_taproot_address: String::new(),
+                    deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                        evm_address: vec![1; 20],
+                        recovery_taproot_address: String::new(),
+                    })),
+                }),
+                actors: Some(Actors {
                     verifiers: vec![],
                     watchtowers: vec![],
                     operators: vec![],
-                })),
+                }),
             };
             let response = operator
                 .get_deposit_keys(Request::new(params))
@@ -224,17 +225,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             recovery_taproot_address,
         } => {
             let deposit = aggregator
-                .new_deposit(DepositParams {
+                .new_deposit(Deposit {
+                    deposit_outpoint: Some(Outpoint {
+                        txid: deposit_outpoint_txid.as_bytes().to_vec(),
+                        vout: deposit_outpoint_vout,
+                    }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
-                        deposit_outpoint: Some(Outpoint {
-                            txid: deposit_outpoint_txid.as_bytes().to_vec(),
-                            vout: deposit_outpoint_vout,
-                        }),
                         evm_address: evm_address.as_bytes().to_vec(),
                         recovery_taproot_address,
-                        verifiers: vec![],
-                        watchtowers: vec![],
-                        operators: vec![],
                     })),
                 })
                 .await

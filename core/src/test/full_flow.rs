@@ -4,7 +4,7 @@ use crate::bitvm_client::{self};
 use crate::builder::transaction::input::get_watchtower_challenge_utxo_vout;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    BaseDepositData, DepositData, KickoffData, TransactionType as TxType,
+    BaseDepositData, DepositInfo, DepositType, KickoffData, TransactionType as TxType,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::config::protocol::BLOCKS_PER_HOUR;
@@ -14,7 +14,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::{
-    DepositParams, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
+    Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
 };
 use crate::test::common::*;
 use crate::tx_sender::TxSenderClient;
@@ -36,7 +36,7 @@ async fn base_setup(
         Vec<ClementineOperatorClient<tonic::transport::Channel>>,
         Vec<ClementineVerifierClient<tonic::transport::Channel>>,
         TxSenderClient,
-        DepositParams,
+        DepositInfo,
         u32,
         TransactionRequest,
         SignedTxsWithType,
@@ -88,21 +88,19 @@ async fn base_setup(
         .await?;
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
-    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+
+    let deposit_info = DepositInfo {
         deposit_outpoint,
-        evm_address,
-        recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        nofn_xonly_pk: None,
-        verifiers: vec![],
-        watchtowers: vec![],
-        operators: vec![],
-    });
-    let dep_params: DepositParams = deposit_data.into();
+        deposit_type: DepositType::BaseDeposit(BaseDepositData {
+            evm_address,
+            recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
+        }),
+    };
+
+    let dep_params: Deposit = deposit_info.clone().into();
+
     tracing::info!("Creating move transaction");
-    let move_tx_response = aggregator
-        .new_deposit(dep_params.clone())
-        .await?
-        .into_inner();
+    let move_tx_response = aggregator.new_deposit(dep_params).await?.into_inner();
     ensure_tx_onchain(
         rpc,
         Txid::from_byte_array(move_tx_response.txid.clone().try_into().unwrap()),
@@ -141,7 +139,7 @@ async fn base_setup(
         operators,
         verifiers,
         tx_sender,
-        dep_params,
+        deposit_info,
         kickoff_idx,
         base_tx_req,
         all_txs,
@@ -189,23 +187,18 @@ pub async fn run_operator_end_round(
     rpc.mine_blocks(18).await?;
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
-    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+    let deposit_info = DepositInfo {
         deposit_outpoint,
-        evm_address,
-        recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        nofn_xonly_pk: None,
-        verifiers: vec![],
-        watchtowers: vec![],
-        operators: vec![],
-    });
+        deposit_type: DepositType::BaseDeposit(BaseDepositData {
+            evm_address,
+            recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
+        }),
+    };
 
-    let dep_params: DepositParams = deposit_data.into();
+    let dep_params: Deposit = deposit_info.into();
 
     tracing::info!("Creating move transaction");
-    let move_tx_response = aggregator
-        .new_deposit(dep_params.clone())
-        .await?
-        .into_inner();
+    let move_tx_response = aggregator.new_deposit(dep_params).await?.into_inner();
 
     let move_txid: bitcoin::Txid =
         bitcoin::Txid::from_byte_array(move_tx_response.txid.try_into().unwrap());
@@ -334,7 +327,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         mut operators,
         mut verifiers,
         tx_sender,
-        dep_params,
+        deposit_info,
         kickoff_idx,
         base_tx_req,
         all_txs,
@@ -354,8 +347,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     tracing::info!("Sending challenge transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
-    let deposit_data: DepositData = dep_params.clone().try_into()?;
-    let deposit_outpoint = deposit_data.get_deposit_outpoint();
+    let deposit_outpoint = deposit_info.deposit_outpoint;
 
     // Send Watchtower Challenge Transactions
     for (verifier_idx, verifier) in verifiers.iter_mut().enumerate() {
@@ -382,7 +374,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     }
 
     // Send Operator Challenge Acknowledgment Transactions
-    for verifier_idx in 0..deposit_data.get_num_verifiers() {
+    for verifier_idx in 0..verifiers.len() {
         tracing::info!(
             "Sending operator challenge ack transaction for verifier {}",
             verifier_idx
@@ -489,7 +481,7 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
         mut operators,
         _watchtowers,
         tx_sender,
-        dep_params,
+        deposit_info,
         kickoff_idx,
         _base_tx_req,
         all_txs,
@@ -520,8 +512,7 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
 
     rpc.mine_blocks(8 * BLOCKS_PER_HOUR as u64).await?;
 
-    let deposit_data: DepositData = dep_params.clone().try_into()?;
-    let deposit_outpoint = deposit_data.get_deposit_outpoint();
+    let deposit_outpoint = deposit_info.deposit_outpoint;
 
     // Create assert transactions for operator 0
     let assert_txs = operators[0]
@@ -698,7 +689,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         _operators,
         _verifiers,
         tx_sender,
-        dep_params,
+        _deposit_info,
         _kickoff_idx,
         _base_tx_req,
         all_txs,
@@ -717,10 +708,8 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     tracing::info!("Sending challenge transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
-    let deposit_data: DepositData = dep_params.try_into()?;
-
     // Send Watchtower Challenge Transactions
-    for watchtower_idx in 0..deposit_data.get_num_watchtowers() {
+    for watchtower_idx in 0.._verifiers.len() {
         tracing::info!(
             "Sending watchtower challenge transaction for watchtower {}",
             watchtower_idx
@@ -735,7 +724,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     }
 
     // Send Operator Challenge Acknowledgment Transactions
-    for verifier_idx in 0..deposit_data.get_num_watchtowers() {
+    for verifier_idx in 0.._verifiers.len() {
         tracing::info!(
             "Sending operator challenge ack transaction for watchtower {}",
             verifier_idx
@@ -789,7 +778,7 @@ pub async fn run_challenge_with_state_machine(
         mut operators,
         _verifiers,
         tx_sender,
-        dep_params,
+        deposit_info,
         kickoff_idx,
         _base_tx_req,
         all_txs,
@@ -808,17 +797,16 @@ pub async fn run_challenge_with_state_machine(
     // Send Challenge Transaction
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
-    let deposit_data: DepositData = dep_params.clone().try_into()?;
-    let deposit_outpoint = deposit_data.get_deposit_outpoint();
+    let deposit_outpoint = deposit_info.deposit_outpoint;
     let kickoff_tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::Kickoff)?;
     let kickoff_txid = kickoff_tx.compute_txid();
 
-    let watchtower_challenge_utxos = (0..deposit_data.get_num_watchtowers()).map(|i| OutPoint {
+    let watchtower_challenge_utxos = (0.._verifiers.len()).map(|i| OutPoint {
         txid: kickoff_txid,
         vout: get_watchtower_challenge_utxo_vout(i) as u32,
     });
 
-    let watchtower_challenge_timeout_txids = (0..deposit_data.get_num_watchtowers())
+    let watchtower_challenge_timeout_txids = (0.._verifiers.len())
         .map(|i| {
             let wtc =
                 get_tx_from_signed_txs_with_type(&all_txs, TxType::WatchtowerChallengeTimeout(i))
@@ -892,7 +880,7 @@ pub async fn run_unspent_kickoffs_with_state_machine(
         _operators,
         _verifiers,
         tx_sender,
-        _dep_params,
+        _deposit_info,
         _kickoff_idx,
         _base_tx_req,
         all_txs,

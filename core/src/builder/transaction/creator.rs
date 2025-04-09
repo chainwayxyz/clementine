@@ -690,13 +690,13 @@ mod tests {
     use crate::bitvm_client::ClementineBitVMPublicKeys;
     use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
     use crate::builder::transaction::{
-        DepositData, KickoffData, TransactionType, TxHandlerBuilder,
+        DepositInfo, KickoffData, TransactionType, TxHandlerBuilder,
     };
     use crate::citrea::mock::MockCitreaClient;
     use crate::config::BridgeConfig;
     use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
     use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-    use crate::rpc::clementine::{DepositParams, SignedTxsWithType, TransactionRequest};
+    use crate::rpc::clementine::{SignedTxsWithType, TransactionRequest};
     use crate::test::common::*;
     use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
     use futures::future::try_join_all;
@@ -720,13 +720,12 @@ mod tests {
     async fn check_if_signable(
         mut verifiers: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
         mut operators: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
-        deposit_params: DepositParams,
+        deposit_info: DepositInfo,
         deposit_blockhash: BlockHash,
         config: BridgeConfig,
     ) {
         let paramset = config.protocol_paramset();
-        let deposit_data: DepositData = deposit_params.clone().try_into().unwrap();
-        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let deposit_outpoint = deposit_info.deposit_outpoint;
 
         let mut txs_operator_can_sign = vec![
             TransactionType::Round,
@@ -739,22 +738,18 @@ mod tests {
             TransactionType::Reimburse,
             TransactionType::ChallengeTimeout,
         ];
-        txs_operator_can_sign.extend(
-            (0..deposit_data.get_num_watchtowers()).map(TransactionType::OperatorChallengeNack),
-        );
-        txs_operator_can_sign.extend(
-            (0..deposit_data.get_num_watchtowers()).map(TransactionType::OperatorChallengeAck),
-        );
+        txs_operator_can_sign
+            .extend((0..verifiers.len()).map(TransactionType::OperatorChallengeNack));
+        txs_operator_can_sign
+            .extend((0..verifiers.len()).map(TransactionType::OperatorChallengeAck));
         txs_operator_can_sign.extend(
             (0..ClementineBitVMPublicKeys::number_of_assert_txs())
                 .map(TransactionType::AssertTimeout),
         );
         txs_operator_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_operator_can_sign.extend(
-            (0..deposit_data.get_num_watchtowers())
-                .map(TransactionType::WatchtowerChallengeTimeout),
-        );
+        txs_operator_can_sign
+            .extend((0..verifiers.len()).map(TransactionType::WatchtowerChallengeTimeout));
 
         let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap();
         let operator_xonly_pks: Vec<XOnlyPublicKey> = all_operators_secret_keys
@@ -855,19 +850,16 @@ mod tests {
             TransactionType::KickoffNotFinalized,
             //TransactionType::Disprove,
         ];
-        txs_verifier_can_sign.extend(
-            (0..deposit_data.get_num_watchtowers()).map(TransactionType::OperatorChallengeNack),
-        );
+        txs_verifier_can_sign
+            .extend((0..verifiers.len()).map(TransactionType::OperatorChallengeNack));
         txs_verifier_can_sign.extend(
             (0..ClementineBitVMPublicKeys::number_of_assert_txs())
                 .map(TransactionType::AssertTimeout),
         );
         txs_verifier_can_sign
             .extend((0..paramset.num_kickoffs_per_round).map(TransactionType::UnspentKickoff));
-        txs_verifier_can_sign.extend(
-            (0..deposit_data.get_num_watchtowers())
-                .map(TransactionType::WatchtowerChallengeTimeout),
-        );
+        txs_verifier_can_sign
+            .extend((0..verifiers.len()).map(TransactionType::WatchtowerChallengeTimeout));
 
         // try to sign everything for all verifiers
         // try signing verifier transactions
@@ -994,7 +986,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let WithProcessCleanup(_, ref rpc, _, _) = create_regtest_rpc(&mut config).await;
 
-        let (verifiers, operators, _, _cleanup, deposit_params, _, deposit_blockhash) =
+        let (verifiers, operators, _, _cleanup, deposit_info, _, deposit_blockhash) =
             run_replacement_deposit(&mut config, rpc.clone(), None)
                 .await
                 .unwrap();
@@ -1002,7 +994,7 @@ mod tests {
         check_if_signable(
             verifiers,
             operators,
-            deposit_params,
+            deposit_info,
             deposit_blockhash,
             config.clone(),
         )

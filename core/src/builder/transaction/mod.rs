@@ -102,55 +102,44 @@ pub struct KickoffData {
     pub kickoff_idx: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum DepositData {
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct DepositData {
+    /// Cached nofn xonly public key used for deposit.
+    pub nofn_xonly_pk: Option<XOnlyPublicKey>,
+    pub deposit: DepositInfo,
+    pub actors: Actors,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct DepositInfo {
+    pub deposit_outpoint: OutPoint,
+    pub deposit_type: DepositType,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub enum DepositType {
     BaseDeposit(BaseDepositData),
     ReplacementDeposit(ReplacementDepositData),
 }
 
 impl DepositData {
     pub fn get_deposit_outpoint(&self) -> OutPoint {
-        match self {
-            DepositData::BaseDeposit(data) => data.deposit_outpoint,
-            DepositData::ReplacementDeposit(data) => data.deposit_outpoint,
-        }
+        self.deposit.deposit_outpoint
     }
     pub fn get_nofn_xonly_pk(&mut self) -> Result<XOnlyPublicKey, BridgeError> {
-        match self {
-            DepositData::BaseDeposit(data) => {
-                if let Some(pk) = data.nofn_xonly_pk {
-                    return Ok(pk);
-                }
-            }
-            DepositData::ReplacementDeposit(data) => {
-                if let Some(pk) = data.nofn_xonly_pk {
-                    return Ok(pk);
-                }
-            }
-        };
+        if let Some(pk) = self.nofn_xonly_pk {
+            return Ok(pk);
+        }
         let verifiers = self.get_verifiers();
         let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers, None)?;
-        self.set_nofn_xonly_pk(nofn_xonly_pk);
+        self.nofn_xonly_pk = Some(nofn_xonly_pk);
         Ok(nofn_xonly_pk)
     }
-    fn set_nofn_xonly_pk(&mut self, nofn_xonly_pk: XOnlyPublicKey) {
-        match self {
-            DepositData::BaseDeposit(data) => data.nofn_xonly_pk = Some(nofn_xonly_pk),
-            DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk = Some(nofn_xonly_pk),
-        }
-    }
     pub fn get_num_verifiers(&self) -> usize {
-        match self {
-            DepositData::BaseDeposit(data) => data.verifiers.len(),
-            DepositData::ReplacementDeposit(data) => data.verifiers.len(),
-        }
+        self.actors.verifiers.len()
     }
     pub fn get_num_watchtowers(&self) -> usize {
-        self.get_num_verifiers()
-            + match self {
-                DepositData::BaseDeposit(data) => data.watchtowers.len(),
-                DepositData::ReplacementDeposit(data) => data.watchtowers.len(),
-            }
+        self.get_num_verifiers() + self.actors.watchtowers.len()
     }
     pub fn get_verifier_index(&self, public_key: &PublicKey) -> Result<usize, eyre::Report> {
         self.get_verifiers()
@@ -172,69 +161,34 @@ impl DepositData {
     }
     /// Returns sorted verifiers, they are sorted so that their order is deterministic.
     pub fn get_verifiers(&self) -> Vec<PublicKey> {
-        let mut verifiers = match self {
-            DepositData::BaseDeposit(data) => data.verifiers.clone(),
-            DepositData::ReplacementDeposit(data) => data.verifiers.clone(),
-        };
+        let mut verifiers = self.actors.verifiers.clone();
         verifiers.sort();
         verifiers
-    }
-    pub fn set_verifiers(&mut self, verifiers: Vec<PublicKey>) {
-        match self {
-            DepositData::BaseDeposit(data) => data.verifiers = verifiers,
-            DepositData::ReplacementDeposit(data) => data.verifiers = verifiers,
-        }
-    }
-    pub fn set_operators(&mut self, operators: Vec<XOnlyPublicKey>) {
-        match self {
-            DepositData::BaseDeposit(data) => data.operators = operators,
-            DepositData::ReplacementDeposit(data) => data.operators = operators,
-        }
     }
     /// Returns sorted watchtowers, they are sorted so that their order is deterministic.
     pub fn get_watchtowers(&self) -> Vec<XOnlyPublicKey> {
         let mut watchtowers = self
-            .get_verifiers()
+            .actors
+            .verifiers
             .iter()
             .map(|pk| pk.x_only_public_key().0)
             .collect::<Vec<_>>();
-        match self {
-            DepositData::BaseDeposit(data) => watchtowers.extend(data.watchtowers.iter()),
-            DepositData::ReplacementDeposit(data) => watchtowers.extend(data.watchtowers.iter()),
-        }
+        watchtowers.extend(self.actors.watchtowers.iter());
         watchtowers.sort();
         watchtowers
     }
     pub fn get_operators(&self) -> Vec<XOnlyPublicKey> {
-        let mut operators = match self {
-            DepositData::BaseDeposit(data) => data.operators.clone(),
-            DepositData::ReplacementDeposit(data) => data.operators.clone(),
-        };
+        let mut operators = self.actors.operators.clone();
         operators.sort();
         operators
     }
-    pub fn get_ith_operator(&self, i: u32) -> XOnlyPublicKey {
-        self.get_operators()[i as usize]
-    }
     pub fn get_num_operators(&self) -> usize {
-        match self {
-            DepositData::BaseDeposit(data) => data.operators.len(),
-            DepositData::ReplacementDeposit(data) => data.operators.len(),
-        }
+        self.actors.operators.len()
     }
 }
 
-/// Type to uniquely identify a deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct BaseDepositData {
-    /// User's deposit UTXO.
-    pub deposit_outpoint: bitcoin::OutPoint,
-    /// User's EVM address.
-    pub evm_address: EVMAddress,
-    /// User's recovery taproot address.
-    pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
-    /// Cached nofn xonly public key used for deposit.
-    pub nofn_xonly_pk: Option<XOnlyPublicKey>,
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct Actors {
     /// Public keys of verifiers that will participate in the deposit.
     pub verifiers: Vec<PublicKey>,
     /// X-only public keys of watchtowers that will participate in the deposit.
@@ -244,21 +198,19 @@ pub struct BaseDepositData {
     pub operators: Vec<XOnlyPublicKey>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+/// Type to uniquely identify a deposit.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct BaseDepositData {
+    /// User's EVM address.
+    pub evm_address: EVMAddress,
+    /// User's recovery taproot address.
+    pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ReplacementDepositData {
-    /// deposit UTXO.
-    pub deposit_outpoint: bitcoin::OutPoint,
     /// old move_to_vault txid that was replaced
     pub old_move_txid: Txid,
-    /// Cached nofn xonly public key used for deposit.
-    pub nofn_xonly_pk: Option<XOnlyPublicKey>,
-    /// X-only public keys of verifiers that will participate in the deposit.
-    pub verifiers: Vec<PublicKey>,
-    /// X-only public keys of watchtowers that will participate in the deposit.
-    /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-    pub watchtowers: Vec<XOnlyPublicKey>,
-    /// X-only public keys of operators that will participate in the deposit.
-    pub operators: Vec<XOnlyPublicKey>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
@@ -511,10 +463,11 @@ pub fn create_move_to_vault_txhandler(
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     let nofn_xonly_pk = deposit_data.get_nofn_xonly_pk()?;
+    let deposit_outpoint = deposit_data.get_deposit_outpoint();
     let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
 
-    let builder = match deposit_data {
-        DepositData::BaseDeposit(original_deposit_data) => {
+    let builder = match &mut deposit_data.deposit.deposit_type {
+        DepositType::BaseDeposit(original_deposit_data) => {
             let deposit_script = Arc::new(BaseDepositScript::new(
                 nofn_xonly_pk,
                 original_deposit_data.evm_address,
@@ -541,7 +494,7 @@ pub fn create_move_to_vault_txhandler(
                 .add_input(
                     NormalSignatureKind::NotStored,
                     SpendableTxIn::from_scripts(
-                        original_deposit_data.deposit_outpoint,
+                        deposit_outpoint,
                         paramset.bridge_amount,
                         vec![deposit_script, script_timelock],
                         None,
@@ -551,7 +504,7 @@ pub fn create_move_to_vault_txhandler(
                     DEFAULT_SEQUENCE,
                 )
         }
-        DepositData::ReplacementDeposit(replacement_deposit_data) => {
+        DepositType::ReplacementDeposit(replacement_deposit_data) => {
             let deposit_script = Arc::new(ReplacementDepositScript::new(
                 nofn_xonly_pk,
                 replacement_deposit_data.old_move_txid,
@@ -563,7 +516,7 @@ pub fn create_move_to_vault_txhandler(
                 .add_input(
                     NormalSignatureKind::NotStored,
                     SpendableTxIn::from_scripts(
-                        replacement_deposit_data.deposit_outpoint,
+                        deposit_outpoint,
                         paramset.bridge_amount,
                         vec![deposit_script],
                         None,

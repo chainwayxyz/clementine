@@ -2,10 +2,11 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
-use super::clementine::{AggregatorWithdrawResponse, VerifierPublicKeys, WithdrawParams};
+use super::clementine::{AggregatorWithdrawResponse, Deposit, VerifierPublicKeys, WithdrawParams};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
-    create_move_to_vault_txhandler, DepositData, Signed, TransactionType, TxHandler,
+    create_move_to_vault_txhandler, Actors, DepositData, DepositInfo, Signed, TransactionType,
+    TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
@@ -786,18 +787,19 @@ impl ClementineAggregator for Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_deposit(
         &self,
-        request: Request<DepositParams>,
+        request: Request<Deposit>,
     ) -> Result<Response<clementine::Txid>, Status> {
-        let deposit_params: DepositParams = request.into_inner();
-        let mut deposit_data: DepositData = deposit_params.clone().try_into()?;
+        let deposit_info: DepositInfo = request.into_inner().try_into()?;
 
-        // fill with default verifiers and operators if it is empty
-        if deposit_data.get_verifiers().is_empty() {
-            deposit_data.set_verifiers(self.get_verifier_keys().await);
-        }
-        if deposit_data.get_operators().is_empty() {
-            deposit_data.set_operators(self.get_operator_keys().await);
-        }
+        let deposit_data = DepositData {
+            deposit: deposit_info,
+            nofn_xonly_pk: None,
+            actors: Actors {
+                verifiers: self.get_verifier_keys().await,
+                watchtowers: vec![],
+                operators: self.get_operator_keys().await,
+            },
+        };
 
         let deposit_params = deposit_data.clone().into();
 
@@ -1058,12 +1060,12 @@ impl ClementineAggregator for Aggregator {
 #[cfg(test)]
 mod tests {
     use crate::actor::Actor;
-    use crate::builder::transaction::{BaseDepositData, DepositData};
+    use crate::builder::transaction::{BaseDepositData, DepositInfo, DepositType};
     use crate::citrea::mock::MockCitreaClient;
     use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{self};
+    use crate::test::common::*;
     use crate::{builder, EVMAddress};
-    use crate::{rpc::clementine::DepositParams, test::common::*};
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
     use eyre::Context;
@@ -1132,18 +1134,16 @@ mod tests {
             .unwrap();
         rpc.mine_blocks(18).await.unwrap();
 
-        let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+        let deposit_info = DepositInfo {
             deposit_outpoint,
-            evm_address,
-            recovery_taproot_address: signer.address.as_unchecked().clone(),
-            nofn_xonly_pk: None,
-            verifiers: vec![],
-            watchtowers: vec![],
-            operators: vec![],
-        });
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
 
         let movetx_txid: Txid = aggregator
-            .new_deposit(DepositParams::from(deposit_data))
+            .new_deposit(clementine::Deposit::from(deposit_info))
             .await
             .unwrap()
             .into_inner()

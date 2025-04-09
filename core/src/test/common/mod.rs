@@ -6,8 +6,8 @@ use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::{CheckSig, SpendableScript};
 use crate::builder::transaction::{
-    create_replacement_deposit_txhandler, BaseDepositData, DepositData, ReplacementDepositData,
-    TxHandler,
+    create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
+    ReplacementDepositData, TxHandler,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
@@ -21,7 +21,7 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::{DepositParams, Empty, FeeType, RawSignedTx, SendTxRequest};
+use crate::rpc::clementine::{Deposit, Empty, FeeType, RawSignedTx, SendTxRequest};
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
@@ -98,7 +98,7 @@ pub async fn poll_get<T>(
     timeout: Option<Duration>,
     poll_interval: Option<Duration>,
 ) -> Result<T, BridgeError> {
-    let timeout = timeout.unwrap_or(Duration::from_secs(60));
+    let timeout = timeout.unwrap_or(Duration::from_secs(90));
     let poll_interval = poll_interval.unwrap_or(Duration::from_millis(500));
 
     let start = std::time::Instant::now();
@@ -232,24 +232,21 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
             .await?;
         rpc.mine_blocks(18).await?;
 
-        let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+        let deposit_info = DepositInfo {
             deposit_outpoint,
-            evm_address,
-            recovery_taproot_address: actor.address.as_unchecked().to_owned(),
-            verifiers: vec![],
-            watchtowers: vec![],
-            operators: vec![],
-            nofn_xonly_pk: None,
-        });
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: actor.address.as_unchecked().to_owned(),
+            }),
+        };
 
-        let deposit_params: DepositParams = deposit_data.into();
+        let deposit: Deposit = deposit_info.into();
 
         let move_txid: Txid = aggregator
-            .new_deposit(deposit_params)
+            .new_deposit(deposit)
             .await?
             .into_inner()
-            .try_into()
-            .wrap_err("Failed to convert between Txid types")?;
+            .try_into()?;
         rpc.mine_blocks(1).await?;
 
         let _tx = poll_get(
@@ -293,7 +290,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         Vec<ClementineOperatorClient<Channel>>,
         ClementineAggregatorClient<Channel>,
         ActorsCleanup,
-        DepositParams,
+        DepositInfo,
         Txid,
         BlockHash,
         Vec<PublicKey>,
@@ -328,25 +325,21 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None).await?;
     let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
-    let deposit_data = DepositData::BaseDeposit(BaseDepositData {
+    let deposit_info = DepositInfo {
         deposit_outpoint,
-        evm_address,
-        recovery_taproot_address: actor.address.as_unchecked().to_owned(),
-        nofn_xonly_pk: None,
-        verifiers: vec![],
-        watchtowers: vec![],
-        operators: vec![],
-    });
+        deposit_type: DepositType::BaseDeposit(BaseDepositData {
+            evm_address,
+            recovery_taproot_address: actor.address.as_unchecked().to_owned(),
+        }),
+    };
 
-    let deposit_params: DepositParams = deposit_data.into();
+    let deposit: Deposit = deposit_info.clone().into();
 
     let move_txid: Txid = aggregator
-        .new_deposit(deposit_params.clone())
-        .await
-        .wrap_err("Failed to execute deposit")?
+        .new_deposit(deposit)
+        .await?
         .into_inner()
-        .try_into()
-        .wrap_err("Failed to convert between Txid types")?;
+        .try_into()?;
 
     // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -360,7 +353,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         operators,
         aggregator,
         cleanup,
-        deposit_params,
+        deposit_info,
         move_txid,
         deposit_blockhash,
         verifiers_public_keys,
@@ -460,7 +453,7 @@ pub async fn run_replacement_deposit(
         Vec<ClementineOperatorClient<Channel>>,
         ClementineAggregatorClient<Channel>,
         ActorsCleanup,
-        DepositParams,
+        DepositInfo,
         Txid,
         BlockHash,
     ),
@@ -514,22 +507,20 @@ pub async fn run_replacement_deposit(
 
     let deposit_blockhash = rpc.get_blockhash_of_tx(&replacement_deposit_txid).await?;
 
-    let deposit_data = DepositData::ReplacementDeposit(ReplacementDepositData {
+    let deposit_info = DepositInfo {
         deposit_outpoint: bitcoin::OutPoint {
             txid: replacement_deposit_txid,
             vout: 0,
         },
-        nofn_xonly_pk: None,
-        old_move_txid: move_txid,
-        verifiers: vec![],
-        watchtowers: vec![],
-        operators: vec![],
-    });
+        deposit_type: DepositType::ReplacementDeposit(ReplacementDepositData {
+            old_move_txid: move_txid,
+        }),
+    };
 
-    let deposit_params: DepositParams = deposit_data.into();
+    let deposit: Deposit = deposit_info.clone().into();
 
     let move_txid: Txid = aggregator
-        .new_deposit(deposit_params.clone())
+        .new_deposit(deposit)
         .await?
         .into_inner()
         .try_into()?;
@@ -539,7 +530,7 @@ pub async fn run_replacement_deposit(
         operators,
         aggregator,
         cleanup,
-        deposit_params,
+        deposit_info,
         move_txid,
         deposit_blockhash,
     ))

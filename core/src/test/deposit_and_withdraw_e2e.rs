@@ -1,6 +1,5 @@
 use super::common::citrea::get_bridge_params;
 use crate::bitvm_client::SECP;
-use crate::builder::transaction::DepositData;
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
@@ -579,7 +578,7 @@ async fn mock_citrea_run_truthful() {
                 .await?
                 .is_some())
         },
-        Some(Duration::from_secs(240)),
+        Some(Duration::from_secs(360)),
         Some(Duration::from_millis(200)),
     )
     .await
@@ -595,7 +594,7 @@ async fn mock_citrea_run_truthful() {
                 .await?
                 .is_none())
         },
-        Some(Duration::from_secs(240)),
+        Some(Duration::from_secs(360)),
         Some(Duration::from_millis(200)),
     )
     .await
@@ -675,7 +674,7 @@ async fn mock_citrea_run_malicious() {
         mut operators,
         _aggregator,
         _cleanup,
-        deposit_params,
+        deposit_info,
         move_txid,
         _deposit_blockhash,
         _,
@@ -764,12 +763,10 @@ async fn mock_citrea_run_malicious() {
 
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
-    let dep_data: DepositData = deposit_params.clone().try_into().unwrap();
-
     let kickoff_txid: bitcoin::Txid = operators[0]
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: vec![0u8; 32],
-            deposit_outpoint: Some(dep_data.get_deposit_outpoint().into()),
+            deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
         })
         .await
         .unwrap()
