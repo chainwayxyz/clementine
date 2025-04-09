@@ -20,6 +20,7 @@ use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::KickoffId;
+use crate::states::context::DutyResult;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
@@ -998,7 +999,7 @@ where
     C: CitreaClientT,
 {
     const OWNER_TYPE: &'static str = "operator";
-    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         match duty {
             Duty::NewReadyToReimburse {
                 round_idx,
@@ -1006,6 +1007,7 @@ where
                 used_kickoffs,
             } => {
                 tracing::info!("Operator {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", self.idx, round_idx, operator_idx, used_kickoffs);
+                Ok(DutyResult::default())
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
@@ -1015,6 +1017,7 @@ where
                     "Operator {} called watchtower challenge with kickoff_id: {:?}, deposit_data: {:?}",
                     self.idx, kickoff_id, deposit_data
                 );
+                Ok(DutyResult::default())
             }
             Duty::SendOperatorAsserts {
                 kickoff_id,
@@ -1030,6 +1033,7 @@ where
                     payout_blockhash,
                 )
                 .await?;
+                Ok(DutyResult::default())
             }
             Duty::VerifierDisprove {
                 kickoff_id,
@@ -1038,13 +1042,14 @@ where
                 operator_acks,
                 payout_blockhash,
             } => {
-                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
+                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}, payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
+                Ok(DutyResult::default())
             }
             Duty::CheckIfKickoff {
                 txid,
                 block_height,
                 witness,
+                challenged_before: _,
             } => {
                 tracing::info!(
                     "Operator {} called check if kickoff with txid: {:?}, block_height: {:?}",
@@ -1070,9 +1075,9 @@ where
                     .await?;
                     dbtx.commit().await?;
                 }
+                Ok(DutyResult::default())
             }
         }
-        Ok(())
     }
 
     async fn create_txhandlers(

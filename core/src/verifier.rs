@@ -22,6 +22,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::{KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::states::context::DutyResult;
 use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
@@ -970,19 +971,28 @@ where
         Ok(true)
     }
 
+    /// Checks if the kickoff is malicious and sends the appropriate txs if it is.
+    /// Returns true if the kickoff is malicious.
     pub async fn handle_kickoff<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
         kickoff_witness: Witness,
         deposit_data: DepositData,
         kickoff_id: KickoffId,
-    ) -> Result<(), BridgeError> {
+        challenged_before: bool,
+    ) -> Result<bool, BridgeError> {
         let is_malicious = self
             .is_kickoff_malicious(kickoff_witness, &deposit_data, kickoff_id)
             .await?;
         if !is_malicious {
-            return Ok(());
+            return Ok(false);
         }
+
+        tracing::warn!(
+            "Kickoff {:?} is malicious for deposit {:?}",
+            kickoff_id,
+            deposit_data
+        );
 
         let transaction_data = TransactionRequestData {
             deposit_data: deposit_data.clone(),
@@ -1012,10 +1022,12 @@ where
             deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
         });
 
-        // self._rpc.client.import_descriptors(vec!["tr("])
-
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
+            if *tx_type == TransactionType::Challenge && challenged_before {
+                // do not send challenge tx operator was already challenged in the same round
+                continue;
+            }
             match *tx_type {
                 TransactionType::Challenge
                 | TransactionType::AssertTimeout(_)
@@ -1036,7 +1048,7 @@ where
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 
     async fn send_watchtower_challenge(
@@ -1233,7 +1245,7 @@ where
 {
     const OWNER_TYPE: &'static str = "verifier";
 
-    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         let verifier_index = self
             .idx
             .read()
@@ -1252,6 +1264,7 @@ where
                 );
                 self.send_unspent_kickoff_connectors(round_idx, operator_idx, used_kickoffs)
                     .await?;
+                Ok(DutyResult::default())
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
@@ -1263,6 +1276,7 @@ where
                 );
                 self.send_watchtower_challenge(kickoff_id, deposit_data)
                     .await?;
+                Ok(DutyResult::default())
             }
             Duty::SendOperatorAsserts {
                 kickoff_id,
@@ -1274,6 +1288,7 @@ where
                     "Verifier {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
                     verifier_index, kickoff_id, deposit_data, watchtower_challenges.len()
                 );
+                Ok(DutyResult::default())
             }
             Duty::VerifierDisprove {
                 kickoff_id,
@@ -1285,11 +1300,13 @@ where
                 tracing::warn!(
                     "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
                     payout_blockhash: {:?}", verifier_index, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
+                Ok(DutyResult::default())
             }
             Duty::CheckIfKickoff {
                 txid,
                 block_height,
                 witness,
+                challenged_before,
             } => {
                 tracing::info!(
                     "Verifier {} called check if kickoff with txid: {:?}, block_height: {:?}",
@@ -1301,6 +1318,7 @@ where
                     .db
                     .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
+                let mut challenged = false;
                 if let Some((deposit_data, kickoff_id)) = kickoff_data {
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
@@ -1313,13 +1331,20 @@ where
                         witness.clone(),
                     )
                     .await?;
-                    self.handle_kickoff(&mut dbtx, witness, deposit_data, kickoff_id)
+                    challenged = self
+                        .handle_kickoff(
+                            &mut dbtx,
+                            witness,
+                            deposit_data,
+                            kickoff_id,
+                            challenged_before,
+                        )
                         .await?;
                     dbtx.commit().await?;
                 }
+                Ok(DutyResult { challenged })
             }
         }
-        Ok(())
     }
 
     async fn create_txhandlers(

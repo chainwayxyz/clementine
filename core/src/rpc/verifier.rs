@@ -438,7 +438,7 @@ where
             .await?;
         if let Some((deposit_data, kickoff_id)) = kickoff_data {
             self.verifier
-                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id)
+                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id, false)
                 .await?;
         } else {
             return Err(Status::not_found("Kickoff txid not found"));
