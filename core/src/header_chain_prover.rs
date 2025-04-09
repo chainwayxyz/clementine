@@ -1,4 +1,8 @@
 //! # Header Chain Prover
+//!
+//! This module contains utilities for proving Bitcoin block headers. This
+//! module must be fed with new blocks via the database. Later, it can check if
+//! proving should be triggered by verifying if the batch size is sufficient.
 
 use crate::database::DatabaseTransaction;
 use crate::errors::ResultExt;
@@ -74,6 +78,8 @@ pub struct HeaderChainProver {
 }
 
 impl HeaderChainProver {
+    /// Creates a new [`HeaderChainProver`] instance. Also saves a proof
+    /// assumption if specified in the config.
     pub async fn new(
         config: &BridgeConfig,
         rpc: ExtendedRpc,
@@ -118,7 +124,10 @@ impl HeaderChainProver {
                 block_height
             );
 
-            // Ignore error if block entry is in database already.
+            // If an unproven block in database already exists, it shouldn't
+            // effect anything.
+            // PS: This also ignores other db errors but there are other places
+            // where we check for those errors.
             let _ = db
                 .save_unproven_block(
                     None,
@@ -128,7 +137,6 @@ impl HeaderChainProver {
                 )
                 .await;
 
-            // Save proof receipt.
             db.set_block_proof(None, block_hash, proof)
                 .await
                 .map_to_eyre()?;
@@ -159,7 +167,7 @@ impl HeaderChainProver {
         block_headers: Vec<Header>,
         previous_proof: Receipt,
     ) -> Result<Receipt, BridgeError> {
-        tracing::info!(
+        tracing::debug!(
             "Prover starts proving {} blocks ending with block with hash {}",
             block_headers.len(),
             current_block_hash
@@ -253,7 +261,8 @@ impl HeaderChainProver {
         Ok(receipt)
     }
 
-    /// Get the proof of a block.
+    /// Get the proof of a block. If the requested block is not in target of the
+    /// prover, proves these blocks here.
     ///
     /// # Parameters
     ///
@@ -386,6 +395,7 @@ impl HeaderChainProver {
         Ok(false)
     }
 
+    /// Proves blocks if the batch is ready. If not, skips.
     pub async fn prove_if_ready(&self) -> Result<Option<Receipt>, BridgeError> {
         if !self.is_batch_ready().await? {
             return Ok(None);
