@@ -168,7 +168,11 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<(BlockHash, Header, u64)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT block_hash, block_header, height FROM header_chain_proofs WHERE proof IS NOT NULL ORDER BY height DESC LIMIT 1;",
+            "SELECT block_hash, block_header, height
+            FROM header_chain_proofs
+            WHERE proof IS NOT NULL
+            ORDER BY height DESC
+            LIMIT 1;",
         );
 
         let result: Option<(BlockHashDB, BlockHeaderDB, i64)> =
@@ -613,6 +617,74 @@ mod tests {
             let i = i as usize;
             assert_eq!(res.0[i].2, blocks[i].1 as u64);
             assert_eq!(res.0[i].0, blocks[i].0);
+        }
+    }
+
+    #[tokio::test]
+    async fn get_latest_proven_block_info() {
+        let config = create_test_config_with_thread_name().await;
+        let db = Database::new(&config).await.unwrap();
+        let proof =
+            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+
+        assert!(db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .is_none());
+
+        let block = block::Block {
+            header: Header {
+                version: Version::TWO,
+                prev_blockhash: BlockHash::all_zeros(),
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0x1F,
+                bits: CompactTarget::default(),
+                nonce: 0x45,
+            },
+            txdata: vec![],
+        };
+        let mut block_hash = block.block_hash();
+        let mut height = 0x45;
+        db.save_unproven_block(None, block_hash, block.header, height)
+            .await
+            .unwrap();
+        assert!(db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .is_none());
+
+        for i in 0..3 {
+            let block = block::Block {
+                header: Header {
+                    version: Version::TWO,
+                    prev_blockhash: block_hash,
+                    merkle_root: TxMerkleNode::all_zeros(),
+                    time: 0x1F,
+                    bits: CompactTarget::default(),
+                    nonce: 0x45 + i,
+                },
+                txdata: vec![],
+            };
+            block_hash = block.block_hash();
+            height += 1;
+
+            db.save_unproven_block(None, block_hash, block.header, height)
+                .await
+                .unwrap();
+            db.set_block_proof(None, block_hash, proof.clone())
+                .await
+                .unwrap();
+
+            let latest_proven_block = db
+                .get_latest_proven_block_info(None)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(latest_proven_block.0, block_hash);
+            assert_eq!(latest_proven_block.1, block.header);
+            assert_eq!(latest_proven_block.2, height);
         }
     }
 }
