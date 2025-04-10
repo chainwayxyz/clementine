@@ -1282,18 +1282,7 @@ where
                     .await?;
                 Ok(DutyResult::default())
             }
-            Duty::SendOperatorAsserts {
-                kickoff_id,
-                deposit_data,
-                watchtower_challenges,
-                ..
-            } => {
-                tracing::info!(
-                    "Verifier {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
-                    verifier_index, kickoff_id, deposit_data, watchtower_challenges.len()
-                );
-                Ok(DutyResult::default())
-            }
+            Duty::SendOperatorAsserts { .. } => Ok(DutyResult::default()),
             Duty::VerifierDisprove {
                 kickoff_id,
                 deposit_data,
@@ -1312,7 +1301,7 @@ where
                 witness,
                 challenged_before,
             } => {
-                tracing::info!(
+                tracing::debug!(
                     "Verifier {} called check if kickoff with txid: {:?}, block_height: {:?}",
                     verifier_index,
                     txid,
