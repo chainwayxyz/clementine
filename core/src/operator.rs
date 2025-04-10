@@ -585,7 +585,7 @@ where
                     txhandler.get_transaction_type()
                 {
                     let partial = PartialSignatureInfo {
-                        operator_idx: 0, // dummy value
+                        operator_idx: 0, // dummy value, doesn't
                         round_idx: idx,
                         kickoff_utxo_idx: kickoff_idx,
                     };

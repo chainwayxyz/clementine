@@ -99,12 +99,12 @@ message Deposit {
 
 message Actors {
   /// Public keys of verifiers that will participate in the deposit.
-  repeated bytes verifiers = 1;
+  VerifierPublicKeys verifiers = 1;
   /// X-only public keys of watchtowers that will participate in the deposit.
   /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-  repeated bytes watchtowers = 2;
+  XOnlyPublicKeys watchtowers = 2;
   /// X-only public keys of operators that will participate in the deposit.
-  repeated bytes operators = 3;
+  XOnlyPublicKeys operators = 3;
 }
 
 message ReplacementDeposit {
@@ -391,6 +391,10 @@ message VerifierDepositFinalizeParams {
 
 message VerifierPublicKeys {
   repeated bytes verifier_public_keys = 1;
+}
+
+message XOnlyPublicKeys {
+  repeated bytes xonly_public_keys = 1;
 }
 
 service ClementineVerifier {

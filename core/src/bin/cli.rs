@@ -3,7 +3,7 @@ use clementine_core::rpc::clementine::{
     clementine_aggregator_client::ClementineAggregatorClient,
     clementine_operator_client::ClementineOperatorClient,
     clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
-    BaseDeposit, Deposit, Empty, Outpoint,
+    BaseDeposit, Deposit, Empty, Outpoint, VerifierPublicKeys, XOnlyPublicKeys,
 };
 use tonic::Request;
 
@@ -130,9 +130,15 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                     })),
                 }),
                 actors: Some(Actors {
-                    verifiers: vec![],
-                    watchtowers: vec![],
-                    operators: vec![],
+                    verifiers: Some(VerifierPublicKeys {
+                        verifier_public_keys: vec![],
+                    }),
+                    watchtowers: Some(XOnlyPublicKeys {
+                        xonly_public_keys: vec![],
+                    }),
+                    operators: Some(XOnlyPublicKeys {
+                        xonly_public_keys: vec![],
+                    }),
                 }),
             };
             let response = operator

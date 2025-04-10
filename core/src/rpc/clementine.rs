@@ -88,15 +88,15 @@ pub mod deposit {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Actors {
     /// / Public keys of verifiers that will participate in the deposit.
-    #[prost(bytes = "vec", repeated, tag = "1")]
-    pub verifiers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(message, optional, tag = "1")]
+    pub verifiers: ::core::option::Option<VerifierPublicKeys>,
     /// / X-only public keys of watchtowers that will participate in the deposit.
     /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
-    #[prost(bytes = "vec", repeated, tag = "2")]
-    pub watchtowers: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(message, optional, tag = "2")]
+    pub watchtowers: ::core::option::Option<XOnlyPublicKeys>,
     /// / X-only public keys of operators that will participate in the deposit.
-    #[prost(bytes = "vec", repeated, tag = "3")]
-    pub operators: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(message, optional, tag = "3")]
+    pub operators: ::core::option::Option<XOnlyPublicKeys>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReplacementDeposit {
@@ -351,6 +351,11 @@ pub mod verifier_deposit_finalize_params {
 pub struct VerifierPublicKeys {
     #[prost(bytes = "vec", repeated, tag = "1")]
     pub verifier_public_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XOnlyPublicKeys {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub xonly_public_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedTx {

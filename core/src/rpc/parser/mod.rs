@@ -11,7 +11,6 @@ use crate::errors::BridgeError;
 use crate::tx_sender::FeePayingType;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::secp256k1::PublicKey;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use eyre::Context;
@@ -189,12 +188,6 @@ impl From<winternitz::PublicKey> for WinternitzPubkey {
     }
 }
 
-macro_rules! serialize_keys_to_vec {
-    ($pubkeys:expr) => {
-        $pubkeys.iter().map(|pk| pk.serialize().to_vec()).collect()
-    };
-}
-
 impl From<DepositInfo> for clementine::Deposit {
     fn from(value: DepositInfo) -> Self {
         clementine::Deposit {
@@ -318,13 +311,46 @@ impl From<DepositType> for clementine::deposit::DepositData {
     }
 }
 
+impl TryFrom<clementine::XOnlyPublicKeys> for Vec<XOnlyPublicKey> {
+    type Error = Status;
+
+    fn try_from(value: clementine::XOnlyPublicKeys) -> Result<Self, Self::Error> {
+        value
+            .xonly_public_keys
+            .iter()
+            .map(|pk| {
+                XOnlyPublicKey::from_slice(pk).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to parse xonly public key: {}", e))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
+impl From<Vec<XOnlyPublicKey>> for clementine::XOnlyPublicKeys {
+    fn from(value: Vec<XOnlyPublicKey>) -> Self {
+        clementine::XOnlyPublicKeys {
+            xonly_public_keys: value.iter().map(|pk| pk.serialize().to_vec()).collect(),
+        }
+    }
+}
+
 impl TryFrom<clementine::Actors> for Actors {
     type Error = Status;
 
     fn try_from(value: clementine::Actors) -> Result<Self, Self::Error> {
-        let verifiers = parse_public_keys(&value.verifiers)?;
-        let watchtowers = parse_xonly_public_keys(&value.watchtowers)?;
-        let operators = parse_xonly_public_keys(&value.operators)?;
+        let verifiers = value
+            .verifiers
+            .ok_or(Status::invalid_argument("No verifiers received"))?
+            .try_into()?;
+        let watchtowers = value
+            .watchtowers
+            .ok_or(Status::invalid_argument("No watchtowers received"))?
+            .try_into()?;
+        let operators = value
+            .operators
+            .ok_or(Status::invalid_argument("No operators received"))?
+            .try_into()?;
 
         Ok(Actors {
             verifiers,
@@ -337,9 +363,9 @@ impl TryFrom<clementine::Actors> for Actors {
 impl From<Actors> for clementine::Actors {
     fn from(value: Actors) -> Self {
         clementine::Actors {
-            verifiers: serialize_keys_to_vec!(&value.verifiers),
-            watchtowers: serialize_keys_to_vec!(&value.watchtowers),
-            operators: serialize_keys_to_vec!(&value.operators),
+            verifiers: Some(value.verifiers.into()),
+            watchtowers: Some(value.watchtowers.into()),
+            operators: Some(value.operators.into()),
         }
     }
 }
@@ -380,25 +406,6 @@ impl TryFrom<clementine::Txid> for Txid {
             Ok(Txid::from_raw_hash(sha256d::Hash::from_slice(&txid)?))
         }
     }
-}
-
-fn parse_xonly_public_keys(pk: &[Vec<u8>]) -> Result<Vec<XOnlyPublicKey>, Status> {
-    pk.iter()
-        .map(|pk| {
-            XOnlyPublicKey::from_slice(pk).map_err(|e| {
-                Status::invalid_argument(format!("Failed to parse xonly public key: {}", e))
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()
-}
-
-fn parse_public_keys(pk: &[Vec<u8>]) -> Result<Vec<PublicKey>, Status> {
-    pk.iter()
-        .map(|pk| {
-            PublicKey::from_slice(pk)
-                .map_err(|e| Status::invalid_argument(format!("Failed to parse public key: {}", e)))
-        })
-        .collect::<Result<Vec<_>, _>>()
 }
 
 pub fn parse_transaction_request(
