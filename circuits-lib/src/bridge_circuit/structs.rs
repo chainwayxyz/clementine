@@ -3,7 +3,6 @@ use final_spv::spv::SPV;
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
-
 const NUM_OF_WATCHTOWERS: u8 = 160;
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]

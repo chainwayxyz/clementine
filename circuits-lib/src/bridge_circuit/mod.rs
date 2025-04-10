@@ -559,10 +559,12 @@ mod tests {
         ScriptBuf, Transaction,
     };
     use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
-    use header_chain::{header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader}, mmr_native::MMRInclusionProof};
+    use header_chain::{
+        header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader},
+        mmr_native::MMRInclusionProof,
+    };
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;
-
 
     const WORK_ONLY_ELF: &[u8; 181188] =
         include_bytes!("../../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
