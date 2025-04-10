@@ -778,8 +778,6 @@ async fn mock_citrea_run_malicious() {
             .await
             .unwrap();
 
-    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
-
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
         vout: 0,
@@ -791,8 +789,46 @@ async fn mock_citrea_run_malicious() {
 
     // check that challenge utxo was not spent on timeout -> meaning challenge was sent
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
+
     // tx should have challenge amount output
     assert!(tx.output[0].value == config.protocol_paramset().operator_challenge_amount);
+    // send second kickoff tx
+    let kickoff_txid_2: bitcoin::Txid = operators[0]
+        .internal_finalized_payout(FinalizedPayoutParams {
+            payout_blockhash: vec![0u8; 32],
+            deposit_outpoint: Some(dep_data.get_deposit_outpoint().into()),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .try_into()
+        .unwrap();
+    // wait 3 seconds so fee payer txs are sent to mempool
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    // mine 1 block to make sure the fee payer txs are in the next block
+    rpc.mine_blocks(1).await.unwrap();
+
+    let _kickoff_block_height2 =
+        mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
+            .await
+            .unwrap();
+
+    tracing::warn!(
+        "Kickoff txid: {:?}, kickoff txid 2: {:?}",
+        kickoff_txid,
+        kickoff_txid_2
+    );
+    // second kickoff tx should not be challenged as a kickoff of the same round was already challenged
+    let challenge_outpoint_2 = OutPoint {
+        txid: kickoff_txid_2,
+        vout: 0,
+    };
+    let challenge_spent_txid_2 = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint_2)
+        .await
+        .unwrap();
+    let tx_2 = rpc.get_tx_of_txid(&challenge_spent_txid_2).await.unwrap();
+    // tx_2 should not have challenge amount output
+    assert!(tx_2.output[0].value != config.protocol_paramset().operator_challenge_amount);
 
     // TODO: check that operators collateral got burned. It cant be checked right now as we dont have auto disprove implemented.
 }
