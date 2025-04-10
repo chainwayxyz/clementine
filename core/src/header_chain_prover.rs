@@ -71,7 +71,7 @@ pub enum HeaderChainProverError {
 pub struct HeaderChainProver {
     db: Database,
     network: bitcoin::Network,
-    batch_size: u64,
+    batch_size: u32,
 }
 
 impl HeaderChainProver {
@@ -126,11 +126,11 @@ impl HeaderChainProver {
             // PS: This also ignores other db errors but there are other places
             // where we check for those errors.
             let _ = db
-                .save_unproven_finalized_block(
+                .add_block_info(
                     None,
-                    block_hash,
                     block_header,
-                    proof_output.chain_state.block_height.into(),
+                    block_hash,
+                    proof_output.chain_state.block_height,
                 )
                 .await;
 
@@ -141,10 +141,7 @@ impl HeaderChainProver {
 
         Ok(HeaderChainProver {
             db,
-            batch_size: config
-                .protocol_paramset()
-                .header_chain_proof_batch_size
-                .into(),
+            batch_size: config.protocol_paramset().header_chain_proof_batch_size,
             network: config.protocol_paramset().network,
         })
     }
@@ -324,12 +321,7 @@ impl HeaderChainProver {
             .header;
 
         self.db
-            .save_unproven_finalized_block(
-                dbtx,
-                block_hash,
-                block_header,
-                block_cache.block_height.into(),
-            )
+            .add_block_info(dbtx, block_header, block_hash, block_cache.block_height)
             .await?;
 
         Ok(())
@@ -374,14 +366,7 @@ impl HeaderChainProver {
             return Ok(None);
         }
 
-        let unproven_blocks = self
-            .db
-            .get_next_n_non_proven_block(
-                self.batch_size
-                    .try_into()
-                    .wrap_err("Can't convert u64 to u32")?,
-            )
-            .await?;
+        let unproven_blocks = self.db.get_next_n_non_proven_block(self.batch_size).await?;
         let (unproven_blocks, prev_proof) = match unproven_blocks {
             Some(unproven_blocks) => unproven_blocks,
             None => {
@@ -455,9 +440,7 @@ mod tests {
 
             headers.push(header);
 
-            let _ignore_errors = db
-                .save_unproven_finalized_block(None, hash, header, i)
-                .await;
+            let _ignore_errors = db.add_block_info(None, header, hash, i as u32).await;
         }
 
         headers
@@ -520,7 +503,7 @@ mod tests {
         let header = block.header;
         prover
             .db
-            .save_unproven_finalized_block(None, hash, header, height)
+            .add_block_info(None, header, hash, height as u32)
             .await
             .unwrap();
 
@@ -638,7 +621,7 @@ mod tests {
         let _block_headers = mine_and_get_first_n_block_headers(
             rpc.clone(),
             db.clone(),
-            latest_proven_block_height + batch_size as u64,
+            latest_proven_block_height as u64 + batch_size as u64,
         )
         .await;
 
@@ -680,7 +663,7 @@ mod tests {
         let _block_headers = mine_and_get_first_n_block_headers(
             rpc.clone(),
             db.clone(),
-            latest_proven_block_height + batch_size as u64,
+            latest_proven_block_height as u64 + batch_size as u64,
         )
         .await;
 
@@ -701,7 +684,11 @@ mod tests {
 
         // Try to get proof of the previous block that its heir is proven.
         let target_height = latest_proof.2 - 1;
-        let target_hash = rpc.client.get_block_hash(target_height).await.unwrap();
+        let target_hash = rpc
+            .client
+            .get_block_hash(target_height as u64)
+            .await
+            .unwrap();
 
         assert!(db
             .get_block_proof_by_hash(None, target_hash)
@@ -729,7 +716,7 @@ mod tests {
             let hash = rpc.client.get_block_hash(i).await.unwrap();
             let block = rpc.client.get_block(&hash).await.unwrap();
 
-            db.save_unproven_finalized_block(None, block.block_hash(), block.header, i)
+            db.add_block_info(None, block.header, block.block_hash(), i as u32)
                 .await
                 .unwrap();
         }

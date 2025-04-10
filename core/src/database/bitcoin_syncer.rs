@@ -28,9 +28,10 @@ impl Database {
         height: u32,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO bitcoin_syncer (header, blockhash, height) VALUES ($1, $2, $3) RETURNING id",
+            "INSERT INTO bitcoin_syncer (header, prev_blockhash, blockhash, height) VALUES ($1, $2, $3, $4) RETURNING id",
         )
         .bind(BlockHeaderDB(header))
+        .bind(BlockHashDB(header.prev_blockhash))
         .bind(BlockHashDB(hash))
         .bind(i32::try_from(height).wrap_err(BridgeError::IntConversionError)?);
 

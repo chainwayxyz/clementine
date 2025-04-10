@@ -16,34 +16,20 @@ use eyre::Context;
 use risc0_zkvm::Receipt;
 
 impl Database {
-    /// Adds a new finalized block to the database, later to be updated with a
-    /// proof.
-    pub async fn save_unproven_finalized_block(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        block_hash: block::BlockHash,
-        block_header: block::Header,
-        block_height: u64,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4);",
-            )
-            .bind(BlockHashDB(block_hash)).bind(BlockHeaderDB(block_header)).bind(BlockHashDB(block_header.prev_blockhash)).bind(block_height as i64);
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
     /// Returns block hash and header for a given range of heights. Ranges are
     /// inclusive on both ends.
     pub async fn get_block_info_from_range(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        start_height: u64,
-        end_height: u64,
+        start_height: u32,
+        end_height: u32,
     ) -> Result<Vec<(BlockHash, Header)>, BridgeError> {
-        let query = sqlx::query_as(
+        let query: sqlx::query::QueryAs<
+            '_,
+            sqlx::Postgres,
+            (BlockHashDB, BlockHeaderDB),
+            sqlx::postgres::PgArguments,
+        > = sqlx::query_as(
             "SELECT block_hash, block_header
             FROM header_chain_proofs
             WHERE height >= $1 AND height <= $2
@@ -67,14 +53,14 @@ impl Database {
     pub async fn get_latest_finalized_block_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<u64>, BridgeError> {
+    ) -> Result<Option<u32>, BridgeError> {
         let query =
             sqlx::query_as("SELECT height FROM header_chain_proofs ORDER BY height DESC LIMIT 1;");
 
-        let result: Option<(i64,)> =
+        let result: Option<(i32,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        Ok(result.map(|height| height.0 as u64))
+        Ok(result.map(|height| height.0 as u32))
     }
 
     /// Gets the newest finalized block's info that it's previous block has
@@ -92,27 +78,27 @@ impl Database {
     pub async fn get_next_non_proven_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<(BlockHash, Header, u64, Receipt)>, BridgeError> {
+    ) -> Result<Option<(BlockHash, Header, u32, Receipt)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT h1.block_hash,
                     h1.block_header,
                     h1.height,
                     h2.proof
-                FROM header_chain_proofs h1
-                JOIN header_chain_proofs h2 ON h1.prev_block_hash = h2.block_hash
+                FROM bitcoin_syncer h1
+                JOIN header_chain_proofs h2 ON h1.prev_blockhash = h2.block_hash
                 WHERE h2.proof IS NOT NULL AND h1.proof IS NULL
                 ORDER BY h1.height DESC
                 LIMIT 1;",
         );
 
-        let result: Option<(BlockHashDB, BlockHeaderDB, i64, Vec<u8>)> =
+        let result: Option<(BlockHashDB, BlockHeaderDB, i32, Vec<u8>)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         let result = match result {
             Some(result) => {
                 let receipt: Receipt =
                     borsh::from_slice(&result.3).wrap_err(BridgeError::BorshError)?;
-                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+                let height = result.2.try_into().wrap_err("Can't convert i32 to u32")?;
                 Some((result.0 .0, result.1 .0, height, receipt))
             }
             None => None,
@@ -196,7 +182,7 @@ impl Database {
     pub async fn get_latest_proven_block_info(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<(BlockHash, Header, u64)>, BridgeError> {
+    ) -> Result<Option<(BlockHash, Header, u32)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT block_hash, block_header, height
             FROM header_chain_proofs
@@ -205,12 +191,12 @@ impl Database {
             LIMIT 1;",
         );
 
-        let result: Option<(BlockHashDB, BlockHeaderDB, i64)> =
+        let result: Option<(BlockHashDB, BlockHeaderDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         let result = match result {
             Some(result) => {
-                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+                let height = result.2.try_into().wrap_err("Can't convert i32 to u32")?;
                 Some((result.0 .0, result.1 .0, height))
             }
             None => None,
@@ -295,7 +281,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 1;
-        db.save_unproven_finalized_block(None, block_hash, block.header, height)
+        db.add_block_info(None, block.header, block_hash, height)
             .await
             .unwrap();
         assert_eq!(
@@ -330,7 +316,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 2;
-        db.save_unproven_finalized_block(None, block_hash, block.header, height)
+        db.add_block_info(None, block.header, block_hash, height)
             .await
             .unwrap();
 
@@ -360,7 +346,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 0x45;
-        db.save_unproven_finalized_block(None, block_hash, block.header, height)
+        db.add_block_info(None, block.header, block_hash, height)
             .await
             .unwrap();
 
@@ -414,7 +400,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = base_height;
-        db.save_unproven_finalized_block(None, block_hash, block.header, height)
+        db.add_block_info(None, block.header, block_hash, height)
             .await
             .unwrap();
         assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
@@ -438,7 +424,7 @@ mod tests {
         };
         let block_hash1 = block.block_hash();
         let height1 = base_height + 1;
-        db.save_unproven_finalized_block(None, block_hash1, block.header, height1)
+        db.add_block_info(None, block.header, block_hash1, height1)
             .await
             .unwrap();
         let receipt =
@@ -454,7 +440,7 @@ mod tests {
             .unwrap();
         assert_eq!(latest_proven_block.0, block_hash1);
         assert_eq!(latest_proven_block.1, block.header);
-        assert_eq!(latest_proven_block.2 as u64, height1);
+        assert_eq!(latest_proven_block.2, height1);
 
         // Save third block without a proof.
         let block = block::Block {
@@ -470,14 +456,14 @@ mod tests {
         };
         let block_hash2 = block.block_hash();
         let height2 = base_height + 2;
-        db.save_unproven_finalized_block(None, block_hash2, block.header, height2)
+        db.add_block_info(None, block.header, block_hash2, height2)
             .await
             .unwrap();
 
         // This time, `get_non_proven_block` should return third block's details.
         let res = db.get_next_non_proven_block(None).await.unwrap().unwrap();
         assert_eq!(res.0, block_hash2);
-        assert_eq!(res.2 as u64, height2);
+        assert_eq!(res.2, height2);
 
         // Save fourth block with a proof.
         let block = block::Block {
@@ -493,7 +479,7 @@ mod tests {
         };
         let block_hash3 = block.block_hash();
         let height3 = base_height + 3;
-        db.save_unproven_finalized_block(None, block_hash3, block.header, height3)
+        db.add_block_info(None, block.header, block_hash3, height3)
             .await
             .unwrap();
         db.set_block_proof(None, block_hash3, receipt.clone())
@@ -519,13 +505,13 @@ mod tests {
         };
         let block_hash4 = block.block_hash();
         let height4 = base_height + 4;
-        db.save_unproven_finalized_block(None, block_hash4, block.header, height4)
+        db.add_block_info(None, block.header, block_hash4, height4)
             .await
             .unwrap();
 
         // This time, `get_non_proven_block` should return fifth block's details.
         let res = db.get_next_non_proven_block(None).await.unwrap().unwrap();
-        assert_eq!(res.2 as u64, height4);
+        assert_eq!(res.2, height4);
         assert_eq!(res.0, block_hash4);
     }
 
@@ -564,7 +550,7 @@ mod tests {
             txdata: vec![],
         };
         let block_hash = block.block_hash();
-        db.save_unproven_finalized_block(None, block_hash, block.header, height)
+        db.add_block_info(None, block.header, block_hash, height)
             .await
             .unwrap();
         assert!(db
@@ -593,7 +579,7 @@ mod tests {
         };
         let block_hash1 = block.block_hash();
         height += 1;
-        db.save_unproven_finalized_block(None, block_hash1, block.header, height)
+        db.add_block_info(None, block.header, block_hash1, height)
             .await
             .unwrap();
         let receipt =
@@ -614,7 +600,7 @@ mod tests {
             .unwrap();
         assert_eq!(latest_proven_block.0, block_hash1);
         assert_eq!(latest_proven_block.1, block.header);
-        assert_eq!(latest_proven_block.2 as u64, height);
+        assert_eq!(latest_proven_block.2, height);
 
         // Save next blocks without a proof.
         let mut blocks: Vec<(BlockHash, u32)> = Vec::new();
@@ -636,11 +622,11 @@ mod tests {
             height += 1;
             prev_block_hash = block_hash;
 
-            db.save_unproven_finalized_block(None, block_hash, block.header, height)
+            db.add_block_info(None, block.header, block_hash, height)
                 .await
                 .unwrap();
 
-            blocks.push((block_hash, height.try_into().unwrap()));
+            blocks.push((block_hash, height));
         }
 
         // This time, `get_non_proven_block` should return third block's details.
@@ -680,13 +666,13 @@ mod tests {
                     merkle_root: TxMerkleNode::all_zeros(),
                     time: 0x1F,
                     bits: CompactTarget::default(),
-                    nonce: height as u32,
+                    nonce: height,
                 },
                 txdata: vec![],
             };
             let block_hash = block.block_hash();
 
-            db.save_unproven_finalized_block(None, block_hash, block.header, height)
+            db.add_block_info(None, block.header, block_hash, height)
                 .await
                 .unwrap();
             infos.push((block_hash, block.header));
@@ -695,7 +681,7 @@ mod tests {
                 .get_block_info_from_range(None, start_height, height)
                 .await
                 .unwrap();
-            assert_eq!(res.len() as u64, height - start_height + 1);
+            assert_eq!(res.len() as u32, height - start_height + 1);
             assert_eq!(infos, res);
         }
     }
@@ -726,7 +712,7 @@ mod tests {
         };
         let mut block_hash = block.block_hash();
         let mut height = 0x45;
-        db.save_unproven_finalized_block(None, block_hash, block.header, height)
+        db.add_block_info(None, block.header, block_hash, height)
             .await
             .unwrap();
         assert!(db
@@ -750,7 +736,7 @@ mod tests {
             block_hash = block.block_hash();
             height += 1;
 
-            db.save_unproven_finalized_block(None, block_hash, block.header, height)
+            db.add_block_info(None, block.header, block_hash, height)
                 .await
                 .unwrap();
             db.set_block_proof(None, block_hash, proof.clone())

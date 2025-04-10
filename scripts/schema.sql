@@ -25,10 +25,7 @@ create table if not exists funding_utxos (
 );
 -- Watchtower header chain proofs
 create table if not exists header_chain_proofs (
-    block_hash text primary key not null,
-    block_header text,
-    prev_block_hash text,
-    height bigint not null,
+    block_hash text primary key not null references bitcoin_syncer (blockhash),
     proof bytea
 );
 create table if not exists watchtower_xonly_public_keys (
@@ -92,6 +89,7 @@ create table if not exists operators_challenge_ack_hashes (
 create table if not exists bitcoin_syncer (
     id serial primary key,
     header text not null,
+    prev_blockhash text not null,
     blockhash text not null unique,
     height int not null,
     is_canonical boolean not null default true
