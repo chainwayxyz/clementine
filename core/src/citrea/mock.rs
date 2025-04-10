@@ -180,8 +180,8 @@ impl CitreaClientT for MockCitreaClient {
     async fn check_nofn_correctness(
         &self,
         _nofn_xonly_pk: bitcoin::XOnlyPublicKey,
-    ) -> Result<bool, BridgeError> {
-        Ok(true)
+    ) -> Result<(), BridgeError> {
+        Ok(())
     }
 }
 

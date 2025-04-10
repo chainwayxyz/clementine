@@ -134,7 +134,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     async fn check_nofn_correctness(
         &self,
         nofn_xonly_pk: XOnlyPublicKey,
-    ) -> Result<bool, BridgeError>;
+    ) -> Result<(), BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -381,7 +381,7 @@ impl CitreaClientT for CitreaClient {
     async fn check_nofn_correctness(
         &self,
         nofn_xonly_pk: XOnlyPublicKey,
-    ) -> Result<bool, BridgeError> {
+    ) -> Result<(), BridgeError> {
         let script_prefix = self
             .contract
             .scriptPrefix()
@@ -395,7 +395,10 @@ impl CitreaClientT for CitreaClient {
         let script_nofn_bytes = &script_prefix[2..2 + 32];
         let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(script_nofn_bytes)
             .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
-        Ok(contract_nofn_xonly_pk == nofn_xonly_pk)
+        if contract_nofn_xonly_pk != nofn_xonly_pk {
+            return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
+        }
+        Ok(())
     }
 }
 
