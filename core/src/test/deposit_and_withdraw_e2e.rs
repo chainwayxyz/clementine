@@ -1041,10 +1041,8 @@ async fn mock_citrea_run_malicious_after_exit() {
         .await
         .unwrap();
 
-    // check that challenge utxo should not be spent on a challenge as operato
+    // check that challenge utxo should not be spent on a challenge as operator exited the protocol
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
 
     assert!(tx.output[0].value != config.protocol_paramset().operator_challenge_amount);
-
-    // TODO: check that operators collateral got burned. It cant be checked right now as we dont have auto disprove implemented.
 }
