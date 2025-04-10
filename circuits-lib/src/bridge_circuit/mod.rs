@@ -672,4 +672,24 @@ mod tests {
         let parsed_data = parse_op_return_data(&script).expect("Failed to parse OP_RETURN data");
         assert_eq!(parsed_data, [0u8; 80], "Parsed data is not correct");
     }
+    #[test]
+    fn test_parse_op_return_data_short() {
+        let op_return_data = "6a09000000000000000000";
+        let script = ScriptBuf::from(hex::decode(op_return_data).unwrap());
+        assert!(script.is_op_return(), "Script is not OP_RETURN");
+        let parsed_data = parse_op_return_data(&script).expect("Failed to parse OP_RETURN data");
+        assert_eq!(parsed_data, [0u8; 9], "Parsed data is not correct");
+    }
+
+    #[test]
+    fn test_parse_op_return_data_fail() {
+        let op_return_data = "6a4c4f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+        let script = ScriptBuf::from(hex::decode(op_return_data).unwrap());
+        assert!(script.is_op_return(), "Script is not OP_RETURN");
+        let parsed_data = parse_op_return_data(&script).expect("Failed to parse OP_RETURN data");
+        assert_ne!(parsed_data, [0u8; 80], "Parsed data should not be correct");
+    }
+
+
+
 }
