@@ -1,29 +1,38 @@
 use super::{
-    wrapper::{BlockHashDB, TxidDB},
+    wrapper::{BlockHashDB, BlockHeaderDB, TxidDB},
     Database, DatabaseTransaction,
 };
 use crate::{bitcoin_syncer::BitcoinSyncerEvent, errors::BridgeError, execute_query_with_tx};
-use bitcoin::{BlockHash, OutPoint, Txid};
+use bitcoin::{block::Header, BlockHash, OutPoint, Txid};
 use eyre::Context;
 use std::ops::DerefMut;
 
 impl Database {
-    /// # Returns
+    /// Add a block entry to the database.
     ///
-    /// - [`u32`]: Database entry id, later to be used while referring block
+    /// # Parameters
+    ///
+    /// - [`tx`]: Optional database transaction to use for the query
+    /// - [`block_header`]: Header of the block
+    /// - [`block_hash`]: Hash of the block
+    /// - [`block_height`]: Height of the block
+    ///
+    ///  # Returns
+    ///
+    /// - [`u32`]: Database entry id, later to be used while referring the block
     pub async fn add_block_info(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        block_hash: &BlockHash,
-        prev_block_hash: &BlockHash,
-        block_height: u32,
+        header: Header,
+        hash: BlockHash,
+        height: u32,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO bitcoin_syncer (blockhash, prev_blockhash, height) VALUES ($1, $2, $3) RETURNING id",
+            "INSERT INTO bitcoin_syncer (header, blockhash, height) VALUES ($1, $2, $3) RETURNING id",
         )
-        .bind(BlockHashDB(*block_hash))
-        .bind(BlockHashDB(*prev_block_hash))
-        .bind(i32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?);
+        .bind(BlockHeaderDB(header))
+        .bind(BlockHashDB(hash))
+        .bind(i32::try_from(height).wrap_err(BridgeError::IntConversionError)?);
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
@@ -31,6 +40,7 @@ impl Database {
             .wrap_err(BridgeError::IntConversionError)
             .map_err(Into::into)
     }
+
     /// # Returns
     ///
     /// [`Some`] if the block exists in the database, [`None`] otherwise:
@@ -41,21 +51,19 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: BlockHash,
-    ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
+    ) -> Result<Option<(Header, u32)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT prev_blockhash, height FROM bitcoin_syncer WHERE blockhash = $1 AND is_canonical = true",
+            "SELECT header, height FROM bitcoin_syncer WHERE blockhash = $1 AND is_canonical = true",
         )
         .bind(BlockHashDB(block_hash));
 
-        let ret: Option<(BlockHashDB, i32)> =
+        let ret: Option<(BlockHeaderDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        ret.map(
-            |(prev_hash, height)| -> Result<(BlockHash, u32), BridgeError> {
-                let height = u32::try_from(height).wrap_err(BridgeError::IntConversionError)?;
-                Ok((prev_hash.0, height))
-            },
-        )
+        ret.map(|(header, height)| -> Result<(Header, u32), BridgeError> {
+            let height = u32::try_from(height).wrap_err(BridgeError::IntConversionError)?;
+            Ok((header.0, height))
+        })
         .transpose()
     }
 
@@ -343,12 +351,19 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         // Create a test block
-        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let header = Header {
+            version: bitcoin::block::Version::TWO,
+            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32])),
+            merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+            time: 1_000_000,
+            bits: CompactTarget::from_consensus(0),
+            nonce: 12345,
+        };
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
 
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .add_block_info(Some(&mut dbtx), header, block_hash, height)
             .await
             .unwrap();
 
@@ -476,12 +491,19 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         // Create a test block
-        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let header = Header {
+            version: bitcoin::block::Version::TWO,
+            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32])),
+            merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+            time: 1_000_000,
+            bits: CompactTarget::from_consensus(0),
+            nonce: 12345,
+        };
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
 
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .add_block_info(Some(&mut dbtx), header, block_hash, height)
             .await
             .unwrap();
 
@@ -532,15 +554,26 @@ mod tests {
         let mut dbtx = db.begin_transaction().await.unwrap();
 
         // Create a chain of blocks
-        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let header = Header {
+            version: bitcoin::block::Version::TWO,
+            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32])),
+            merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+            time: 1_000_000,
+            bits: CompactTarget::from_consensus(0),
+            nonce: 12345,
+        };
         let heights = [1, 2, 3, 4, 5];
-        let mut last_hash = prev_block_hash;
+        let mut last_hash = header.prev_blockhash;
 
         let mut block_ids = Vec::new();
         for height in heights {
+            let header = Header {
+                prev_blockhash: last_hash,
+                ..header
+            };
             let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([height as u8; 32]));
             let block_id = db
-                .add_block_info(Some(&mut dbtx), &block_hash, &last_hash, height)
+                .add_block_info(Some(&mut dbtx), header, block_hash, height)
                 .await
                 .unwrap();
             block_ids.push(block_id);
@@ -581,7 +614,14 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
-        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let header = Header {
+            version: bitcoin::block::Version::TWO,
+            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32])),
+            merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+            time: 1_000_000,
+            bits: CompactTarget::from_consensus(0),
+            nonce: 12345,
+        };
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
 
@@ -591,7 +631,7 @@ mod tests {
             .unwrap()
             .is_none());
 
-        db.add_block_info(None, &block_hash, &prev_block_hash, height)
+        db.add_block_info(None, header, block_hash, height)
             .await
             .unwrap();
         let block_info = db
@@ -600,29 +640,28 @@ mod tests {
             .unwrap()
             .unwrap();
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
-        assert_eq!(block_info.0, prev_block_hash);
+        assert_eq!(block_info.0, header);
         assert_eq!(block_info.1, height);
         assert_eq!(max_height, height);
 
-        db.add_block_info(
-            None,
-            &BlockHash::from_raw_hash(Hash::from_byte_array([0x1; 32])),
-            &prev_block_hash,
-            height - 1,
-        )
-        .await
-        .unwrap();
+        let header = Header {
+            prev_blockhash: block_hash,
+            ..header
+        };
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1; 32]));
+        db.add_block_info(None, header, block_hash, height - 1)
+            .await
+            .unwrap();
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
         assert_eq!(max_height, height);
-
-        db.add_block_info(
-            None,
-            &BlockHash::from_raw_hash(Hash::from_byte_array([0x2; 32])),
-            &prev_block_hash,
-            height + 1,
-        )
-        .await
-        .unwrap();
+        let header = Header {
+            prev_blockhash: block_hash,
+            ..header
+        };
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x2; 32]));
+        db.add_block_info(None, header, block_hash, height + 1)
+            .await
+            .unwrap();
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
         assert_ne!(max_height, height);
         assert_eq!(max_height, height + 1);
@@ -640,11 +679,18 @@ mod tests {
             .is_err());
         let mut dbtx = db.begin_transaction().await.unwrap();
 
-        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let header = Header {
+            version: bitcoin::block::Version::TWO,
+            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32])),
+            merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+            time: 1_000_000,
+            bits: CompactTarget::from_consensus(0),
+            nonce: 12345,
+        };
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .add_block_info(Some(&mut dbtx), header, block_hash, height)
             .await
             .unwrap();
 
@@ -677,11 +723,18 @@ mod tests {
         let db = Database::new(&config).await.unwrap();
         let mut dbtx = db.begin_transaction().await.unwrap();
 
-        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let header = Header {
+            version: bitcoin::block::Version::TWO,
+            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32])),
+            merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+            time: 1_000_000,
+            bits: CompactTarget::from_consensus(0),
+            nonce: 12345,
+        };
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
         let block_id = db
-            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .add_block_info(Some(&mut dbtx), header, block_hash, height)
             .await
             .unwrap();
 

@@ -91,8 +91,8 @@ create table if not exists operators_challenge_ack_hashes (
 -------- BITCOIN SYNCER --------
 create table if not exists bitcoin_syncer (
     id serial primary key,
+    header text not null,
     blockhash text not null unique,
-    prev_blockhash text not null,
     height int not null,
     is_canonical boolean not null default true
 );
