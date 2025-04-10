@@ -4,6 +4,7 @@ use crate::builder::transaction::DepositData;
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
+use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::{FinalizedPayoutParams, WithdrawParams};
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
@@ -134,6 +135,21 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _deposit_blockhash,
             _,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let citrea_client = CitreaClient::new(
+            config.citrea_rpc_url.clone(),
+            config.citrea_light_client_prover_url.clone(),
+            None,
+        )
+        .await?;
+        let nofn_correctness = citrea_client
+            .check_nofn_correctness(nofn_xonly_pk)
+            .await
+            .unwrap();
+        tracing::warn!("Nofn correctness: {:?}", nofn_correctness);
 
         tracing::info!(
             "Deposit ending block_height: {:?}",
@@ -372,7 +388,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 }
 
 #[tokio::test]
-#[ignore = "temp"]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     // TODO: temp hack to use the correct docker image
     std::env::set_var(
