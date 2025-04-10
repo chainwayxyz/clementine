@@ -31,7 +31,7 @@ impl Database {
             sqlx::postgres::PgArguments,
         > = sqlx::query_as(
             "SELECT block_hash, block_header
-            FROM header_chain_proofs
+            FROM bitcoin_syncer
             WHERE height >= $1 AND height <= $2
             ORDER BY height ASC;",
         )
@@ -55,7 +55,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<u32>, BridgeError> {
         let query =
-            sqlx::query_as("SELECT height FROM header_chain_proofs ORDER BY height DESC LIMIT 1;");
+            sqlx::query_as("SELECT height FROM bitcoin_syncer ORDER BY height DESC LIMIT 1;");
 
         let result: Option<(i32,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
@@ -80,7 +80,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<(BlockHash, Header, u32, Receipt)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT h1.block_hash,
+            "SELECT h1.blockhash,
                     h1.block_header,
                     h1.height,
                     h2.proof
@@ -128,13 +128,12 @@ impl Database {
             Some(next_non_proven_block) => next_non_proven_block,
             None => return Ok(None),
         };
-        tracing::error!("next_non_proven_block: {:?}", next_non_proven_block.2);
 
         let query = sqlx::query_as(
             "SELECT block_hash,
                     block_header,
                     height
-                FROM header_chain_proofs
+                FROM bitcoin_syncer
                 WHERE height >= $1
                 ORDER BY height ASC
                 LIMIT $2;",
