@@ -211,21 +211,24 @@ impl<T: Owner> RoundStateMachine<T> {
 
                 context
                     .capture_error(async |context| {
-                        let challenged = context
-                            .owner
-                            .handle_duty(Duty::CheckIfKickoff {
-                                txid,
-                                block_height: context.cache.block_height,
-                                witness: context
-                                    .cache
-                                    .get_witness_of_utxo(kickoff_outpoint)
-                                    .expect("UTXO should be in block"),
-                                challenged_before: *challenged_before,
-                            })
-                            .await?
-                            .challenged;
-                        *challenged_before |= challenged;
-                        Ok(())
+                        {
+                            let challenged = context
+                                .owner
+                                .handle_duty(Duty::CheckIfKickoff {
+                                    txid,
+                                    block_height: context.cache.block_height,
+                                    witness: context
+                                        .cache
+                                        .get_witness_of_utxo(kickoff_outpoint)
+                                        .expect("UTXO should be in block"),
+                                    challenged_before: *challenged_before,
+                                })
+                                .await?
+                                .challenged;
+                            *challenged_before |= challenged;
+                            Ok::<(), BridgeError>(())
+                        }
+                        .wrap_err(self.round_meta("round_tx kickoff_utxo_used"))
                     })
                     .await;
                 Handled
@@ -243,7 +246,6 @@ impl<T: Owner> RoundStateMachine<T> {
     }
 
     #[state(entry_action = "on_operator_exit_entry")]
-    #[allow(unused_variables)]
     pub(crate) async fn operator_exit(
         &mut self,
         event: &RoundEvent,
@@ -259,8 +261,7 @@ impl<T: Owner> RoundStateMachine<T> {
     }
 
     #[action]
-    #[allow(unused_variables)]
-    pub(crate) async fn on_operator_exit_entry(&mut self, context: &mut StateContext<T>) {
+    pub(crate) async fn on_operator_exit_entry(&mut self) {
         self.matchers = HashMap::new();
         tracing::warn!(?self.operator_data, "Operator exited the protocol.");
     }
@@ -359,9 +360,9 @@ impl<T: Owner> RoundStateMachine<T> {
         round_idx: &mut u32,
     ) -> Response<State> {
         match event {
-            RoundEvent::RoundSent { round_idx } => {
-                Transition(State::round_tx(*round_idx, HashSet::new(), false))
-            }
+            RoundEvent::RoundSent {
+                round_idx: next_round_idx,
+            } => Transition(State::round_tx(*next_round_idx, HashSet::new(), false)),
             RoundEvent::SavedToDb => Handled,
             RoundEvent::OperatorExit => Transition(State::operator_exit()),
             _ => {

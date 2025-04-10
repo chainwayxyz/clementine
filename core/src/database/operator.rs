@@ -262,10 +262,13 @@ impl Database {
         let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
-                "INSERT INTO operator_winternitz_public_keys (operator_id, winternitz_public_keys) VALUES ($1, $2);",
-            )
-            .bind(operator_id as i64)
-            .bind(wpk);
+            "INSERT INTO operator_winternitz_public_keys (operator_id, winternitz_public_keys) 
+                 VALUES ($1, $2)
+                 ON CONFLICT (operator_id) 
+                 DO UPDATE SET winternitz_public_keys = $2;",
+        )
+        .bind(operator_id as i64)
+        .bind(wpk);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 

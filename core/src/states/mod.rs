@@ -438,12 +438,16 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     /// the block does not generate any new events)
     ///
     /// # Errors
-    /// If the state machines do not stabilize after 50 iterations, we return an error.
+    /// If the state machines do not stabilize after some iterations, we return an error.
     pub async fn process_block_parallel(&mut self, block_height: u32) -> Result<(), eyre::Report> {
         eyre::ensure!(
             self.context.cache.block_height == block_height,
             "Block cache is not updated"
         );
+
+        let saved_kickoff_machines = self.kickoff_machines.clone();
+        let saved_round_machines = self.round_machines.clone();
+
         // Process all machines, for those unaffected collect them them, otherwise return
         // a future that processes the new events.
         let (mut final_kickoff_machines, mut kickoff_futures) =
@@ -473,6 +477,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
 
             if !all_errors.is_empty() {
+                tracing::warn!(
+                    "Multiple errors occurred during state processing: owner: {:?}, errors: {:?}",
+                    self.context.owner_type,
+                    all_errors
+                );
+                // revert state machines to the saved state
+                self.kickoff_machines = saved_kickoff_machines;
+                self.round_machines = saved_round_machines;
                 // Return first error or create a combined error
                 return Err(BridgeError::Error(format!(
                     "Multiple errors occurred during state processing: {:?}",
@@ -505,9 +517,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 changed_kickoff_machines.extend(std::mem::take(&mut ctx.new_kickoff_machines));
             }
 
-            if iterations > 500 {
+            if iterations > 100000 {
                 return Err(eyre::eyre!(
-                    r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 500 iterations, debug repr of changed machines:
+                    r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 100000 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----
                         {:?}
                         ---- Round machines ----

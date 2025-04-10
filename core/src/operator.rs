@@ -339,6 +339,15 @@ where
     /// Creates the round state machine by adding a system event to the database
     pub async fn track_rounds(&self) -> Result<(), BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
+        // set operators own kickoff winternitz public keys before creating the round state machine
+        // as round machine needs kickoff keys to create the first round tx
+        self.db
+            .set_operator_kickoff_winternitz_public_keys(
+                Some(&mut dbtx),
+                self.idx as u32,
+                self.generate_kickoff_winternitz_pubkeys()?,
+            )
+            .await?;
         StateManager::<Operator<C>>::dispatch_new_round_machine(
             self.db.clone(),
             &mut dbtx,
@@ -1051,7 +1060,7 @@ where
                 witness,
                 challenged_before: _,
             } => {
-                tracing::info!(
+                tracing::warn!(
                     "Operator {} called check if kickoff with txid: {:?}, block_height: {:?}",
                     self.idx,
                     txid,
@@ -1062,6 +1071,12 @@ where
                     .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
                 if let Some((deposit_data, kickoff_id)) = kickoff_data {
+                    tracing::warn!(
+                        "Operator {} called check if kickoff with txid: {:?}, block_height: {:?}",
+                        self.idx,
+                        txid,
+                        block_height
+                    );
                     // add kickoff machine if there is a new kickoff
                     let mut dbtx = self.db.begin_transaction().await?;
                     StateManager::<Self>::dispatch_new_kickoff_machine(

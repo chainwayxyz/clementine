@@ -799,11 +799,13 @@ pub async fn run_challenge_with_state_machine(
     rpc.mine_blocks(config.protocol_paramset().time_to_send_watchtower_challenge as u64)
         .await?;
 
+    tracing::warn!("Checking if watchtower challenge utxos were spent");
     // check if watchtower challenge utxos were spent
     for outpoint in watchtower_challenge_utxos {
         ensure_outpoint_spent(&rpc, outpoint).await?;
     }
 
+    tracing::warn!("Checking if watchtower challenge timeouts were not sent");
     // check if watchtower challenge timeouts were not sent
     for txid in watchtower_challenge_timeout_txids {
         assert!(rpc
@@ -841,6 +843,7 @@ pub async fn run_challenge_with_state_machine(
             })
             .collect::<Vec<Txid>>();
 
+    tracing::warn!("Checking if operator asserts were sent");
     // check if operator asserts were sent
     for txid in operator_assert_txids {
         ensure_tx_onchain(&rpc, txid).await?;

@@ -14,6 +14,8 @@ use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
+use eyre::eyre;
+use eyre::OptionExt;
 use std::collections::BTreeMap;
 
 use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
@@ -144,8 +146,12 @@ impl ReimburseDbCache {
                 self.operator_data = Some(
                     self.db
                         .get_operator(None, self.operator_idx as i32)
-                        .await?
-                        .ok_or(BridgeError::OperatorNotFound(self.operator_idx))?,
+                        .await
+                        .map_err(|e| eyre!("Failed to get operator data from database: {}", e))?
+                        .ok_or_eyre(format!(
+                            "Operator not found for index {}",
+                            self.operator_idx
+                        ))?,
                 );
                 Ok(self.operator_data.as_ref().expect("Inserted before"))
             }
@@ -156,7 +162,9 @@ impl ReimburseDbCache {
         match self.verifier_xonly_pks {
             Some(ref pks) => Ok(pks),
             None => {
-                let verifier_pks = self.db.get_verifiers_public_keys(None).await?;
+                let verifier_pks = self.db.get_verifiers_public_keys(None).await.map_err(|e| {
+                    eyre!("Failed to get verifier public keys from database: {}", e)
+                })?;
                 let xonly_pks = verifier_pks
                     .iter()
                     .map(|pk| pk.x_only_public_key().0)
@@ -176,7 +184,10 @@ impl ReimburseDbCache {
                 self.kickoff_winternitz_keys = Some(KickoffWinternitzKeys::new(
                     self.db
                         .get_operator_kickoff_winternitz_public_keys(None, self.operator_idx)
-                        .await?,
+                        .await
+                        .map_err(|e| {
+                            eyre!("Failed to get kickoff winternitz keys from database: {}", e)
+                        })?,
                     self.paramset.num_kickoffs_per_round,
                 ));
                 Ok(self
@@ -195,10 +206,11 @@ impl ReimburseDbCache {
                     let (assert_addr, bitvm_hash) = self
                         .db
                         .get_bitvm_setup(None, self.operator_idx as i32, *deposit_outpoint)
-                        .await?
-                        .ok_or(TxError::BitvmSetupNotFound(
-                            self.operator_idx as i32,
-                            deposit_outpoint.txid,
+                        .await
+                        .map_err(|e| eyre!("Failed to get BitVM setup from database: {}", e))?
+                        .ok_or_eyre(format!(
+                            "BitVM setup not found for operator {} and deposit {}",
+                            self.operator_idx, deposit_outpoint.txid
                         ))?;
                     self.bitvm_assert_addr = Some(assert_addr);
                     self.bitvm_disprove_root_hash = Some(bitvm_hash);
@@ -222,11 +234,13 @@ impl ReimburseDbCache {
                                 self.operator_idx as i32,
                                 *deposit_outpoint,
                             )
-                            .await?
-                            .ok_or(eyre::eyre!(
-                                "Watchtower public hashes not found for operator {0} and deposit {1}",
-                                self.operator_idx as i32,
-                                deposit_outpoint.txid,
+                            .await
+                            .map_err(|e| {
+                                eyre!("Failed to get challenge ack hashes from database: {}", e)
+                            })?
+                            .ok_or_eyre(format!(
+                                "Challenge ack hashes not found for operator {} and deposit {}",
+                                self.operator_idx, deposit_outpoint.txid
                             ))?,
                     );
                     Ok(self.challenge_ack_hashes.as_ref().expect("Inserted before"))
@@ -245,10 +259,11 @@ impl ReimburseDbCache {
                     let bitvm_hash = self
                         .db
                         .get_bitvm_root_hash(None, self.operator_idx as i32, *deposit_outpoint)
-                        .await?
-                        .ok_or(TxError::BitvmSetupNotFound(
-                            self.operator_idx as i32,
-                            deposit_outpoint.txid,
+                        .await
+                        .map_err(|e| eyre!("Failed to get BitVM root hash from database: {}", e))?
+                        .ok_or_eyre(format!(
+                            "BitVM root hash not found for operator {} and deposit {}",
+                            self.operator_idx, deposit_outpoint.txid
                         ))?;
                     self.bitvm_disprove_root_hash = Some(bitvm_hash);
                     Ok(self
@@ -660,6 +675,11 @@ pub fn create_round_txhandlers(
 
     let (round_txhandler, ready_to_reimburse_txhandler) = match prev_ready_to_reimburse {
         Some(prev_ready_to_reimburse_txhandler) => {
+            if round_idx == 0 {
+                return Err(
+                    eyre::eyre!("Round 0 cannot be created from prev_ready_to_reimburse").into(),
+                );
+            }
             let round_txhandler = builder::transaction::create_round_txhandler(
                 operator_data.xonly_pk,
                 RoundTxInput::Prevout(prev_ready_to_reimburse_txhandler.get_spendable_output(0)?),

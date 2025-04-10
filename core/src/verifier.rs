@@ -989,7 +989,7 @@ where
         }
 
         tracing::warn!(
-            "Kickoff {:?} is malicious for deposit {:?}",
+            "Malicious kickoff {:?} for deposit {:?}",
             kickoff_id,
             deposit_data
         );
@@ -1026,6 +1026,10 @@ where
         for (tx_type, signed_tx) in &signed_txs {
             if *tx_type == TransactionType::Challenge && challenged_before {
                 // do not send challenge tx operator was already challenged in the same round
+                tracing::warn!(
+                    "Operator {:?} was already challenged in the same round, skipping challenge tx",
+                    kickoff_id.operator_idx
+                );
                 continue;
             }
             match *tx_type {
