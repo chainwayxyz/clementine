@@ -80,14 +80,12 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<(BlockHash, Header, u32, Receipt)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT h1.blockhash,
-                    h1.block_header,
-                    h1.height,
-                    h2.proof
-                FROM bitcoin_syncer h1
-                JOIN header_chain_proofs h2 ON h1.prev_blockhash = h2.block_hash
-                WHERE h2.proof IS NOT NULL AND h1.proof IS NULL
-                ORDER BY h1.height DESC
+            "SELECT bs.blockhash, bs.block_header, bs.height, hcp.proof
+                FROM bitcoin_syncer bs
+                JOIN header_chain_proofs hcp ON bs.prev_blockhash = hcp.block_hash
+                JOIN header_chain_proofs hcp2 ON bs.blockhash = hcp2.block_hash
+                WHERE hcp.proof IS NOT NULL AND hcp2.proof IS NULL
+                ORDER BY bs.height DESC
                 LIMIT 1;",
         );
 
@@ -183,10 +181,11 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<(BlockHash, Header, u32)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT block_hash, block_header, height
-            FROM header_chain_proofs
-            WHERE proof IS NOT NULL
-            ORDER BY height DESC
+            "SELECT bs.blockhash, bs.block_header, bs.height
+            FROM bitcoin_syncer bs
+            JOIN header_chain_proofs hcp ON bs.blockhash = hcp.block_hash
+            WHERE hcp.proof IS NOT NULL
+            ORDER BY bs.height DESC
             LIMIT 1;",
         );
 
@@ -214,9 +213,10 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let proof = borsh::to_vec(&proof).wrap_err(BridgeError::BorshError)?;
 
-        let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2;")
-            .bind(proof)
-            .bind(BlockHashDB(hash));
+        let query =
+            sqlx::query("INSERT INTO header_chain_proofs (proof, block_hash) VALUES ($1, $2);")
+                .bind(proof)
+                .bind(BlockHashDB(hash));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -232,10 +232,10 @@ impl Database {
         let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1;")
             .bind(BlockHashDB(hash));
 
-        let receipt: (Option<Vec<u8>>,) =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        let receipt = match receipt.0 {
-            Some(r) => r,
+        let receipt: Option<(Vec<u8>,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        let receipt = match receipt {
+            Some(r) => r.0,
             None => return Ok(None),
         };
 

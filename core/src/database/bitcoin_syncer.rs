@@ -28,7 +28,7 @@ impl Database {
         height: u32,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO bitcoin_syncer (header, prev_blockhash, blockhash, height) VALUES ($1, $2, $3, $4) RETURNING id",
+            "INSERT INTO bitcoin_syncer (block_header, prev_blockhash, blockhash, height) VALUES ($1, $2, $3, $4) RETURNING id",
         )
         .bind(BlockHeaderDB(header))
         .bind(BlockHashDB(header.prev_blockhash))
@@ -54,7 +54,7 @@ impl Database {
         block_hash: BlockHash,
     ) -> Result<Option<(Header, u32)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT header, height FROM bitcoin_syncer WHERE blockhash = $1 AND is_canonical = true",
+            "SELECT block_header, height FROM bitcoin_syncer WHERE blockhash = $1 AND is_canonical = true",
         )
         .bind(BlockHashDB(block_hash));
 
