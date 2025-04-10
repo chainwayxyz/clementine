@@ -389,6 +389,9 @@ impl CitreaClientT for CitreaClient {
             .await
             .wrap_err("Failed to get script prefix")?
             ._0;
+        if script_prefix.len() < 34 {
+            return Err(eyre::eyre!("script_prefix is too short").into());
+        }
         let script_nofn_bytes = &script_prefix[2..2 + 32];
         let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(script_nofn_bytes)
             .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
