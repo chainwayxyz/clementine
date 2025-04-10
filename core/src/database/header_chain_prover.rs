@@ -80,11 +80,11 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<(BlockHash, Header, u32, Receipt)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT bs.blockhash, bs.block_header, bs.height, hcp.proof
+            "SELECT bs.blockhash, bs.block_header, bs.height, hcp_p.proof
                 FROM bitcoin_syncer bs
-                JOIN header_chain_proofs hcp ON bs.prev_blockhash = hcp.block_hash
-                JOIN header_chain_proofs hcp2 ON bs.blockhash = hcp2.block_hash
-                WHERE hcp.proof IS NOT NULL AND hcp2.proof IS NULL
+                INNER JOIN header_chain_proofs hcp_p ON bs.prev_blockhash = hcp_p.block_hash
+                INNER JOIN header_chain_proofs hcp_np ON bs.blockhash = hcp_np.block_hash
+                WHERE hcp_p.proof IS NOT NULL AND hcp_np.proof IS NULL
                 ORDER BY bs.height DESC
                 LIMIT 1;",
         );
@@ -279,7 +279,7 @@ mod tests {
             txdata: vec![],
         };
         let block_hash = block.block_hash();
-        let height = 1;
+        let height = 0x45;
         db.add_block_info(None, block.header, block_hash, height)
             .await
             .unwrap();
@@ -314,10 +314,18 @@ mod tests {
             txdata: vec![],
         };
         let block_hash = block.block_hash();
-        let height = 2;
+        let height = height + 1;
         db.add_block_info(None, block.header, block_hash, height)
             .await
             .unwrap();
+        let latest_proven_block = db
+            .get_latest_proven_block_info(None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(latest_proven_block.0, block_hash);
+        assert_ne!(latest_proven_block.1, block.header);
+        assert_ne!(latest_proven_block.2, height);
 
         let (read_block_hash, read_block_header, _, _) =
             db.get_next_non_proven_block(None).await.unwrap().unwrap();
