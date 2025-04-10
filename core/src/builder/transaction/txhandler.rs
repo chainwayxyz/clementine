@@ -11,7 +11,7 @@ use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
-use bitcoin::{absolute, Amount, OutPoint, Script, Sequence, Transaction, Witness};
+use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
@@ -442,12 +442,13 @@ impl TxHandlerBuilder {
             .map(|s| s.txout().value)
             .sum::<bitcoin::Amount>();
 
+        // do not add burn output if there is not enough sats left for new output and some fee
+        if total_in - total_out < MIN_TAPROOT_AMOUNT * 10 {
+            return self;
+        }
         let burntxo = TxOut {
             script_pubkey: BURN_SCRIPT.clone(),
-            value: std::cmp::max(
-                total_in - total_out - MIN_TAPROOT_AMOUNT * 2,
-                Amount::from_sat(0),
-            ),
+            value: total_in - total_out - MIN_TAPROOT_AMOUNT * 8, // leave some fee to prevent minfee errors
         };
 
         self.add_output(UnspentTxOut::from_partial(burntxo))

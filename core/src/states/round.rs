@@ -295,8 +295,11 @@ impl<T: Owner> RoundStateMachine<T> {
     pub(crate) async fn on_round_tx_entry(
         &mut self,
         round_idx: &mut u32,
+        challenged_before: &mut bool,
         context: &mut StateContext<T>,
     ) {
+        // ensure challenged_before starts at false for each round
+        *challenged_before = false;
         context
             .capture_error(async |context| {
                 {

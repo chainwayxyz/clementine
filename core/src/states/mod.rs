@@ -517,7 +517,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 changed_kickoff_machines.extend(std::mem::take(&mut ctx.new_kickoff_machines));
             }
 
-            if iterations > 100000 {
+            if iterations > 3000 {
                 return Err(eyre::eyre!(
                     r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 100000 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----
