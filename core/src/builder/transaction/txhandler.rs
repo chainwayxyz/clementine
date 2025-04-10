@@ -4,14 +4,14 @@ use crate::builder::script::SpendPath;
 use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
 use crate::builder::transaction::TransactionType;
-use crate::constants::BURN_SCRIPT;
+use crate::constants::{BURN_SCRIPT, MIN_TAPROOT_AMOUNT};
 use crate::errors::{BridgeError, TxError};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
-use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
+use bitcoin::{absolute, Amount, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
@@ -444,7 +444,10 @@ impl TxHandlerBuilder {
 
         let burntxo = TxOut {
             script_pubkey: BURN_SCRIPT.clone(),
-            value: total_in - total_out,
+            value: std::cmp::max(
+                total_in - total_out - MIN_TAPROOT_AMOUNT * 2,
+                Amount::from_sat(0),
+            ),
         };
 
         self.add_output(UnspentTxOut::from_partial(burntxo))
