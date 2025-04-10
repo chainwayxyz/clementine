@@ -1,7 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use final_spv::spv::SPV;
+use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
-use temp_core::header_chain::BlockHeaderCircuitOutput;
-use temp_core::spv::SPV;
+
 
 const NUM_OF_WATCHTOWERS: u8 = 160;
 

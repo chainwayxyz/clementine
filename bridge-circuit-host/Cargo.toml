@@ -32,9 +32,8 @@ borsh = { workspace = true, features = ["derive"] }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 bitcoin = { workspace = true, features = ["serde"] }
-# header-chain = { workspace = true }
-# final-spv = { workspace = true }
-temp_core = { workspace = true }
+header-chain = { workspace = true }
+final-spv = { workspace = true }
 tempfile = { workspace = true }
 blake3 = { workspace = true }
 sha2 = { workspace = true }

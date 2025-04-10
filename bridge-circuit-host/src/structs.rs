@@ -4,10 +4,10 @@ use circuits_lib::bridge_circuit::{
     structs::{LightClientProof, StorageProof},
     winternitz::WinternitzHandler,
 };
+use final_spv::spv::SPV;
+use header_chain::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
 use sha2::{Digest, Sha256};
-use temp_core::header_chain::BlockHeaderCircuitOutput;
-use temp_core::spv::SPV;
 
 use crate::utils::get_ark_verifying_key;
 

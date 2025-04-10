@@ -40,9 +40,8 @@ derive_more = { workspace = true, features = ["display"]}
 crypto-bigint = { workspace = true }
 blake3 = { workspace = true }
 itertools = { workspace = true }
-# final-spv = { workspace = true }
-# header-chain = { workspace = true }
-temp_core = { workspace = true }
+final-spv = { workspace = true }
+header-chain = { workspace = true }
 k256 = { workspace = true }
 
 lazy_static = { workspace = true }

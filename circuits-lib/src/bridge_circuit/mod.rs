@@ -558,13 +558,11 @@ mod tests {
         consensus::{Decodable, Encodable},
         ScriptBuf, Transaction,
     };
+    use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
+    use header_chain::{header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader}, mmr_native::MMRInclusionProof};
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;
-    use temp_core::{
-        header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader},
-        mmr_native::MMRInclusionProof,
-    };
-    use temp_core::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
+
 
     const WORK_ONLY_ELF: &[u8; 181188] =
         include_bytes!("../../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
