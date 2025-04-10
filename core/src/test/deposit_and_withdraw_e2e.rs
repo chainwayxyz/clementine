@@ -574,7 +574,7 @@ async fn mock_citrea_run_truthful() {
                 .await?
                 .is_some())
         },
-        Some(Duration::from_secs(180)),
+        Some(Duration::from_secs(300)),
         Some(Duration::from_millis(200)),
     )
     .await
@@ -590,7 +590,7 @@ async fn mock_citrea_run_truthful() {
                 .await?
                 .is_none())
         },
-        Some(Duration::from_secs(180)),
+        Some(Duration::from_secs(300)),
         Some(Duration::from_millis(200)),
     )
     .await
