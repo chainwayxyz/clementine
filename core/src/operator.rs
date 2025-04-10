@@ -297,6 +297,7 @@ where
         &self,
         deposit_data: DepositData,
     ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
+        self.verify_deposit_nofn(&deposit_data).await?;
         let mut tweak_cache = TweakCache::default();
         let (sig_tx, sig_rx) = mpsc::channel(1280);
 
@@ -989,6 +990,17 @@ where
             collateral_funding_outpoint: self.collateral_funding_outpoint,
             reimburse_addr: self.reimburse_addr.clone(),
         }
+    }
+
+    async fn verify_deposit_nofn(&self, deposit_data: &DepositData) -> Result<(), BridgeError> {
+        if !self
+            .citrea_client
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk())
+            .await?
+        {
+            return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
+        }
+        Ok(())
     }
 }
 
