@@ -127,9 +127,9 @@ pub struct ProtocolParamset {
     pub disprove_timeout_timelock: u16,
     /// Number of blocks for assert timeout timelock (currently BLOCKS_PER_WEEK * 4)
     pub assert_timeout_timelock: u16,
-    /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_DAY * 2)
     /// Number of blocks for latest blockhash timeout timelock (currently BLOCKS_PER_WEEK * 2.5)
     pub latest_blockhash_timeout_timelock: u16,
+    /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_DAY * 2)
     /// Timelocks operator from sending the next Round Tx after the Ready to Reimburse Tx.
     pub operator_reimburse_timelock: u16,
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)

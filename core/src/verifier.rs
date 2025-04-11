@@ -1035,6 +1035,7 @@ where
                 TransactionType::Challenge
                 | TransactionType::AssertTimeout(_)
                 | TransactionType::KickoffNotFinalized
+                | TransactionType::LatestBlockhashTimeout
                 | TransactionType::OperatorChallengeNack(_) => {
                     self.tx_sender
                         .add_tx_to_queue(
