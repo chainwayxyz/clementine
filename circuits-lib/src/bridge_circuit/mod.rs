@@ -574,7 +574,7 @@ mod tests {
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;
 
-    const WORK_ONLY_ELF: &[u8; 181188] =
+    const WORK_ONLY_ELF: &[u8; 180056] =
         include_bytes!("../../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     lazy_static! {

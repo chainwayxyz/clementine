@@ -342,7 +342,7 @@ mod tests {
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
-        hex_literal::hex!("ca1ad948a8f4c8b2d8144ef2dcb4f863f31e13e1b0ffe803e81080f3c1128359");
+        hex_literal::hex!("88c972d1d881135ce6135824ddbe354715c8d1b9ae8468dee438416eba3a3d4f");
 
     const HEADERS: &[u8] = include_bytes!("../bin-files/testnet4_headers.bin");
     const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");
