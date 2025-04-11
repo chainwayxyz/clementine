@@ -23,6 +23,14 @@ create table if not exists funding_utxos (
     funding_utxo jsonb not null,
     created_at timestamp not null default now()
 );
+-- Watchtower header chain proofs
+create table if not exists header_chain_proofs (
+    block_hash text primary key not null,
+    block_header text,
+    prev_block_hash text,
+    height bigint not null,
+    proof bytea
+);
 create table if not exists watchtower_xonly_public_keys (
     watchtower_id int not null,
     xonly_pk bytea not null,
@@ -83,9 +91,8 @@ create table if not exists operators_challenge_ack_hashes (
 -------- BITCOIN SYNCER --------
 create table if not exists bitcoin_syncer (
     id serial primary key,
-    block_header text not null,
-    prev_blockhash text not null,
     blockhash text not null unique,
+    prev_blockhash text not null,
     height int not null,
     is_canonical boolean not null default true
 );
@@ -121,11 +128,6 @@ create table if not exists bitcoin_syncer_event_handlers (
     last_processed_event_id int not null,
     created_at timestamp not null default now(),
     primary key (consumer_handle)
-);
--- Watchtower header chain proofs
-create table if not exists header_chain_proofs (
-    block_hash text primary key not null references bitcoin_syncer (blockhash),
-    proof bytea
 );
 -------- TX SENDER --------
 DO $$ BEGIN IF NOT EXISTS (

@@ -1370,6 +1370,9 @@ where
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
 
+        self.header_chain_prover
+            .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
+            .await?;
         self.header_chain_prover.prove_if_ready().await?;
 
         Ok(())

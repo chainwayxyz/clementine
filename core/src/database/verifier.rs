@@ -295,11 +295,7 @@ mod tests {
     use crate::{
         bitvm_client::SECP, database::Database, test::common::create_test_config_with_thread_name,
     };
-    use bitcoin::{
-        block::{Header, Version},
-        hashes::Hash,
-        BlockHash, CompactTarget, TxMerkleNode, Txid,
-    };
+    use bitcoin::{hashes::Hash, BlockHash, Txid};
 
     #[tokio::test]
     async fn set_get_verifiers_public_keys() {
@@ -343,15 +339,8 @@ mod tests {
         let block_id = db
             .add_block_info(
                 Some(&mut dbtx),
-                Header {
-                    version: Version::TWO,
-                    prev_blockhash: BlockHash::all_zeros(),
-                    merkle_root: TxMerkleNode::all_zeros(),
-                    time: 0,
-                    bits: CompactTarget::from_consensus(0),
-                    nonce: 0,
-                },
-                BlockHash::all_zeros(),
+                &BlockHash::all_zeros(),
+                &BlockHash::all_zeros(),
                 utxo.vout,
             )
             .await
