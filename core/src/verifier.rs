@@ -2,7 +2,7 @@ use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::taproot_builder_with_scripts;
-use crate::builder::script::extract_winternitz_commits;
+use crate::builder::script::{extract_winternitz_commits, SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
@@ -894,10 +894,24 @@ where
         let root_hash = taproot_builder
             .try_into_taptree()
             .expect("taproot builder always builds a full taptree")
-            .root_hash();
-        let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+            .root_hash()
+            .to_byte_array();
         tracing::debug!("Built taproot tree in {:?}", start.elapsed());
-        // let root_hash_bytes = [0u8; 32];
+
+        let latest_blockhash_wots = bitvm_pks.latest_blockhash_pk.to_vec();
+        let latest_blockhash_script = WinternitzCommit::new(
+            vec![(latest_blockhash_wots, 40)],
+            operator_data.xonly_pk,
+            20,
+        )
+        .to_script_buf();
+
+        let latest_blockhash_root_hash = taproot_builder_with_scripts(&[latest_blockhash_script])
+            .try_into_taptree()
+            .expect("taproot builder always builds a full taptree")
+            .root_hash()
+            .to_raw_hash()
+            .to_byte_array();
 
         // Save the public input wots to db along with the root hash
         self.db
@@ -906,7 +920,8 @@ where
                 operator_idx as i32,
                 deposit_data.get_deposit_outpoint(),
                 &assert_tx_addrs,
-                &root_hash_bytes,
+                &root_hash,
+                &latest_blockhash_root_hash,
             )
             .await?;
 

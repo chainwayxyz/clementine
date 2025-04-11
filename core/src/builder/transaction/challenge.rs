@@ -10,7 +10,7 @@ use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{Sequence, TxOut, WitnessVersion};
 
-use super::input::{get_challenge_ack_vout, get_watchtower_challenge_utxo_vout};
+use self::input::UtxoVout;
 
 /// Creates a [`TxHandler`] for the `watchtower_challenge_tx`. This transaction
 /// is sent by the watchtowers to reveal their Groth16 proofs with their public
@@ -33,7 +33,7 @@ pub fn create_watchtower_challenge_txhandler(
                 watchtower_idx as i32,
             ),
             kickoff_txhandler
-                .get_spendable_output(get_watchtower_challenge_utxo_vout(watchtower_idx))?,
+                .get_spendable_output(UtxoVout::WatchtowerChallenge(watchtower_idx))?,
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         );
@@ -87,8 +87,8 @@ pub fn create_watchtower_challenge_timeout_txhandler(
     watchtower_idx: usize,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let watchtower_challenge_vout = get_watchtower_challenge_utxo_vout(watchtower_idx);
-    let challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
+    let watchtower_challenge_vout = UtxoVout::WatchtowerChallenge(watchtower_idx);
+    let challenge_ack_vout = UtxoVout::WatchtowerChallengeAck(watchtower_idx);
     Ok(
         TxHandlerBuilder::new(TransactionType::WatchtowerChallengeTimeout(watchtower_idx))
             .with_version(Version::non_standard(3))
@@ -127,8 +127,6 @@ pub fn create_operator_challenge_nack_txhandler(
     round_txhandler: &TxHandler,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
-
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
             .with_version(Version::non_standard(3))
@@ -137,7 +135,8 @@ pub fn create_operator_challenge_nack_txhandler(
                     NumberedSignatureKind::OperatorChallengeNack1,
                     watchtower_idx as i32,
                 ),
-                kickoff_txhandler.get_spendable_output(challenge_ack_vout)?,
+                kickoff_txhandler
+                    .get_spendable_output(UtxoVout::WatchtowerChallengeAck(watchtower_idx))?,
                 SpendPath::ScriptSpend(0),
                 Sequence::from_height(paramset.operator_challenge_nack_timelock),
             )
@@ -146,7 +145,7 @@ pub fn create_operator_challenge_nack_txhandler(
                     NumberedSignatureKind::OperatorChallengeNack2,
                     watchtower_idx as i32,
                 ),
-                kickoff_txhandler.get_spendable_output(1)?,
+                kickoff_txhandler.get_spendable_output(UtxoVout::KickoffFinalizer)?,
                 SpendPath::ScriptSpend(0),
                 DEFAULT_SEQUENCE,
             )
@@ -155,7 +154,7 @@ pub fn create_operator_challenge_nack_txhandler(
                     NumberedSignatureKind::OperatorChallengeNack3,
                     watchtower_idx as i32,
                 ),
-                round_txhandler.get_spendable_output(0)?,
+                round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
@@ -176,13 +175,13 @@ pub fn create_operator_challenge_ack_txhandler(
     watchtower_idx: usize,
     _paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
             .with_version(Version::non_standard(3))
             .add_input(
                 NormalSignatureKind::OperatorChallengeAck1,
-                kickoff_txhandler.get_spendable_output(challenge_ack_vout)?,
+                kickoff_txhandler
+                    .get_spendable_output(UtxoVout::WatchtowerChallengeAck(watchtower_idx))?,
                 SpendPath::ScriptSpend(2),
                 DEFAULT_SEQUENCE,
             )
@@ -204,13 +203,13 @@ pub fn create_disprove_txhandler(
     Ok(TxHandlerBuilder::new(TransactionType::Disprove)
         .add_input(
             NormalSignatureKind::NoSignature,
-            kickoff_txhandler.get_spendable_output(3)?,
+            kickoff_txhandler.get_spendable_output(UtxoVout::Disprove)?,
             SpendPath::Unknown,
             DEFAULT_SEQUENCE,
         )
         .add_input(
             NormalSignatureKind::Disprove2,
-            round_txhandler.get_spendable_output(0)?,
+            round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )
@@ -232,7 +231,7 @@ pub fn create_challenge_txhandler(
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::Challenge,
-            kickoff_txhandler.get_spendable_output(0)?,
+            kickoff_txhandler.get_spendable_output(UtxoVout::Challenge)?,
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
@@ -254,13 +253,13 @@ pub fn create_challenge_timeout_txhandler(
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            kickoff_txhandler.get_spendable_output(0)?,
+            kickoff_txhandler.get_spendable_output(UtxoVout::Challenge)?,
             SpendPath::ScriptSpend(1),
             Sequence::from_height(paramset.operator_challenge_timeout_timelock),
         )
         .add_input(
             NormalSignatureKind::ChallengeTimeout2,
-            kickoff_txhandler.get_spendable_output(1)?,
+            kickoff_txhandler.get_spendable_output(UtxoVout::KickoffFinalizer)?,
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )

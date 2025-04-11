@@ -7,8 +7,7 @@ use statig::prelude::*;
 
 use crate::{
     builder::transaction::{
-        input::{get_challenge_ack_vout, get_watchtower_challenge_utxo_vout},
-        remove_txhandler_from_map, ContractContext, DepositData, TransactionType,
+        input::UtxoVout, remove_txhandler_from_map, ContractContext, DepositData, TransactionType,
     },
     errors::BridgeError,
     rpc::clementine::KickoffId,
@@ -398,7 +397,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         for assert_idx in 0..num_asserts {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
-            let mini_assert_vout = 4 + assert_idx;
+            let mini_assert_vout = UtxoVout::Assert(assert_idx).get_vout();
             let assert_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::AssertTimeout(assert_idx),
@@ -408,14 +407,14 @@ impl<T: Owner> KickoffStateMachine<T> {
                 Matcher::SpentUtxoButNotTimeout(
                     OutPoint {
                         txid: kickoff_txid,
-                        vout: mini_assert_vout as u32,
+                        vout: mini_assert_vout,
                     },
                     *assert_timeout_txid,
                 ),
                 KickoffEvent::OperatorAssertSent {
                     assert_outpoint: OutPoint {
                         txid: kickoff_txid,
-                        vout: mini_assert_vout as u32,
+                        vout: mini_assert_vout,
                     },
                     assert_idx,
                 },
@@ -425,7 +424,8 @@ impl<T: Owner> KickoffStateMachine<T> {
         for watchtower_idx in 0..self.deposit_data.get_num_verifiers() {
             // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
-            let watchtower_challenge_vout = get_watchtower_challenge_utxo_vout(watchtower_idx);
+            let watchtower_challenge_vout =
+                UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout();
             let watchtower_timeout_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::WatchtowerChallengeTimeout(watchtower_idx),
@@ -441,7 +441,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 Matcher::SpentUtxoButNotTimeout(
                     OutPoint {
                         txid: kickoff_txid,
-                        vout: watchtower_challenge_vout as u32,
+                        vout: watchtower_challenge_vout,
                     },
                     *watchtower_timeout_txid,
                 ),
@@ -449,12 +449,13 @@ impl<T: Owner> KickoffStateMachine<T> {
                     watchtower_idx,
                     challenge_outpoint: OutPoint {
                         txid: kickoff_txid,
-                        vout: watchtower_challenge_vout as u32,
+                        vout: watchtower_challenge_vout,
                     },
                 },
             );
             // add operator challenge ack
-            let operator_challenge_ack_vout = get_challenge_ack_vout(watchtower_idx);
+            let operator_challenge_ack_vout =
+                UtxoVout::WatchtowerChallengeAck(watchtower_idx).get_vout();
             let operator_challenge_nack_txhandler = remove_txhandler_from_map(
                 &mut txhandlers,
                 TransactionType::OperatorChallengeNack(watchtower_idx),
@@ -464,7 +465,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 Matcher::SpentUtxoButNotTimeout(
                     OutPoint {
                         txid: kickoff_txid,
-                        vout: operator_challenge_ack_vout as u32,
+                        vout: operator_challenge_ack_vout,
                     },
                     *operator_challenge_nack_txid,
                 ),
@@ -472,7 +473,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     watchtower_idx,
                     challenge_ack_outpoint: OutPoint {
                         txid: kickoff_txid,
-                        vout: operator_challenge_ack_vout as u32,
+                        vout: operator_challenge_ack_vout,
                     },
                 },
             );
@@ -484,7 +485,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         self.matchers.insert(
             Matcher::SpentUtxo(OutPoint {
                 txid: round_txid,
-                vout: 0,
+                vout: UtxoVout::BurnConnector.get_vout(),
             }),
             KickoffEvent::BurnConnectorSpent,
         );
@@ -492,12 +493,11 @@ impl<T: Owner> KickoffStateMachine<T> {
         self.matchers.insert(
             Matcher::SpentUtxo(OutPoint {
                 txid: kickoff_txid,
-                vout: 1,
+                vout: UtxoVout::KickoffFinalizer.get_vout(),
             }),
             KickoffEvent::KickoffFinalizerSpent,
         );
         // add challenge tx
-        let challenge_vout = 0;
         let challenge_timeout_txhandler =
             remove_txhandler_from_map(&mut txhandlers, TransactionType::ChallengeTimeout)?;
         let challenge_timeout_txid = challenge_timeout_txhandler.get_txid();
@@ -505,7 +505,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             Matcher::SpentUtxoButNotTimeout(
                 OutPoint {
                     txid: kickoff_txid,
-                    vout: challenge_vout,
+                    vout: UtxoVout::Challenge.get_vout(),
                 },
                 *challenge_timeout_txid,
             ),

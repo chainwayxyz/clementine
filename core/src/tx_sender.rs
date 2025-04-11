@@ -20,7 +20,7 @@ use crate::{
         self,
         script::SpendPath,
         transaction::{
-            input::{get_watchtower_challenge_utxo_vout, SpendableTxIn},
+            input::{SpendableTxIn, UtxoVout},
             output::UnspentTxOut,
             TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
         },
@@ -1032,7 +1032,7 @@ impl TxSenderClient {
                     &[ActivatedWithOutpoint {
                         outpoint: OutPoint {
                             txid: kickoff_txid,
-                            vout: get_watchtower_challenge_utxo_vout(watchtower_idx) as u32,
+                            vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
                         },
                         relative_block_height: config.protocol_paramset().finality_depth,
                     }],

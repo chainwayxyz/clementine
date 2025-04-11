@@ -200,6 +200,9 @@ impl ProtocolParamset {
             time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
                 "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
             )?,
+            latest_blockhash_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
+            )?,
             time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,

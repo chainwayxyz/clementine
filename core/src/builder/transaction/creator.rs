@@ -1,4 +1,4 @@
-use bitcoin::XOnlyPublicKey;
+use bitcoin::{OutPoint, XOnlyPublicKey};
 
 use crate::actor::Actor;
 
@@ -16,6 +16,7 @@ use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
 
+use super::input::UtxoVout;
 use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
 
 // helper function to get a txhandler from a hashmap
@@ -76,6 +77,8 @@ pub struct ReimburseDbCache {
     operator_data: Option<OperatorData>,
     /// watchtower xonly pks
     verifier_xonly_pks: Option<Vec<XOnlyPublicKey>>,
+    /// latest blockhash root hash
+    latest_blockhash_root_hash: Option<[u8; 32]>,
 }
 
 impl ReimburseDbCache {
@@ -97,6 +100,7 @@ impl ReimburseDbCache {
             challenge_ack_hashes: None,
             operator_data: None,
             verifier_xonly_pks: None,
+            latest_blockhash_root_hash: None,
         }
     }
 
@@ -117,6 +121,7 @@ impl ReimburseDbCache {
             challenge_ack_hashes: None,
             operator_data: None,
             verifier_xonly_pks: None,
+            latest_blockhash_root_hash: None,
         }
     }
 
@@ -167,6 +172,25 @@ impl ReimburseDbCache {
         }
     }
 
+    async fn get_bitvm_setup(
+        &mut self,
+        deposit_outpoint: OutPoint,
+        operator_idx: i32,
+    ) -> Result<(), BridgeError> {
+        let (assert_addr, bitvm_hash, latest_blockhash_root_hash) = self
+            .db
+            .get_bitvm_setup(None, operator_idx, deposit_outpoint)
+            .await?
+            .ok_or(TxError::BitvmSetupNotFound(
+                operator_idx,
+                deposit_outpoint.txid,
+            ))?;
+        self.bitvm_assert_addr = Some(assert_addr);
+        self.bitvm_disprove_root_hash = Some(bitvm_hash);
+        self.latest_blockhash_root_hash = Some(latest_blockhash_root_hash);
+        Ok(())
+    }
+
     pub async fn get_kickoff_winternitz_keys(
         &mut self,
     ) -> Result<&KickoffWinternitzKeys, BridgeError> {
@@ -192,16 +216,8 @@ impl ReimburseDbCache {
             match self.bitvm_assert_addr {
                 Some(ref addr) => Ok(addr),
                 None => {
-                    let (assert_addr, bitvm_hash) = self
-                        .db
-                        .get_bitvm_setup(None, self.operator_idx as i32, *deposit_outpoint)
-                        .await?
-                        .ok_or(TxError::BitvmSetupNotFound(
-                            self.operator_idx as i32,
-                            deposit_outpoint.txid,
-                        ))?;
-                    self.bitvm_assert_addr = Some(assert_addr);
-                    self.bitvm_disprove_root_hash = Some(bitvm_hash);
+                    self.get_bitvm_setup(*deposit_outpoint, self.operator_idx as i32)
+                        .await?;
                     Ok(self.bitvm_assert_addr.as_ref().expect("Inserted before"))
                 }
             }
@@ -242,17 +258,28 @@ impl ReimburseDbCache {
             match self.bitvm_disprove_root_hash {
                 Some(ref hash) => Ok(hash),
                 None => {
-                    let bitvm_hash = self
-                        .db
-                        .get_bitvm_root_hash(None, self.operator_idx as i32, *deposit_outpoint)
-                        .await?
-                        .ok_or(TxError::BitvmSetupNotFound(
-                            self.operator_idx as i32,
-                            deposit_outpoint.txid,
-                        ))?;
-                    self.bitvm_disprove_root_hash = Some(bitvm_hash);
+                    self.get_bitvm_setup(*deposit_outpoint, self.operator_idx as i32)
+                        .await?;
                     Ok(self
                         .bitvm_disprove_root_hash
+                        .as_ref()
+                        .expect("Inserted before"))
+                }
+            }
+        } else {
+            Err(TxError::InsufficientContext.into())
+        }
+    }
+
+    pub async fn get_latest_blockhash_root_hash(&mut self) -> Result<&[u8; 32], BridgeError> {
+        if let Some(deposit_outpoint) = &self.deposit_outpoint {
+            match self.latest_blockhash_root_hash {
+                Some(ref hash) => Ok(hash),
+                None => {
+                    self.get_bitvm_setup(*deposit_outpoint, self.operator_idx as i32)
+                        .await?;
+                    Ok(self
+                        .latest_blockhash_root_hash
                         .as_ref()
                         .expect("Inserted before"))
                 }
@@ -438,7 +465,7 @@ pub async fn create_txhandlers(
         operator_data.xonly_pk,
         RoundTxInput::Prevout(
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
-                .get_spendable_output(0)?,
+                .get_spendable_output(UtxoVout::BurnConnector)?,
         ),
         kickoff_winternitz_keys.get_keys_for_round(round_idx as usize + 1),
         paramset,
@@ -462,6 +489,9 @@ pub async fn create_txhandlers(
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
     let verifier_xonly_pks = db_cache.get_verifier_xonly_pks().await?.to_vec();
 
+    let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
+    let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
+
     let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
         // create scripts if any mini assert tx is specifically requested as it needs
         // the actual scripts to be able to spend
@@ -481,7 +511,8 @@ pub async fn create_txhandlers(
             deposit_data.clone(),
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
-            db_cache.get_bitvm_disprove_root_hash().await?,
+            &disprove_root_hash,
+            &latest_blockhash_root_hash,
             &verifier_xonly_pks,
             &public_hashes,
             paramset,
@@ -496,7 +527,6 @@ pub async fn create_txhandlers(
 
         kickoff_txhandler
     } else {
-        let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
         // use db data for scripts
         create_kickoff_txhandler(
             kickoff_id,
@@ -506,6 +536,7 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
+            &latest_blockhash_root_hash,
             &verifier_xonly_pks,
             &public_hashes,
             paramset,
@@ -619,7 +650,7 @@ pub async fn create_txhandlers(
         &next_round_txhandler,
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         kickoff_id.kickoff_idx as usize,
-        paramset.num_kickoffs_per_round,
+        paramset,
         &operator_data.reimburse_addr,
     )?;
 
@@ -662,7 +693,10 @@ pub fn create_round_txhandlers(
         Some(prev_ready_to_reimburse_txhandler) => {
             let round_txhandler = builder::transaction::create_round_txhandler(
                 operator_data.xonly_pk,
-                RoundTxInput::Prevout(prev_ready_to_reimburse_txhandler.get_spendable_output(0)?),
+                RoundTxInput::Prevout(
+                    prev_ready_to_reimburse_txhandler
+                        .get_spendable_output(UtxoVout::BurnConnector)?,
+                ),
                 kickoff_winternitz_keys.get_keys_for_round(round_idx),
                 paramset,
             )?;

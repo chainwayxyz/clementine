@@ -74,6 +74,7 @@ create table if not exists bitvm_setups (
     deposit_id int not null,
     assert_tx_addrs bytea [] not null,
     root_hash bytea not null check (length(root_hash) = 32),
+    latest_blockhash_root_hash bytea not null check (length(latest_blockhash_root_hash) = 32),
     --public_input_wots bytea[] not null,
     created_at timestamp not null default now(),
     primary key (operator_idx, deposit_id)

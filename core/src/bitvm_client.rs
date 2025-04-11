@@ -464,6 +464,20 @@ impl ClementineBitVMPublicKeys {
         scripts
     }
 
+    pub fn get_latest_blockhash_derivation(
+        deposit_outpoint: bitcoin::OutPoint,
+        paramset: &'static ProtocolParamset,
+    ) -> WinternitzDerivationPath {
+        WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, deposit_outpoint, paramset)
+    }
+
+    pub fn get_payout_tx_blockhash_derivation(
+        deposit_outpoint: bitcoin::OutPoint,
+        paramset: &'static ProtocolParamset,
+    ) -> WinternitzDerivationPath {
+        WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, deposit_outpoint, paramset)
+    }
+
     pub fn get_assert_derivations(
         mini_assert_idx: usize,
         deposit_outpoint: bitcoin::OutPoint,
@@ -471,8 +485,8 @@ impl ClementineBitVMPublicKeys {
     ) -> Vec<WinternitzDerivationPath> {
         if mini_assert_idx == 0 {
             vec![
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, deposit_outpoint, paramset),
+                Self::get_payout_tx_blockhash_derivation(deposit_outpoint, paramset),
+                Self::get_latest_blockhash_derivation(deposit_outpoint, paramset),
                 WinternitzDerivationPath::BitvmAssert(32 * 2, 2, 0, deposit_outpoint, paramset),
                 WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 12, deposit_outpoint, paramset),
                 WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 13, deposit_outpoint, paramset),

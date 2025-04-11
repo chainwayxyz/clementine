@@ -1,5 +1,5 @@
-use self::input::get_assert_utxo_vout;
 use self::output::UnspentTxOut;
+use super::input::UtxoVout;
 use crate::builder;
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
@@ -18,13 +18,13 @@ pub fn create_disprove_timeout_txhandler(
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            kickoff_txhandler.get_spendable_output(3)?,
+            kickoff_txhandler.get_spendable_output(UtxoVout::Disprove)?,
             SpendPath::ScriptSpend(0),
             Sequence::from_height(paramset.disprove_timeout_timelock),
         )
         .add_input(
             NormalSignatureKind::DisproveTimeout2,
-            kickoff_txhandler.get_spendable_output(1)?,
+            kickoff_txhandler.get_spendable_output(UtxoVout::KickoffFinalizer)?,
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
@@ -43,7 +43,7 @@ pub fn create_mini_asserts(
                 .with_version(Version::non_standard(3))
                 .add_input(
                     NormalSignatureKind::MiniAssert1,
-                    kickoff_txhandler.get_spendable_output(get_assert_utxo_vout(idx))?,
+                    kickoff_txhandler.get_spendable_output(UtxoVout::Assert(idx))?,
                     SpendPath::ScriptSpend(1),
                     DEFAULT_SEQUENCE,
                 )

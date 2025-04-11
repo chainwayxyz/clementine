@@ -128,7 +128,8 @@ pub struct ProtocolParamset {
     /// Number of blocks for assert timeout timelock (currently BLOCKS_PER_WEEK * 4)
     pub assert_timeout_timelock: u16,
     /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_DAY * 2)
-    ///
+    /// Number of blocks for latest blockhash timeout timelock (currently BLOCKS_PER_WEEK * 2.5)
+    pub latest_blockhash_timeout_timelock: u16,
     /// Timelocks operator from sending the next Round Tx after the Ready to Reimburse Tx.
     pub operator_reimburse_timelock: u16,
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)
@@ -164,6 +165,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    latest_blockhash_timeout_timelock: BLOCKS_PER_WEEK * 5 / 2, // 2.5 weeks
     finality_depth: 6,
     start_height: 1,
 };
@@ -189,6 +191,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 1,
     start_height: 201,
 };
@@ -214,6 +217,7 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    latest_blockhash_timeout_timelock: BLOCKS_PER_WEEK * 5 / 2, // 2.5 weeks
     finality_depth: 60,
     start_height: 1,
 };
@@ -239,6 +243,7 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_DAY * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
     time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 1,
     start_height: 201,
 };

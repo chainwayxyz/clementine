@@ -3,6 +3,7 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
+use super::script::SpendableScript;
 use super::script::{BaseDepositScript, CheckSig, TimelockScript};
 use super::script::{ReplacementDepositScript, SpendPath};
 use crate::builder::transaction::challenge::*;
@@ -21,6 +22,7 @@ use crate::rpc::clementine::{
 };
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
 use bitcoin::transaction::Version;
@@ -506,6 +508,41 @@ pub fn create_replacement_deposit_txhandler(
         ))
         .add_output(UnspentTxOut::from_partial(anchor_output()))
         .finalize())
+}
+
+/// Helper function to create a taproot output that combines a script and a root hash
+pub fn create_taproot_output_with_hidden_node(
+    script: Arc<dyn SpendableScript>,
+    root_hash: &[u8; 32],
+    amount: Amount,
+    network: bitcoin::Network,
+) -> UnspentTxOut {
+    use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
+    use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
+
+    let taproot_spend_info = TaprootBuilder::new()
+        .add_leaf(1, script.to_script_buf())
+        .expect("taptree with one node at depth 1 will accept a script node")
+        .add_hidden_node(1, TapNodeHash::from_byte_array(*root_hash))
+        .expect("empty taptree will accept a node at depth 1")
+        .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+        .expect("Taproot with 2 nodes at depth 1 should be valid");
+
+    let address = Address::p2tr(
+        &SECP,
+        *UNSPENDABLE_XONLY_PUBKEY,
+        taproot_spend_info.merkle_root(),
+        network,
+    );
+
+    UnspentTxOut::new(
+        TxOut {
+            value: amount,
+            script_pubkey: address.script_pubkey(),
+        },
+        vec![script.clone()],
+        Some(taproot_spend_info),
+    )
 }
 
 #[cfg(test)]
