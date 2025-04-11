@@ -1777,6 +1777,7 @@ dependencies = [
 name = "bridge-circuit"
 version = "0.1.0"
 dependencies = [
+ "risc0-binfmt",
  "risc0-build",
 ]
 
@@ -8361,6 +8362,7 @@ dependencies = [
 name = "work-only"
 version = "0.1.0"
 dependencies = [
+ "risc0-binfmt",
  "risc0-build",
 ]
 

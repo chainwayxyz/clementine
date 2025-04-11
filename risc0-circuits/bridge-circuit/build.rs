@@ -1,3 +1,4 @@
+use risc0_binfmt::compute_image_id;
 use risc0_build::{embed_methods_with_options, DockerOptionsBuilder, GuestOptionsBuilder};
 use std::{collections::HashMap, env, fs};
 
@@ -73,13 +74,6 @@ fn get_guest_options(
     bridge_circuit_mode: String,
 ) -> HashMap<&'static str, risc0_build::GuestOptions> {
     let mut guest_pkg_to_options = HashMap::new();
-    // let mut features = Vec::new();
-
-    // // Add Bitcoin network feature if specified
-    // if let Ok(network) = env::var("BITCOIN_NETWORK") {
-    //     println!("cargo:warning=Building for Bitcoin network: {}", network);
-    //     features.push(format!("network-{}", network.to_lowercase()));
-    // }
 
     let opts = if env::var("REPR_GUEST_BUILD").is_ok() {
         let current_dir = env::current_dir().expect("Failed to get current dir");
@@ -104,14 +98,12 @@ fn get_guest_options(
         );
 
         GuestOptionsBuilder::default()
-            // .features(features)
             .use_docker(docker_opts)
             .build()
             .unwrap()
     } else {
         println!("cargo:warning=Guest code is not built in docker");
         GuestOptionsBuilder::default()
-            // .features(features)
             .build()
             .unwrap()
     };
@@ -139,12 +131,13 @@ fn copy_binary_to_elfs_folder(network: String, bridge_circuit_mode: String) {
         );
         return;
     }
+    
+    let dest_filename = if bridge_circuit_mode == "test" {
+        format!("test-{}-bridge-circuit-guest.bin", network.to_lowercase())
+    } else {
+        format!("{}-bridge-circuit-guest.bin", network.to_lowercase())
+    };
 
-    let dest_filename = format!(
-        "{}-{}-bridge-circuit-guest.bin",
-        bridge_circuit_mode.to_lowercase(),
-        network.to_lowercase()
-    );
     let dest_path = elfs_dir.join(&dest_filename);
 
     match fs::copy(&src_path, &dest_path) {

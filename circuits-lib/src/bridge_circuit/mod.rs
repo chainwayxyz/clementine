@@ -38,9 +38,27 @@ macro_rules! assert_all_eq {
     };
 }
 
-pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = [
-    3831541492, 1914582284, 3478727827, 2650042822, 3245962995, 821199570, 1987041398, 1979635126,
-];
+/// The method ID for the work only circuit.
+pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
+    match option_env!("BITCOIN_NETWORK") {
+        Some(network) if matches!(network.as_bytes(), b"mainnet") => {
+            [401172380, 2811216678, 3777091128, 499099277, 2442539880, 652091668, 2720329944, 3332473544]
+        }
+        Some(network) if matches!(network.as_bytes(), b"testnet4") => {
+            [1999769151, 1443988293, 220822608, 619344254, 441227906, 2886402800, 2598360110, 4027896753]
+        }
+        Some(network) if matches!(network.as_bytes(), b"signet") => {
+            [3989517214, 3701735745, 2559871422, 777600967, 1850968412, 677603626, 3019094408, 247708417]
+        }
+        Some(network) if matches!(network.as_bytes(), b"regtest") => {
+            [3193462850, 3381975089, 408955302, 4009655806, 1946706419, 301838848, 234200347, 3165343300]
+        }
+        None => {
+            [401172380, 2811216678, 3777091128, 499099277, 2442539880, 652091668, 2720329944, 3332473544]
+        }
+        _ => panic!("Invalid network type"),
+    }
+};
 
 const NUMBER_OF_WATCHTOWERS: usize = 160;
 
@@ -574,7 +592,7 @@ mod tests {
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;
 
-    const WORK_ONLY_ELF: &[u8; 180056] =
+    const WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     lazy_static! {
