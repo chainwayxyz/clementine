@@ -87,6 +87,8 @@ pub enum TxError {
     MissingSpendInfo,
     #[error("Incorrect watchtower challenge data length")]
     IncorrectWatchtowerChallengeDataLength,
+    #[error("Latest blockhash script must be a single script")]
+    LatestBlockhashScriptNumber,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -206,6 +208,7 @@ pub enum TransactionType {
     BaseDeposit,
     ReplacementDeposit,
     LatestBlockhashTimeout,
+    LatestBlockhash,
 }
 
 // converter from proto type to rust enum
@@ -239,6 +242,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::BaseDeposit => Ok(Self::BaseDeposit),
                     Normal::ReplacementDeposit => Ok(Self::ReplacementDeposit),
                     Normal::LatestBlockhashTimeout => Ok(Self::LatestBlockhashTimeout),
+                    Normal::LatestBlockhash => Ok(Self::LatestBlockhash),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -308,6 +312,9 @@ impl From<TransactionType> for GrpcTransactionId {
                 }
                 TransactionType::LatestBlockhashTimeout => {
                     NormalTransaction(Normal::LatestBlockhashTimeout as i32)
+                }
+                TransactionType::LatestBlockhash => {
+                    NormalTransaction(Normal::LatestBlockhash as i32)
                 }
                 TransactionType::WatchtowerChallenge(index) => {
                     NumberedTransaction(NumberedTransactionId {

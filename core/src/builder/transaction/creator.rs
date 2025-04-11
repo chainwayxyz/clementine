@@ -4,6 +4,7 @@ use crate::actor::Actor;
 
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
+use crate::builder::script::WinternitzCommit;
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
@@ -15,9 +16,12 @@ use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use super::input::UtxoVout;
-use super::operator_assert::create_latest_blockhash_timeout_txhandler;
+use super::operator_assert::{
+    create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
+};
 use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
 
 // helper function to get a txhandler from a hashmap
@@ -493,8 +497,11 @@ pub async fn create_txhandlers(
     let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
 
-    let kickoff_txhandler = if let TransactionType::MiniAssert(_) = transaction_type {
-        // create scripts if any mini assert tx is specifically requested as it needs
+    let kickoff_txhandler = if matches!(
+        transaction_type,
+        TransactionType::LatestBlockhash | TransactionType::MiniAssert(_)
+    ) {
+        // create scripts if any mini assert tx or latest blockhash tx is specifically requested as it needs
         // the actual scripts to be able to spend
         let actor = context.signer.clone().ok_or(TxError::InsufficientContext)?;
 
@@ -505,6 +512,12 @@ pub async fn create_txhandlers(
 
         let assert_scripts = bitvm_pks.get_assert_scripts(operator_data.xonly_pk);
 
+        let latest_blockhash_script = Arc::new(WinternitzCommit::new(
+            vec![(bitvm_pks.latest_blockhash_pk.to_vec(), 40)],
+            operator_data.xonly_pk,
+            context.paramset.winternitz_log_d,
+        ));
+
         let kickoff_txhandler = create_kickoff_txhandler(
             kickoff_id,
             get_txhandler(&txhandlers, TransactionType::Round)?,
@@ -513,7 +526,7 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             &disprove_root_hash,
-            &latest_blockhash_root_hash,
+            AssertScripts::AssertSpendableScript(vec![latest_blockhash_script]),
             &verifier_xonly_pks,
             &public_hashes,
             paramset,
@@ -526,6 +539,12 @@ pub async fn create_txhandlers(
             txhandlers.insert(mini_assert.get_transaction_type(), mini_assert);
         }
 
+        let latest_blockhash_txhandler = create_latest_blockhash_txhandler(&kickoff_txhandler)?;
+        txhandlers.insert(
+            latest_blockhash_txhandler.get_transaction_type(),
+            latest_blockhash_txhandler,
+        );
+
         kickoff_txhandler
     } else {
         // use db data for scripts
@@ -537,7 +556,7 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
-            &latest_blockhash_root_hash,
+            AssertScripts::AssertScriptTapNodeHash(&[latest_blockhash_root_hash]),
             &verifier_xonly_pks,
             &public_hashes,
             paramset,

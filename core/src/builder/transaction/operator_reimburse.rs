@@ -5,6 +5,7 @@ use super::txhandler::DEFAULT_SEQUENCE;
 use super::DepositData;
 use super::Signed;
 use super::TransactionType;
+use super::TxError;
 use crate::builder::script::{CheckSig, SpendableScript, TimelockScript};
 use crate::builder::script::{PreimageRevealScript, SpendPath};
 use crate::builder::transaction::output::UnspentTxOut;
@@ -40,7 +41,7 @@ pub fn create_kickoff_txhandler(
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
     disprove_root_hash: &[u8; 32],
-    latest_blockhash_root_hash: &[u8; 32],
+    latest_blockhash_script: AssertScripts,
     verifier_xonly_pks: &[XOnlyPublicKey],
     operator_unlock_hashes: &[[u8; 20]],
     paramset: &'static ProtocolParamset,
@@ -108,13 +109,33 @@ pub fn create_kickoff_txhandler(
         paramset.latest_blockhash_timeout_timelock,
     ));
 
-    // latest blockhash utxo
-    builder = builder.add_output(super::create_taproot_output_with_hidden_node(
-        nofn_latest_blockhash,
-        latest_blockhash_root_hash,
-        MIN_TAPROOT_AMOUNT,
-        paramset.network,
-    ));
+    match latest_blockhash_script {
+        AssertScripts::AssertScriptTapNodeHash(latest_blockhash_root_hash) => {
+            if latest_blockhash_root_hash.len() != 1 {
+                return Err(TxError::LatestBlockhashScriptNumber.into());
+            }
+            let latest_blockhash_root_hash = latest_blockhash_root_hash[0];
+            // latest blockhash utxo
+            builder = builder.add_output(super::create_taproot_output_with_hidden_node(
+                nofn_latest_blockhash,
+                &latest_blockhash_root_hash,
+                MIN_TAPROOT_AMOUNT,
+                paramset.network,
+            ));
+        }
+        AssertScripts::AssertSpendableScript(latest_blockhash_script) => {
+            if latest_blockhash_script.len() != 1 {
+                return Err(TxError::LatestBlockhashScriptNumber.into());
+            }
+            let latest_blockhash_script = latest_blockhash_script[0].clone();
+            builder = builder.add_output(UnspentTxOut::from_scripts(
+                MIN_TAPROOT_AMOUNT,
+                vec![nofn_latest_blockhash, latest_blockhash_script],
+                None,
+                paramset.network,
+            ));
+        }
+    }
 
     // add nofn_4 week to all assert scripts
     let nofn_4week = Arc::new(TimelockScript::new(

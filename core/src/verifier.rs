@@ -899,6 +899,9 @@ where
         tracing::debug!("Built taproot tree in {:?}", start.elapsed());
 
         let latest_blockhash_wots = bitvm_pks.latest_blockhash_pk.to_vec();
+        if operator_idx == 0 {
+            tracing::warn!("Latest blockhash wots: {:?}", latest_blockhash_wots);
+        }
         let latest_blockhash_script = WinternitzCommit::new(
             vec![(latest_blockhash_wots, 40)],
             operator_data.xonly_pk,
@@ -1297,11 +1300,16 @@ where
                 operator_asserts,
                 operator_acks,
                 payout_blockhash,
+                latest_blockhash,
             } => {
                 tracing::warn!(
-                    "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                    payout_blockhash: {:?}", verifier_index, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
+                    "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, 
+                    operator_acks: {:?}, payout_blockhash: {:?}, latest_blockhash: {:?}",
+                    verifier_index, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), 
+                    payout_blockhash.len(), latest_blockhash.len()
+                );
             }
+            Duty::SendLatestBlockhash { .. } => {}
             Duty::CheckIfKickoff {
                 txid,
                 block_height,

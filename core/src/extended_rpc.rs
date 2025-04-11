@@ -99,6 +99,16 @@ impl ExtendedRpc {
         Ok(raw_transaction)
     }
 
+    pub async fn is_txid_in_chain(&self, txid: &bitcoin::Txid) -> Result<bool> {
+        Ok(self
+            .client
+            .get_raw_transaction_info(txid, None)
+            .await
+            .ok()
+            .and_then(|s| s.blockhash)
+            .is_some())
+    }
+
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn check_utxo_address_and_amount(
         &self,

@@ -34,6 +34,7 @@ enum NormalSignatureKind {
   LatestBlockhashTimeout1 = 15;
   LatestBlockhashTimeout2 = 16;
   LatestBlockhashTimeout3 = 17;
+  LatestBlockhash = 18;
 }
 
 // Signatures that are needed multiple times per an operators kickoff.
@@ -144,6 +145,7 @@ enum NormalTransactionId {
     BASE_DEPOSIT = 16;
     REPLACEMENT_DEPOSIT = 17;
     LATEST_BLOCKHASH_TIMEOUT = 18;
+    LATEST_BLOCKHASH = 19;
 }
 
 enum NumberedTransactionType {

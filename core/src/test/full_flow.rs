@@ -21,7 +21,6 @@ use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
-use bitcoincore_rpc::RpcApi;
 use eyre::{Context, Result};
 use tonic::Request;
 
@@ -806,14 +805,20 @@ pub async fn run_challenge_with_state_machine(
 
     // check if watchtower challenge timeouts were not sent
     for txid in watchtower_challenge_timeout_txids {
-        assert!(rpc
-            .client
-            .get_raw_transaction_info(&txid, None)
-            .await
-            .ok()
-            .and_then(|s| s.blockhash)
-            .is_none());
+        assert!(!rpc.is_txid_in_chain(&txid).await?);
     }
+
+    let latest_blockhash_outpoint = OutPoint {
+        txid: kickoff_txid,
+        vout: UtxoVout::LatestBlockhash.get_vout(),
+    };
+
+    ensure_outpoint_spent(&rpc, latest_blockhash_outpoint).await?;
+
+    // check if latest blockhash timeout was not sent
+    let latest_blockhash_timeout_txid =
+        get_tx_from_signed_txs_with_type(&all_txs, TxType::LatestBlockhashTimeout)?.compute_txid();
+    assert!(!rpc.is_txid_in_chain(&latest_blockhash_timeout_txid).await?);
 
     // check if operator asserts are sent by state machine
     // Get deposit data and kickoff ID for assert creation

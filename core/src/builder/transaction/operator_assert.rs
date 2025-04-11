@@ -87,3 +87,19 @@ pub fn create_mini_asserts(
     }
     Ok(txhandlers)
 }
+
+pub fn create_latest_blockhash_txhandler(
+    kickoff_txhandler: &TxHandler,
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    Ok(TxHandlerBuilder::new(TransactionType::LatestBlockhash)
+        .with_version(Version::non_standard(3))
+        .add_input(
+            NormalSignatureKind::LatestBlockhash,
+            kickoff_txhandler.get_spendable_output(UtxoVout::LatestBlockhash)?,
+            SpendPath::ScriptSpend(1),
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        .add_output(UnspentTxOut::from_partial(op_return_txout(b"")))
+        .finalize())
+}

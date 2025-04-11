@@ -318,21 +318,16 @@ impl Actor {
         paramset: &'static ProtocolParamset,
     ) -> Result<ClementineBitVMPublicKeys, BridgeError> {
         let mut pks = ClementineBitVMPublicKeys::create_replacable();
-        let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-            40,
-            0,
-            0,
-            deposit_outpoint,
-            paramset,
-        ))?;
+        let pk_vec = self.derive_winternitz_pk(
+            ClementineBitVMPublicKeys::get_latest_blockhash_derivation(deposit_outpoint, paramset),
+        )?;
         pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
-        let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-            40,
-            1,
-            0,
-            deposit_outpoint,
-            paramset,
-        ))?;
+        let pk_vec = self.derive_winternitz_pk(
+            ClementineBitVMPublicKeys::get_challenge_sending_watchtowers_derivation(
+                deposit_outpoint,
+                paramset,
+            ),
+        )?;
         pks.challenge_sending_watchtowers_pk =
             ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
         for i in 0..pks.bitvm_pks.0.len() {

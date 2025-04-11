@@ -952,6 +952,7 @@ where
         deposit_data: DepositData,
         _watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
+        _latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
         let assert_txs = self
             .create_assert_commitment_txs(TransactionRequestData {
@@ -990,6 +991,47 @@ where
             reimburse_addr: self.reimburse_addr.clone(),
         }
     }
+
+    async fn send_latest_blockhash(
+        &self,
+        kickoff_id: KickoffId,
+        deposit_data: DepositData,
+        latest_blockhash: BlockHash,
+    ) -> Result<(), BridgeError> {
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let (tx_type, tx) = self
+            .create_latest_blockhash_tx(
+                TransactionRequestData {
+                    kickoff_id,
+                    deposit_data,
+                },
+                latest_blockhash,
+            )
+            .await?;
+        if tx_type != TransactionType::LatestBlockhash {
+            return Err(eyre::eyre!("Latest blockhash tx type is not LatestBlockhash").into());
+        }
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .add_tx_to_queue(
+                &mut dbtx,
+                tx_type,
+                &tx,
+                &[],
+                Some(TxMetadata {
+                    tx_type,
+                    operator_idx: Some(self.idx as u32),
+                    verifier_idx: None,
+                    round_idx: Some(kickoff_id.round_idx),
+                    kickoff_idx: Some(kickoff_id.kickoff_idx),
+                    deposit_outpoint: Some(deposit_outpoint),
+                }),
+                &self.config,
+            )
+            .await?;
+        dbtx.commit().await?;
+        Ok(())
+    }
 }
 
 #[tonic::async_trait]
@@ -1021,6 +1063,7 @@ where
                 deposit_data,
                 watchtower_challenges,
                 payout_blockhash,
+                latest_blockhash,
             } => {
                 tracing::warn!("Operator {} called send operator asserts with kickoff_id: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", self.idx, kickoff_id, deposit_data, watchtower_challenges.len());
                 self.send_asserts(
@@ -1028,19 +1071,20 @@ where
                     deposit_data,
                     watchtower_challenges,
                     payout_blockhash,
+                    latest_blockhash,
                 )
                 .await?;
             }
-            Duty::VerifierDisprove {
+            Duty::SendLatestBlockhash {
                 kickoff_id,
                 deposit_data,
-                operator_asserts,
-                operator_acks,
-                payout_blockhash,
+                latest_blockhash,
             } => {
-                tracing::info!("Operator {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                payout_blockhash: {:?}", self.idx, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
+                tracing::warn!("Operator {} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.idx, kickoff_id, deposit_data, latest_blockhash);
+                self.send_latest_blockhash(kickoff_id, deposit_data, latest_blockhash)
+                    .await?;
             }
+            Duty::VerifierDisprove { .. } => {}
             Duty::CheckIfKickoff {
                 txid,
                 block_height,

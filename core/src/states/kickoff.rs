@@ -40,6 +40,9 @@ pub enum KickoffEvent {
         watchtower_idx: usize,
         challenge_ack_outpoint: OutPoint,
     },
+    LatestBlockHashSent {
+        latest_blockhash_outpoint: OutPoint,
+    },
     KickoffFinalizerSpent,
     BurnConnectorSpent,
     // TODO: add warnings
@@ -66,6 +69,7 @@ pub struct KickoffStateMachine<T: Owner> {
     kickoff_height: u32,
     payout_blockhash: Witness,
     spent_watchtower_utxos: HashSet<usize>,
+    latest_blockhash: Witness,
     watchtower_challenges: HashMap<usize, Transaction>,
     operator_asserts: HashMap<usize, Witness>,
     operator_challenge_acks: HashMap<usize, Witness>,
@@ -102,6 +106,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             kickoff_height,
             deposit_data,
             payout_blockhash,
+            latest_blockhash: Witness::default(),
             matchers: HashMap::new(),
             dirty: true,
             phantom: std::marker::PhantomData,
@@ -154,7 +159,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         }
     }
 
-    async fn check_if_time_to_send_asserts(&mut self, context: &mut StateContext<T>) {
+    async fn check_if_time_to_commit_latest_blockhash(&mut self, context: &mut StateContext<T>) {
         context
             .capture_error(async |context| {
                 {
@@ -162,17 +167,48 @@ impl<T: Owner> KickoffStateMachine<T> {
                     if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_verifiers() {
                         context
                             .owner
-                            .handle_duty(Duty::SendOperatorAsserts {
+                            .handle_duty(Duty::SendLatestBlockhash {
                                 kickoff_id: self.kickoff_id,
                                 deposit_data: self.deposit_data.clone(),
-                                watchtower_challenges: self.watchtower_challenges.clone(),
-                                payout_blockhash: self.payout_blockhash.clone(),
+                                latest_blockhash: context
+                                    .cache
+                                    .block
+                                    .as_ref()
+                                    .ok_or(eyre::eyre!("Block object not found in block cache"))?
+                                    .header
+                                    .block_hash(),
                             })
                             .await?;
                     }
                     Ok::<(), BridgeError>(())
                 }
-                .wrap_err(self.kickoff_meta("on send_asserts"))
+                .wrap_err(self.kickoff_meta("on check_if_time_to_commit_latest_blockhash"))
+            })
+            .await;
+    }
+
+    async fn send_operator_asserts(&mut self, context: &mut StateContext<T>) {
+        context
+            .capture_error(async |context| {
+                {
+                    // if all watchtower challenge utxos are spent and latest blockhash is committed, its safe to send asserts
+                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_verifiers()
+                        && self.latest_blockhash != Witness::default()
+                    {
+                        context
+                            .owner
+                            .handle_duty(Duty::SendOperatorAsserts {
+                                kickoff_id: self.kickoff_id,
+                                deposit_data: self.deposit_data.clone(),
+                                watchtower_challenges: self.watchtower_challenges.clone(),
+                                payout_blockhash: self.payout_blockhash.clone(),
+                                latest_blockhash: self.latest_blockhash.clone(),
+                            })
+                            .await?;
+                    }
+                    Ok::<(), BridgeError>(())
+                }
+                .wrap_err(self.kickoff_meta("on send_operator_asserts"))
             })
             .await;
     }
@@ -207,11 +243,12 @@ impl<T: Owner> KickoffStateMachine<T> {
                             operator_asserts: self.operator_asserts.clone(),
                             operator_acks: self.operator_challenge_acks.clone(),
                             payout_blockhash: self.payout_blockhash.clone(),
+                            latest_blockhash: self.latest_blockhash.clone(),
                         })
                         .await?;
                     Ok::<(), BridgeError>(())
                 }
-                .wrap_err(self.kickoff_meta("on_check_time_to_send_asserts"))
+                .wrap_err(self.kickoff_meta("on send_disprove"))
             })
             .await;
     }
@@ -301,7 +338,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                 // save challenge witness
                 self.watchtower_challenges
                     .insert(*watchtower_idx, tx.clone());
-                self.check_if_time_to_send_asserts(context).await;
+                self.check_if_time_to_commit_latest_blockhash(context).await;
                 Handled
             }
             KickoffEvent::OperatorAssertSent {
@@ -339,7 +376,20 @@ impl<T: Owner> KickoffStateMachine<T> {
             }
             KickoffEvent::WatchtowerChallengeTimeoutSent { watchtower_idx } => {
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
-                self.check_if_time_to_send_asserts(context).await;
+                self.check_if_time_to_commit_latest_blockhash(context).await;
+                Handled
+            }
+            KickoffEvent::LatestBlockHashSent {
+                latest_blockhash_outpoint,
+            } => {
+                let witness = context
+                    .cache
+                    .get_witness_of_utxo(latest_blockhash_outpoint)
+                    .expect("Latest blockhash outpoint that got matched should be in block");
+                // save latest blockhash witness
+                self.latest_blockhash = witness;
+                // send operator asserts if all watchtower challenges are spent + latest blockhash is committed
+                self.send_operator_asserts(context).await;
                 Handled
             }
             KickoffEvent::SavedToDb => Handled,
@@ -367,6 +417,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::KickoffFinalizerSpent
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
+            | KickoffEvent::LatestBlockHashSent { .. }
             | KickoffEvent::SavedToDb => Super,
             _ => {
                 self.unhandled_event(context, event).await;
@@ -420,9 +471,25 @@ impl<T: Owner> KickoffStateMachine<T> {
                 },
             );
         }
+        // add latest blockhash tx sent matcher
+        let latest_blockhash_timeout_txhandler =
+            remove_txhandler_from_map(&mut txhandlers, TransactionType::LatestBlockhashTimeout)?;
+        let latest_blockhash_timeout_txid = latest_blockhash_timeout_txhandler.get_txid();
+        let latest_blockhash_outpoint = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::LatestBlockhash.get_vout(),
+        };
+        self.matchers.insert(
+            Matcher::SpentUtxoButNotTimeout(
+                latest_blockhash_outpoint,
+                *latest_blockhash_timeout_txid,
+            ),
+            KickoffEvent::LatestBlockHashSent {
+                latest_blockhash_outpoint,
+            },
+        );
         // add watchtower challenges and challenge acks
         for watchtower_idx in 0..self.deposit_data.get_num_verifiers() {
-            // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
             let watchtower_challenge_vout =
                 UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout();

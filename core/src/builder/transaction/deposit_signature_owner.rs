@@ -69,6 +69,7 @@ impl SignatureId {
                     LatestBlockhashTimeout1 => Ok(NofnSharedDeposit(SighashDefault)),
                     LatestBlockhashTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                     LatestBlockhashTimeout3 => Ok(OperatorSharedDeposit(SighashDefault)),
+                    LatestBlockhash => Ok(Own(SighashDefault)),
                 }
             }
             SignatureId::NumberedSignature(numbered_sig) => {

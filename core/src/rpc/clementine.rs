@@ -410,6 +410,7 @@ pub enum NormalSignatureKind {
     LatestBlockhashTimeout1 = 15,
     LatestBlockhashTimeout2 = 16,
     LatestBlockhashTimeout3 = 17,
+    LatestBlockhash = 18,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -436,6 +437,7 @@ impl NormalSignatureKind {
             Self::LatestBlockhashTimeout1 => "LatestBlockhashTimeout1",
             Self::LatestBlockhashTimeout2 => "LatestBlockhashTimeout2",
             Self::LatestBlockhashTimeout3 => "LatestBlockhashTimeout3",
+            Self::LatestBlockhash => "LatestBlockhash",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -459,6 +461,7 @@ impl NormalSignatureKind {
             "LatestBlockhashTimeout1" => Some(Self::LatestBlockhashTimeout1),
             "LatestBlockhashTimeout2" => Some(Self::LatestBlockhashTimeout2),
             "LatestBlockhashTimeout3" => Some(Self::LatestBlockhashTimeout3),
+            "LatestBlockhash" => Some(Self::LatestBlockhash),
             _ => None,
         }
     }
@@ -578,6 +581,7 @@ pub enum NormalTransactionId {
     BaseDeposit = 16,
     ReplacementDeposit = 17,
     LatestBlockhashTimeout = 18,
+    LatestBlockhash = 19,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -605,6 +609,7 @@ impl NormalTransactionId {
             Self::BaseDeposit => "BASE_DEPOSIT",
             Self::ReplacementDeposit => "REPLACEMENT_DEPOSIT",
             Self::LatestBlockhashTimeout => "LATEST_BLOCKHASH_TIMEOUT",
+            Self::LatestBlockhash => "LATEST_BLOCKHASH",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -629,6 +634,7 @@ impl NormalTransactionId {
             "BASE_DEPOSIT" => Some(Self::BaseDeposit),
             "REPLACEMENT_DEPOSIT" => Some(Self::ReplacementDeposit),
             "LATEST_BLOCKHASH_TIMEOUT" => Some(Self::LatestBlockhashTimeout),
+            "LATEST_BLOCKHASH" => Some(Self::LatestBlockhash),
             _ => None,
         }
     }

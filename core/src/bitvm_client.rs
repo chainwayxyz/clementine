@@ -478,6 +478,13 @@ impl ClementineBitVMPublicKeys {
         WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, deposit_outpoint, paramset)
     }
 
+    pub fn get_challenge_sending_watchtowers_derivation(
+        deposit_outpoint: bitcoin::OutPoint,
+        paramset: &'static ProtocolParamset,
+    ) -> WinternitzDerivationPath {
+        WinternitzDerivationPath::BitvmAssert(20 * 2, 2, 0, deposit_outpoint, paramset)
+    }
+
     pub fn get_assert_derivations(
         mini_assert_idx: usize,
         deposit_outpoint: bitcoin::OutPoint,
@@ -485,14 +492,14 @@ impl ClementineBitVMPublicKeys {
     ) -> Vec<WinternitzDerivationPath> {
         if mini_assert_idx == 0 {
             vec![
-                Self::get_payout_tx_blockhash_derivation(deposit_outpoint, paramset),
                 Self::get_latest_blockhash_derivation(deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 2, 0, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 12, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 13, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 360, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 361, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 362, deposit_outpoint, paramset),
+                Self::get_payout_tx_blockhash_derivation(deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 360, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 361, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 362, deposit_outpoint, paramset),
             ]
         } else if (1..=2).contains(&mini_assert_idx) {
             // for 1, we will have 6 derivations index starting from 0 to 5
@@ -504,7 +511,7 @@ impl ClementineBitVMPublicKeys {
                 if derivations + i < NUM_U256 as u32 - 2 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         32 * 2,
-                        3,
+                        4,
                         derivations + i,
                         deposit_outpoint,
                         paramset,
@@ -519,7 +526,7 @@ impl ClementineBitVMPublicKeys {
                 if derivations + i < NUM_HASH as u32 - 3 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         16 * 2,
-                        4,
+                        5,
                         derivations + i,
                         deposit_outpoint,
                         paramset,
