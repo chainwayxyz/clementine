@@ -76,12 +76,7 @@ pub(crate) async fn save_block(
     );
 
     let block_id = db
-        .add_block_info(
-            Some(dbtx),
-            &block_hash,
-            &block.header.prev_blockhash,
-            block_height,
-        )
+        .add_block_info(Some(dbtx), block.header, block_hash, block_height)
         .await?;
 
     db.store_full_block(Some(dbtx), block, block_height).await?;
