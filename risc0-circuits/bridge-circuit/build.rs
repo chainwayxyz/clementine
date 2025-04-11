@@ -103,9 +103,7 @@ fn get_guest_options(
             .unwrap()
     } else {
         println!("cargo:warning=Guest code is not built in docker");
-        GuestOptionsBuilder::default()
-            .build()
-            .unwrap()
+        GuestOptionsBuilder::default().build().unwrap()
     };
 
     guest_pkg_to_options.insert("bridge-circuit-guest", opts);
@@ -131,7 +129,7 @@ fn copy_binary_to_elfs_folder(network: String, bridge_circuit_mode: String) {
         );
         return;
     }
-    
+
     let dest_filename = if bridge_circuit_mode == "test" {
         format!("test-{}-bridge-circuit-guest.bin", network.to_lowercase())
     } else {

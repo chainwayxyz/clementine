@@ -147,10 +147,7 @@ fn copy_binary_to_elfs_folder(network: String) {
     };
 
     let method_id = compute_image_id(&elf_bytes).unwrap();
-    println!(
-        "cargo:warning=Computed method ID: {:x?}",
-        method_id
-    );
+    println!("cargo:warning=Computed method ID: {:x?}", method_id);
     println!(
         "cargo:warning=Computed method ID words: {:?}",
         method_id.as_words()

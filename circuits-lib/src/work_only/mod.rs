@@ -9,21 +9,26 @@ use risc0_zkvm::guest::env;
 /// The method ID for the header chain circuit.
 const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
     match option_env!("BITCOIN_NETWORK") {
-        Some(network) if matches!(network.as_bytes(), b"mainnet") => {
-            [2676188327, 45512797, 2023835249, 3297151795, 2340552790, 1016661468, 2312535365, 3209566978]
-        }
-        Some(network) if matches!(network.as_bytes(), b"testnet4") => {
-            [1999769151, 1443988293, 220822608, 619344254, 441227906, 2886402800, 2598360110, 4027896753]
-        }
-        Some(network) if matches!(network.as_bytes(), b"signet") => {
-            [3989517214, 3701735745, 2559871422, 777600967, 1850968412, 677603626, 3019094408, 247708417]
-        }
-        Some(network) if matches!(network.as_bytes(), b"regtest") => {
-            [3193462850, 3381975089, 408955302, 4009655806, 1946706419, 301838848, 234200347, 3165343300]
-        }
-        None => {
-            [2676188327, 45512797, 2023835249, 3297151795, 2340552790, 1016661468, 2312535365, 3209566978]
-        }
+        Some(network) if matches!(network.as_bytes(), b"mainnet") => [
+            2676188327, 45512797, 2023835249, 3297151795, 2340552790, 1016661468, 2312535365,
+            3209566978,
+        ],
+        Some(network) if matches!(network.as_bytes(), b"testnet4") => [
+            1999769151, 1443988293, 220822608, 619344254, 441227906, 2886402800, 2598360110,
+            4027896753,
+        ],
+        Some(network) if matches!(network.as_bytes(), b"signet") => [
+            3989517214, 3701735745, 2559871422, 777600967, 1850968412, 677603626, 3019094408,
+            247708417,
+        ],
+        Some(network) if matches!(network.as_bytes(), b"regtest") => [
+            3193462850, 3381975089, 408955302, 4009655806, 1946706419, 301838848, 234200347,
+            3165343300,
+        ],
+        None => [
+            2676188327, 45512797, 2023835249, 3297151795, 2340552790, 1016661468, 2312535365,
+            3209566978,
+        ],
         _ => panic!("Invalid network type"),
     }
 };
