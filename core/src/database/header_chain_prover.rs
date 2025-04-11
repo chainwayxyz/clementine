@@ -49,20 +49,6 @@ impl Database {
         Ok(result)
     }
 
-    /// Returns latest finalized blocks height from the database.
-    pub async fn get_latest_finalized_block_height(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<u32>, BridgeError> {
-        let query =
-            sqlx::query_as("SELECT height FROM bitcoin_syncer ORDER BY height DESC LIMIT 1;");
-
-        let result: Option<(i32,)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
-
-        Ok(result.map(|height| height.0 as u32))
-    }
-
     /// Gets the newest finalized block's info that it's previous block has
     /// proven before. This block will be the candidate block for the prover.
     ///
@@ -259,11 +245,7 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
-        assert!(db
-            .get_latest_finalized_block_height(None)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(db.get_max_height(None).await.unwrap().is_none());
 
         // Set first block, so that get_non_proven_block won't return error.
         let block = block::Block {
@@ -282,13 +264,7 @@ mod tests {
         db.add_block_info(None, block.header, block_hash, height)
             .await
             .unwrap();
-        assert_eq!(
-            db.get_latest_finalized_block_height(None)
-                .await
-                .unwrap()
-                .unwrap(),
-            height
-        );
+        assert_eq!(db.get_max_height(None).await.unwrap().unwrap(), height);
         let receipt =
             Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
         db.set_block_proof(None, block_hash, receipt).await.unwrap();

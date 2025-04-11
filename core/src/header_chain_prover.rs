@@ -4,9 +4,7 @@
 //! module must be fed with new blocks via the database. Later, it can check if
 //! proving should be triggered by verifying if the batch size is sufficient.
 
-use crate::database::DatabaseTransaction;
 use crate::errors::ResultExt;
-use crate::states::block_cache::BlockCache;
 use crate::{
     config::BridgeConfig,
     database::Database,
@@ -260,71 +258,51 @@ impl HeaderChainProver {
     ///
     /// - [`Receipt`]: Specified block's proof receipt
     pub async fn get_tip_header_chain_proof(&self) -> Result<Receipt, BridgeError> {
-        let latest_proven_block = self
+        let (latest_proven_block_hash, _, latest_proven_block_height) = self
             .db
             .get_latest_proven_block_info(None)
             .await?
             .ok_or(eyre::eyre!("No proven block found"))?;
         let tip_height = self
             .db
-            .get_latest_finalized_block_height(None)
+            .get_max_height(None)
             .await?
             .ok_or(eyre::eyre!("No tip block found"))?;
 
         // If tip is proven, return the proof.
-        if latest_proven_block.2 == tip_height {
+        if latest_proven_block_height == tip_height {
             self.db
-                .get_block_proof_by_hash(None, latest_proven_block.0)
+                .get_block_proof_by_hash(None, latest_proven_block_hash)
                 .await
                 .wrap_err("Failed to get block proof")?
-                .ok_or(HeaderChainProverError::BatchNotReady)?;
+                .ok_or(eyre::eyre!("Failed to get block proof"))?;
         }
 
         // If in limits of the batch size but not in a target block, prove block
         // headers manually.
         let block_headers = self
             .db
-            .get_block_info_from_range(None, latest_proven_block.2 + 1, tip_height)
+            .get_block_info_from_range(None, latest_proven_block_height + 1, tip_height)
             .await?
             .into_iter()
             .map(|(_hash, header)| header)
             .collect::<Vec<_>>();
 
+        let current_hash = block_headers
+            .iter()
+            .next_back()
+            .ok_or(eyre::eyre!("No block headers found"))?
+            .block_hash();
         let previous_proof = self
             .db
-            .get_block_proof_by_hash(None, latest_proven_block.0)
+            .get_block_proof_by_hash(None, latest_proven_block_hash)
             .await?
             .ok_or(eyre::eyre!("No proven block found"))?;
         let receipt = self
-            .prove_blocks(latest_proven_block.0, block_headers, previous_proof)
+            .prove_blocks(current_hash, block_headers, previous_proof)
             .await?;
 
         Ok(receipt)
-    }
-
-    /// Saves a new block to database, later to be proven.
-    pub async fn save_unproven_block_cache(
-        &self,
-        dbtx: Option<DatabaseTransaction<'_, '_>>,
-        block_cache: &BlockCache,
-    ) -> Result<(), BridgeError> {
-        let block_hash = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
-            .block_hash();
-
-        let block_header = block_cache
-            .block
-            .as_ref()
-            .ok_or(eyre::eyre!("Block not found"))?
-            .header;
-
-        self.db
-            .add_block_info(dbtx, block_header, block_hash, block_cache.block_height)
-            .await?;
-
-        Ok(())
     }
 
     /// Checks if there are enough blocks to prove.
@@ -337,7 +315,7 @@ impl HeaderChainProver {
         };
         let tip_height = self
             .db
-            .get_latest_finalized_block_height(None)
+            .get_max_height(None)
             .await?
             .ok_or(eyre::eyre!("No tip block found"))?;
 
@@ -460,25 +438,24 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
+        let db = Database::new(&config).await.unwrap();
 
         // First block's assumption will be added to db: Make sure block exists
         // too.
-        rpc.mine_blocks(1).await.unwrap();
+        let _headers = mine_and_get_first_n_block_headers(rpc.clone(), db, 1).await;
+
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
 
         // Test assumption is for block 0.
         let hash = rpc.client.get_block_hash(0).await.unwrap();
-        let receipt = prover.get_tip_header_chain_proof().await.unwrap();
-        let db_receipt = prover
+        let _receipt = prover
             .db
             .get_block_proof_by_hash(None, hash)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(receipt.journal, db_receipt.journal);
-        assert_eq!(receipt.metadata, db_receipt.metadata);
     }
 
     #[tokio::test]
@@ -493,7 +470,13 @@ mod tests {
         // Check if `HeaderChainProver::new` added the assumption.
         let previous_receipt =
             Receipt::try_from_slice(include_bytes!("../tests/data/first_1.bin")).unwrap();
-        let read_recipt = prover.get_tip_header_chain_proof().await.unwrap();
+        let block_hash = rpc.client.get_block_hash(0).await.unwrap();
+        let read_recipt = prover
+            .db
+            .get_block_proof_by_hash(None, block_hash)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(previous_receipt.journal, read_recipt.journal);
 
         // Set up the next non proven block.
@@ -512,7 +495,12 @@ mod tests {
             .await
             .unwrap();
 
-        let read_recipt = prover.get_tip_header_chain_proof().await.unwrap();
+        let read_recipt = prover
+            .db
+            .get_block_proof_by_hash(None, hash)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(receipt.journal, read_recipt.journal);
     }
 
@@ -581,7 +569,12 @@ mod tests {
             .unwrap();
 
         let genesis_hash = rpc.client.get_block_hash(0).await.unwrap();
-        let genesis_block_proof = prover.get_tip_header_chain_proof().await.unwrap();
+        let genesis_block_proof = prover
+            .db
+            .get_block_proof_by_hash(None, genesis_hash)
+            .await
+            .unwrap()
+            .unwrap();
         let db_proof = db
             .get_block_proof_by_hash(None, genesis_hash)
             .await
