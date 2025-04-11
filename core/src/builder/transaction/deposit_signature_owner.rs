@@ -53,7 +53,7 @@ impl SignatureId {
                 match normal_sig_type {
                     OperatorSighashDefault => Ok(Own(SighashDefault)),
                     NormalSignatureUnknown => Ok(NotOwned),
-                    Challenge => Ok(NofnSharedDeposit(SinglePlusAnyoneCanPay)),
+                    Challenge => Ok(OperatorSharedDeposit(SinglePlusAnyoneCanPay)),
                     DisproveTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
                     Disprove2 => Ok(OperatorSharedDeposit(SighashNone)),
                     Reimburse1 => Ok(NofnSharedDeposit(SighashDefault)),

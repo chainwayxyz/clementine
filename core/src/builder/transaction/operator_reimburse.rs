@@ -58,6 +58,7 @@ pub fn create_kickoff_txhandler(
     );
 
     let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()));
+    let operator_script = Arc::new(CheckSig::new(operator_xonly_pk));
 
     let operator_1week = Arc::new(TimelockScript::new(
         Some(operator_xonly_pk),
@@ -68,7 +69,7 @@ pub fn create_kickoff_txhandler(
         // goes to challenge tx or no challenge tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![nofn_script.clone(), operator_1week],
+            vec![operator_script, operator_1week],
             None,
             paramset.network,
         ))
