@@ -902,7 +902,7 @@ where
         let latest_blockhash_script = WinternitzCommit::new(
             vec![(latest_blockhash_wots, 40)],
             operator_data.xonly_pk,
-            20,
+            self.config.protocol_paramset().winternitz_log_d,
         )
         .to_script_buf();
 
