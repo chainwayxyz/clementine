@@ -30,7 +30,7 @@ impl Database {
             (BlockHashDB, BlockHeaderDB),
             sqlx::postgres::PgArguments,
         > = sqlx::query_as(
-            "SELECT block_hash, block_header
+            "SELECT blockhash, block_header
             FROM bitcoin_syncer
             WHERE height >= $1 AND height <= $2
             ORDER BY height ASC;",
@@ -80,11 +80,10 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<(BlockHash, Header, u32, Receipt)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT bs.blockhash, bs.block_header, bs.height, hcp_p.proof
+            "SELECT bs.blockhash, bs.block_header, bs.height, hcp.proof
                 FROM bitcoin_syncer bs
-                INNER JOIN header_chain_proofs hcp_p ON bs.prev_blockhash = hcp_p.block_hash
-                INNER JOIN header_chain_proofs hcp_np ON bs.blockhash = hcp_np.block_hash
-                WHERE hcp_p.proof IS NOT NULL AND hcp_np.proof IS NULL
+                INNER JOIN header_chain_proofs hcp ON bs.prev_blockhash = hcp.block_hash
+                WHERE hcp.proof IS NOT NULL
                 ORDER BY bs.height DESC
                 LIMIT 1;",
         );
@@ -120,7 +119,7 @@ impl Database {
     pub async fn get_next_n_non_proven_block(
         &self,
         count: u32,
-    ) -> Result<Option<(Vec<(BlockHash, Header, u64)>, Receipt)>, BridgeError> {
+    ) -> Result<Option<(Vec<(BlockHash, Header, u32)>, Receipt)>, BridgeError> {
         let next_non_proven_block = self.get_next_non_proven_block(None).await?;
         let next_non_proven_block = match next_non_proven_block {
             Some(next_non_proven_block) => next_non_proven_block,
@@ -128,7 +127,7 @@ impl Database {
         };
 
         let query = sqlx::query_as(
-            "SELECT block_hash,
+            "SELECT blockhash,
                     block_header,
                     height
                 FROM bitcoin_syncer
@@ -136,9 +135,9 @@ impl Database {
                 ORDER BY height ASC
                 LIMIT $2;",
         )
-        .bind(next_non_proven_block.2 as i64)
-        .bind(count as i64);
-        let result: Vec<(BlockHashDB, BlockHeaderDB, i64)> = execute_query_with_tx!(
+        .bind(next_non_proven_block.2 as i32)
+        .bind(count as i32);
+        let result: Vec<(BlockHashDB, BlockHeaderDB, i32)> = execute_query_with_tx!(
             self.connection,
             None::<DatabaseTransaction>,
             query,
@@ -645,7 +644,7 @@ mod tests {
         assert_eq!(res.0.len(), batch_size as usize);
         for i in 0..batch_size {
             let i = i as usize;
-            assert_eq!(res.0[i].2, blocks[i].1 as u64);
+            assert_eq!(res.0[i].2, blocks[i].1);
             assert_eq!(res.0[i].0, blocks[i].0);
         }
     }
