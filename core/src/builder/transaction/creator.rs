@@ -17,6 +17,7 @@ use crate::rpc::clementine::KickoffId;
 use std::collections::BTreeMap;
 
 use super::input::UtxoVout;
+use super::operator_assert::create_latest_blockhash_timeout_txhandler;
 use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
 
 // helper function to get a txhandler from a hashmap
@@ -576,6 +577,16 @@ pub async fn create_txhandlers(
         kickoff_not_finalized_txhandler,
     );
 
+    let latest_blockhash_timeout_txhandler = create_latest_blockhash_timeout_txhandler(
+        get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+        get_txhandler(&txhandlers, TransactionType::Round)?,
+        paramset,
+    )?;
+    txhandlers.insert(
+        latest_blockhash_timeout_txhandler.get_transaction_type(),
+        latest_blockhash_timeout_txhandler,
+    );
+
     // create watchtower tx's except WatchtowerChallenges
     for verifier_idx in 0..deposit_data.get_num_verifiers() {
         // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
@@ -794,6 +805,7 @@ mod tests {
             TransactionType::DisproveTimeout,
             TransactionType::Reimburse,
             TransactionType::ChallengeTimeout,
+            TransactionType::LatestBlockhashTimeout,
         ];
         txs_operator_can_sign.extend(
             (0..deposit_data.get_num_verifiers()).map(TransactionType::OperatorChallengeNack),
@@ -907,6 +919,7 @@ mod tests {
         let mut txs_verifier_can_sign = vec![
             TransactionType::Challenge,
             TransactionType::KickoffNotFinalized,
+            TransactionType::LatestBlockhashTimeout,
             //TransactionType::Disprove,
         ];
         txs_verifier_can_sign.extend(

@@ -40,12 +40,12 @@ impl BridgeConfig {
     }
 
     pub fn get_num_required_nofn_sigs_per_kickoff(&self) -> usize {
-        5 + 4 * self.num_verifiers
+        7 + 4 * self.num_verifiers
             + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
     }
 
     pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {
-        3 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() + self.num_verifiers
+        4 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() + self.num_verifiers
     }
 
     /// Returns the total number of winternitz pks used in kickoff utxos for blockhash commits

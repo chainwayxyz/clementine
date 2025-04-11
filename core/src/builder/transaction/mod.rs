@@ -3,8 +3,7 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
-use super::script::SpendableScript;
-use super::script::{BaseDepositScript, CheckSig, TimelockScript};
+use super::script::{BaseDepositScript, CheckSig, SpendableScript, TimelockScript};
 use super::script::{ReplacementDepositScript, SpendPath};
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -206,6 +205,7 @@ pub enum TransactionType {
     YieldKickoffTxid, // This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
     BaseDeposit,
     ReplacementDeposit,
+    LatestBlockhashTimeout,
 }
 
 // converter from proto type to rust enum
@@ -238,6 +238,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::YieldKickoffTxid => Ok(Self::YieldKickoffTxid),
                     Normal::BaseDeposit => Ok(Self::BaseDeposit),
                     Normal::ReplacementDeposit => Ok(Self::ReplacementDeposit),
+                    Normal::LatestBlockhashTimeout => Ok(Self::LatestBlockhashTimeout),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -304,6 +305,9 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::BaseDeposit => NormalTransaction(Normal::BaseDeposit as i32),
                 TransactionType::ReplacementDeposit => {
                     NormalTransaction(Normal::ReplacementDeposit as i32)
+                }
+                TransactionType::LatestBlockhashTimeout => {
+                    NormalTransaction(Normal::LatestBlockhashTimeout as i32)
                 }
                 TransactionType::WatchtowerChallenge(index) => {
                     NumberedTransaction(NumberedTransactionId {

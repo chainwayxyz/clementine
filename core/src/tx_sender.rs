@@ -957,6 +957,7 @@ impl TxSenderClient {
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
             | TransactionType::MiniAssert(_)
+            | TransactionType::LatestBlockhashTimeout
             | TransactionType::WatchtowerChallenge(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(

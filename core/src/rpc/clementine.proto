@@ -31,6 +31,9 @@ enum NormalSignatureKind {
   OperatorChallengeAck1 = 12;
   NotStored = 13;
   YieldKickoffTxid = 14;
+  LatestBlockhashTimeout1 = 15;
+  LatestBlockhashTimeout2 = 16;
+  LatestBlockhashTimeout3 = 17;
 }
 
 // Signatures that are needed multiple times per an operators kickoff.
@@ -140,6 +143,7 @@ enum NormalTransactionId {
     YIELD_KICKOFF_TXID = 15;
     BASE_DEPOSIT = 16;
     REPLACEMENT_DEPOSIT = 17;
+    LATEST_BLOCKHASH_TIMEOUT = 18;
 }
 
 enum NumberedTransactionType {

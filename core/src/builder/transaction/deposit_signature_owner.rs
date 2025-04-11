@@ -66,6 +66,9 @@ impl SignatureId {
                     OperatorChallengeAck1 => Ok(Own(SighashDefault)),
                     NotStored => Ok(NotOwned),
                     YieldKickoffTxid => Ok(NotOwned),
+                    LatestBlockhashTimeout1 => Ok(NofnSharedDeposit(SighashDefault)),
+                    LatestBlockhashTimeout2 => Ok(NofnSharedDeposit(SighashDefault)),
+                    LatestBlockhashTimeout3 => Ok(OperatorSharedDeposit(SighashDefault)),
                 }
             }
             SignatureId::NumberedSignature(numbered_sig) => {
