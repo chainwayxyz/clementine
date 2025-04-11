@@ -264,7 +264,7 @@ fn verify_watchtower_challenges(
             Decodable::consensus_decode(&mut Cursor::new(tx))
         else {
             panic!(
-                "Invalid watchtower challenge transaction, operator index: {}",
+                "Invalid watchtower challenge transaction, watchtower index: {}",
                 idx
             );
         };
@@ -275,7 +275,7 @@ fn verify_watchtower_challenges(
             .collect::<Result<_, _>>()
         else {
             panic!(
-                "Invalid watchtower challenge UTXOs, operator index: {}",
+                "Invalid watchtower challenge UTXOs, watchtower index: {}",
                 idx
             );
         };
@@ -283,7 +283,10 @@ fn verify_watchtower_challenges(
         let prevouts = Prevouts::All(&outputs);
 
         if watchtower_tx.input.len() <= *input_idx as usize {
-            panic!("Invalid watchtower tx input index, operator index: {}", idx);
+            panic!(
+                "Invalid watchtower tx input index, watchtower index: {}",
+                idx
+            );
         }
 
         let (sighash_type, sig_bytes): (TapSighashType, [u8; 64]) = {
@@ -298,11 +301,11 @@ fn verify_watchtower_challenges(
                         sighash_type,
                         intput_witness[0..64].try_into().expect("Cannot fail"),
                     ),
-                    Err(_) => panic!("Invalid sighash type, operator index: {}", idx),
+                    Err(_) => panic!("Invalid sighash type, watchtower index: {}", idx),
                 }
             } else {
                 panic!(
-                    "Invalid witness length, expected 64 or 65 bytes, operator index: {}",
+                    "Invalid witness length, expected 64 or 65 bytes, watchtower index: {}",
                     idx
                 );
             }
@@ -310,7 +313,7 @@ fn verify_watchtower_challenges(
 
         let Ok(sighash) = sighash(&watchtower_tx, &prevouts, *input_idx as usize, sighash_type)
         else {
-            panic!("Sighash could not be computed, operator index: {}", idx);
+            panic!("Sighash could not be computed, watchtower index: {}", idx);
         };
 
         let input = watchtower_tx.input[*input_idx as usize].clone();
@@ -333,24 +336,29 @@ fn verify_watchtower_challenges(
         // IS THIS CHECK CORRECT?
         if !pubkey.is_p2tr() {
             panic!(
-                "Invalid output script type - kickoff, operator index: {}",
+                "Invalid output script type - kickoff, watchtower index: {}",
                 idx
             );
         };
 
-        // IS THIS CHECK CORRECT?
-        if idx as usize >= circuit_input.watchtower_pubkeys.len()
-            || circuit_input.watchtower_pubkeys[idx as usize] != pubkey.as_bytes()[2..34]
-        {
-            panic!("Invalid watchtower public key, operator index: {}", idx);
+        if idx as usize >= circuit_input.watchtower_pubkeys.len() {
+            panic!(
+                "Invalid watchtower index, watchtower index: {}, number of watchtowers: {}",
+                idx,
+                circuit_input.watchtower_pubkeys.len()
+            );
+        }
+
+        if circuit_input.watchtower_pubkeys[idx as usize] != pubkey.as_bytes()[2..34] {
+            panic!("Invalid watchtower public key, watchtower index: {}", idx);
         }
 
         let Ok(verifying_key) = VerifyingKey::from_bytes(&pubkey.as_bytes()[2..]) else {
-            panic!("Invalid verifying key, operator index: {}", idx);
+            panic!("Invalid verifying key, watchtower index: {}", idx);
         };
 
         let Ok(signature) = Signature::try_from(sig_bytes.as_slice()) else {
-            panic!("Invalid signature, operator index: {}", idx);
+            panic!("Invalid signature, watchtower index: {}", idx);
         };
 
         if IS_TEST
@@ -577,8 +585,7 @@ mod tests {
             .expect("Elf must be valid");
     }
 
-    #[test]
-    fn test_total_work_and_watchtower_flags() {
+    fn total_work_and_watchtower_flags_setup() -> (BridgeCircuitInput, Transaction, Txid) {
         let wt_tx_bytes = include_bytes!("../../test_data/wt_raw_tx.bin");
         let kickoff_raw_tx_bytes = include_bytes!("../../test_data/kickoff_raw_tx.bin");
         let pubkey = "412c00124e48ab8b082a5fa3ee742eb763387ef67adb9f0d5405656ff12ffd50";
@@ -647,6 +654,13 @@ mod tests {
             sp: StorageProof::default(),
         };
 
+        (input, kickoff_tx, kickoff_tx_id)
+    }
+
+    #[test]
+    fn test_total_work_and_watchtower_flags() {
+        let (input, kickoff_tx, kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
         let (total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
             &kickoff_tx,
             &kickoff_tx_id,
@@ -661,6 +675,189 @@ mod tests {
         assert_eq!(
             challenge_sending_watchtowers, expected_challenge_sending_watchtowers,
             "Challenge sending watchtowers is not correct"
+        );
+    }
+
+    #[test]
+    fn test_total_work_and_watchtower_flags_incorrect_witness() {
+        let (mut input, kickoff_tx, kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        let mut witness = input.watchtower_challenge_witnesses[0].clone();
+        witness[0] = 0x00;
+        input.watchtower_challenge_witnesses[0] = witness;
+
+        let (total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx_id,
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+
+        assert_eq!(total_work, [0u8; 16], "Total work is not correct");
+        assert_eq!(
+            challenge_sending_watchtowers, [0u8; 20],
+            "Challenge sending watchtowers is not correct"
+        );
+    }
+
+    #[test]
+    fn test_total_work_and_watchtower_flags_incorrect_tx() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        let mut wt_tx = input.watchtower_challenge_txs[0].clone();
+        wt_tx[0] = 0x00;
+        input.watchtower_challenge_txs[0] = wt_tx;
+
+        let (total_work, challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+
+        assert_eq!(total_work, [0u8; 16], "Total work is not correct");
+        assert_eq!(
+            challenge_sending_watchtowers, [0u8; 20],
+            "Challenge sending watchtowers is not correct"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid watchtower challenge transaction")]
+    fn test_total_work_and_watchtower_flags_tx_in_incorrect_format() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        let wt_tx = vec![0u8; 10];
+        input.watchtower_challenge_txs[0] = wt_tx;
+
+        let (_total_work, _challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid watchtower challenge UTXOs")]
+    fn test_total_work_and_watchtower_flags_utxo_in_invalid_format() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        let utxo = vec![vec![0u8; 8]]; // Min lenght is 9 bytes -> 8 bytes value + 1 byte script_pubkey
+        input.watchtower_challenge_utxos[0] = utxo;
+
+        let (_total_work, _challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid watchtower public key")]
+    fn test_total_work_and_watchtower_flags_invalid_pubkey() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        let pubkey = vec![0u8; 32];
+        input.watchtower_pubkeys[input.watchtower_idxs[0] as usize] = pubkey;
+
+        let (_total_work, _challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid watchtower public key")] // Error message can be more descriptive
+    fn test_total_work_and_watchtower_flags_invalid_pubkey_length() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        let pubkey = vec![0u8; 31];
+        input.watchtower_pubkeys[input.watchtower_idxs[0] as usize] = pubkey;
+
+        let (_total_work, _challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid watchtower index")]
+    fn test_total_work_and_watchtower_flags_invalid_wt_index() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        input.watchtower_idxs[0] = 160;
+
+        let (_total_work, _challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid watchtower tx input index")]
+    fn test_total_work_and_watchtower_flags_invalid_wt_input_index() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        input.watchtower_challenge_input_idxs[0] = 10;
+
+        let (_total_work, _challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid signature")]
+    fn test_total_work_and_watchtower_flags_invalid_witness() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        input.watchtower_challenge_witnesses[0] = vec![0u8; 65];
+
+        let (_total_work, _challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid signature")]
+    fn test_total_work_and_watchtower_flags_invalid_witness_2() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        input.watchtower_challenge_witnesses[0] = vec![0u8; 64];
+
+        let (_total_work, _challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid witness length, expected 64 or 65 bytes")]
+    fn test_total_work_and_watchtower_flags_invalid_witness_length() {
+        let (mut input, kickoff_tx, _kickoff_tx_id) = total_work_and_watchtower_flags_setup();
+
+        input.watchtower_challenge_witnesses[0] = vec![0u8; 60];
+
+        let (_total_work, _challenge_sending_watchtowers) = total_work_and_watchtower_flags(
+            &kickoff_tx,
+            &kickoff_tx.compute_txid(),
+            &input,
+            &WORK_ONLY_IMAGE_ID,
         );
     }
 
@@ -689,7 +886,4 @@ mod tests {
         let parsed_data = parse_op_return_data(&script).expect("Failed to parse OP_RETURN data");
         assert_ne!(parsed_data, [0u8; 80], "Parsed data should not be correct");
     }
-
-
-
 }
