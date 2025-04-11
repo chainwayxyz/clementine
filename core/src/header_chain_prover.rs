@@ -698,21 +698,8 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
-        let db = Database::new(&config).await.unwrap();
 
         let batch_size = config.protocol_paramset().header_chain_proof_batch_size;
-
-        // Save initial blocks, because VerifierServer won't.
-        let count = rpc.client.get_block_count().await.unwrap();
-        tracing::info!("Block count: {}", count);
-        for i in 1..count + 1 {
-            let hash = rpc.client.get_block_hash(i).await.unwrap();
-            let block = rpc.client.get_block(&hash).await.unwrap();
-
-            db.add_block_info(None, block.header, block.block_hash(), i as u32)
-                .await
-                .unwrap();
-        }
 
         let verifier = VerifierServer::<MockCitreaClient>::new(config)
             .await
@@ -726,13 +713,17 @@ mod tests {
 
         poll_until_condition(
             async || {
-                Ok(verifier
+                let proof = verifier
                     .verifier
                     .header_chain_prover
                     .db
                     .get_block_proof_by_hash(None, hash)
-                    .await
-                    .is_ok())
+                    .await;
+                if proof.is_err() {
+                    return Ok(false);
+                }
+
+                Ok(proof.unwrap().is_some())
             },
             None,
             None,
