@@ -89,7 +89,7 @@ impl Database {
     /// - [`Header`] - Header of the block
     /// - [`u64`] - Height of the block
     /// - [`Receipt`] - Previous block's proof
-    pub async fn get_next_non_proven_block(
+    pub async fn get_next_unproven_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<(BlockHash, Header, u64, Receipt)>, BridgeError> {
@@ -137,7 +137,7 @@ impl Database {
         &self,
         count: u32,
     ) -> Result<Option<(Vec<(BlockHash, Header, u64)>, Receipt)>, BridgeError> {
-        let next_non_proven_block = self.get_next_non_proven_block(None).await?;
+        let next_non_proven_block = self.get_next_unproven_block(None).await?;
         let next_non_proven_block = match next_non_proven_block {
             Some(next_non_proven_block) => next_non_proven_block,
             None => return Ok(None),
@@ -335,7 +335,7 @@ mod tests {
             .unwrap();
 
         let (read_block_hash, read_block_header, _, _) =
-            db.get_next_non_proven_block(None).await.unwrap().unwrap();
+            db.get_next_unproven_block(None).await.unwrap().unwrap();
         assert_eq!(block_hash, read_block_hash);
         assert_eq!(block.header, read_block_header);
     }
@@ -391,7 +391,7 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
 
-        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db.get_next_unproven_block(None).await.unwrap().is_none());
         assert!(db
             .get_latest_proven_block_info(None)
             .await
@@ -417,7 +417,7 @@ mod tests {
         db.save_unproven_finalized_block(None, block_hash, block.header, height)
             .await
             .unwrap();
-        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db.get_next_unproven_block(None).await.unwrap().is_none());
         assert!(db
             .get_latest_proven_block_info(None)
             .await
@@ -446,7 +446,7 @@ mod tests {
         db.set_block_proof(None, block_hash1, receipt.clone())
             .await
             .unwrap();
-        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db.get_next_unproven_block(None).await.unwrap().is_none());
         let latest_proven_block = db
             .get_latest_proven_block_info(None)
             .await
@@ -475,7 +475,7 @@ mod tests {
             .unwrap();
 
         // This time, `get_non_proven_block` should return third block's details.
-        let res = db.get_next_non_proven_block(None).await.unwrap().unwrap();
+        let res = db.get_next_unproven_block(None).await.unwrap().unwrap();
         assert_eq!(res.0, block_hash2);
         assert_eq!(res.2 as u64, height2);
 
@@ -524,7 +524,7 @@ mod tests {
             .unwrap();
 
         // This time, `get_non_proven_block` should return fifth block's details.
-        let res = db.get_next_non_proven_block(None).await.unwrap().unwrap();
+        let res = db.get_next_unproven_block(None).await.unwrap().unwrap();
         assert_eq!(res.2 as u64, height4);
         assert_eq!(res.0, block_hash4);
     }
@@ -542,7 +542,7 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db.get_next_unproven_block(None).await.unwrap().is_none());
         assert!(db
             .get_latest_proven_block_info(None)
             .await
@@ -572,7 +572,7 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db.get_next_unproven_block(None).await.unwrap().is_none());
         assert!(db
             .get_latest_proven_block_info(None)
             .await
@@ -606,7 +606,7 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-        assert!(db.get_next_non_proven_block(None).await.unwrap().is_none());
+        assert!(db.get_next_unproven_block(None).await.unwrap().is_none());
         let latest_proven_block = db
             .get_latest_proven_block_info(None)
             .await

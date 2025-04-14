@@ -338,7 +338,7 @@ impl HeaderChainProver {
     /// Checks if there are enough blocks to prove.
     #[tracing::instrument(skip_all)]
     async fn is_batch_ready(&self) -> Result<bool, BridgeError> {
-        let non_proven_block = if let Some(block) = self.db.get_next_non_proven_block(None).await? {
+        let non_proven_block = if let Some(block) = self.db.get_next_unproven_block(None).await? {
             block
         } else {
             return Ok(false);
@@ -633,8 +633,7 @@ mod tests {
 
         assert!(prover.prove_if_ready().await.unwrap().is_none());
 
-        let latest_proven_block_height =
-            db.get_next_non_proven_block(None).await.unwrap().unwrap().2;
+        let latest_proven_block_height = db.get_next_unproven_block(None).await.unwrap().unwrap().2;
         let _block_headers = mine_and_get_first_n_block_headers(
             rpc.clone(),
             db.clone(),
@@ -675,8 +674,7 @@ mod tests {
 
         assert!(prover.prove_if_ready().await.unwrap().is_none());
 
-        let latest_proven_block_height =
-            db.get_next_non_proven_block(None).await.unwrap().unwrap().2;
+        let latest_proven_block_height = db.get_next_unproven_block(None).await.unwrap().unwrap().2;
         let _block_headers = mine_and_get_first_n_block_headers(
             rpc.clone(),
             db.clone(),
