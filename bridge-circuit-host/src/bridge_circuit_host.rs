@@ -413,8 +413,6 @@ mod tests {
         //     TEST_PARAMETERS.payout_tx_index,
         // );
 
-
-
         // let light_client_proof: LightClientProof = borsh::from_slice(LIGHT_CLIENT_PROOF).unwrap();
         // let lcp_receipt: Receipt = borsh::from_slice(LCP_RECEIPT).unwrap();
 
