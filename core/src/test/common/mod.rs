@@ -360,7 +360,6 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         "Deposit tx: {:?}",
         hex::encode(bitcoin::consensus::serialize(&transaction))
     );
-    
 
     let deposit_info = DepositInfo {
         deposit_outpoint,
