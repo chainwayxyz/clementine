@@ -28,7 +28,7 @@ fn main() {
     });
 
     let bridge_circuit_mode = env::var("BRIDGE_CIRCUIT_MODE").unwrap_or_else(|_| {
-        println!("cargo:warning=BUILD_TYPE not set, defaulting to 'test'");
+        println!("cargo:warning=BRIDGE_CIRCUIT_MODE not set, defaulting to 'test'");
         "test".to_string()
     });
 

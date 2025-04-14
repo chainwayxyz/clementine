@@ -13,7 +13,7 @@ REPR_GUEST_BUILD=1 BITCOIN_NETWORK=<NETWORK_TYPE> BRIDGE_CIRCUIT_MODE=<CIRCUIT_M
 ```
 where `NETWORK_TYPE` can be `mainnet`, `testnet4`, `signet`, or `regtest`.
 
-- To build `brigde-circuit`, use
+- To build `bridge-circuit`, use
 ```bash
 REPR_GUEST_BUILD=1 BITCOIN_NETWORK=<NETWORK_TYPE> BRIDGE_CIRCUIT_MODE=<CIRCUIT_MODE> cargo build -p bridge-circuit --release
 ```
