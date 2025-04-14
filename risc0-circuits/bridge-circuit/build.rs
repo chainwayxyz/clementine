@@ -14,7 +14,8 @@ fn main() {
     if std::env::var("CLIPPY_ARGS").is_ok() {
         let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
         let dummy_path = Path::new(&out_dir).join("methods.rs");
-        fs::write(dummy_path, "// dummy methods.rs for Clippy\n").expect("Failed to write dummy methods.rs");
+        fs::write(dummy_path, "// dummy methods.rs for Clippy\n")
+            .expect("Failed to write dummy methods.rs");
         println!("cargo:warning=Skipping guest build in Clippy");
         return;
     }
