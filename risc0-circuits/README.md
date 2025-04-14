@@ -9,7 +9,7 @@ The dependency on `header-chain` comes from BitVM repository.
 ## Build
 - To build `work-only`, from the root of the directory, use
 ```bash
-REPR_GUEST_BUILD=1 BITCOIN_NETWORK=<NETWORK_TYPE> BRIDGE_CIRCUIT_MODE=<CIRCUIT_MODE> cargo build -p work-only --release
+REPR_GUEST_BUILD=1 BITCOIN_NETWORK=<NETWORK_TYPE> cargo build -p work-only --release
 ```
 where `NETWORK_TYPE` can be `mainnet`, `testnet4`, `signet`, or `regtest`.
 
