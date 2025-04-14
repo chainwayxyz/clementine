@@ -1,4 +1,3 @@
-use risc0_binfmt::compute_image_id;
 use risc0_build::{embed_methods_with_options, DockerOptionsBuilder, GuestOptionsBuilder};
 use std::{collections::HashMap, env, fs};
 
