@@ -382,7 +382,7 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn mock_citrea_run_truthful() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
@@ -644,7 +644,7 @@ async fn mock_citrea_run_truthful() {
         .unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn mock_citrea_run_malicious() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
