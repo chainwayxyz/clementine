@@ -21,22 +21,13 @@ pub struct WatchTowerChallengeTxCommitment {
     pub total_work: [u8; 16],
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
 pub struct LightClientProof {
     pub lc_journal: Vec<u8>,
     pub l2_height: String,
 }
 
-impl Default for LightClientProof {
-    fn default() -> Self {
-        Self {
-            lc_journal: vec![],
-            l2_height: String::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
 pub struct StorageProof {
     pub storage_proof_utxo: String, // This will be an Outpoint but only a txid is given
     pub storage_proof_deposit_idx: String, // This is the index of the withdrawal
@@ -44,26 +35,46 @@ pub struct StorageProof {
     pub txid_hex: [u8; 32],         // Move txid
 }
 
-impl Default for StorageProof {
-    fn default() -> Self {
-        Self {
-            storage_proof_utxo: String::new(),
-            storage_proof_deposit_idx: String::new(),
-            index: 0,
-            txid_hex: [0; 32],
-        }
-    }
-}
-
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
-pub struct BridgeCircuitInput {
-    pub kickoff_tx: Vec<u8>,
+pub struct WatchtowerInputs {
     pub watchtower_idxs: Vec<u8>,
     pub watchtower_pubkeys: Vec<Vec<u8>>,
     pub watchtower_challenge_input_idxs: Vec<u8>,
     pub watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
     pub watchtower_challenge_txs: Vec<Vec<u8>>,
     pub watchtower_challenge_witnesses: Vec<Vec<u8>>,
+}
+
+impl WatchtowerInputs {
+    pub fn new(
+        watchtower_idxs: Vec<u8>,
+        watchtower_pubkeys: Vec<Vec<u8>>,
+        watchtower_challenge_input_idxs: Vec<u8>,
+        watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
+        watchtower_challenge_txs: Vec<Vec<u8>>,
+        watchtower_challenge_witnesses: Vec<Vec<u8>>,
+    ) -> Result<Self, &'static str> {
+        for idx in &watchtower_idxs {
+            if *idx >= NUM_OF_WATCHTOWERS {
+                return Err("watchtower_idx exceeds the number of watchtowers");
+            }
+        }
+
+        Ok(Self {
+            watchtower_idxs,
+            watchtower_pubkeys,
+            watchtower_challenge_input_idxs,
+            watchtower_challenge_utxos,
+            watchtower_challenge_txs,
+            watchtower_challenge_witnesses,
+        })
+    }
+}
+
+#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
+pub struct BridgeCircuitInput {
+    pub kickoff_tx: Vec<u8>,
+    pub watchtower_inputs: WatchtowerInputs,
     pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
     pub lcp: LightClientProof,
@@ -73,32 +84,15 @@ pub struct BridgeCircuitInput {
 impl BridgeCircuitInput {
     pub fn new(
         kickoff_tx: Vec<u8>,
-        watchtower_idxs: Vec<u8>,
-        watchtower_pubkeys: Vec<Vec<u8>>,
-        watchtower_challenge_input_idxs: Vec<u8>,
-        watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
-        watchtower_challenge_txs: Vec<Vec<u8>>,
-        watchtower_challenge_witnesses: Vec<Vec<u8>>,
+        watchtower_inputs: WatchtowerInputs,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
         lcp: LightClientProof,
         sp: StorageProof,
     ) -> Result<Self, &'static str> {
-        // ALL idxs should be less than the number of watchtowers
-        for idx in &watchtower_idxs {
-            if *idx >= NUM_OF_WATCHTOWERS {
-                return Err("watchtower_idx exceeds the number of watchtowers");
-            }
-        }
-
         Ok(Self {
             kickoff_tx,
-            watchtower_idxs,
-            watchtower_pubkeys,
-            watchtower_challenge_input_idxs,
-            watchtower_challenge_utxos,
-            watchtower_challenge_txs,
-            watchtower_challenge_witnesses,
+            watchtower_inputs,
             hcp,
             payout_spv,
             lcp,

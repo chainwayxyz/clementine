@@ -28,6 +28,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/install-risc0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Run Cargo clippy
       run: cargo clippy --no-deps --all-targets -- -Dwarnings
@@ -39,6 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Toolchain
         uses: actions-rs/toolchain@v1
         with:
