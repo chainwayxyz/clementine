@@ -132,7 +132,10 @@ impl HeaderChainProver {
                     block_header,
                     proof_output.chain_state.block_height.into(),
                 )
-                .await;
+                .await
+                .inspect_err(|e| {
+                    tracing::warn!("Can't set initial block info for header chain prover, because: {e}. Doesn't affect anything, continuing...");
+                });
 
             db.set_block_proof(None, block_hash, proof)
                 .await
@@ -153,11 +156,11 @@ impl HeaderChainProver {
     ///
     /// # Parameters
     ///
-    /// - `current_block_hash`: Hash of the block to prove
-    /// - `block_headers`: Block headers to prove
+    /// - `current_block_hash`: Hash of the target block
+    /// - `block_headers`: Previous block headers before the target block
     /// - `previous_proof`: Previous proof's receipt
     #[tracing::instrument(skip_all)]
-    async fn prove_blocks(
+    async fn prove_and_save_block(
         &self,
         current_block_hash: BlockHash,
         block_headers: Vec<Header>,
@@ -257,7 +260,9 @@ impl HeaderChainProver {
         Ok(receipt)
     }
 
-    /// Get the proof of the latest finalized blockchain tip.
+    /// Gets the proof of the latest finalized blockchain tip. If the finalized
+    /// blockchain tip isn't yet proven, it will be proven first in batches
+    /// (last proven block in database to finalized blockchain tip).
     ///
     /// # Returns
     ///
@@ -299,7 +304,7 @@ impl HeaderChainProver {
             .await?
             .ok_or(eyre::eyre!("No proven block found"))?;
         let receipt = self
-            .prove_blocks(latest_proven_block.0, block_headers, previous_proof)
+            .prove_and_save_block(latest_proven_block.0, block_headers, previous_proof)
             .await?;
 
         Ok(receipt)
@@ -398,7 +403,7 @@ impl HeaderChainProver {
             .collect::<Vec<_>>();
 
         let receipt = self
-            .prove_blocks(current_block_hash, block_headers, prev_proof)
+            .prove_and_save_block(current_block_hash, block_headers, prev_proof)
             .await?;
         tracing::info!(
             "Receipt for block with hash {:?} and height with: {:?}: {:?}",
@@ -525,7 +530,7 @@ mod tests {
             .unwrap();
 
         let receipt = prover
-            .prove_blocks(hash, vec![header], previous_receipt)
+            .prove_and_save_block(hash, vec![header], previous_receipt)
             .await
             .unwrap();
 

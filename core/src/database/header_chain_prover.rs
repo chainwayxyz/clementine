@@ -137,12 +137,9 @@ impl Database {
         &self,
         count: u32,
     ) -> Result<Option<(Vec<(BlockHash, Header, u64)>, Receipt)>, BridgeError> {
-        let next_non_proven_block = self.get_next_unproven_block(None).await?;
-        let next_non_proven_block = match next_non_proven_block {
-            Some(next_non_proven_block) => next_non_proven_block,
-            None => return Ok(None),
+        let Some(next_non_proven_block) = self.get_next_unproven_block(None).await? else {
+            return Ok(None);
         };
-        tracing::error!("next_non_proven_block: {:?}", next_non_proven_block.2);
 
         let query = sqlx::query_as(
             "SELECT block_hash,
