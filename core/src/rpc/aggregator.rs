@@ -3,7 +3,6 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{AggregatorWithdrawResponse, VerifierPublicKeys, WithdrawParams};
-use crate::bitvm_client::SECP;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_move_to_vault_txhandler, Signed, TransactionType, TxHandler,
@@ -24,7 +23,6 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
 };
 use bitcoin::hashes::Hash;
-use bitcoin::key::Keypair;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::TapSighash;
@@ -611,10 +609,7 @@ impl Aggregator {
             .into_iter()
             .unzip();
 
-        let nofn = NofN::new(
-            Keypair::from_secret_key(&SECP, &self.config.secret_key).public_key(),
-            verifier_public_keys,
-        )?;
+        let nofn = NofN::new_without_idx(verifier_public_keys)?;
         self.nofn.write().await.replace(nofn);
 
         Ok(clementine::VerifierPublicKeys {
@@ -1036,6 +1031,37 @@ impl ClementineAggregator for Aggregator {
                 })
                 .collect(),
         }))
+    }
+
+    async fn get_nofn_aggregated_xonly_pk(
+        &self,
+        _: tonic::Request<super::Empty>,
+    ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
+        let verifiers = self.verifier_clients.clone();
+        let nofn_xonly_pk_responses = try_join_all(verifiers.iter().map(|verifier| {
+            let mut verifier = verifier.clone();
+            async move {
+                verifier
+                    .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
+                    .await
+            }
+        }))
+        .await?;
+
+        let nofn_xonly_pks = nofn_xonly_pk_responses
+            .iter()
+            .map(|r| r.get_ref().xonly_pk.clone())
+            .collect::<Vec<_>>();
+
+        let first_xonly_pk = nofn_xonly_pks[0].clone();
+        if nofn_xonly_pks.iter().any(|x| x != &first_xonly_pk) {
+            Err(Status::internal("NofN xonly pks are not the same"))
+        } else {
+            Ok(Response::new(super::NofnResponse {
+                nofn_xonly_pk: first_xonly_pk,
+                num_verifiers: nofn_xonly_pks.len() as u32,
+            }))
+        }
     }
 }
 

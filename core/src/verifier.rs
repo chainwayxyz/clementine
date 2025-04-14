@@ -80,6 +80,18 @@ impl NofN {
             idx,
         })
     }
+
+    pub fn new_without_idx(
+        public_keys: Vec<bitcoin::secp256k1::PublicKey>,
+    ) -> Result<Self, BridgeError> {
+        let agg_xonly_pk =
+            bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
+        Ok(NofN {
+            public_keys,
+            agg_xonly_pk,
+            idx: 0,
+        })
+    }
 }
 
 pub struct VerifierServer<C: CitreaClientT> {
