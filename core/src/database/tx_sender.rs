@@ -6,13 +6,16 @@ use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
-    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata},
+    tx_sender::{
+        ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, RbfSigningInfo, TxMetadata,
+    },
 };
 use bitcoin::{
     consensus::{deserialize, serialize},
     Amount, FeeRate, Transaction, Txid,
 };
 use eyre::{Context, OptionExt};
+use sqlx::Executor;
 use std::ops::DerefMut;
 // Add this at the top with other imports
 
@@ -107,6 +110,19 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
+        // Get confirmed direct transactions for debugging
+        let confirmed_direct_txs: Vec<(i32, TxidDB)> = sqlx::query_as(&format!(
+            "{}
+            SELECT txs.id, txs.txid
+            FROM tx_sender_try_to_send_txs AS txs
+            WHERE txs.txid IN (SELECT txid FROM relevant_txs)
+            AND txs.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .fetch_all(tx.deref_mut())
+        .await?;
+
         // Update tx_sender_try_to_send_txs for CPFP txid confirmation
         sqlx::query(&format!(
             "{}
@@ -118,6 +134,19 @@ impl Database {
         ))
         .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
+        .await?;
+
+        // Get confirmed RBF transactions for debugging
+        let confirmed_rbf_txs: Vec<(i32,)> = sqlx::query_as(&format!(
+            "{}
+            SELECT txs.id
+            FROM tx_sender_try_to_send_txs AS txs
+            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
+            AND txs.seen_block_id IS NULL",
+            common_ctes
+        ))
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .fetch_all(tx.deref_mut())
         .await?;
 
         // Update tx_sender_try_to_send_txs for RBF txid confirmation
@@ -132,6 +161,43 @@ impl Database {
         .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
         .await?;
+
+        // Record debug info for confirmed transactions
+        for (tx_id, txid) in confirmed_direct_txs {
+            // Add debug state change
+            tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: direct confirmation of txid {}",
+            block_id, txid.0);
+
+            // Update sending state
+            let _ = self
+                .update_tx_debug_sending_state(
+                    u32::try_from(tx_id).wrap_err("Failed to convert tx_id to u32")?,
+                    "confirmed",
+                    0,
+                    0,
+                    true,
+                )
+                .await;
+        }
+
+        // Record debug info for confirmed RBF transactions
+        for (tx_id,) in confirmed_rbf_txs {
+            // Add debug state change
+
+            tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: RBF confirmation",
+            block_id);
+
+            // Update sending state
+            let _ = self
+                .update_tx_debug_sending_state(
+                    u32::try_from(tx_id).wrap_err("Failed to convert tx_id to u32")?,
+                    "confirmed",
+                    0,
+                    0,
+                    true,
+                )
+                .await;
+        }
 
         Ok(())
     }
@@ -214,9 +280,9 @@ impl Database {
         Ok(())
     }
 
-    /// Some fee payer txs may not hit onchain, so we need to bump fees of them.
-    /// These txs should not be confirmed and should not be replaced by other txs.
-    /// Replaced means that the tx was bumped and the replacement tx is in the database.
+    /// Some fee payer TXs may not hit onchain, so we need to bump their fees.
+    /// These TXs should not be confirmed and should not be replaced by other TXs.
+    /// Replaced means that the TX was bumped and the replacement TX is in the database.
     pub async fn get_bumpable_fee_payer_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -291,14 +357,16 @@ impl Database {
         raw_tx: &Transaction,
         fee_paying_type: FeePayingType,
         txid: Txid,
+        rbf_signing_info: Option<RbfSigningInfo>,
     ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
-            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_metadata, txid) VALUES ($1, $2::fee_paying_type, $3, $4) RETURNING id"
+            "INSERT INTO tx_sender_try_to_send_txs (raw_tx, fee_paying_type, tx_metadata, txid, rbf_signing_info) VALUES ($1, $2::fee_paying_type, $3, $4, $5) RETURNING id"
         )
         .bind(serialize(raw_tx))
         .bind(fee_paying_type)
         .bind(serde_json::to_string(&tx_metadata).wrap_err("Failed to encode tx_metadata to JSON")?)
-        .bind(TxidDB(txid));
+        .bind(TxidDB(txid))
+        .bind(serde_json::to_string(&rbf_signing_info).wrap_err("Failed to encode tx_metadata to JSON")?);
 
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         u32::try_from(id)
@@ -516,14 +584,31 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: u32,
-    ) -> Result<(Option<TxMetadata>, Transaction, FeePayingType, Option<u32>), BridgeError> {
-        let query =
-            sqlx::query_as::<_, (Option<String>, Option<Vec<u8>>, FeePayingType, Option<i32>)>(
-                "SELECT tx_metadata, raw_tx, fee_paying_type, seen_block_id
+    ) -> Result<
+        (
+            Option<TxMetadata>,
+            Transaction,
+            FeePayingType,
+            Option<u32>,
+            Option<RbfSigningInfo>,
+        ),
+        BridgeError,
+    > {
+        let query = sqlx::query_as::<
+            _,
+            (
+                Option<String>,
+                Option<Vec<u8>>,
+                FeePayingType,
+                Option<i32>,
+                Option<String>,
+            ),
+        >(
+            "SELECT tx_metadata, raw_tx, fee_paying_type, seen_block_id, rbf_signing_info
              FROM tx_sender_try_to_send_txs
              WHERE id = $1 LIMIT 1",
-            )
-            .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
+        )
+        .bind(i32::try_from(id).wrap_err("Failed to convert id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok((
@@ -541,7 +626,176 @@ impl Database {
                 .map(u32::try_from)
                 .transpose()
                 .wrap_err("Failed to convert seen_block_id to u32")?,
+            serde_json::from_str(result.4.as_deref().unwrap_or("null")).wrap_err_with(|| {
+                format!("Failed to decode rbf_signing_info from {:?}", result.4)
+            })?,
         ))
+    }
+
+    // Debug Functions
+
+    /// Saves a TX submission error to the debug table
+    pub async fn save_tx_debug_submission_error(
+        &self,
+        tx_id: u32,
+        error_message: &str,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO tx_sender_debug_submission_errors (tx_id, error_message) VALUES ($1, $2)",
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?)
+        .bind(error_message);
+
+        self.connection.execute(query).await?;
+        Ok(())
+    }
+
+    /// Updates or inserts the TX's sending state in the debug table
+    pub async fn update_tx_debug_sending_state(
+        &self,
+        tx_id: u32,
+        state: &str,
+        fee_payer_utxos_count: u32,
+        fee_payer_utxos_confirmed_count: u32,
+        activated: bool,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            r#"
+            INSERT INTO tx_sender_debug_sending_state
+            (tx_id, state, fee_payer_utxos_count, fee_payer_utxos_confirmed_count, last_update, activated_timestamp)
+            VALUES ($1, $2, $3, $4, NOW(),
+                CASE
+                    WHEN $5 = TRUE THEN NOW()
+                    ELSE NULL
+                END
+            )
+            ON CONFLICT (tx_id) DO UPDATE SET
+            state = $2,
+            fee_payer_utxos_count = $3,
+            fee_payer_utxos_confirmed_count = $4,
+            last_update = NOW(),
+            activated_timestamp = COALESCE(tx_sender_debug_sending_state.activated_timestamp,
+                CASE
+                    WHEN $5 = TRUE THEN NOW()
+                    ELSE NULL
+                END
+            )
+            "#,
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?)
+        .bind(state)
+        .bind(
+            i32::try_from(fee_payer_utxos_count)
+                .wrap_err("Failed to convert fee_payer_utxos_count to i32")?,
+        )
+        .bind(
+            i32::try_from(fee_payer_utxos_confirmed_count)
+                .wrap_err("Failed to convert fee_payer_utxos_confirmed_count to i32")?,
+        )
+        .bind(activated);
+
+        self.connection.execute(query).await?;
+        Ok(())
+    }
+
+    /// Gets the current debug state of a TX
+    pub async fn get_tx_debug_info(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_id: u32,
+    ) -> Result<(Option<String>, Option<u32>, Option<u32>), BridgeError> {
+        let query = sqlx::query_as::<_, (Option<String>, Option<i32>, Option<i32>)>(
+            r#"
+            SELECT state, fee_payer_utxos_count, fee_payer_utxos_confirmed_count
+            FROM tx_sender_debug_sending_state
+            WHERE tx_id = $1
+            "#,
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        match result {
+            Some((state, utxos_count, confirmed_count)) => Ok((
+                state,
+                utxos_count.map(|c| u32::try_from(c).unwrap_or_default()),
+                confirmed_count.map(|c| u32::try_from(c).unwrap_or_default()),
+            )),
+            None => Ok((None, None, None)),
+        }
+    }
+
+    /// Gets all TX submission errors
+    pub async fn get_tx_debug_submission_errors(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_id: u32,
+    ) -> Result<Vec<(String, String)>, BridgeError> {
+        let query = sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT error_message, timestamp::TEXT
+            FROM tx_sender_debug_submission_errors
+            WHERE tx_id = $1
+            ORDER BY timestamp ASC
+            "#,
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
+
+        execute_query_with_tx!(self.connection, tx, query, fetch_all).map_err(Into::into)
+    }
+
+    /// Gets all fee payer UTXOs for a TX with their confirmation status
+    pub async fn get_tx_debug_fee_payer_utxos(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_id: u32,
+    ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, i32, i64, Option<i32>)>(
+            r#"
+            SELECT fee_payer_txid, vout, amount, seen_block_id IS NOT NULL as confirmed
+            FROM tx_sender_fee_payer_utxos
+            WHERE bumped_id = $1
+            "#,
+        )
+        .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
+
+        let results: Vec<(TxidDB, i32, i64, Option<i32>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        results
+            .iter()
+            .map(|(fee_payer_txid, vout, amount, confirmed)| {
+                Ok((
+                    fee_payer_txid.0,
+                    u32::try_from(*vout).wrap_err("Failed to convert vout to u32")?,
+                    Amount::from_sat(
+                        u64::try_from(*amount).wrap_err("Failed to convert amount to u64")?,
+                    ),
+                    confirmed.is_some(),
+                ))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()
+    }
+
+    /// Purges debug information for a successfully sent TX
+    pub async fn purge_tx_debug_info(
+        &self,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        tx_id: u32,
+    ) -> Result<(), BridgeError> {
+        let queries = [
+            "DELETE FROM tx_sender_debug_state_changes WHERE tx_id = $1",
+            "DELETE FROM tx_sender_debug_submission_errors WHERE tx_id = $1",
+            "DELETE FROM tx_sender_debug_sending_state WHERE tx_id = $1",
+        ];
+
+        for query_str in queries {
+            let query = sqlx::query(query_str)
+                .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?);
+
+            execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -555,7 +809,7 @@ mod tests {
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
-    use bitcoin::{Block, OutPoint, Txid};
+    use bitcoin::{Block, OutPoint, TapNodeHash, Txid};
 
     async fn setup_test_db() -> Database {
         let config = create_test_config_with_thread_name().await;
@@ -574,16 +828,22 @@ mod tests {
 
         // Test saving tx
         let txid = tx.compute_txid();
+        let rbfinfo = Some(RbfSigningInfo {
+            vout: 123,
+            tweak_merkle_root: Some(TapNodeHash::all_zeros()),
+        });
         let id = db
-            .save_tx(None, None, &tx, FeePayingType::CPFP, txid)
+            .save_tx(None, None, &tx, FeePayingType::CPFP, txid, rbfinfo.clone())
             .await
             .unwrap();
 
         // Test retrieving tx
-        let (_, retrieved_tx, fee_paying_type, seen_block_id) = db.get_tx(None, id).await.unwrap();
+        let (_, retrieved_tx, fee_paying_type, seen_block_id, rbf_signing_info) =
+            db.get_tx(None, id).await.unwrap();
         assert_eq!(tx.version, retrieved_tx.version);
         assert_eq!(fee_paying_type, FeePayingType::CPFP);
         assert_eq!(seen_block_id, None);
+        assert_eq!(rbf_signing_info, rbfinfo);
     }
 
     #[tokio::test]
@@ -607,6 +867,7 @@ mod tests {
                 &tx,
                 FeePayingType::CPFP,
                 Txid::all_zeros(),
+                None,
             )
             .await
             .unwrap();
@@ -654,6 +915,7 @@ mod tests {
                 &tx,
                 FeePayingType::CPFP,
                 Txid::all_zeros(),
+                None,
             )
             .await
             .unwrap();
@@ -703,6 +965,7 @@ mod tests {
                 &tx,
                 FeePayingType::CPFP,
                 Txid::all_zeros(),
+                None,
             )
             .await
             .unwrap();
@@ -750,6 +1013,7 @@ mod tests {
                 &tx1,
                 FeePayingType::CPFP,
                 Txid::all_zeros(),
+                None,
             )
             .await
             .unwrap();
@@ -760,6 +1024,7 @@ mod tests {
                 &tx2,
                 FeePayingType::RBF,
                 Txid::all_zeros(),
+                None,
             )
             .await
             .unwrap();

@@ -22,7 +22,7 @@ use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SpendPath {
     ScriptSpend(usize),
     KeySpend,
