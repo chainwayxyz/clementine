@@ -682,7 +682,7 @@ mod tests {
             kickoff_tx: kickoff_raw_tx_bytes.to_vec(),
             watchtower_inputs: WatchtowerInputs {
                 watchtower_idxs: vec![operator_idx],
-                watchtower_pubkeys: watchtower_pubkeys,
+                watchtower_pubkeys,
                 watchtower_challenge_witnesses: vec![witness],
                 watchtower_challenge_input_idxs: vec![0],
                 watchtower_challenge_utxos: vec![vec![encoded_tx_out]],
