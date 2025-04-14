@@ -38,12 +38,11 @@ macro_rules! assert_all_eq {
     };
 }
 
-/// The method ID for the work only circuit.
 pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
     match option_env!("BITCOIN_NETWORK") {
         Some(network) if matches!(network.as_bytes(), b"mainnet") => [
-            401172380, 2811216678, 3777091128, 499099277, 2442539880, 652091668, 2720329944,
-            3332473544,
+            2676188327, 45512797, 2023835249, 3297151795, 2340552790, 1016661468, 2312535365,
+            3209566978,
         ],
         Some(network) if matches!(network.as_bytes(), b"testnet4") => [
             1999769151, 1443988293, 220822608, 619344254, 441227906, 2886402800, 2598360110,
@@ -58,8 +57,8 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
             3165343300,
         ],
         None => [
-            401172380, 2811216678, 3777091128, 499099277, 2442539880, 652091668, 2720329944,
-            3332473544,
+            1999769151, 1443988293, 220822608, 619344254, 441227906, 2886402800, 2598360110,
+            4027896753,
         ],
         _ => panic!("Invalid network type"),
     }
