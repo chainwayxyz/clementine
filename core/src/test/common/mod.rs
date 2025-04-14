@@ -28,6 +28,7 @@ use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
+use citrea::get_transaction_params;
 use eyre::Context;
 pub use setup_utils::*;
 use tonic::transport::Channel;
@@ -319,6 +320,41 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None).await?;
     let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
+    // print the tp of deposit tx
+    let deposit_txid = deposit_outpoint.txid;
+    let transaction = rpc
+        .client
+        .get_raw_transaction(&deposit_txid, None)
+        .await
+        .expect("a");
+    let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
+        .client
+        .get_raw_transaction_info(&deposit_txid, None)
+        .await
+        .expect("a");
+    let block: bitcoincore_rpc::json::GetBlockResult = rpc
+        .client
+        .get_block_info(&tx_info.blockhash.unwrap())
+        .await
+        .expect("a");
+    let block_height = block.height;
+    let block = rpc
+        .client
+        .get_block(&tx_info.blockhash.unwrap())
+        .await
+        .expect("a");
+    let transaction_params = get_transaction_params(
+        transaction.clone(),
+        block,
+        block_height as u32,
+        deposit_txid,
+    );
+    println!("Deposit tx Transaction params: {:?}", transaction_params);
+    println!(
+        "Deposit tx: {:?}",
+        hex::encode(bitcoin::consensus::serialize(&transaction))
+    );
+
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
 
@@ -346,6 +382,35 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     rpc.mine_blocks(1).await?;
 
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
+
+    let transaction = rpc
+        .client
+        .get_raw_transaction(&move_txid, None)
+        .await
+        .expect("a");
+    let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
+        .client
+        .get_raw_transaction_info(&move_txid, None)
+        .await
+        .expect("a");
+    let block: bitcoincore_rpc::json::GetBlockResult = rpc
+        .client
+        .get_block_info(&tx_info.blockhash.unwrap())
+        .await
+        .expect("a");
+    let block_height = block.height;
+    let block = rpc
+        .client
+        .get_block(&tx_info.blockhash.unwrap())
+        .await
+        .expect("a");
+    let transaction_params =
+        get_transaction_params(transaction.clone(), block, block_height as u32, move_txid);
+    println!("Move tx Transaction params: {:?}", transaction_params);
+    println!(
+        "Move tx: {:?}",
+        hex::encode(bitcoin::consensus::serialize(&transaction))
+    );
 
     Ok((
         verifiers,
