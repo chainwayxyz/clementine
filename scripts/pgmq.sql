@@ -1,3 +1,12 @@
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'pgmq'
+      AND table_name = 'meta'
+  ) THEN
+
 ------------------------------------------------------------
 -- Schema, tables, records, privileges, indexes, etc
 ------------------------------------------------------------
@@ -1155,3 +1164,7 @@ ALTER TABLE ' || qualified_a_table_name || '
   );
 END;
 $$ LANGUAGE plpgsql;
+
+  END IF;
+END
+$$;
