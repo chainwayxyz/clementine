@@ -17,10 +17,14 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 // Prepare prover binary and calculate it's image id, before anything else.
-const MAINNET_ELF: &[u8; 199812] = include_bytes!("../../../scripts/mainnet-header-chain-guest");
-const TESTNET4_ELF: &[u8; 200180] = include_bytes!("../../../scripts/testnet4-header-chain-guest");
-const SIGNET_ELF: &[u8; 199828] = include_bytes!("../../../scripts/signet-header-chain-guest");
-const REGTEST_ELF: &[u8; 194128] = include_bytes!("../../../scripts/regtest-header-chain-guest");
+const MAINNET_ELF: &[u8; 226344] =
+    include_bytes!("../../../scripts/mainnet-header-chain-guest.bin");
+const TESTNET4_ELF: &[u8; 226640] =
+    include_bytes!("../../../scripts/testnet4-header-chain-guest.bin");
+const REGTEST_ELF: &[u8; 220564] =
+    include_bytes!("../../../scripts/regtest-header-chain-guest.bin");
+const SIGNET_ELF: &[u8; 226360] = include_bytes!("../../../scripts/signet-header-chain-guest.bin");
+
 lazy_static! {
     static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
         .expect("hardcoded ELF is valid")

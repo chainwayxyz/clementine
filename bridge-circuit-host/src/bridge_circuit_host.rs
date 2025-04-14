@@ -13,13 +13,14 @@ use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
 use final_spv::merkle_tree::BitcoinMerkleTree;
 use final_spv::spv::SPV;
 use header_chain::header_chain::CircuitBlockHeader;
-use header_chain::mmr_native::MMRNative;
 
+use header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 
 const _BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/prod-testnet4-bridge-circuit-guest");
-const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
+    include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
+const WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
 /// Generates a Groth16 proof for the Bridge Circuit after performing sanity checks.
 ///
@@ -336,12 +337,40 @@ mod tests {
     use super::*;
 
     const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest");
+        include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
     const WORK_ONLY_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
+        include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
-    pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
-        hex_literal::hex!("1ff9f5b6d77bbd4296e1749049d4a841088fb72f7a324da71e31fa1576d4bc0b");
+    pub static WORK_ONLY_IMAGE_ID: [u8; 32] = {
+        match option_env!("BITCOIN_NETWORK") {
+            Some(network) if matches!(network.as_bytes(), b"mainnet") => {
+                hex_literal::hex!(
+                    "6a1839674dcb57d4d0b489d6992f36166b663b196ca84cd5db321c03cf038caa"
+                )
+            }
+            Some(network) if matches!(network.as_bytes(), b"testnet4") => {
+                hex_literal::hex!(
+                    "7d671cfd5e307534b0d6a42338764f8f5ae1357b3d0d4004c62fa41e31c47b8d"
+                )
+            }
+            Some(network) if matches!(network.as_bytes(), b"signet") => {
+                hex_literal::hex!(
+                    "f3109042039f5903a01d75540ea5e4f6d4c52091ec6f48e8bb30f155d5a04e25"
+                )
+            }
+            Some(network) if matches!(network.as_bytes(), b"regtest") => {
+                hex_literal::hex!(
+                    "c94b02cb475b18e2054b2a88fcc907a5c11699ee0095110f09c1cb38c9211edc"
+                )
+            }
+            None => {
+                hex_literal::hex!(
+                    "7d671cfd5e307534b0d6a42338764f8f5ae1357b3d0d4004c62fa41e31c47b8d"
+                )
+            }
+            _ => panic!("Invalid network type"),
+        }
+    };
 
     const HEADERS: &[u8] = include_bytes!("../bin-files/testnet4_headers.bin");
     const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");

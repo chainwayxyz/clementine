@@ -8,7 +8,7 @@ risc0-zkvm = { workspace = true, features = ["metal", "bonsai", "client", "prove
 risc0-circuit-recursion = { workspace = true }
 risc0-zkp = { workspace = true }
 risc0-groth16 = { workspace = true }
-risc0-binfmt = { version = "=1.2.5" }
+risc0-binfmt = { version = "=2.0.0" }
 
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
@@ -32,8 +32,8 @@ borsh = { workspace = true, features = ["derive"] }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 bitcoin = { workspace = true, features = ["serde"] }
-final-spv = { workspace = true }
 header-chain = { workspace = true }
+final-spv = { workspace = true }
 tempfile = { workspace = true }
 blake3 = { workspace = true }
 sha2 = { workspace = true }

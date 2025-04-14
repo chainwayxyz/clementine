@@ -6,9 +6,32 @@ use crate::{
 use crypto_bigint::{Encoding, U128, U256};
 use risc0_zkvm::guest::env;
 
-pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = [
-    2421631365, 3264974484, 821027839, 1335612179, 1295879179, 713845602, 1229060261, 258954137,
-];
+/// The method ID for the header chain circuit.
+const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
+    match option_env!("BITCOIN_NETWORK") {
+        Some(network) if matches!(network.as_bytes(), b"mainnet") => [
+            2676188327, 45512797, 2023835249, 3297151795, 2340552790, 1016661468, 2312535365,
+            3209566978,
+        ],
+        Some(network) if matches!(network.as_bytes(), b"testnet4") => [
+            1999769151, 1443988293, 220822608, 619344254, 441227906, 2886402800, 2598360110,
+            4027896753,
+        ],
+        Some(network) if matches!(network.as_bytes(), b"signet") => [
+            3989517214, 3701735745, 2559871422, 777600967, 1850968412, 677603626, 3019094408,
+            247708417,
+        ],
+        Some(network) if matches!(network.as_bytes(), b"regtest") => [
+            3193462850, 3381975089, 408955302, 4009655806, 1946706419, 301838848, 234200347,
+            3165343300,
+        ],
+        None => [
+            1999769151, 1443988293, 220822608, 619344254, 441227906, 2886402800, 2598360110,
+            4027896753,
+        ],
+        _ => panic!("Invalid network type"),
+    }
+};
 
 /// Executes the "work-only" zkVM circuit, verifying the total work value
 /// and committing it as a structured output.
