@@ -269,7 +269,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let nofn_xonly_pk = match nofn_xonly_pk {
                 Some(xonly_pk) => xonly_pk.as_bytes().to_vec(),
                 None => aggregator
-                    .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
+                    .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                     .await
                     .expect("Failed to make a request")
                     .get_ref()
@@ -281,7 +281,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 Some(num) => num,
                 None => {
                     aggregator
-                        .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
+                        .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                         .await
                         .expect("Failed to make a request")
                         .get_ref()
@@ -338,7 +338,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
         }
         AggregatorCommands::GetNofnAggregatedKey => {
             let response = aggregator
-                .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
+                .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                 .await
                 .expect("Failed to make a request");
             let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
@@ -353,7 +353,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             user_takes_after,
         } => {
             let response = aggregator
-                .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
+                .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                 .await
                 .expect("Failed to make a request");
             let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)

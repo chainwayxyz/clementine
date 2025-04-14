@@ -1033,16 +1033,16 @@ impl ClementineAggregator for Aggregator {
         }))
     }
 
-    async fn get_nof_n_aggregated_xonly_pk(
+    async fn get_nofn_aggregated_xonly_pk(
         &self,
         _: tonic::Request<super::Empty>,
-    ) -> std::result::Result<tonic::Response<super::NofNResponse>, tonic::Status> {
+    ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
         let verifiers = self.verifier_clients.clone();
         let nofn_xonly_pk_responses = try_join_all(verifiers.iter().map(|verifier| {
             let mut verifier = verifier.clone();
             async move {
                 verifier
-                    .get_nof_n_aggregated_xonly_pk(Request::new(Empty {}))
+                    .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
                     .await
             }
         }))
@@ -1057,7 +1057,7 @@ impl ClementineAggregator for Aggregator {
         if nofn_xonly_pks.iter().any(|x| x != &first_xonly_pk) {
             Err(Status::internal("NofN xonly pks are not the same"))
         } else {
-            Ok(Response::new(super::NofNResponse {
+            Ok(Response::new(super::NofnResponse {
                 nofn_xonly_pk: first_xonly_pk,
                 num_verifiers: nofn_xonly_pks.len() as u32,
             }))

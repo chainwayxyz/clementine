@@ -20,7 +20,7 @@ pub struct XonlyPublicKey {
     pub xonly_pk: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NofNResponse {
+pub struct NofnResponse {
     #[prost(bytes = "vec", tag = "1")]
     pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag = "2")]
@@ -1422,7 +1422,7 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn get_nof_n_aggregated_xonly_pk(
+        pub async fn get_nofn_aggregated_xonly_pk(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::XonlyPublicKey>, tonic::Status> {
@@ -1436,14 +1436,14 @@ pub mod clementine_verifier_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineVerifier/GetNofNAggregatedXonlyPk",
+                "/clementine.ClementineVerifier/GetNofnAggregatedXonlyPk",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "clementine.ClementineVerifier",
-                        "GetNofNAggregatedXonlyPk",
+                        "GetNofnAggregatedXonlyPk",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1649,10 +1649,10 @@ pub mod clementine_aggregator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn get_nof_n_aggregated_xonly_pk(
+        pub async fn get_nofn_aggregated_xonly_pk(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::NofNResponse>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1663,14 +1663,14 @@ pub mod clementine_aggregator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineAggregator/GetNofNAggregatedXonlyPk",
+                "/clementine.ClementineAggregator/GetNofnAggregatedXonlyPk",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "clementine.ClementineAggregator",
-                        "GetNofNAggregatedXonlyPk",
+                        "GetNofnAggregatedXonlyPk",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -2452,7 +2452,7 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::Txid>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        async fn get_nof_n_aggregated_xonly_pk(
+        async fn get_nofn_aggregated_xonly_pk(
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::XonlyPublicKey>, tonic::Status>;
@@ -3010,13 +3010,13 @@ pub mod clementine_verifier_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineVerifier/GetNofNAggregatedXonlyPk" => {
+                "/clementine.ClementineVerifier/GetNofnAggregatedXonlyPk" => {
                     #[allow(non_camel_case_types)]
-                    struct GetNofNAggregatedXonlyPkSvc<T: ClementineVerifier>(
+                    struct GetNofnAggregatedXonlyPkSvc<T: ClementineVerifier>(
                         pub Arc<T>,
                     );
                     impl<T: ClementineVerifier> tonic::server::UnaryService<super::Empty>
-                    for GetNofNAggregatedXonlyPkSvc<T> {
+                    for GetNofnAggregatedXonlyPkSvc<T> {
                         type Response = super::XonlyPublicKey;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -3028,7 +3028,7 @@ pub mod clementine_verifier_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineVerifier>::get_nof_n_aggregated_xonly_pk(
+                                <T as ClementineVerifier>::get_nofn_aggregated_xonly_pk(
                                         &inner,
                                         request,
                                     )
@@ -3043,7 +3043,7 @@ pub mod clementine_verifier_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = GetNofNAggregatedXonlyPkSvc(inner);
+                        let method = GetNofnAggregatedXonlyPkSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -3146,10 +3146,10 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::SendTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        async fn get_nof_n_aggregated_xonly_pk(
+        async fn get_nofn_aggregated_xonly_pk(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::NofNResponse>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ClementineAggregatorServer<T> {
@@ -3412,16 +3412,16 @@ pub mod clementine_aggregator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineAggregator/GetNofNAggregatedXonlyPk" => {
+                "/clementine.ClementineAggregator/GetNofnAggregatedXonlyPk" => {
                     #[allow(non_camel_case_types)]
-                    struct GetNofNAggregatedXonlyPkSvc<T: ClementineAggregator>(
+                    struct GetNofnAggregatedXonlyPkSvc<T: ClementineAggregator>(
                         pub Arc<T>,
                     );
                     impl<
                         T: ClementineAggregator,
                     > tonic::server::UnaryService<super::Empty>
-                    for GetNofNAggregatedXonlyPkSvc<T> {
-                        type Response = super::NofNResponse;
+                    for GetNofnAggregatedXonlyPkSvc<T> {
+                        type Response = super::NofnResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -3432,7 +3432,7 @@ pub mod clementine_aggregator_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineAggregator>::get_nof_n_aggregated_xonly_pk(
+                                <T as ClementineAggregator>::get_nofn_aggregated_xonly_pk(
                                         &inner,
                                         request,
                                     )
@@ -3447,7 +3447,7 @@ pub mod clementine_aggregator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = GetNofNAggregatedXonlyPkSvc(inner);
+                        let method = GetNofnAggregatedXonlyPkSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -447,7 +447,7 @@ where
         Ok(Response::new(Empty {}))
     }
 
-    async fn get_nof_n_aggregated_xonly_pk(
+    async fn get_nofn_aggregated_xonly_pk(
         &self,
         _: tonic::Request<super::Empty>,
     ) -> std::result::Result<tonic::Response<super::XonlyPublicKey>, tonic::Status> {

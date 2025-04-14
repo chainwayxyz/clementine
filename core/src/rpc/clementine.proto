@@ -17,7 +17,7 @@ message XonlyPublicKey {
   bytes xonly_pk = 1;
 }
 
-message NofNResponse {
+message NofnResponse {
   bytes nofn_xonly_pk = 1;
   uint32 num_verifiers = 2;
 }
@@ -440,7 +440,7 @@ service ClementineVerifier {
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
 
-  rpc GetNofNAggregatedXonlyPk(Empty) returns (XonlyPublicKey) {}
+  rpc GetNofnAggregatedXonlyPk(Empty) returns (XonlyPublicKey) {}
 }
 
 // Aggregator ------------------------------------------------------------------
@@ -495,5 +495,5 @@ service ClementineAggregator {
   // send a pre-signed tx
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
-  rpc GetNofNAggregatedXonlyPk(Empty) returns (NofNResponse) {}
+  rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
 }
