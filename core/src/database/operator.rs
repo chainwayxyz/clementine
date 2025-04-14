@@ -4,7 +4,7 @@
 
 use super::{
     wrapper::{
-        AddressDB, DepositParamsDB, OutPointDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
+        AddressDB, DepositParamsDB, OutPointDB, PublicKeyDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
         XOnlyPublicKeyDB,
     },
     Database, DatabaseTransaction,
@@ -73,6 +73,17 @@ impl Database {
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
         Ok(data)
+    }
+
+    pub async fn get_verifier_public_keys(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Vec<bitcoin::secp256k1::PublicKey>, BridgeError> {
+        let query = sqlx::query_as("SELECT public_key FROM verifier_public_keys;");
+        let result: Vec<(PublicKeyDB,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        let public_keys = result.into_iter().map(|(pk,)| pk.0).collect();
+        Ok(public_keys)
     }
 
     pub async fn get_operator(

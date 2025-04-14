@@ -83,6 +83,20 @@ impl Aggregator {
             operator_clients.len(),
         );
 
+        let verifier_keys = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+        let operator_keys = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+
+        let operators_xonly_pks = db
+            .get_operators(None)
+            .await?
+            .iter()
+            .map(|o| o.0)
+            .collect::<Vec<_>>();
+        operator_keys.write().await.extend(operators_xonly_pks);
+
+        let db_verifier_keys = db.get_verifier_public_keys(None).await?;
+        verifier_keys.write().await.extend(db_verifier_keys);
+
         Ok(Aggregator {
             rpc,
             db,
@@ -90,8 +104,8 @@ impl Aggregator {
             tx_sender,
             verifier_clients,
             operator_clients,
-            verifier_keys: Arc::new(tokio::sync::RwLock::new(Vec::new())),
-            operator_keys: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            verifier_keys,
+            operator_keys,
         })
     }
 
@@ -294,7 +308,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<Vec<ClementineVerifierClient<tonic::transport::Channel>>, BridgeError> {
-        let verifier_keys = self.verifier_keys.read().await.clone();
+        let verifier_keys = self.get_verifier_keys().await;
         let mut participating_verifiers = Vec::new();
 
         let verifiers = deposit_data.get_verifiers();
@@ -315,7 +329,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<Vec<ClementineOperatorClient<tonic::transport::Channel>>, BridgeError> {
-        let operator_keys = self.operator_keys.read().await.clone();
+        let operator_keys = self.get_operator_keys().await;
         let mut participating_operators = Vec::new();
 
         let operators = deposit_data.get_operators();
