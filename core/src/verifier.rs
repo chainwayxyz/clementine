@@ -352,12 +352,12 @@ where
 
     pub async fn deposit_sign(
         &self,
-        deposit_data: DepositData,
+        mut deposit_data: DepositData,
         session_id: u32,
         mut agg_nonce_rx: mpsc::Receiver<MusigAggNonce>,
     ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
         self.citrea_client
-            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk())
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
         let verifier = self.clone();
@@ -456,7 +456,7 @@ where
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
     ) -> Result<MusigPartialSignature, BridgeError> {
         self.citrea_client
-            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk())
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
         let mut tweak_cache = TweakCache::default();
