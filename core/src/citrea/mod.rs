@@ -18,7 +18,7 @@ use alloy::{
     sol_types::SolEvent,
     transports::http::reqwest::Url,
 };
-use bitcoin::{hashes::Hash, OutPoint, Txid};
+use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -130,6 +130,11 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         block_height: u64,
         timeout: Duration,
     ) -> Result<(u64, u64), BridgeError>;
+
+    async fn check_nofn_correctness(
+        &self,
+        nofn_xonly_pk: XOnlyPublicKey,
+    ) -> Result<(), BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -371,6 +376,29 @@ impl CitreaClientT for CitreaClient {
         let l2_height_start: u64 = proof_previous.0;
 
         Ok((l2_height_start, l2_height_end))
+    }
+
+    async fn check_nofn_correctness(
+        &self,
+        nofn_xonly_pk: XOnlyPublicKey,
+    ) -> Result<(), BridgeError> {
+        let script_prefix = self
+            .contract
+            .scriptPrefix()
+            .call()
+            .await
+            .wrap_err("Failed to get script prefix")?
+            ._0;
+        if script_prefix.len() < 34 {
+            return Err(eyre::eyre!("script_prefix is too short").into());
+        }
+        let script_nofn_bytes = &script_prefix[2..2 + 32];
+        let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(script_nofn_bytes)
+            .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
+        if contract_nofn_xonly_pk != nofn_xonly_pk {
+            return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
+        }
+        Ok(())
     }
 }
 
