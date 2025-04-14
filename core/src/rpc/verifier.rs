@@ -425,4 +425,18 @@ where
         dbtx.commit().await.expect("Failed to commit transaction");
         Ok(Response::new(Empty {}))
     }
+
+    async fn get_nofn_aggregated_xonly_pk(
+        &self,
+        _: tonic::Request<super::Empty>,
+    ) -> std::result::Result<tonic::Response<super::XonlyPublicKey>, tonic::Status> {
+        let nofn = self.verifier.nofn.read().await;
+        let agg_xonly_pk = nofn
+            .as_ref()
+            .ok_or_else(|| Status::internal("NofN not set"))?
+            .agg_xonly_pk;
+        Ok(Response::new(super::XonlyPublicKey {
+            xonly_pk: agg_xonly_pk.serialize().to_vec(),
+        }))
+    }
 }
