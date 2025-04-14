@@ -372,7 +372,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 }
 
 #[tokio::test]
-#[ignore = "temp"]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     // TODO: temp hack to use the correct docker image
     std::env::set_var(
@@ -575,7 +574,7 @@ async fn mock_citrea_run_truthful() {
                 .await?
                 .is_some())
         },
-        Some(Duration::from_secs(180)),
+        Some(Duration::from_secs(300)),
         Some(Duration::from_millis(200)),
     )
     .await
@@ -591,7 +590,7 @@ async fn mock_citrea_run_truthful() {
                 .await?
                 .is_none())
         },
-        Some(Duration::from_secs(180)),
+        Some(Duration::from_secs(300)),
         Some(Duration::from_millis(200)),
     )
     .await

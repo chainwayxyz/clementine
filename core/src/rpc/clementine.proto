@@ -265,7 +265,7 @@ message FinalizedPayoutParams {
 // winternitz pubkeys.
 service ClementineOperator {
   // Returns an operator's deposit keys.
-  // Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
+  // Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
   rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
   // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
   // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
