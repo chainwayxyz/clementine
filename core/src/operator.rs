@@ -526,6 +526,7 @@ where
         let bitvm_pks = self
             .signer
             .generate_bitvm_pks_for_deposit(deposit_outpoint, self.config.protocol_paramset())?;
+
         let flattened_wpks = bitvm_pks.to_flattened_vec();
 
         Ok(flattened_wpks)

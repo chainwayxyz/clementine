@@ -847,7 +847,8 @@ pub async fn run_challenge_with_state_machine(
             .collect::<Vec<Txid>>();
 
     // check if operator asserts were sent
-    for txid in operator_assert_txids {
+    for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
+        tracing::warn!("operator assert {} ensure onchain", idx);
         ensure_tx_onchain(&rpc, txid).await?;
     }
 

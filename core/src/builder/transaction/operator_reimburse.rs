@@ -76,7 +76,7 @@ pub fn create_kickoff_txhandler(
         ))
         // kickoff finalizer connector
         .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT * 20,
+            MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone()],
             None,
             paramset.network,

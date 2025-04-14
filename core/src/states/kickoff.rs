@@ -302,6 +302,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::KickoffFinalizerSpent
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
+            | KickoffEvent::LatestBlockHashSent { .. }
             | KickoffEvent::SavedToDb => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;

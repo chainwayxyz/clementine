@@ -333,7 +333,7 @@ impl Actor {
         for i in 0..pks.bitvm_pks.0.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 64,
-                2,
+                3,
                 i as u32,
                 deposit_outpoint,
                 paramset,
@@ -343,7 +343,7 @@ impl Actor {
         for i in 0..pks.bitvm_pks.1.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 64,
-                3,
+                4,
                 i as u32,
                 deposit_outpoint,
                 paramset,
@@ -353,7 +353,7 @@ impl Actor {
         for i in 0..pks.bitvm_pks.2.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 32,
-                4,
+                5,
                 i as u32,
                 deposit_outpoint,
                 paramset,
