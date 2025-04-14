@@ -53,8 +53,9 @@ lazy_static::lazy_static! {
         let start = Instant::now();
 
         let bitvm_cache = {
-            let cache_path = "bitvm_cache.bin";
-            match BitvmCache::load_from_file(cache_path) {
+            let cache_path = std::env::var("BITVM_CACHE_PATH").unwrap_or_else(|_| "bitvm_cache.bin".to_string());
+            tracing::info!("Loading BitVM cache from file: {}", cache_path);
+            match BitvmCache::load_from_file(&cache_path) {
                 Ok(cache) => {
                     tracing::info!("Loaded BitVM cache from file");
                     cache
@@ -62,7 +63,7 @@ lazy_static::lazy_static! {
                 Err(_) => {
                     tracing::info!("No BitVM cache found, generating fresh data");
                     let fresh_data = generate_fresh_data();
-                    if let Err(e) = fresh_data.save_to_file(cache_path) {
+                    if let Err(e) = fresh_data.save_to_file(&cache_path) {
                         tracing::error!("Failed to save BitVM cache to file: {}", e);
                     }
                     fresh_data
@@ -98,6 +99,8 @@ impl BitvmCache {
             tracing::error!("Failed to read BitVM cache: {}", e);
             BridgeError::ConfigError("No BitVM cache found".to_string())
         })?;
+
+        tracing::info!("Loaded BitVM cache from file, read {} bytes", bytes.len());
 
         Self::try_from_slice(&bytes).map_err(|e| {
             tracing::error!("Failed to deserialize BitVM cache: {}", e);
