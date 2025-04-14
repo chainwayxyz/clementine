@@ -1,5 +1,5 @@
 use risc0_binfmt::compute_image_id;
-use risc0_build::{embed_methods_with_options, DockerOptionsBuilder, GuestOptionsBuilder};
+use risc0_build::{embed_methods, embed_methods_with_options, DockerOptionsBuilder, GuestOptionsBuilder};
 use std::{collections::HashMap, env, fs, path::Path};
 
 fn main() {
@@ -149,9 +149,8 @@ fn copy_binary_to_elfs_folder(network: String) {
             "../elfs/mainnet-work-only-guest.bin"
         }
     };
-    
-    let elf_bytes: Vec<u8> = fs::read(Path::new(elf_path))
-        .expect("Failed to read ELF file");
+
+    let elf_bytes: Vec<u8> = fs::read(Path::new(elf_path)).expect("Failed to read ELF file");
 
     let method_id = compute_image_id(elf_bytes.as_slice()).unwrap();
     println!("cargo:warning=Computed method ID: {:x?}", method_id);
