@@ -447,8 +447,6 @@ service ClementineVerifier {
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
-
-  rpc GetNofnAggregatedXonlyPk(Empty) returns (XonlyPublicKey) {}
 }
 
 // Aggregator ------------------------------------------------------------------

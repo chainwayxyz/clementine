@@ -2,11 +2,14 @@ use std::str::FromStr;
 
 use bitcoin::{hashes::Hash, Amount};
 use clap::{Parser, Subcommand};
-use clementine_core::rpc::clementine::{
-    clementine_aggregator_client::ClementineAggregatorClient,
-    clementine_operator_client::ClementineOperatorClient,
-    clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
-    BaseDeposit, Deposit, Empty, Outpoint, VerifierPublicKeys, XOnlyPublicKeys,
+use clementine_core::{
+    rpc::clementine::{
+        clementine_aggregator_client::ClementineAggregatorClient,
+        clementine_operator_client::ClementineOperatorClient,
+        clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
+        BaseDeposit, Deposit, Empty, Outpoint, VerifierPublicKeys, XOnlyPublicKeys,
+    },
+    EVMAddress,
 };
 use tonic::Request;
 
@@ -100,10 +103,6 @@ enum AggregatorCommands {
         evm_address: Option<String>,
         #[arg(long)]
         recovery_taproot_address: Option<String>,
-        #[arg(long)]
-        nofn_xonly_pk: Option<String>,
-        #[arg(long)]
-        num_verifiers: Option<u64>,
     },
     /// Get the aggregated NofN x-only public key
     GetNofnAggregatedKey,
@@ -124,7 +123,6 @@ enum AggregatorCommands {
     GetTxParamsOfMoveTx {
         #[arg(long)]
         move_txid: String,
-        recovery_taproot_address: String,
     },
 }
 
@@ -259,8 +257,26 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             deposit_outpoint_vout,
             evm_address,
             recovery_taproot_address,
-
         } => {
+            let evm_address = match evm_address {
+                Some(address) => EVMAddress(
+                    hex::decode(address)
+                        .expect("Failed to decode evm address")
+                        .try_into()
+                        .expect("Failed to convert evm address to array"),
+                ),
+                None => EVMAddress([1; 20]),
+            };
+
+            let recovery_taproot_address = match recovery_taproot_address {
+                Some(address) => bitcoin::Address::from_str(&address)
+                    .expect("Failed to parse recovery taproot address"),
+                None => bitcoin::Address::from_str(
+                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
+                )
+                .expect("Failed to parse recovery taproot address"),
+            };
+
             let deposit = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: Some(Outpoint {
@@ -268,8 +284,10 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
-                        evm_address: evm_address.as_bytes().to_vec(),
-                        recovery_taproot_address,
+                        evm_address: evm_address.0.to_vec(),
+                        recovery_taproot_address: recovery_taproot_address
+                            .assume_checked()
+                            .to_string(),
                     })),
                 })
                 .await
