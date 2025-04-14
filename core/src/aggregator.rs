@@ -21,7 +21,6 @@ use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
-use std::sync::Arc;
 use tonic::Status;
 
 /// Aggregator struct.
@@ -40,8 +39,8 @@ pub struct Aggregator {
     pub(crate) tx_sender: TxSenderClient,
     operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
-    verifier_keys: Arc<tokio::sync::RwLock<Vec<PublicKey>>>,
-    operator_keys: Arc<tokio::sync::RwLock<Vec<XOnlyPublicKey>>>,
+    verifier_keys: Vec<PublicKey>,
+    operator_keys: Vec<XOnlyPublicKey>,
 }
 
 impl Aggregator {
@@ -83,6 +82,12 @@ impl Aggregator {
             operator_clients.len(),
         );
 
+        let operator_keys =
+            Aggregator::collect_operator_xonly_public_keys_with_clients(&operator_clients).await?;
+
+        let (_, verifier_keys) =
+            Aggregator::collect_verifier_public_keys_with_clients(&verifier_clients).await?;
+
         Ok(Aggregator {
             rpc,
             db,
@@ -90,8 +95,8 @@ impl Aggregator {
             tx_sender,
             verifier_clients,
             operator_clients,
-            verifier_keys: Arc::new(tokio::sync::RwLock::new(Vec::new())),
-            operator_keys: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            verifier_keys,
+            operator_keys,
         })
     }
 
@@ -99,20 +104,12 @@ impl Aggregator {
         &self.verifier_clients
     }
 
-    pub async fn set_verifier_keys(&self, verifier_keys: &[PublicKey]) {
-        *self.verifier_keys.write().await = verifier_keys.to_vec();
+    pub fn get_verifier_keys(&self) -> Vec<PublicKey> {
+        self.verifier_keys.clone()
     }
 
-    pub async fn get_verifier_keys(&self) -> Vec<PublicKey> {
-        self.verifier_keys.read().await.clone()
-    }
-
-    pub async fn get_operator_keys(&self) -> Vec<XOnlyPublicKey> {
-        self.operator_keys.read().await.clone()
-    }
-
-    pub async fn set_operator_keys(&self, operator_keys: &[XOnlyPublicKey]) {
-        *self.operator_keys.write().await = operator_keys.to_vec();
+    pub fn get_operator_keys(&self) -> Vec<XOnlyPublicKey> {
+        self.operator_keys.clone()
     }
 
     pub fn get_operator_clients(&self) -> &[ClementineOperatorClient<tonic::transport::Channel>] {
@@ -294,7 +291,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<Vec<ClementineVerifierClient<tonic::transport::Channel>>, BridgeError> {
-        let verifier_keys = self.verifier_keys.read().await.clone();
+        let verifier_keys = self.get_verifier_keys();
         let mut participating_verifiers = Vec::new();
 
         let verifiers = deposit_data.get_verifiers();
@@ -315,7 +312,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<Vec<ClementineOperatorClient<tonic::transport::Channel>>, BridgeError> {
-        let operator_keys = self.operator_keys.read().await.clone();
+        let operator_keys = self.get_operator_keys();
         let mut participating_operators = Vec::new();
 
         let operators = deposit_data.get_operators();

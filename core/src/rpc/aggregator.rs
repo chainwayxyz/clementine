@@ -580,12 +580,12 @@ impl Aggregator {
     }
 
     /// Fetches operator xonly public keys from operators.
-    pub async fn collect_operator_xonly_public_keys(
-        &self,
+    pub async fn collect_operator_xonly_public_keys_with_clients(
+        operator_clients: &[ClementineOperatorClient<tonic::transport::Channel>],
     ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
         tracing::info!("Collecting operator xonly public keys...");
 
-        let operator_xonly_pks = try_join_all(self.get_operator_clients().iter().map(|client| {
+        let operator_xonly_pks = try_join_all(operator_clients.iter().map(|client| {
             let mut client = client.clone();
 
             async move {
@@ -605,17 +605,24 @@ impl Aggregator {
         .await
         .wrap_err("Failed to collect operator xonly public keys")?;
 
-        self.set_operator_keys(&operator_xonly_pks).await;
-
         Ok(operator_xonly_pks)
     }
 
-    /// Fetches verifier public keys from verifiers and sets up N-of-N.
-    pub async fn collect_verifier_public_keys(&self) -> Result<VerifierPublicKeys, BridgeError> {
+    /// Fetches operator xonly public keys from operators.
+    pub async fn collect_operator_xonly_public_keys(
+        &self,
+    ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
+        Aggregator::collect_operator_xonly_public_keys_with_clients(self.get_operator_clients())
+            .await
+    }
+
+    pub async fn collect_verifier_public_keys_with_clients(
+        verifier_clients: &[ClementineVerifierClient<tonic::transport::Channel>],
+    ) -> Result<(Vec<Vec<u8>>, Vec<PublicKey>), BridgeError> {
         tracing::info!("Collecting verifier public keys...");
 
         let (vpks, verifier_public_keys): (Vec<Vec<u8>>, Vec<PublicKey>) =
-            try_join_all(self.get_verifier_clients().iter().map(|client| {
+            try_join_all(verifier_clients.iter().map(|client| {
                 let mut client = client.clone();
 
                 async move {
@@ -637,9 +644,16 @@ impl Aggregator {
             .into_iter()
             .unzip();
 
-        self.set_verifier_keys(&verifier_public_keys).await;
+        Ok((vpks, verifier_public_keys))
+    }
 
-        Ok(clementine::VerifierPublicKeys {
+    /// Fetches verifier public keys from verifiers and sets up N-of-N.
+    pub async fn collect_verifier_public_keys(&self) -> Result<VerifierPublicKeys, BridgeError> {
+        let (vpks, _) =
+            Aggregator::collect_verifier_public_keys_with_clients(self.get_verifier_clients())
+                .await?;
+
+        Ok(VerifierPublicKeys {
             verifier_public_keys: vpks,
         })
     }
@@ -753,15 +767,6 @@ impl ClementineAggregator for Aggregator {
         .into_iter()
         .collect::<Result<Vec<_>, Status>>()?;
 
-        let operators_xonly_pks = self
-            .db
-            .get_operators(None)
-            .await?
-            .iter()
-            .map(|o| o.0)
-            .collect::<Vec<_>>();
-        self.set_operator_keys(&operators_xonly_pks).await;
-
         Ok(Response::new(verifier_public_keys))
     }
 
@@ -795,9 +800,9 @@ impl ClementineAggregator for Aggregator {
             deposit: deposit_info,
             nofn_xonly_pk: None,
             actors: Actors {
-                verifiers: self.get_verifier_keys().await,
+                verifiers: self.get_verifier_keys(),
                 watchtowers: vec![],
-                operators: self.get_operator_keys().await,
+                operators: self.get_operator_keys(),
             },
         };
 
