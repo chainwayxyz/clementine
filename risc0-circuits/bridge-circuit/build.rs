@@ -1,5 +1,5 @@
 use risc0_build::{embed_methods_with_options, DockerOptionsBuilder, GuestOptionsBuilder};
-use std::{collections::HashMap, env, fs};
+use std::{collections::HashMap, env, fs, path::Path};
 
 fn main() {
     // Build environment variables
@@ -12,6 +12,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=TEST_SKIP_GUEST_BUILD");
 
     if std::env::var("CLIPPY_ARGS").is_ok() {
+        let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+        let dummy_path = Path::new(&out_dir).join("methods.rs");
+        fs::write(dummy_path, "// dummy methods.rs for Clippy\n").expect("Failed to write dummy methods.rs");
         println!("cargo:warning=Skipping guest build in Clippy");
         return;
     }
