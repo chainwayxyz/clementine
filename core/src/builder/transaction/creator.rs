@@ -14,8 +14,8 @@ use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use crate::rpc::clementine::KickoffId;
-use eyre::eyre;
 use eyre::OptionExt;
+use eyre::{eyre, Context};
 use std::collections::BTreeMap;
 
 use super::{remove_txhandler_from_map, DepositData, RoundTxInput};
@@ -147,7 +147,7 @@ impl ReimburseDbCache {
                     self.db
                         .get_operator(None, self.operator_idx as i32)
                         .await
-                        .map_err(|e| eyre!("Failed to get operator data from database: {}", e))?
+                        .wrap_err("Failed to get operator data from database")?
                         .ok_or_eyre(format!(
                             "Operator not found for index {}",
                             self.operator_idx
@@ -185,9 +185,7 @@ impl ReimburseDbCache {
                     self.db
                         .get_operator_kickoff_winternitz_public_keys(None, self.operator_idx)
                         .await
-                        .map_err(|e| {
-                            eyre!("Failed to get kickoff winternitz keys from database: {}", e)
-                        })?,
+                        .wrap_err("Failed to get kickoff winternitz keys from database")?,
                     self.paramset.num_kickoffs_per_round,
                 ));
                 Ok(self
@@ -207,7 +205,7 @@ impl ReimburseDbCache {
                         .db
                         .get_bitvm_setup(None, self.operator_idx as i32, *deposit_outpoint)
                         .await
-                        .map_err(|e| eyre!("Failed to get BitVM setup from database: {}", e))?
+                        .wrap_err("Failed to get BitVM setup from database")?
                         .ok_or_eyre(format!(
                             "BitVM setup not found for operator {} and deposit {}",
                             self.operator_idx, deposit_outpoint.txid
@@ -260,7 +258,7 @@ impl ReimburseDbCache {
                         .db
                         .get_bitvm_root_hash(None, self.operator_idx as i32, *deposit_outpoint)
                         .await
-                        .map_err(|e| eyre!("Failed to get BitVM root hash from database: {}", e))?
+                        .wrap_err("Failed to get BitVM root hash from database")?
                         .ok_or_eyre(format!(
                             "BitVM root hash not found for operator {} and deposit {}",
                             self.operator_idx, deposit_outpoint.txid
