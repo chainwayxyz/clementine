@@ -11,6 +11,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=BITCOIN_NETWORK");
     println!("cargo:rerun-if-env-changed=TEST_SKIP_GUEST_BUILD");
 
+    if std::env::var("CLIPPY_ARGS").is_ok() {
+        println!("cargo:warning=Skipping guest build in Clippy");
+        return;
+    }
+
     // Check if we should skip the guest build for tests
     if let Ok("1" | "true") = env::var("TEST_SKIP_GUEST_BUILD").as_deref() {
         println!("cargo:warning=Skipping guest build in test. Exiting");
