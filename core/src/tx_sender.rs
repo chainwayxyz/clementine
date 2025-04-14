@@ -565,6 +565,8 @@ impl TxSender {
     ///
     /// Assumes that the first input is the input with our key.
     ///
+    /// # Returns
+    /// The signed PSBT as a base64-encoded string.
     pub async fn attempt_sign_psbt(
         &self,
         psbt: String,
@@ -578,7 +580,6 @@ impl TxSender {
             return Err(eyre!("PSBT has no inputs to sign").into());
         }
 
-        // We're assuming the first input is the one we need to sign
         let input_index = rbf_signing_info.vout as usize;
 
         // Get the transaction to calculate the sighash
@@ -727,10 +728,7 @@ impl TxSender {
                     } else {
                         // Other potentially transient errors
                         let error_message = format!("psbt_bump_fee error: {}", e);
-                        let _ = self
-                            .db
-                            .save_tx_debug_submission_error(try_to_send_id, &error_message)
-                            .await;
+                        log_error_for_tx!(self.db, try_to_send_id, error_message);
                         let _ = self
                             .db
                             .update_tx_debug_sending_state(
@@ -795,10 +793,7 @@ impl TxSender {
                 Err(e) => {
                     let err_msg = format!("wallet_process_psbt error: {}", e);
                     tracing::warn!(?try_to_send_id, "{}", err_msg);
-                    let _ = self
-                        .db
-                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
-                        .await;
+                    log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self
                         .db
                         .update_tx_debug_sending_state(
@@ -831,11 +826,8 @@ impl TxSender {
                 }) => hex,
                 Ok(res) => {
                     let err_msg = format!("Could not finalize PSBT: {:?}", res);
-                    tracing::warn!(?try_to_send_id, "{}", err_msg);
-                    let _ = self
-                        .db
-                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
-                        .await;
+                    log_error_for_tx!(self.db, try_to_send_id, err_msg);
+
                     let _ = self
                         .db
                         .update_tx_debug_sending_state(
@@ -846,18 +838,19 @@ impl TxSender {
                             true,
                         )
                         .await;
+
                     dbtx.commit()
                         .await
                         .wrap_err("Failed to commit db tx after incomplete finalize")?;
+
                     return Err(SendTxError::PsbtError(err_msg));
                 }
                 Err(e) => {
-                    let err_msg = format!("finalize_psbt error: {}", e);
-                    tracing::warn!(?try_to_send_id, "{}", err_msg);
-                    let _ = self
-                        .db
-                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
-                        .await;
+                    log_error_for_tx!(
+                        self.db,
+                        try_to_send_id,
+                        format!("finalize_psbt error: {}", e)
+                    );
                     let _ = self
                         .db
                         .update_tx_debug_sending_state(
@@ -879,12 +872,11 @@ impl TxSender {
             let final_tx: Transaction = match consensus::deserialize(&final_tx_hex) {
                 Ok(tx) => tx,
                 Err(e) => {
-                    let err_msg = format!("Failed to deserialize final RBF tx hex: {}", e);
-                    tracing::error!(?try_to_send_id, "{}", err_msg);
-                    let _ = self
-                        .db
-                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
-                        .await;
+                    log_error_for_tx!(
+                        self.db,
+                        try_to_send_id,
+                        format!("Failed to deserialize final RBF tx hex: {}", e)
+                    );
                     dbtx.commit()
                         .await
                         .wrap_err("Failed to commit db tx after deserialize error")?;
@@ -917,16 +909,14 @@ impl TxSender {
                         .wrap_err("Failed to save new RBF txid after bump")?;
                 }
                 Ok(other_txid) => {
-                    // Should ideally not happen if deserialization worked
-                    let err_msg = format!(
-                        "send_raw_transaction returned unexpected txid {} (expected {})",
-                        other_txid, bumped_txid
+                    log_error_for_tx!(
+                        self.db,
+                        try_to_send_id,
+                        format!(
+                            "send_raw_transaction returned unexpected txid {} (expected {})",
+                            other_txid, bumped_txid
+                        )
                     );
-                    tracing::error!(?try_to_send_id, "{}", err_msg);
-                    let _ = self
-                        .db
-                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
-                        .await;
                     let _ = self
                         .db
                         .update_tx_debug_sending_state(
@@ -940,15 +930,16 @@ impl TxSender {
                     dbtx.commit()
                         .await
                         .wrap_err("Failed to commit db tx after send mismatch")?;
-                    return Err(SendTxError::Other(eyre!(err_msg)));
+                    return Err(SendTxError::Other(eyre!(
+                        "send_raw_transaction returned unexpected txid"
+                    )));
                 }
                 Err(e) => {
-                    let err_msg = format!("send_raw_transaction error for bumped RBF tx: {}", e);
-                    tracing::warn!(?try_to_send_id, "{}", err_msg);
-                    let _ = self
-                        .db
-                        .save_tx_debug_submission_error(try_to_send_id, &err_msg)
-                        .await;
+                    log_error_for_tx!(
+                        self.db,
+                        try_to_send_id,
+                        format!("send_raw_transaction error for bumped RBF tx: {}", e)
+                    );
                     let _ = self
                         .db
                         .update_tx_debug_sending_state(
@@ -1001,10 +992,7 @@ impl TxSender {
                     // Record funding error in debug log
                     let error_message = format!("Failed to fund RBF tx: {:?}", e);
 
-                    let _ = self
-                        .db
-                        .save_tx_debug_submission_error(try_to_send_id, &error_message)
-                        .await;
+                    log_error_for_tx!(self.db, try_to_send_id, error_message);
                     tracing::warn!(try_to_send_id, "Failed to fund RBF tx: {:?}", e);
 
                     let _ = self
@@ -2375,7 +2363,7 @@ mod tests {
             FeePayingType::CPFP,
         )
         .unwrap();
-        println!("Fee rate: {:?}, fee: {}", fee_rate, fee);
+        tracing::info!("Fee rate: {:?}, fee: {}", fee_rate, fee);
 
         let mut will_successful_handler = builder
             .add_output(UnspentTxOut::new(
