@@ -291,6 +291,10 @@ where
         &self,
         deposit_data: DepositData,
     ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
+        self.citrea_client
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk())
+            .await?;
+
         let mut tweak_cache = TweakCache::default();
         let (sig_tx, sig_rx) = mpsc::channel(1280);
 

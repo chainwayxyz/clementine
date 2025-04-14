@@ -769,7 +769,7 @@ pub mod clementine_operator_client {
             self
         }
         /// Returns an operator's deposit keys.
-        /// Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
+        /// Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
         pub async fn get_deposit_keys(
             &mut self,
             request: impl tonic::IntoRequest<super::DepositParams>,
@@ -1634,7 +1634,7 @@ pub mod clementine_operator_server {
     #[async_trait]
     pub trait ClementineOperator: std::marker::Send + std::marker::Sync + 'static {
         /// Returns an operator's deposit keys.
-        /// Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
+        /// Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
         async fn get_deposit_keys(
             &self,
             request: tonic::Request<super::DepositParams>,

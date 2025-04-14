@@ -176,6 +176,13 @@ impl CitreaClientT for MockCitreaClient {
     ) -> Result<(u64, u64), BridgeError> {
         Ok((block_height - 1, block_height))
     }
+
+    async fn check_nofn_correctness(
+        &self,
+        _nofn_xonly_pk: bitcoin::XOnlyPublicKey,
+    ) -> Result<(), BridgeError> {
+        Ok(())
+    }
 }
 
 impl MockCitreaClient {
