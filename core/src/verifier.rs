@@ -435,6 +435,10 @@ where
         session_id: u32,
         mut agg_nonce_rx: mpsc::Receiver<MusigAggNonce>,
     ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
+        self.citrea_client
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk())
+            .await?;
+
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
         let verifier_index = self
@@ -534,6 +538,10 @@ where
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
     ) -> Result<MusigPartialSignature, BridgeError> {
+        self.citrea_client
+            .check_nofn_correctness(deposit_data.get_nofn_xonly_pk())
+            .await?;
+
         let mut tweak_cache = TweakCache::default();
         let deposit_blockhash = self
             .rpc
