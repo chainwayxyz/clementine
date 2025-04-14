@@ -1,6 +1,6 @@
 use risc0_binfmt::compute_image_id;
 use risc0_build::{embed_methods_with_options, DockerOptionsBuilder, GuestOptionsBuilder};
-use std::{collections::HashMap, env, fs};
+use std::{collections::HashMap, env, fs, path::Path};
 
 fn main() {
     // Build environment variables
@@ -139,19 +139,21 @@ fn copy_binary_to_elfs_folder(network: String) {
         Err(e) => println!("cargo:warning=Failed to copy binary: {}", e),
     }
 
-    // Convert network String into &str
-    let elf_bytes: &[u8] = match network.as_str() {
-        "mainnet" => include_bytes!("../elfs/mainnet-work-only-guest.bin"),
-        "testnet4" => include_bytes!("../elfs/testnet4-work-only-guest.bin"),
-        "signet" => include_bytes!("../elfs/signet-work-only-guest.bin"),
-        "regtest" => include_bytes!("../elfs/regtest-work-only-guest.bin"),
+    let elf_path = match network.as_str() {
+        "mainnet" => "../elfs/mainnet-work-only-guest.bin",
+        "testnet4" => "../elfs/testnet4-work-only-guest.bin",
+        "signet" => "../elfs/signet-work-only-guest.bin",
+        "regtest" => "../elfs/regtest-work-only-guest.bin",
         _ => {
             println!("cargo:warning=Invalid network specified, defaulting to mainnet");
-            include_bytes!("../elfs/mainnet-work-only-guest.bin")
+            "../elfs/mainnet-work-only-guest.bin"
         }
     };
+    
+    let elf_bytes: Vec<u8> = fs::read(Path::new(elf_path))
+        .expect("Failed to read ELF file");
 
-    let method_id = compute_image_id(elf_bytes).unwrap();
+    let method_id = compute_image_id(elf_bytes.as_slice()).unwrap();
     println!("cargo:warning=Computed method ID: {:x?}", method_id);
     println!(
         "cargo:warning=Computed method ID words: {:?}",
