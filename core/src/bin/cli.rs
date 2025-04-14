@@ -277,10 +277,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .expect("Failed to parse recovery taproot address"),
             };
 
+            let mut deposit_outpoint_txid =
+                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
+            deposit_outpoint_txid.reverse();
+
             let deposit = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid.as_bytes().to_vec(),
+                        txid: deposit_outpoint_txid,
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
