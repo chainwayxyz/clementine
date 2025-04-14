@@ -77,8 +77,8 @@ impl Database {
         Ok(result.map(|height| height.0 as u64))
     }
 
-    /// Gets the newest finalized block's info that it's previous block has
-    /// proven before. This block will be the candidate block for the prover.
+    /// Gets the first finalized block after the latest proven block (i.e. proof != null).
+    /// This block will be the candidate block for the prover.
     ///
     /// # Returns
     ///
