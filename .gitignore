@@ -15,5 +15,4 @@ lcov.info
 lcov.json
 .docker/
 .idea/
-run.sh
 logs
