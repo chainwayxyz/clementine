@@ -116,12 +116,9 @@ pub enum BridgeError {
     IntConversionError,
     #[error("Failed to encode/decode data using borsh")]
     BorshError,
-    #[error("Operator x-only public key {:?} was not found in the DB", 0)]
+    #[error("Operator x-only public key {0} was not found in the DB")]
     OperatorNotFound(XOnlyPublicKey),
-    #[error(
-        "Verifier with public key {:?} was not found among the verifier clients",
-        0
-    )]
+    #[error("Verifier with public key {0} was not found among the verifier clients")]
     VerifierNotFound(PublicKey),
     #[error("Deposit not found in DB: {0:?}")]
     DepositNotFound(OutPoint),
