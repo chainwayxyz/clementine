@@ -154,8 +154,7 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO unspent_kickoff_signatures (xonly_pk, round_idx, signatures) VALUES ($1, $2, $3)
-             ON CONFLICT (xonly_pk, round_idx) DO UPDATE
-             SET signatures = EXCLUDED.signatures;",
+             ON CONFLICT (xonly_pk, round_idx) DO NOTHING;",
         ).bind(XOnlyPublicKeyDB(operator_xonly_pk)).bind(round_idx as i32).bind(SignaturesDB(DepositSignatures{signatures}));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -193,7 +192,8 @@ impl Database {
         let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
-                "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) VALUES ($1, $2);",
+                "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) VALUES ($1, $2)
+                ON CONFLICT DO NOTHING;",
             )
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(wpk);

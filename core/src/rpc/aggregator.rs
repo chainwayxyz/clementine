@@ -38,11 +38,13 @@ use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
+#[derive(Debug, Clone)]
 struct AggNonceQueueItem {
     agg_nonce: MusigAggNonce,
     sighash: TapSighash,
 }
 
+#[derive(Debug, Clone)]
 struct FinalSigQueueItem {
     final_sig: Vec<u8>,
 }
