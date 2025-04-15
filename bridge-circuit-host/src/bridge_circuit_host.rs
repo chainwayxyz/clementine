@@ -327,6 +327,7 @@ fn generate_succinct_bridge_circuit_public_inputs(
 mod tests {
 
     use super::*;
+    use once_cell::sync::Lazy;
 
     // const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     //     include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
@@ -334,36 +335,24 @@ mod tests {
     const WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
-    pub static WORK_ONLY_IMAGE_ID: [u8; 32] = {
+    pub static WORK_ONLY_IMAGE_ID: Lazy<[u8; 32]> = Lazy::new(|| {
         match option_env!("BITCOIN_NETWORK") {
-            Some(network) if matches!(network.as_bytes(), b"mainnet") => {
-                hex_literal::hex!(
-                    "6a1839674dcb57d4d0b489d6992f36166b663b196ca84cd5db321c03cf038caa"
-                )
-            }
-            Some(network) if matches!(network.as_bytes(), b"testnet4") => {
-                hex_literal::hex!(
-                    "7d671cfd5e307534b0d6a42338764f8f5ae1357b3d0d4004c62fa41e31c47b8d"
-                )
-            }
-            Some(network) if matches!(network.as_bytes(), b"signet") => {
-                hex_literal::hex!(
-                    "f3109042039f5903a01d75540ea5e4f6d4c52091ec6f48e8bb30f155d5a04e25"
-                )
-            }
-            Some(network) if matches!(network.as_bytes(), b"regtest") => {
-                hex_literal::hex!(
-                    "c94b02cb475b18e2054b2a88fcc907a5c11699ee0095110f09c1cb38c9211edc"
-                )
-            }
-            None => {
-                hex_literal::hex!(
-                    "7d671cfd5e307534b0d6a42338764f8f5ae1357b3d0d4004c62fa41e31c47b8d"
-                )
-            }
-            _ => panic!("Invalid network type"),
+            Some("mainnet") => hex_literal::hex!(
+                "6a1839674dcb57d4d0b489d6992f36166b663b196ca84cd5db321c03cf038caa"
+            ),
+            Some("testnet4") => hex_literal::hex!(
+                "7d671cfd5e307534b0d6a42338764f8f5ae1357b3d0d4004c62fa41e31c47b8d"
+            ),
+            Some("signet") => hex_literal::hex!(
+                "f3109042039f5903a01d75540ea5e4f6d4c52091ec6f48e8bb30f155d5a04e25"
+            ),
+            Some("regtest") => hex_literal::hex!(
+                "c94b02cb475b18e2054b2a88fcc907a5c11699ee0095110f09c1cb38c9211edc"
+            ),
+            Some(other) => panic!("Unsupported BITCOIN_NETWORK: {other}"),
+            None => panic!("BITCOIN_NETWORK not set"),
         }
-    };
+    });
 
     // const HEADERS: &[u8] = include_bytes!("../bin-files/testnet4_headers.bin");
     // const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");
@@ -395,7 +384,7 @@ mod tests {
         let work_only_method_id_from_elf = compute_image_id(WORK_ONLY_ELF).unwrap();
         assert_eq!(
             work_only_method_id_from_elf.as_bytes(),
-            WORK_ONLY_IMAGE_ID,
+            *WORK_ONLY_IMAGE_ID,
             "Method ID mismatch, make sure to build the guest programs with new hardcoded values."
         );
 
