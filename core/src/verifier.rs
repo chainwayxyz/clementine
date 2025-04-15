@@ -323,6 +323,7 @@ where
         &self,
         num_nonces: u32,
     ) -> Result<(u32, Vec<MusigPubNonce>), BridgeError> {
+        tracing::info!("Generating {} nonces", num_nonces);
         let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
@@ -347,6 +348,11 @@ where
             session_id
         };
 
+        tracing::info!(
+            "Generated {} nonces for session id: {}",
+            num_nonces,
+            session_id
+        );
         Ok((session_id, pub_nonces))
     }
 
@@ -356,6 +362,7 @@ where
         session_id: u32,
         mut agg_nonce_rx: mpsc::Receiver<MusigAggNonce>,
     ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
+        tracing::info!("Deposit sign for session id: {}", session_id);
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -400,13 +407,25 @@ where
                     .next()
                     .await
                     .ok_or(eyre::eyre!("No sighash received"))??;
-                tracing::debug!("Verifier {} found sighash: {:?}", verifier_index, sighash);
+                tracing::info!("Verifier {} found sighash: {:?}", verifier_index, sighash);
 
                 let nonce = session
                     .nonces
                     .pop()
                     .ok_or(eyre::eyre!("No nonce available"))?;
 
+
+                tracing::info!(
+                    "Verifier {} signing the {}th sighash: {:?} with verifiers_key: {}",
+                    verifier_index,
+                    nonce_idx + 1,
+                    sighash,
+                    verifiers_public_keys
+                        .iter()
+                        .map(|key| hex::encode(key.serialize()))
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                );
                 let partial_sig = musig2::partial_sign(
                     verifiers_public_keys.clone(),
                     None,
@@ -415,6 +434,13 @@ where
                     verifier.signer.keypair,
                     Message::from_digest(*sighash.0.as_byte_array()),
                 )?;
+                tracing::info!(
+                    "Verifier {} signed the {}th sighash: {:?}, partial sig: {}",
+                    verifier_index,
+                    nonce_idx + 1,
+                    sighash,
+                    hex::encode(partial_sig.serialize())
+                );
 
                 partial_sig_tx
                     .send(partial_sig)
@@ -422,7 +448,7 @@ where
                     .wrap_err("Failed to send partial signature")?;
 
                 nonce_idx += 1;
-                tracing::debug!(
+                tracing::info!(
                     "Verifier {} signed and sent sighash {} of {}",
                     verifier_index,
                     nonce_idx,
@@ -455,6 +481,7 @@ where
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
     ) -> Result<MusigPartialSignature, BridgeError> {
+        tracing::info!("Deposit finalize for session id: {}", session_id);
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -511,8 +538,10 @@ where
         let mut nonce_idx: usize = 0;
 
         while let Some(sighash) = sighash_stream.next().await {
+            tracing::info!("Verifier received the {}th sighash: {:?}", nonce_idx + 1, sighash);
             let typed_sighash = sighash.wrap_err("Failed to read from sighash stream")?;
 
+            tracing::info!("Verifier received the {}th typed sighash: {:?}", nonce_idx + 1, typed_sighash);
             let &SignatureInfo {
                 operator_idx,
                 round_idx,
@@ -532,7 +561,7 @@ where
                 .await
                 .ok_or_eyre("No signature received")?;
 
-            tracing::debug!("Verifying Final nofn Signature {}", nonce_idx + 1);
+            tracing::info!("Verifying the {}th nofn signature", nonce_idx + 1);
 
             verify_schnorr(
                 &sig,
@@ -555,7 +584,7 @@ where
             };
             verified_sigs[operator_idx][round_idx][kickoff_utxo_idx].push(tagged_sig);
 
-            tracing::debug!("Final Signature Verified");
+            tracing::info!("The {}th nofn signature verified", nonce_idx + 1);
 
             nonce_idx += 1;
         }

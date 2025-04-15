@@ -81,7 +81,10 @@ async fn nonce_aggregator(
 
         total_sigs += 1;
 
-        tracing::info!("Second received sighash in nonce_aggregator: {:?}", sighash.to_string());
+        tracing::info!(
+            "Second received sighash in nonce_aggregator: {:?}",
+            sighash.to_string()
+        );
 
         let pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
             |(i, s)| async move {
@@ -163,9 +166,10 @@ async fn nonce_distributor(
     while let Some(queue_item) = agg_nonce_receiver.recv().await {
         sig_count += 1;
 
-        tracing::debug!(
-            "Received aggregated nonce {} in nonce_distributor",
-            sig_count
+        tracing::info!(
+            "Received aggregated nonce {} in nonce_distributor: {}",
+            sig_count,
+            hex::encode(queue_item.agg_nonce.serialize().to_vec())
         );
 
         let agg_nonce_wrapped = clementine::VerifierDepositSignParams {
@@ -182,6 +186,11 @@ async fn nonce_distributor(
                 .map(|(idx, (_, tx))| {
                     let agg_nonce_wrapped = agg_nonce_wrapped.clone();
                     async move {
+                        tracing::info!(
+                            "Sending aggregated nonce {} to verifier {}",
+                            hex::encode(queue_item.agg_nonce.serialize().to_vec()),
+                            idx
+                        );
                         tx.send(agg_nonce_wrapped).await.wrap_err_with(|| {
                             AggregatorError::OutputStreamEndedEarly {
                                 stream_name: format!("Partial sig stream {idx}"),
@@ -193,7 +202,7 @@ async fn nonce_distributor(
         .await
         .wrap_err("Failed to send aggregated nonces to verifiers")?;
 
-        tracing::debug!(
+        tracing::info!(
             "Sent aggregated nonce {} to verifiers in nonce_distributor",
             sig_count
         );
@@ -209,6 +218,12 @@ async fn nonce_distributor(
                     .ok_or_eyre(AggregatorError::InputStreamEndedEarlyUnknownSize {
                         stream_name: format!("Partial sig stream {idx}"),
                     })?;
+
+                tracing::info!(
+                    "Received partial signature {} from verifier {}",
+                    hex::encode(partial_sig.partial_sig.clone()),
+                    idx
+                );
 
                 Ok::<_, BridgeError>(
                     MusigPartialSignature::from_slice(&partial_sig.partial_sig)
@@ -263,6 +278,12 @@ async fn signature_aggregator(
             Message::from_digest(queue_item.sighash.to_byte_array()),
         )?;
 
+        tracing::info!(
+            "Aggregated signature {} in signature_aggregator: {}",
+            sig_count,
+            hex::encode(final_sig.serialize().to_vec())
+        );
+
         final_sig_sender
             .send(FinalSigQueueItem {
                 final_sig: final_sig.serialize().to_vec(),
@@ -292,7 +313,11 @@ async fn signature_distributor(
     let mut sig_count = 0;
     while let Some(queue_item) = final_sig_receiver.recv().await {
         sig_count += 1;
-        tracing::debug!("Received signature {} in signature_distributor", sig_count);
+        tracing::info!(
+            "Received signature {} in signature_distributor: {}",
+            sig_count,
+            hex::encode(queue_item.final_sig.clone())
+        );
         let final_params = VerifierDepositFinalizeParams {
             params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
@@ -300,6 +325,13 @@ async fn signature_distributor(
         // TODO: consider the waiting of each verifier here.
         try_join_all(deposit_finalize_sender.iter().map(|tx| {
             let final_params = final_params.clone();
+            tracing::info!(
+                "Sending final signature: {} to the verifier",
+                hex::encode(match final_params.params.clone().expect("Final params is None") {
+                    Params::SchnorrSig(sig) => sig.clone(),
+                    _ => vec![0u8; 64],
+                }),
+            );
             async move {
                 tx.send(final_params).await.wrap_err_with(|| {
                     AggregatorError::OutputStreamEndedEarly {
@@ -321,7 +353,10 @@ async fn signature_distributor(
         .await
         .wrap_err("Failed to get movetx aggregated nonce")?;
 
-    tracing::debug!("Got movetx aggregated nonce in signature distributor");
+    tracing::info!(
+        "Got movetx aggregated nonce in signature distributor: {}",
+        hex::encode(movetx_agg_nonce.serialize())
+    );
 
     // Send the movetx agg nonce to the verifiers.
     for tx in &deposit_finalize_sender {
@@ -812,6 +847,8 @@ impl ClementineAggregator for Aggregator {
             },
         };
 
+        tracing::info!("Aggregator new deposit with data: {:?}", deposit_data);
+
         let deposit_params = deposit_data.clone().into();
 
         // Collect and distribute keys needed keys from operators and watchtowers to verifiers
@@ -921,6 +958,7 @@ impl ClementineAggregator for Aggregator {
         let (partial_sig_sender, partial_sig_receiver) = channel(1280);
         let (final_sig_sender, final_sig_receiver) = channel(1280);
 
+        tracing::info!("Starting nonce aggregation pipe");
         // Start the nonce aggregation pipe.
         let nonce_agg_handle = tokio::spawn(nonce_aggregator(
             nonce_streams,
