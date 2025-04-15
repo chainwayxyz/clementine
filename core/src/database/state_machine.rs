@@ -2,7 +2,9 @@
 //!
 //! This module includes database functions for persisting and loading state machines.
 
-use super::{Database, DatabaseTransaction};
+use bitcoin::XOnlyPublicKey;
+
+use super::{wrapper::XOnlyPublicKeyDB, Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::execute_query_with_tx;
 
@@ -13,7 +15,7 @@ impl Database {
     ///
     /// * `tx` - Optional database transaction
     /// * `kickoff_machines` - Vector of (state_json, kickoff_id, owner_type, dirty) tuples for kickoff machines
-    /// * `round_machines` - Vector of (state_json, operator_idx, owner_type, dirty) tuples for round machines
+    /// * `round_machines` - Vector of (state_json, operator_xonly_pk, owner_type, dirty) tuples for round machines
     /// * `block_height` - Current block height
     ///
     /// # Errors
@@ -23,7 +25,7 @@ impl Database {
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         kickoff_machines: Vec<(String, String, String, bool)>,
-        round_machines: Vec<(String, i32, String, bool)>,
+        round_machines: Vec<(String, XOnlyPublicKey, String, bool)>,
         block_height: i32,
     ) -> Result<(), BridgeError> {
         // Save kickoff machines that are dirty
@@ -59,7 +61,7 @@ impl Database {
         }
 
         // Save round machines that are dirty
-        for (state_json, operator_idx, owner_type, dirty) in round_machines {
+        for (state_json, operator_xonly_pk, owner_type, dirty) in round_machines {
             // Skip machines that are not dirty
             if !dirty {
                 continue;
@@ -69,13 +71,13 @@ impl Database {
                 "INSERT INTO state_machines (
                     machine_type,
                     state_json,
-                    operator_idx,
+                    operator_xonly_pk,
                     owner_type,
                     block_height,
                     created_at,
                     updated_at
                 ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                ON CONFLICT (machine_type, operator_idx, owner_type)
+                ON CONFLICT (machine_type, operator_xonly_pk, owner_type)
                 DO UPDATE SET
                     state_json = EXCLUDED.state_json,
                     block_height = EXCLUDED.block_height,
@@ -83,7 +85,7 @@ impl Database {
             )
             .bind("round")
             .bind(&state_json)
-            .bind(operator_idx)
+            .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(&owner_type)
             .bind(block_height);
 
@@ -176,20 +178,26 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         owner_type: &str,
-    ) -> Result<Vec<(String, i32, i32)>, BridgeError> {
+    ) -> Result<Vec<(String, XOnlyPublicKey, i32)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT
                 state_json,
-                operator_idx,
+                operator_xonly_pk,
                 block_height
             FROM state_machines
             WHERE machine_type = 'round' AND owner_type = $1",
         )
         .bind(owner_type);
 
-        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        let results: Vec<(String, XOnlyPublicKeyDB, i32)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        Ok(results)
+        Ok(results
+            .into_iter()
+            .map(|(state_json, operator_xonly_pk, block_height)| {
+                (state_json, operator_xonly_pk.0, block_height)
+            })
+            .collect())
     }
 }
 
@@ -202,6 +210,9 @@ mod tests {
     async fn test_save_and_load_state_machines() {
         let config = create_test_config_with_thread_name().await;
         let db = Database::new(&config).await.unwrap();
+
+        let xonly_pk1 = generate_random_xonly_pk();
+        let xonly_pk2 = generate_random_xonly_pk();
 
         // Create test data with owner_type
         let owner_type = "test_owner";
@@ -223,13 +234,13 @@ mod tests {
         let round_machines = vec![
             (
                 "round_state_1".to_string(),
-                1,
+                xonly_pk1,
                 owner_type.to_string(),
                 true, // dirty
             ),
             (
                 "round_state_2".to_string(),
-                2,
+                xonly_pk2,
                 owner_type.to_string(),
                 true, // dirty
             ),
@@ -255,7 +266,7 @@ mod tests {
         let loaded_round = db.load_round_machines(None, owner_type).await.unwrap();
         assert_eq!(loaded_round.len(), 2);
         assert_eq!(loaded_round[0].0, "round_state_1");
-        assert_eq!(loaded_round[0].1, 1);
+        assert_eq!(loaded_round[0].1, xonly_pk1);
         assert_eq!(loaded_round[0].2, 123);
 
         // Test dirty flag by updating only one machine

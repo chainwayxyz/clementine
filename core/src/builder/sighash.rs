@@ -10,42 +10,44 @@ use crate::bitvm_client;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    create_txhandlers, ContractContext, ReimburseDbCache, TransactionType, TxHandlerCache,
+    create_txhandlers, ContractContext, KickoffData, ReimburseDbCache, TransactionType,
+    TxHandlerCache,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::{KickoffId, NormalSignatureKind};
+use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;
 use bitcoin::hashes::Hash;
-use bitcoin::{OutPoint, TapNodeHash, TapSighash, XOnlyPublicKey};
+use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
 impl BridgeConfig {
     /// Returns the number of required signatures for N-of-N signing session.
-    pub fn get_num_required_nofn_sigs(&self) -> usize {
-        self.num_operators
+    pub fn get_num_required_nofn_sigs(&self, deposit_data: &DepositData) -> usize {
+        deposit_data.get_num_operators()
             * self.protocol_paramset().num_round_txs
             * self.protocol_paramset().num_signed_kickoffs
-            * self.get_num_required_nofn_sigs_per_kickoff()
+            * self.get_num_required_nofn_sigs_per_kickoff(deposit_data)
     }
 
     // WIP: For now, this is equal to the number of sighashes we yield in create_operator_sighash_stream.
     // This will change as we implement the system design.
-    pub fn get_num_required_operator_sigs(&self) -> usize {
+    pub fn get_num_required_operator_sigs(&self, deposit_data: &DepositData) -> usize {
         self.protocol_paramset().num_round_txs
             * self.protocol_paramset().num_signed_kickoffs
-            * self.get_num_required_operator_sigs_per_kickoff()
+            * self.get_num_required_operator_sigs_per_kickoff(deposit_data)
     }
 
-    pub fn get_num_required_nofn_sigs_per_kickoff(&self) -> usize {
-        6 + 4 * self.num_verifiers
+    pub fn get_num_required_nofn_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
+        6 + 4 * deposit_data.get_num_verifiers()
             + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
     }
 
-    pub fn get_num_required_operator_sigs_per_kickoff(&self) -> usize {
-        2 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() + self.num_verifiers
+    pub fn get_num_required_operator_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
+        2 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
+            + deposit_data.get_num_verifiers()
     }
 
     /// Returns the total number of winternitz pks used in kickoff utxos for blockhash commits
@@ -60,8 +62,8 @@ impl BridgeConfig {
     }
 
     /// Returns the number of challenge ack hashes needed for a single operator for each round
-    pub fn get_num_challenge_ack_hashes(&self) -> usize {
-        self.num_verifiers
+    pub fn get_num_challenge_ack_hashes(&self, deposit_data: &DepositData) -> usize {
+        deposit_data.get_num_watchtowers()
     }
 
     // /// Returns the number of winternitz pks needed for a single operator for each round
@@ -154,17 +156,14 @@ pub fn create_nofn_sighash_stream(
     yield_kickoff_txid: bool,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
-        let operators: Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)> =
-            db.get_operators(None).await?;
         let paramset = config.protocol_paramset();
-        if operators.len() < config.num_operators {
-            Err(eyre::eyre!("Not enough operators"))?;
-        }
 
-        for (operator_idx, (op_xonly_pk, _, _)) in
+        let operators = deposit_data.get_operators();
+
+        for (operator_idx, op_xonly_pk) in
             operators.iter().enumerate()
         {
+
             let utxo_idxs = get_kickoff_utxos_to_sign(
                 config.protocol_paramset(),
                 *op_xonly_pk,
@@ -172,7 +171,7 @@ pub fn create_nofn_sighash_stream(
                 deposit_data.get_deposit_outpoint(),
             );
             // need to create new TxHandlerDbData for each operator
-            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+            let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
             let mut txhandler_cache = TxHandlerCache::new();
 
@@ -188,8 +187,8 @@ pub fn create_nofn_sighash_stream(
                     let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
                     let context = ContractContext::new_context_for_kickoffs(
-                        KickoffId {
-                            operator_idx: operator_idx as u32,
+                        KickoffData {
+                            operator_xonly_pk: *op_xonly_pk,
                             round_idx: round_idx as u32,
                             kickoff_idx: kickoff_idx as u32,
                         },
@@ -228,8 +227,8 @@ pub fn create_nofn_sighash_stream(
                     }
 
 
-                    if sum != config.get_num_required_nofn_sigs_per_kickoff() {
-                        Err(eyre::eyre!("NofN sighash count does not match: expected {0}, got {1}", config.get_num_required_nofn_sigs_per_kickoff(), sum))?;
+                    if sum != config.get_num_required_nofn_sigs_per_kickoff(&deposit_data) {
+                        Err(eyre::eyre!("NofN sighash count does not match: expected {0}, got {1}", config.get_num_required_nofn_sigs_per_kickoff(&deposit_data), sum))?;
                     }
                     // recollect round_tx, ready_to_reimburse_tx, and move_to_vault_tx for the next kickoff_utxo
                     txhandler_cache.store_for_next_kickoff(&mut txhandlers)?;
@@ -249,19 +248,19 @@ pub fn create_nofn_sighash_stream(
 /// It is possible to for verifiers somehow return the required sighashes for operator signatures there too. But operators only needs to use sighashes included in this function.
 pub fn create_operator_sighash_stream(
     db: Database,
-    operator_idx: usize,
+    operator_xonly_pk: XOnlyPublicKey,
     config: BridgeConfig,
     deposit_data: DepositData,
     deposit_blockhash: bitcoin::BlockHash,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_idx as u32, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
+        let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
-        let operator = db.get_operator(None, operator_idx as i32).await?;
+        let operator = db.get_operator(None, operator_xonly_pk).await?;
 
         let operator = match operator {
             Some(operator) => operator,
-            None => Err(BridgeError::OperatorNotFound(operator_idx as u32))?,
+            None => Err(BridgeError::OperatorNotFound(operator_xonly_pk))?,
         };
 
         let utxo_idxs = get_kickoff_utxos_to_sign(
@@ -273,6 +272,7 @@ pub fn create_operator_sighash_stream(
 
         let paramset = config.protocol_paramset();
         let mut txhandler_cache = TxHandlerCache::new();
+        let operator_idx = deposit_data.get_operator_index(operator_xonly_pk)?;
 
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
         for round_idx in 0..paramset.num_round_txs {
@@ -280,8 +280,8 @@ pub fn create_operator_sighash_stream(
                 let partial = PartialSignatureInfo::new(operator_idx, round_idx, kickoff_idx);
 
                 let context = ContractContext::new_context_for_kickoffs(
-                    KickoffId {
-                        operator_idx: operator_idx as u32,
+                    KickoffData {
+                        operator_xonly_pk,
                         round_idx: round_idx as u32,
                         kickoff_idx: kickoff_idx as u32,
                     },
@@ -304,8 +304,8 @@ pub fn create_operator_sighash_stream(
                         yield sighash;
                     }
                 }
-                if sum != config.get_num_required_operator_sigs_per_kickoff() {
-                    Err(eyre::eyre!("Operator sighash count does not match: expected {0}, got {1}", config.get_num_required_operator_sigs_per_kickoff(), sum))?;
+                if sum != config.get_num_required_operator_sigs_per_kickoff(&deposit_data) {
+                    Err(eyre::eyre!("Operator sighash count does not match: expected {0}, got {1}", config.get_num_required_operator_sigs_per_kickoff(&deposit_data), sum))?;
                 }
                 // recollect round_tx, ready_to_reimburse_tx, and move_to_vault_tx for the next kickoff_utxo
                 txhandler_cache.store_for_next_kickoff(&mut txhandlers)?;

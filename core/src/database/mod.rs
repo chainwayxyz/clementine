@@ -72,6 +72,19 @@ impl Database {
         self.connection.clone()
     }
 
+    pub async fn is_pgmq_installed(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<bool, BridgeError> {
+        let query = sqlx::query_as::<_, (i64,)>(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pgmq' AND table_name = 'meta'"
+        );
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        Ok(result.0 > 0)
+    }
+
     /// Runs the schema script on a database for the given configuration.
     ///
     /// # Errors
@@ -88,9 +101,15 @@ impl Database {
             .execute(&database.connection)
             .await?;
         if is_verifier {
-            sqlx::raw_sql(include_str!("../../../scripts/pgmq.sql"))
-                .execute(&database.connection)
-                .await?;
+            // Check if PGMQ schema already exists
+            let is_pgmq_installed = database.is_pgmq_installed(None).await?;
+
+            // Only execute PGMQ setup if it doesn't exist
+            if !is_pgmq_installed {
+                sqlx::raw_sql(include_str!("../../../scripts/pgmq.sql"))
+                    .execute(&database.connection)
+                    .await?;
+            }
         }
 
         database.close().await;

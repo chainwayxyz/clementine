@@ -12,7 +12,7 @@
 
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Amount, XOnlyPublicKey};
+use bitcoin::Amount;
 use protocol::{ProtocolParamset, ProtocolParamsetName};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -54,12 +54,6 @@ pub struct BridgeConfig {
     pub secret_key: SecretKey,
     /// Additional secret key that will be used for creating Winternitz one time signature.
     pub winternitz_secret_key: Option<SecretKey>,
-    /// Number of verifiers.
-    pub num_verifiers: usize,
-    /// Operators x-only public keys.
-    pub operators_xonly_pks: Vec<XOnlyPublicKey>,
-    /// Number of operators.
-    pub num_operators: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Bitcoin remote procedure call URL.
@@ -157,20 +151,6 @@ impl Default for BridgeConfig {
                 "1111111111111111111111111111111111111111111111111111111111111111",
             )
             .expect("known valid input"),
-
-            num_verifiers: 4,
-
-            num_operators: 2,
-            operators_xonly_pks: vec![
-                XOnlyPublicKey::from_str(
-                    "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
-                )
-                .expect("known valid input"),
-                XOnlyPublicKey::from_str(
-                    "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
-                )
-                .expect("known valid input"),
-            ],
 
             operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
 

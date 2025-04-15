@@ -1,4 +1,4 @@
-use super::{convert_int_to_another, ParserError};
+use super::ParserError;
 use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
 use crate::errors::BridgeError;
@@ -21,6 +21,7 @@ use crate::{
 use bitcoin::secp256k1::schnorr;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;
+use bitcoin::XOnlyPublicKey;
 use eyre::Context;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tonic::Status;
@@ -32,31 +33,8 @@ where
     type Error = Status;
 
     fn try_from(verifier: &Verifier<C>) -> Result<Self, Self::Error> {
-        let id = futures::executor::block_on(async {
-            match *verifier.idx.read().await {
-                Some(idx) => convert_int_to_another("id", idx, u32::try_from).map(Some),
-                None => Ok(None),
-            }
-        })?;
-
         Ok(VerifierParams {
-            id,
             public_key: verifier.signer.public_key.serialize().to_vec(),
-            num_verifiers: convert_int_to_another(
-                "num_verifiers",
-                verifier.config.num_verifiers,
-                u32::try_from,
-            )?,
-            num_operators: convert_int_to_another(
-                "num_operators",
-                verifier.config.num_operators,
-                u32::try_from,
-            )?,
-            num_round_txs: convert_int_to_another(
-                "num_round_txs",
-                verifier.config.protocol_paramset().num_round_txs,
-                u32::try_from,
-            )?,
         })
     }
 }
@@ -148,13 +126,17 @@ impl From<MusigPartialSignature> for PartialSig {
 
 pub fn parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
-    verifier_idx: usize,
+    verifier_pk: &PublicKey,
 ) -> Result<(DepositData, u32), Status> {
     let deposit_params = deposit_sign_session
         .deposit_params
         .ok_or(Status::invalid_argument("No deposit params received"))?;
 
     let deposit_data: DepositData = deposit_params.try_into()?;
+
+    let verifier_idx = deposit_data
+        .get_verifier_index(verifier_pk)
+        .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
     let session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;
 
@@ -180,7 +162,7 @@ pub fn parse_partial_sigs(
 
 pub fn parse_op_keys_with_deposit(
     data: OperatorKeysWithDeposit,
-) -> Result<(DepositData, OperatorKeys, u32), Status> {
+) -> Result<(DepositData, OperatorKeys, XOnlyPublicKey), Status> {
     let deposit_params = data
         .deposit_params
         .ok_or(Status::invalid_argument("deposit_params is empty"))?;
@@ -191,7 +173,11 @@ pub fn parse_op_keys_with_deposit(
         .operator_keys
         .ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
 
-    Ok((deposit_data, op_keys, data.operator_idx))
+    let operator_xonly_pk = XOnlyPublicKey::from_slice(&data.operator_xonly_pk).map_err(
+        invalid_argument("operator_xonly_pk", "Invalid xonly public key"),
+    )?;
+
+    Ok((deposit_data, op_keys, operator_xonly_pk))
 }
 
 pub async fn parse_next_deposit_finalize_param_schnorr_sig(

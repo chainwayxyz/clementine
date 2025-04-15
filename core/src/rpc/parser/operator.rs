@@ -24,7 +24,6 @@ where
 {
     fn from(operator: Operator<C>) -> Self {
         let operator_config = OperatorConfig {
-            operator_idx: operator.idx as u32,
             collateral_funding_outpoint: Some(Outpoint {
                 txid: operator
                     .collateral_funding_outpoint
@@ -86,7 +85,7 @@ impl TryFrom<DepositSignSession> for DepositParams {
 /// - Wallet reimburse address
 pub async fn parse_details(
     stream: &mut tonic::Streaming<OperatorParams>,
-) -> Result<(u32, OutPoint, XOnlyPublicKey, Address), Status> {
+) -> Result<(OutPoint, XOnlyPublicKey, Address), Status> {
     let operator_param = fetch_next_message_from_stream!(stream, response)?;
 
     let operator_config =
@@ -113,7 +112,6 @@ pub async fn parse_details(
         .assume_checked();
 
     Ok((
-        operator_config.operator_idx,
         collateral_funding_outpoint,
         operator_xonly_pk,
         wallet_reimburse_address,
