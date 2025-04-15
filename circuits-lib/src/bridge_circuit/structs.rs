@@ -1,3 +1,4 @@
+use bitcoin::TxOut;
 use borsh::{BorshDeserialize, BorshSerialize};
 use final_spv::spv::SPV;
 use header_chain::header_chain::BlockHeaderCircuitOutput;
@@ -109,4 +110,10 @@ pub struct BridgeCircuitOutput {
     pub last_blockhash: [u8; 32],
     pub deposit_txid: [u8; 32],
     pub operator_id: [u8; 32],
+}
+
+#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
+pub struct WatchtowerChallengeSet {
+    pub challenge_senders: [u8; 20],
+    pub challenge_outputs: Vec<[TxOut; 3]>,
 }
