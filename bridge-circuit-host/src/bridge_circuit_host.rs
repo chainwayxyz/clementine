@@ -335,8 +335,9 @@ mod tests {
     const WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
-    pub static WORK_ONLY_IMAGE_ID: Lazy<[u8; 32]> = Lazy::new(|| {
-        match option_env!("BITCOIN_NETWORK") {
+    // ALSO IMPORTANT FOR HEADERCHAIN IMAGE ID BITCOIN_NETWORK SHOULD BE SET TO "testnet4"
+    pub static WORK_ONLY_IMAGE_ID: Lazy<[u8; 32]> =
+        Lazy::new(|| match option_env!("BITCOIN_NETWORK") {
             Some("mainnet") => hex_literal::hex!(
                 "6a1839674dcb57d4d0b489d6992f36166b663b196ca84cd5db321c03cf038caa"
             ),
@@ -351,8 +352,7 @@ mod tests {
             ),
             Some(other) => panic!("Unsupported BITCOIN_NETWORK: {other}"),
             None => panic!("BITCOIN_NETWORK not set"),
-        }
-    });
+        });
 
     // const HEADERS: &[u8] = include_bytes!("../bin-files/testnet4_headers.bin");
     // const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");
