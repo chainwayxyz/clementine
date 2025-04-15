@@ -43,7 +43,6 @@ itertools = { workspace = true }
 final-spv = { workspace = true }
 header-chain = { workspace = true }
 k256 = { workspace = true }
-
 lazy_static = { workspace = true }
 
 [features]
