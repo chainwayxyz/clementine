@@ -161,9 +161,7 @@ impl DepositData {
     }
     /// Returns sorted verifiers, they are sorted so that their order is deterministic.
     pub fn get_verifiers(&self) -> Vec<PublicKey> {
-        let mut verifiers = self.actors.verifiers.clone();
-        verifiers.sort();
-        verifiers
+        self.actors.verifiers.clone()
     }
     /// Returns sorted watchtowers, they are sorted so that their order is deterministic.
     pub fn get_watchtowers(&self) -> Vec<XOnlyPublicKey> {
@@ -174,13 +172,10 @@ impl DepositData {
             .map(|pk| pk.x_only_public_key().0)
             .collect::<Vec<_>>();
         watchtowers.extend(self.actors.watchtowers.iter());
-        watchtowers.sort();
         watchtowers
     }
     pub fn get_operators(&self) -> Vec<XOnlyPublicKey> {
-        let mut operators = self.actors.operators.clone();
-        operators.sort();
-        operators
+        self.actors.operators.clone()
     }
     pub fn get_num_operators(&self) -> usize {
         self.actors.operators.len()

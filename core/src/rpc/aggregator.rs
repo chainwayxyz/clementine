@@ -76,9 +76,12 @@ async fn nonce_aggregator(
 
     // We assume the sighash stream returns the correct number of items.
     while let Some(msg) = sighash_stream.next().await {
+        tracing::info!("First received sighash in nonce_aggregator: {:?}", msg);
         let (sighash, siginfo) = msg.wrap_err("Sighash stream failed")?;
 
         total_sigs += 1;
+
+        tracing::info!("Second received sighash in nonce_aggregator: {:?}", sighash.to_string());
 
         let pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
             |(i, s)| async move {

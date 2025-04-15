@@ -48,8 +48,6 @@ pub struct BridgeConfig {
     pub host: String,
     /// Port of the operator or the verifier
     pub port: u16,
-    /// Entity index.
-    pub index: u32,
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
     /// Additional secret key that will be used for creating Winternitz one time signature.
@@ -86,8 +84,6 @@ pub struct BridgeConfig {
     /// Operator endpoint. For the aggregator only
     pub operator_endpoints: Option<Vec<String>>,
 
-    // /// Directory containing unix sockets
-    // pub socket_path: String,
     /// All Secret keys. Just for testing purposes.
     pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
     /// All Secret keys. Just for testing purposes.
@@ -145,7 +141,6 @@ impl Default for BridgeConfig {
             protocol_paramset: ProtocolParamsetName::Regtest,
             host: "127.0.0.1".to_string(),
             port: 17000,
-            index: 0,
 
             secret_key: SecretKey::from_str(
                 "1111111111111111111111111111111111111111111111111111111111111111",
