@@ -386,7 +386,9 @@ impl Database {
         let query = sqlx::query(
             "
             INSERT INTO deposit_signatures (deposit_id, operator_xonly_pk, round_idx, kickoff_idx, kickoff_txid, signatures)
-            VALUES ($1, $2, $3, $4, $5, $6);"
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (deposit_id, operator_xonly_pk, round_idx, kickoff_idx)
+            DO UPDATE SET kickoff_txid = EXCLUDED.kickoff_txid, signatures = EXCLUDED.signatures;"
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
@@ -396,6 +398,7 @@ impl Database {
         .bind(SignaturesDB(DepositSignatures{signatures}));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
+
         Ok(())
     }
 
