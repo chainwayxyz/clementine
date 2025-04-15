@@ -1,25 +1,18 @@
 use circuits_lib::{common, bridge_circuit::bridge_circuit};
+use hex_literal::hex;
 
-/// The method ID for the work only circuit.
-pub static WORK_ONLY_IMAGE_ID: [u8; 32] = {
-    match option_env!("BITCOIN_NETWORK") {
-        Some(network) if matches!(network.as_bytes(), b"mainnet") => {
-            hex_literal::hex!("6a1839674dcb57d4d0b489d6992f36166b663b196ca84cd5db321c03cf038caa")
-        }
-        Some(network) if matches!(network.as_bytes(), b"testnet4") => {
-            hex_literal::hex!("7d671cfd5e307534b0d6a42338764f8f5ae1357b3d0d4004c62fa41e31c47b8d")
-        }
-        Some(network) if matches!(network.as_bytes(), b"signet") => {
-            hex_literal::hex!("f3109042039f5903a01d75540ea5e4f6d4c52091ec6f48e8bb30f155d5a04e25")
-        }
-        Some(network) if matches!(network.as_bytes(), b"regtest") => {
-            hex_literal::hex!("c94b02cb475b18e2054b2a88fcc907a5c11699ee0095110f09c1cb38c9211edc")
-        }
-        None => {
-            hex_literal::hex!("6a1839674dcb57d4d0b489d6992f36166b663b196ca84cd5db321c03cf038caa")
-        }
-        _ => panic!("Invalid network type"),
-    }
+static MAINNET: [u8; 32] = hex!("f32e881ba4bbf8a5cc3fed7a6eca02c4f087bc1c9cafb0ae7d350fdab1230d6f");
+static TESTNET4: [u8; 32] = hex!("6d104e43b3c55b70a47873edbbd22c8cf01b5fc77e5ff973ad8ba4b9cf3528dc");
+static REGTEST: [u8; 32] = hex!("70e23c3d05a32e4577b4b91ff0891f3ade75a381b815f343c78eb18d08ffccf2");
+static SIGNET: [u8; 32] = hex!("4672711a78b07166acd61c7d0f0c59d3f786562480d2f3ec780749544d04e000");
+
+pub static WORK_ONLY_IMAGE_ID: [u8; 32] = match option_env!("BITCOIN_NETWORK") {
+    Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET,
+    Some(network) if matches!(network.as_bytes(), b"testnet4") => TESTNET4,
+    Some(network) if matches!(network.as_bytes(), b"signet") => SIGNET,
+    Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST,
+    None => MAINNET,
+    _ => panic!("Invalid network type"),
 };
 
 fn main() {
