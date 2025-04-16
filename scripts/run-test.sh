@@ -72,6 +72,25 @@ if [ -z "$DB_NAME" ]; then
     export DB_NAME="clementine"
 fi
 
+if [ -z "$PROTOCOL_CONFIG_PATH" ]; then
+    export PROTOCOL_CONFIG_PATH="core/src/config/protocol_paramset.toml"
+fi
+if [ -z "$DBG_PACKAGE_HEX" ]; then
+    export DBG_PACKAGE_HEX="1"
+fi
+if [ -z "$RUST_MIN_STACK" ]; then
+    export RUST_MIN_STACK="33554432"
+fi
+if [ -z "$RISC0_SKIP_BUILD" ]; then
+    export RISC0_SKIP_BUILD="1"
+fi
+if [ -z "$JSON_LOGS" ]; then
+    export JSON_LOGS="1"
+fi
+if [ -z "$RUST_LOG" ]; then
+    export RUST_LOG="debug"
+fi
+
 # Define databases to drop and recreate
 databases=("clementine0" "clementine1" "clementine2" "clementine3")
 
@@ -158,7 +177,7 @@ for i in "${!roles[@]}"; do
     echo "Secret key is $SECRET_KEY"
     echo "Port is $PORT"
 
-    PROTOCOL_CONFIG_PATH=core/src/config/protocol_paramset.toml DBG_PACKAGE_HEX=1 RUST_MIN_STACK=33554432 RISC0_SKIP_BUILD=1 JSON_LOGS=1 RUST_LOG=debug "$BIN_PATH" "$role" > "$log_file" 2> "logs/${filename%.toml}_error.log" &
+    "$BIN_PATH" "$role" > "$log_file" 2> "logs/${filename%.toml}_error.log" &
     pids+=("$!")
 
     # Small delay between starts
