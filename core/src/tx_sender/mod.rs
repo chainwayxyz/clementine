@@ -189,8 +189,8 @@ impl TxSender {
             Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
             None => {
                 if self.network == bitcoin::Network::Regtest {
-                    tracing::trace!("Using fee rate of 1 sat/vb (Regtest mode)");
-                    return Ok(FeeRate::from_sat_per_vb_unchecked(1));
+                    tracing::trace!("Using fee rate of 1 sat/vb (Broadcast min) [Regtest mode]");
+                    return Ok(FeeRate::BROADCAST_MIN);
                 }
 
                 Err(eyre::eyre!("Fee estimation error: {:?}", fee_rate.errors).into())
@@ -344,11 +344,7 @@ impl TxSender {
                 // Update sending state
                 let _ = self
                     .db
-                    .update_tx_debug_sending_state(
-                        id,
-                        "confirmed",
-                        true,
-                    )
+                    .update_tx_debug_sending_state(id, "confirmed", true)
                     .await;
 
                 // We could purge debug info here if needed
