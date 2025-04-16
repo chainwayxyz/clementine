@@ -146,6 +146,7 @@ for i in "${!roles[@]}"; do
     secret_key_digit=$((index + 1))
     export SECRET_KEY=$(printf "%064d" | tr '0' "$secret_key_digit")
     export PORT=$((17000 + i + 1))
+    export DB_NAME="${databases[$index]}"
 
     # Aggregator overwrites
     if [ $role == "aggregator" ]; then
