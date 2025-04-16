@@ -1,11 +1,8 @@
-use bitcoin::taproot::{TaprootSpendInfo};
+use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::TapNodeHash;
 use eyre::OptionExt;
 
-use bitcoin::{
-    Amount, FeeRate, OutPoint, Transaction, TxOut, Txid,
-    Weight,
-};
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use eyre::Context;
 use serde::{Deserialize, Serialize};
@@ -13,10 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::errors::ResultExt;
 use crate::{
     actor::Actor,
-    builder::{
-        self,
-        transaction::TransactionType,
-    },
+    builder::{self, transaction::TransactionType},
     database::Database,
     extended_rpc::ExtendedRpc,
 };
@@ -287,33 +281,6 @@ impl TxSender {
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
 
-    /// Dispatches the transaction sending logic based on its `FeePayingType`.
-    ///
-    /// Retrieves the transaction details and its associated `FeePayingType` from the database.
-    /// Calls either `send_rbf_tx` or `send_cpfp_tx` accordingly.
-    ///
-    /// # Arguments
-    /// * `try_to_send_id` - The database ID tracking this send attempt.
-    /// * `fee_rate` - The target fee rate for the bump attempt.
-    async fn send_tx(&self, try_to_send_id: u32, fee_rate: FeeRate) -> Result<()> {
-        let (tx_metadata, tx, fee_paying_type, _, rbf_signing_info) = self
-            .db
-            .get_try_to_send_tx(None, try_to_send_id)
-            .await
-            .wrap_err("Failed to get tx")?;
-
-        match fee_paying_type {
-            FeePayingType::RBF => {
-                self.send_rbf_tx(try_to_send_id, tx, tx_metadata, fee_rate, rbf_signing_info)
-                    .await
-            }
-            FeePayingType::CPFP => {
-                self.send_cpfp_tx(try_to_send_id, tx, tx_metadata, fee_rate)
-                    .await
-            }
-        }
-    }
-
     /// The main loop for processing transactions requiring fee bumps or initial sending.
     ///
     /// Fetches transactions from the database that are eligible to be sent or bumped
@@ -412,7 +379,6 @@ impl TxSender {
         TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
