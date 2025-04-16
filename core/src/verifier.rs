@@ -414,7 +414,6 @@ where
                     .pop()
                     .ok_or(eyre::eyre!("No nonce available"))?;
 
-
                 tracing::info!(
                     "Verifier {} signing the {}th sighash: {:?} with verifiers_key: {}",
                     verifier_index,
@@ -538,10 +537,18 @@ where
         let mut nonce_idx: usize = 0;
 
         while let Some(sighash) = sighash_stream.next().await {
-            tracing::info!("Verifier received the {}th sighash: {:?}", nonce_idx + 1, sighash);
+            tracing::info!(
+                "Verifier received the {}th sighash: {:?}",
+                nonce_idx + 1,
+                sighash
+            );
             let typed_sighash = sighash.wrap_err("Failed to read from sighash stream")?;
 
-            tracing::info!("Verifier received the {}th typed sighash: {:?}", nonce_idx + 1, typed_sighash);
+            tracing::info!(
+                "Verifier received the {}th typed sighash: {:?}",
+                nonce_idx + 1,
+                typed_sighash
+            );
             let &SignatureInfo {
                 operator_idx,
                 round_idx,
@@ -805,11 +812,18 @@ where
             ).into());
         }
 
+        tracing::info!(
+            "inside set_operator_keys, Getting operator data for {:?}",
+            operator_xonly_pk
+        );
+
         let operator_data = self
             .db
             .get_operator(None, operator_xonly_pk)
             .await?
-            .ok_or(BridgeError::OperatorNotFound(operator_xonly_pk))?;
+            .ok_or(BridgeError::OperatorNotFound2(operator_xonly_pk))?;
+
+        tracing::info!("Got operator data for {:?}", operator_xonly_pk);
 
         self.db
             .set_operator_challenge_ack_hashes(

@@ -291,6 +291,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<Vec<ClementineVerifierClient<tonic::transport::Channel>>, BridgeError> {
+        tracing::info!("Getting participating verifiers");
         let verifier_keys = self.get_verifier_keys();
         let mut participating_verifiers = Vec::new();
 
@@ -304,6 +305,7 @@ impl Aggregator {
             }
         }
 
+        tracing::info!("Got participating verifiers: {:?}", participating_verifiers);
         Ok(participating_verifiers)
     }
 
@@ -312,6 +314,7 @@ impl Aggregator {
         &self,
         deposit_data: &DepositData,
     ) -> Result<Vec<ClementineOperatorClient<tonic::transport::Channel>>, BridgeError> {
+        tracing::info!("Getting participating operators");
         let operator_keys = self.get_operator_keys();
         let mut participating_operators = Vec::new();
 
@@ -325,6 +328,7 @@ impl Aggregator {
             }
         }
 
+        tracing::info!("Got participating operators: {:?}", participating_operators);
         Ok(participating_operators)
     }
 }

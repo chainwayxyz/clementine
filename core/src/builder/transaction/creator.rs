@@ -132,6 +132,7 @@ impl ReimburseDbCache {
     }
 
     pub async fn get_operator_data(&mut self) -> Result<&OperatorData, BridgeError> {
+        tracing::info!("Getting operator data for {:?}", self.operator_xonly_pk);
         match self.operator_data {
             Some(ref data) => Ok(data),
             None => {
@@ -139,7 +140,7 @@ impl ReimburseDbCache {
                     self.db
                         .get_operator(None, self.operator_xonly_pk)
                         .await?
-                        .ok_or(BridgeError::OperatorNotFound(self.operator_xonly_pk))?,
+                        .ok_or(BridgeError::OperatorNotFound4(self.operator_xonly_pk))?,
                 );
                 Ok(self.operator_data.as_ref().expect("Inserted before"))
             }

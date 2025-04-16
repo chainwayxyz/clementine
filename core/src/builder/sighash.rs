@@ -155,14 +155,21 @@ pub fn create_nofn_sighash_stream(
     deposit_blockhash: bitcoin::BlockHash,
     yield_kickoff_txid: bool,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
+    tracing::info!(
+        "Creating nofn sighash stream with deposit data: {:?}",
+        deposit_data
+    );
     try_stream! {
         let paramset = config.protocol_paramset();
 
         let operators = deposit_data.get_operators();
+        tracing::info!("Got operators: {:?}", operators);
 
         for (operator_idx, op_xonly_pk) in
             operators.iter().enumerate()
         {
+
+            tracing::info!("Getting utxo idxs for operator: {:?} with deposit blockhash: {:?} with the index: {:?}", op_xonly_pk, deposit_blockhash, operator_idx);
 
             let utxo_idxs = get_kickoff_utxos_to_sign(
                 config.protocol_paramset(),
@@ -170,6 +177,7 @@ pub fn create_nofn_sighash_stream(
                 deposit_blockhash,
                 deposit_data.get_deposit_outpoint(),
             );
+            tracing::info!("Got utxo idxs: {:?}", utxo_idxs);
             // need to create new TxHandlerDbData for each operator
             let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
@@ -253,15 +261,22 @@ pub fn create_operator_sighash_stream(
     deposit_data: DepositData,
     deposit_blockhash: bitcoin::BlockHash,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
+    tracing::info!(
+        "Creating operator sighash stream for {:?}",
+        operator_xonly_pk
+    );
     try_stream! {
         let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), operator_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
+        tracing::info!("getting operator data from db for {:?}", operator_xonly_pk);
         let operator = db.get_operator(None, operator_xonly_pk).await?;
 
+        tracing::info!("getting operator data for {:?}", operator_xonly_pk);
         let operator = match operator {
             Some(operator) => operator,
-            None => Err(BridgeError::OperatorNotFound(operator_xonly_pk))?,
+            None => Err(BridgeError::OperatorNotFound3(operator_xonly_pk))?,
         };
+        tracing::info!("Got operator data for {:?}", operator_xonly_pk);
 
         let utxo_idxs = get_kickoff_utxos_to_sign(
             config.protocol_paramset(),

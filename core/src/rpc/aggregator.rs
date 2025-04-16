@@ -327,10 +327,12 @@ async fn signature_distributor(
             let final_params = final_params.clone();
             tracing::info!(
                 "Sending final signature: {} to the verifier",
-                hex::encode(match final_params.params.clone().expect("Final params is None") {
-                    Params::SchnorrSig(sig) => sig.clone(),
-                    _ => vec![0u8; 64],
-                }),
+                hex::encode(
+                    match final_params.params.clone().expect("Final params is None") {
+                        Params::SchnorrSig(sig) => sig.clone(),
+                        _ => vec![0u8; 64],
+                    }
+                ),
             );
             async move {
                 tx.send(final_params).await.wrap_err_with(|| {
