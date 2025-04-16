@@ -8,6 +8,70 @@ if [ -z "$BITVM_CACHE_PATH" ]; then
     exit 1
 fi
 
+if [ -z $PROTOCOL_PARAMSET ]; then
+    export PROTOCOL_PARAMSET="regtest"
+fi
+if [ -z $HOST ]; then
+    export HOST="127.0.0.1"
+fi
+if [ -z $WINTERNITZ_SECRET_KEY ]; then
+    export WINTERNITZ_SECRET_KEY="2222222222222222222222222222222222222222222222222222222222222222"
+fi
+if [ -z "$VERIFIERS_PUBLIC_KEYS" ]; then
+    export VERIFIERS_PUBLIC_KEYS="034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa,02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27,023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1,032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991"
+fi
+if [ -z "$OPERATOR_XONLY_PKS" ]; then
+    export OPERATOR_XONLY_PKS="4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa,466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+fi
+if [ -z "$NUM_OPERATORS" ]; then
+    export NUM_OPERATORS="2"
+fi
+if [ -z "$OPERATOR_WITHDRAWAL_FEE_SATS" ]; then
+    export OPERATOR_WITHDRAWAL_FEE_SATS="100000"
+fi
+if [ -z "$CITREA_RPC_URL" ]; then
+    export CITREA_RPC_URL="http://127.0.0.1:12345"
+fi
+if [ -z "$CITREA_LIGHT_CLIENT_PROVER_URL" ]; then
+    export CITREA_LIGHT_CLIENT_PROVER_URL="http://127.0.0.1:12346"
+fi
+if [ -z "$BRIDGE_CONTRACT_ADDRESS" ]; then
+    export BRIDGE_CONTRACT_ADDRESS="3100000000000000000000000000000000000002"
+fi
+if [ -z "$HEADER_CHAIN_PROOF_PATH" ]; then
+    export HEADER_CHAIN_PROOF_PATH="../core/tests/data/first_1.bin"
+fi
+if [ -z "$VERIFIER_ENDPOINTS" ]; then
+    export VERIFIER_ENDPOINTS="http://127.0.0.1:17001,http://127.0.0.1:17002,http://127.0.0.1:17003,http://127.0.0.1:17004"
+fi
+if [ -z "$OPERATOR_ENDPOINTS" ]; then
+    export OPERATOR_ENDPOINTS="http://127.0.0.1:17005,http://127.0.0.1:17006"
+fi
+if [ -z "$BITCOIN_RPC_URL" ]; then
+    export BITCOIN_RPC_URL="http://127.0.0.1:18443/wallet/admin"
+fi
+if [ -z "$BITCOIN_RPC_USER" ]; then
+    export BITCOIN_RPC_USER="admin"
+fi
+if [ -z "$BITCOIN_RPC_PASSWORD" ]; then
+    export BITCOIN_RPC_PASSWORD="admin"
+fi
+if [ -z "$DB_HOST" ]; then
+    export DB_HOST="127.0.0.1"
+fi
+if [ -z "$DB_PORT" ]; then
+    export DB_PORT="5432"
+fi
+if [ -z "$DB_USER" ]; then
+    export DB_USER="clementine"
+fi
+if [ -z "$DB_PASSWORD" ]; then
+    export DB_PASSWORD="clementine"
+fi
+if [ -z "$DB_NAME" ]; then
+    export DB_NAME="clementine"
+fi
+
 # Define databases to drop and recreate
 databases=("clementine0" "clementine1" "clementine2" "clementine3")
 
@@ -29,8 +93,6 @@ if [ $? -ne 0 ]; then
     echo "Build failed, exiting..."
     exit 1
 fi
-
-# Path to the compiled binary
 BIN_PATH="./target/release/clementine-core"
 
 # Corresponding roles
@@ -67,28 +129,6 @@ cleanup() {
 
 # Trap Ctrl+C and call cleanup
 trap cleanup SIGINT
-
-# Set static env vars
-export HOST=127.0.0.1
-
-export WINTERNITZ_SECRET_KEY=2222222222222222222222222222222222222222222222222222222222222222
-
-export VERIFIERS_PUBLIC_KEYS=034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa,02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27,023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1,032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991
-
-export OPERATOR_XONLY_PKS=4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa,466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27
-export NUM_OPERATORS=2
-export OPERATOR_WITHDRAWAL_FEE_SATS=100000
-
-export CITREA_RPC_URL=http://127.0.0.1:12345
-export CITREA_LIGHT_CLIENT_PROVER_URL=http://127.0.0.1:12346
-export BRIDGE_CONTRACT_ADDRESS=3100000000000000000000000000000000000002
-
-export HEADER_CHAIN_PROOF_PATH=../core/tests/data/first_1.bin
-
-export VERIFIER_ENDPOINTS=http://127.0.0.1:17001,http://127.0.0.1:17002,http://127.0.0.1:17003,http://127.0.0.1:17004
-export OPERATOR_ENDPOINTS=http://127.0.0.1:17005,http://127.0.0.1:17006
-
-export PROTOCOL_PARAMSET=regtest
 
 # Run processes in the background
 for i in "${!roles[@]}"; do
