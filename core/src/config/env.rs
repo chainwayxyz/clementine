@@ -109,7 +109,6 @@ impl BridgeConfig {
             protocol_paramset: read_string_from_env("PROTOCOL_PARAMSET")?.parse()?,
             host: read_string_from_env("HOST")?,
             port: read_string_from_env_then_parse::<u16>("PORT")?,
-            index: read_string_from_env_then_parse::<u32>("INDEX")?,
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
             winternitz_secret_key,
             operator_withdrawal_fee_sats,
@@ -220,7 +219,6 @@ mod tests {
         );
         std::env::set_var("HOST", &default_config.host);
         std::env::set_var("PORT", default_config.port.to_string());
-        std::env::set_var("INDEX", default_config.index.to_string());
         std::env::set_var(
             "SECRET_KEY",
             default_config.secret_key.display_secret().to_string(),
