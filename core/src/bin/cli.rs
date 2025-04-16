@@ -4,10 +4,11 @@ use bitcoin::{hashes::Hash, Amount};
 use clap::{Parser, Subcommand};
 use clementine_core::{
     rpc::clementine::{
-        clementine_aggregator_client::ClementineAggregatorClient,
+        self, clementine_aggregator_client::ClementineAggregatorClient,
         clementine_operator_client::ClementineOperatorClient,
         clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
-        BaseDeposit, Deposit, Empty, Outpoint, VerifierPublicKeys, XOnlyPublicKeys,
+        BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, VerifierPublicKeys,
+        XOnlyPublicKeys,
     },
     EVMAddress,
 };
@@ -104,6 +105,14 @@ enum AggregatorCommands {
         #[arg(long)]
         recovery_taproot_address: Option<String>,
     },
+    NewReplacementDeposit {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        old_move_txid: String,
+    },
     /// Get the aggregated NofN x-only public key
     GetNofnAggregatedKey,
     /// Get deposit address
@@ -123,6 +132,14 @@ enum AggregatorCommands {
     GetTxParamsOfMoveTx {
         #[arg(long)]
         move_txid: String,
+    },
+    GetReplacementDepositAddress {
+        #[arg(long)]
+        move_txid: String,
+        #[arg(long)]
+        network: Option<String>,
+        #[arg(long)]
+        bridge_amount: Option<u64>,
     },
 }
 
@@ -379,9 +396,90 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             // TODO: Implement get_tx_params_of_move_tx handler
             println!("GetTxParamsOfMoveTx command not implemented yet");
         }
+        AggregatorCommands::GetReplacementDepositAddress {
+            move_txid,
+            network,
+            bridge_amount,
+        } => {
+            let mut move_txid = hex::decode(move_txid).expect("Failed to decode txid");
+            move_txid.reverse();
+            let move_txid = bitcoin::Txid::from_byte_array(
+                move_txid
+                    .try_into()
+                    .expect("Failed to convert txid to array"),
+            );
+
+            let response = aggregator
+                .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
+                .await
+                .expect("Failed to make a request");
+
+            let nofn_xonly_pk =
+                bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
+                    .expect("Failed to parse xonly_pk");
+
+            let network = match network {
+                Some(network) => {
+                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
+                }
+                None => bitcoin::Network::Regtest,
+            };
+
+            let bridge_amount = match bridge_amount {
+                Some(amount) => Amount::from_sat(amount),
+                None => Amount::from_sat(1_000_000_000),
+            };
+
+            let (replacement_deposit_address, _) =
+                clementine_core::builder::address::generate_replacement_deposit_address(
+                    move_txid,
+                    nofn_xonly_pk,
+                    bridge_amount,
+                    network,
+                )
+                .expect("Failed to generate replacement deposit address");
+
+            println!(
+                "Replacement deposit address: {}",
+                replacement_deposit_address
+            );
+        }
+        AggregatorCommands::NewReplacementDeposit {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            old_move_txid,
+        } => {
+            let mut old_move_txid = hex::decode(old_move_txid).expect("Failed to decode txid");
+            old_move_txid.reverse();
+
+            let mut deposit_outpoint_txid =
+                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
+            deposit_outpoint_txid.reverse();
+
+            let deposit = aggregator
+                .new_deposit(Deposit {
+                    deposit_outpoint: Some(Outpoint {
+                        txid: deposit_outpoint_txid,
+                        vout: deposit_outpoint_vout,
+                    }),
+                    deposit_data: Some(DepositData::ReplacementDeposit(ReplacementDeposit {
+                        old_move_txid: Some(clementine::Txid {
+                            txid: old_move_txid,
+                        }),
+                    })),
+                })
+                .await
+                .expect("Failed to make a request");
+            let move_txid = deposit.get_ref().txid.clone();
+            let txid = bitcoin::Txid::from_byte_array(
+                move_txid
+                    .try_into()
+                    .expect("Failed to convert txid to array"),
+            );
+            println!("Move txid: {}", txid);
+        }
     }
 }
-
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
