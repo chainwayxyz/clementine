@@ -1,0 +1,98 @@
+use std::time::Duration;
+
+use tonic::async_trait;
+
+use crate::errors::ResultExt;
+
+use crate::task::{IgnoreError, WithDelay};
+use crate::{
+    bitcoin_syncer::BitcoinSyncerEvent,
+    database::Database,
+    errors::BridgeError,
+    task::{IntoTask, Task, TaskExt},
+};
+
+use super::TxSender;
+
+const POLL_DELAY: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_secs(1)
+};
+#[derive(Debug)]
+pub struct TxSenderTask {
+    db: Database,
+    current_tip_height: u32,
+    inner: TxSender,
+}
+
+#[async_trait]
+impl Task for TxSenderTask {
+    type Output = bool;
+
+    async fn run_once(&mut self) -> std::result::Result<Self::Output, BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await.map_to_eyre()?;
+
+        let is_block_update = async {
+            let Some(event) = self
+                .db
+                .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.btc_syncer_consumer_id)
+                .await?
+            else {
+                return Ok(false);
+            };
+
+            match event {
+                BitcoinSyncerEvent::NewBlock(block_id) => {
+                    self.db.confirm_transactions(&mut dbtx, block_id).await?;
+                    self.current_tip_height = self
+                        .db
+                        .get_block_info_from_id(Some(&mut dbtx), block_id)
+                        .await?
+                        .ok_or(BridgeError::Error("Block not found".to_string()))?
+                        .1;
+
+                    tracing::trace!("TXSENDER: Confirmed transactions for block {}", block_id);
+                }
+                BitcoinSyncerEvent::ReorgedBlock(block_id) => {
+                    tracing::trace!("TXSENDER: Unconfirming transactions for block {}", block_id);
+                    self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
+                }
+            }
+
+            dbtx.commit().await?;
+            Ok::<_, BridgeError>(true)
+        }
+        .await?;
+
+        if is_block_update {
+            // Pull in all block updates before trying to send.
+            return Ok(true);
+        }
+
+        tracing::trace!("TXSENDER: Getting fee rate");
+        let fee_rate = self.inner.get_fee_rate().await?;
+        tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
+
+        // Main loop which handles sending unconfirmed txs
+        self.inner
+            .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)
+            .await?;
+
+        Ok(false)
+    }
+}
+
+impl IntoTask for TxSender {
+    type Task = WithDelay<IgnoreError<TxSenderTask>>;
+
+    fn into_task(self) -> Self::Task {
+        TxSenderTask {
+            db: self.db.clone(),
+            current_tip_height: 0,
+            inner: self,
+        }
+        .ignore_error()
+        .with_delay(POLL_DELAY)
+    }
+}

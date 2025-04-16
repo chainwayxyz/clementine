@@ -17,7 +17,7 @@ use bitcoin::{
 use eyre::{Context, OptionExt};
 use sqlx::Executor;
 use std::ops::DerefMut;
-// Add this at the top with other imports
+
 
 impl Database {
     pub async fn confirm_transactions(
@@ -580,7 +580,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_tx(
+    pub async fn get_try_to_send_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         id: u32,
@@ -839,7 +839,7 @@ mod tests {
 
         // Test retrieving tx
         let (_, retrieved_tx, fee_paying_type, seen_block_id, rbf_signing_info) =
-            db.get_tx(None, id).await.unwrap();
+            db.get_try_to_send_tx(None, id).await.unwrap();
         assert_eq!(tx.version, retrieved_tx.version);
         assert_eq!(fee_paying_type, FeePayingType::CPFP);
         assert_eq!(seen_block_id, None);
