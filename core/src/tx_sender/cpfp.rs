@@ -365,22 +365,10 @@ impl TxSender {
                 "Waiting for {} UTXOs to confirm",
                 unconfirmed_fee_payer_utxos.len()
             );
-            let confirmed_utxos = self
-                .db
-                .get_confirmed_fee_payer_utxos(None, try_to_send_id)
-                .await
-                .map_to_eyre()?;
 
             // Update the sending state
             let _ = self
-                .db
-                .update_tx_debug_sending_state(
-                    try_to_send_id,
-                    "waiting_for_utxo_confirmation",
-                    (unconfirmed_fee_payer_utxos.len() + confirmed_utxos.len()) as u32,
-                    confirmed_utxos.len() as u32,
-                    true,
-                )
+                .db.update_tx_debug_sending_state(try_to_send_id,"waiting_for_utxo_confirmation",true)
                 .await;
 
             return Ok(());
@@ -392,14 +380,7 @@ impl TxSender {
         let confirmed_fee_payer_len = confirmed_fee_payers.len();
 
         let _ = self
-            .db
-            .update_tx_debug_sending_state(
-                try_to_send_id,
-                "creating_package",
-                confirmed_fee_payer_len as u32,
-                confirmed_fee_payer_len as u32,
-                true,
-            )
+            .db.update_tx_debug_sending_state(try_to_send_id,"creating_package",true)
             .await;
 
         // to be used below
@@ -431,14 +412,7 @@ impl TxSender {
                     .await?;
 
                     let _ = self
-                        .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "waiting_for_fee_payer_utxos",
-                            confirmed_fee_payer_len as u32 + 1,
-                            confirmed_fee_payer_len as u32,
-                            true,
-                        )
+                        .db.update_tx_debug_sending_state(try_to_send_id,"waiting_for_fee_payer_utxos",true)
                         .await;
 
                     return Ok(());
@@ -467,14 +441,7 @@ impl TxSender {
 
         // Update sending state to submitting_package
         let _ = self
-            .db
-            .update_tx_debug_sending_state(
-                try_to_send_id,
-                "submitting_package",
-                confirmed_fee_payer_len as u32,
-                confirmed_fee_payer_len as u32,
-                true,
-            )
+            .db.update_tx_debug_sending_state(try_to_send_id,"submitting_package",true)
             .await;
 
         tracing::debug!(try_to_send_id, "Submitting package, size {}", package.len());

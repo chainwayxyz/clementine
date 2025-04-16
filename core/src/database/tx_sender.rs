@@ -18,7 +18,6 @@ use eyre::{Context, OptionExt};
 use sqlx::Executor;
 use std::ops::DerefMut;
 
-
 impl Database {
     pub async fn confirm_transactions(
         &self,
@@ -173,8 +172,6 @@ impl Database {
                 .update_tx_debug_sending_state(
                     u32::try_from(tx_id).wrap_err("Failed to convert tx_id to u32")?,
                     "confirmed",
-                    0,
-                    0,
                     true,
                 )
                 .await;
@@ -192,8 +189,6 @@ impl Database {
                 .update_tx_debug_sending_state(
                     u32::try_from(tx_id).wrap_err("Failed to convert tx_id to u32")?,
                     "confirmed",
-                    0,
-                    0,
                     true,
                 )
                 .await;
@@ -655,14 +650,12 @@ impl Database {
         &self,
         tx_id: u32,
         state: &str,
-        fee_payer_utxos_count: u32,
-        fee_payer_utxos_confirmed_count: u32,
         activated: bool,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             r#"
             INSERT INTO tx_sender_debug_sending_state
-            (tx_id, state, fee_payer_utxos_count, fee_payer_utxos_confirmed_count, last_update, activated_timestamp)
+            (tx_id, state, last_update, activated_timestamp)
             VALUES ($1, $2, $3, $4, NOW(),
                 CASE
                     WHEN $5 = TRUE THEN NOW()
@@ -684,14 +677,6 @@ impl Database {
         )
         .bind(i32::try_from(tx_id).wrap_err("Failed to convert tx_id to i32")?)
         .bind(state)
-        .bind(
-            i32::try_from(fee_payer_utxos_count)
-                .wrap_err("Failed to convert fee_payer_utxos_count to i32")?,
-        )
-        .bind(
-            i32::try_from(fee_payer_utxos_confirmed_count)
-                .wrap_err("Failed to convert fee_payer_utxos_confirmed_count to i32")?,
-        )
         .bind(activated);
 
         self.connection.execute(query).await?;
@@ -703,10 +688,10 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         tx_id: u32,
-    ) -> Result<(Option<String>, Option<u32>, Option<u32>), BridgeError> {
-        let query = sqlx::query_as::<_, (Option<String>, Option<i32>, Option<i32>)>(
+    ) -> Result<Option<String>, BridgeError> {
+        let query = sqlx::query_as::<_, (Option<String>,)>(
             r#"
-            SELECT state, fee_payer_utxos_count, fee_payer_utxos_confirmed_count
+            SELECT state,
             FROM tx_sender_debug_sending_state
             WHERE tx_id = $1
             "#,
@@ -715,12 +700,8 @@ impl Database {
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
         match result {
-            Some((state, utxos_count, confirmed_count)) => Ok((
-                state,
-                utxos_count.map(|c| u32::try_from(c).unwrap_or_default()),
-                confirmed_count.map(|c| u32::try_from(c).unwrap_or_default()),
-            )),
-            None => Ok((None, None, None)),
+            Some((state,)) => Ok(state),
+            None => Ok(None),
         }
     }
 

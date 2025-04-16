@@ -169,7 +169,7 @@ impl TxSenderClient {
 
         let _ = self
             .db
-            .update_tx_debug_sending_state(try_to_send_id, "inserted", 0, 0, false)
+            .update_tx_debug_sending_state(try_to_send_id, "inserted", false)
             .await;
 
         Ok(try_to_send_id)
@@ -354,14 +354,14 @@ impl TxSenderClient {
             })
             .collect();
 
-        let (current_state, fee_payer_utxos_count, fee_payer_utxos_confirmed_count) =
-            self.db.get_tx_debug_info(None, tx_id).await.map_to_eyre()?;
+        let current_state = self.db.get_tx_debug_info(None, tx_id).await.map_to_eyre()?;
 
         let fee_payer_utxos = self
             .db
             .get_tx_debug_fee_payer_utxos(None, tx_id)
             .await
             .map_to_eyre()?;
+
         let fee_payer_utxos = fee_payer_utxos
             .into_iter()
             .map(|(txid, vout, amount, confirmed)| TxDebugFeePayerUtxo {
@@ -370,7 +370,7 @@ impl TxSenderClient {
                 amount: amount.to_sat(),
                 confirmed,
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         let txid = tx.compute_txid();
         let debug_info = TxDebugInfo {
@@ -378,12 +378,15 @@ impl TxSenderClient {
             is_active: seen_block_id.is_none(),
             current_state: current_state.unwrap_or_else(|| "unknown".to_string()),
             submission_errors,
-            fee_payer_utxos,
             created_at: "".to_string(),
             txid: txid.as_raw_hash().to_byte_array().to_vec(),
             fee_paying_type: format!("{:?}", fee_paying_type),
-            fee_payer_utxos_count: fee_payer_utxos_count.unwrap_or(0),
-            fee_payer_utxos_confirmed_count: fee_payer_utxos_confirmed_count.unwrap_or(0),
+            fee_payer_utxos_count: fee_payer_utxos.len() as u32,
+            fee_payer_utxos_confirmed_count: fee_payer_utxos
+                .iter()
+                .filter(|TxDebugFeePayerUtxo { confirmed, .. }| *confirmed)
+                .count() as u32,
+            fee_payer_utxos,
             raw_tx: bitcoin::consensus::serialize(&tx),
             metadata: tx_metadata.map(|metadata| rpc::clementine::TxMetadata {
                 deposit_outpoint: metadata.deposit_outpoint.map(Into::into),

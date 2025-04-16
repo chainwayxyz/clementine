@@ -367,8 +367,6 @@ CREATE TABLE IF NOT EXISTS tx_sender_debug_submission_errors (
 CREATE TABLE IF NOT EXISTS tx_sender_debug_sending_state (
     tx_id INT PRIMARY KEY REFERENCES tx_sender_try_to_send_txs(id),
     state TEXT NOT NULL, -- 'waiting_for_fee_payer_utxos', 'ready_to_send', 'sent', etc.
-    fee_payer_utxos_count INT NOT NULL DEFAULT 0,
-    fee_payer_utxos_confirmed_count INT NOT NULL DEFAULT 0,
     last_update TIMESTAMP NOT NULL DEFAULT NOW(),
     activated_timestamp TIMESTAMP -- the time when the conditions for this tx were satisfied - null if the conditions are not satisfied.
 );

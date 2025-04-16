@@ -347,8 +347,6 @@ impl TxSender {
                     .update_tx_debug_sending_state(
                         id,
                         "confirmed",
-                        0, // Not relevant for confirmed tx
-                        0,
                         true,
                     )
                     .await;
@@ -851,7 +849,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_bump_rbf_tx() -> Result<(), BridgeError> {
+    async fn test_bump_rbf_after_send_tx() -> Result<(), BridgeError> {
         // Initialize RPC, tx_sender and other components
         let mut config = create_test_config_with_thread_name().await;
         let rpc = create_regtest_rpc(&mut config).await;
@@ -882,10 +880,9 @@ mod tests {
             .await?;
         dbtx.commit().await?;
 
-        // Get the current fee rate and increase it for RBF
         let current_fee_rate = tx_sender.get_fee_rate().await?;
 
-        // Test send_rbf_tx
+        // Create initial TX
         tx_sender
             .send_rbf_tx(
                 try_to_send_id,
@@ -900,23 +897,25 @@ mod tests {
             .await
             .expect("RBF should succeed");
 
-        // Verify that the transaction was fee-bumped
+        // Verify that the transaction was saved in db
         let tx_debug_info = tx_sender
             .client()
             .debug_tx(try_to_send_id)
             .await
             .expect("Transaction should be have debug info");
 
-        // Get the actual transaction from the mempool
+        // Verify that TX is in mempool
         rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
             tx_debug_info.txid.try_into().unwrap(),
         ))
         .await
         .expect("Transaction should be in mempool");
 
+        // Increase fee rate
         let higher_fee_rate =
             FeeRate::from_sat_per_vb(current_fee_rate.to_sat_per_vb_ceil() * 100).unwrap();
-        // Test send_rbf_tx
+
+        // try to send tx with a bumped fee.
         tx_sender
             .send_rbf_tx(
                 try_to_send_id,
@@ -930,6 +929,20 @@ mod tests {
             )
             .await
             .expect("RBF should succeed");
+
+        // Verify that the transaction was saved in db
+        let tx_debug_info = tx_sender
+            .client()
+            .debug_tx(try_to_send_id)
+            .await
+            .expect("Transaction should be have debug info");
+
+        // Verify that TX is in mempool
+        rpc.get_tx_of_txid(&bitcoin::Txid::from_byte_array(
+            tx_debug_info.txid.try_into().unwrap(),
+        ))
+        .await
+        .expect("Transaction should be in mempool");
 
         Ok(())
     }

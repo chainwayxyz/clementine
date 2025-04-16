@@ -6,7 +6,7 @@ use eyre::{eyre, OptionExt};
 use std::str::FromStr;
 
 use bitcoin::{consensus, Amount, FeeRate, Transaction};
-use bitcoincore_rpc::{json::EstimateMode, RpcApi};
+use bitcoincore_rpc::RpcApi;
 use eyre::Context;
 
 use crate::builder::{self};
@@ -129,7 +129,7 @@ impl TxSender {
 
         let _ = self
             .db
-            .update_tx_debug_sending_state(try_to_send_id, "preparing_rbf", 0, 0, true)
+            .update_tx_debug_sending_state(try_to_send_id, "preparing_rbf", true)
             .await;
 
         let mut dbtx = self
@@ -148,6 +148,7 @@ impl TxSender {
             let Some(rbf_signing_info) = rbf_signing_info else {
                 return Err(eyre!("RBF signing info is required for RBF txs").into());
             };
+
             // --- Bump existing RBF transaction using PSBT ---
             tracing::debug!(
                 ?try_to_send_id,
@@ -160,7 +161,7 @@ impl TxSender {
                     fee_rate.to_sat_per_vb_ceil(),
                 ))),
                 replaceable: Some(true), // Ensure the bumped tx is also replaceable
-                estimate_mode: Some(EstimateMode::Conservative),
+                estimate_mode: None,
             };
 
             let bump_result = self
@@ -192,8 +193,6 @@ impl TxSender {
                             .update_tx_debug_sending_state(
                                 try_to_send_id,
                                 "rbf_psbt_bump_failed",
-                                0,
-                                0,
                                 true,
                             )
                             .await;
@@ -233,13 +232,7 @@ impl TxSender {
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self
                         .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "rbf_psbt_sign_failed",
-                            0,
-                            0,
-                            true,
-                        )
+                        .update_tx_debug_sending_state(try_to_send_id, "rbf_psbt_sign_failed", true)
                         .await;
                     return Err(SendTxError::Other(eyre!(e)));
                 }
@@ -267,8 +260,6 @@ impl TxSender {
                         .update_tx_debug_sending_state(
                             try_to_send_id,
                             "rbf_psbt_finalize_incomplete",
-                            0,
-                            0,
                             true,
                         )
                         .await;
@@ -285,8 +276,6 @@ impl TxSender {
                         .update_tx_debug_sending_state(
                             try_to_send_id,
                             "rbf_psbt_finalize_failed",
-                            0,
-                            0,
                             true,
                         )
                         .await;
@@ -325,8 +314,6 @@ impl TxSender {
                         .update_tx_debug_sending_state(
                             try_to_send_id,
                             "rbf_send_txid_mismatch",
-                            0,
-                            0,
                             true,
                         )
                         .await;
@@ -342,13 +329,7 @@ impl TxSender {
                     );
                     let _ = self
                         .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "rbf_bump_send_failed",
-                            0,
-                            0,
-                            true,
-                        )
+                        .update_tx_debug_sending_state(try_to_send_id, "rbf_bump_send_failed", true)
                         .await;
                     return Err(SendTxError::Other(eyre!(e)));
                 }
@@ -361,7 +342,7 @@ impl TxSender {
 
             let _ = self
                 .db
-                .update_tx_debug_sending_state(try_to_send_id, "rbf_bumped_sent", 0, 0, true)
+                .update_tx_debug_sending_state(try_to_send_id, "rbf_bumped_sent", true)
                 .await;
 
             self.db
@@ -373,7 +354,7 @@ impl TxSender {
 
             let _ = self
                 .db
-                .update_tx_debug_sending_state(try_to_send_id, "funding_initial_rbf", 0, 0, true)
+                .update_tx_debug_sending_state(try_to_send_id, "funding_initial_rbf", true)
                 .await;
 
             // Attempt to fund the transaction
@@ -409,13 +390,7 @@ impl TxSender {
 
                     let _ = self
                         .db
-                        .update_tx_debug_sending_state(
-                            try_to_send_id,
-                            "rbf_funding_failed",
-                            0,
-                            0,
-                            true,
-                        )
+                        .update_tx_debug_sending_state(try_to_send_id, "rbf_funding_failed", true)
                         .await;
                     return Err(eyre::eyre!(e).into());
                 }
@@ -488,7 +463,7 @@ impl TxSender {
             // Update debug sending state
             let _ = self
                 .db
-                .update_tx_debug_sending_state(try_to_send_id, "sent", 0, 0, true)
+                .update_tx_debug_sending_state(try_to_send_id, "sent", true)
                 .await;
 
             self.db
