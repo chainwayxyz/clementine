@@ -1,6 +1,5 @@
 use super::Result;
 use bitcoin::hashes::Hash;
-use eyre::OptionExt;
 use std::collections::BTreeMap;
 
 use bitcoin::{OutPoint, Transaction, Txid};
