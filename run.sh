@@ -52,8 +52,8 @@ secret_keys=(
     2222222222222222222222222222222222222222222222222222222222222222
     3333333333333333333333333333333333333333333333333333333333333333
     4444444444444444444444444444444444444444444444444444444444444444
-    5555555555555555555555555555555555555555555555555555555555555555
-    6666666666666666666666666666666666666666666666666666666666666666
+    1111111111111111111111111111111111111111111111111111111111111111
+    2222222222222222222222222222222222222222222222222222222222222222
     1111111111111111111111111111111111111111111111111111111111111111
 )
 
@@ -86,14 +86,14 @@ trap cleanup SIGINT
 
 
 # Actor configuration
-export PROTOCOL_PARAMSET=regtest
+export PROTOCOL_PARAMSET=signet
 export HOST=127.0.0.1
 # export PORT=80
 
 # Bitcoin RPC
-export BITCOIN_RPC_URL=http://127.0.0.1:18443
-export BITCOIN_RPC_USER=admin
-export BITCOIN_RPC_PASSWORD=admin
+export BITCOIN_RPC_URL=http://127.0.0.1:38332
+export BITCOIN_RPC_USER=bitcoin
+export BITCOIN_RPC_PASSWORD=bitcoin
 
 # PostgreSQL
 export DB_HOST=127.0.0.1
@@ -110,13 +110,13 @@ export BRIDGE_CONTRACT_ADDRESS=3100000000000000000000000000000000000002
 export HEADER_CHAIN_PROOF_PATH=/Users/ekrembal/Developer/chainway/clementine/core/tests/data/first_1.bin
 
 # Endpoints for aggregator
-export VERIFIER_ENDPOINTS=http://127.0.0.1:17001,http://127.0.0.1:17002,http://127.0.0.1:17004,http://127.0.0.1:17003
+export VERIFIER_ENDPOINTS=http://127.0.0.1:17001,http://127.0.0.1:17002,http://127.0.0.1:17003,http://127.0.0.1:17004
 export OPERATOR_ENDPOINTS=http://127.0.0.1:17005,http://127.0.0.1:17006
 
 export OPERATOR_WITHDRAWAL_FEE_SATS=100000
 
 # System parameters
-export NETWORK=regtest
+export NETWORK=signet
 export NUM_ROUND_TXS=10
 export NUM_KICKOFFS_PER_ROUND=50
 export NUM_SIGNED_KICKOFFS=3
@@ -125,7 +125,7 @@ export KICKOFF_AMOUNT=55000
 export OPERATOR_CHALLENGE_AMOUNT=200000000
 export COLLATERAL_FUNDING_AMOUNT=200000000
 export KICKOFF_BLOCKHASH_COMMIT_LENGTH=40
-export WATCHTOWER_CHALLENGE_MESSAGE_LENGTH=380
+export WATCHTOWER_CHALLENGE_BYTES=144
 export WINTERNITZ_LOG_D=4
 export USER_TAKES_AFTER=200
 export OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK=144
@@ -143,7 +143,7 @@ export START_HEIGHT=1
 # export ENVIRONMENT=CORE
 # export IS_PRODUCTION=false
 export JSON_LOGS=1
-export RUST_LOG=trace,bitcoincore_rpc=error,hyper=error,sqlx=error,jsonrpsee=error
+export RUST_LOG=debug
 export RUST_MIN_STACK=33554432
 export BITVM_CACHE_PATH=/Users/ekrembal/Developer/chainway/clementine/core/bitvm_cache.bin
 export DBG_PACKAGE_HEX=1
@@ -173,11 +173,10 @@ for i in "${!configs[@]}"; do
     
     if [ "$role" = "aggregator" ]; then
         echo "Waiting 3 second before starting aggregator..."
-        sleep 1
+        sleep 30
     fi
     
     echo "Starting process for $config with role $role, logging to $log_file"
-    # echo "Command: BITVM_CACHE_PATH=/Users/ekrembal/Developer/chainway/clementine/core/bitvm_cache.bin PROTOCOL_CONFIG_PATH=core/src/config/protocol_paramset.toml DBG_PACKAGE_HEX=1 RUST_MIN_STACK=33554432 RISC0_SKIP_BUILD=1 JSON_LOGS=1 RUST_LOG=info,sqlx=debug \"$BIN_PATH\" \"$role\" \"$config\" > \"$log_file\" 2> \"logs/${filename%.toml}_error.log\""
     
     export SECRET_KEY=${secret_keys[$i]}
     export WINTERNITZ_SECRET_KEY=${secret_keys[$i]}
@@ -185,6 +184,8 @@ for i in "${!configs[@]}"; do
     export DB_NAME=${db_names[$i]}
 
     "$BIN_PATH" "$role" > "$log_file" 2> "logs/${filename%.toml}_error.log" &
+    # print the running command
+    echo "Running command: $BIN_PATH $role > $log_file 2> logs/${filename%.toml}_error.log"
     pids+=("$!")
 
     sleep 1 # Small delay between starts
