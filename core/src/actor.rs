@@ -663,14 +663,20 @@ impl Actor {
                     let sighash = calc_sighash(sighash_type)?;
                     let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
                     let sig = match sig {
-                        Some(sig) => sig,
+                        Some(sig) => taproot::Signature {
+                            signature: sig,
+                            sighash_type,
+                        },
                         None => {
                             if xonly_public_key == self.xonly_public_key {
-                                self.sign_with_tweak(
-                                    sighash,
-                                    spendinfo.merkle_root(),
-                                    tweak_cache.as_deref_mut(),
-                                )?
+                                taproot::Signature {
+                                    signature: self.sign_with_tweak(
+                                        sighash,
+                                        spendinfo.merkle_root(),
+                                        tweak_cache.as_deref_mut(),
+                                    )?,
+                                    sighash_type,
+                                }
                             } else {
                                 return Err(TxError::NotOwnKeyPath.into());
                             }
@@ -708,6 +714,7 @@ mod tests {
     use bitcoin::transaction::Transaction;
 
     use bitcoin::{Amount, Network, OutPoint, Txid};
+    use bitcoincore_rpc::RpcApi;
     use bitvm::{
         execute_script,
         signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz},
@@ -1139,5 +1146,118 @@ mod tests {
         let script = script!({witness} {check_sig_script} {message_checker});
         let ret = execute_script(script);
         assert!(ret.success);
+    }
+
+    #[tokio::test]
+    async fn test_key_spend_signing() {
+        // Setup test node and actor
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let sk = SecretKey::new(&mut thread_rng());
+        let actor = Actor::new(sk, None, Network::Regtest);
+
+        // Create a UTXO controlled by the actor's key spend path
+        let (tap_addr, spend_info) =
+            create_taproot_address(&[], Some(actor.xonly_public_key), Network::Regtest);
+        let prevtxo = bitcoin::TxOut {
+            value: Amount::from_sat(50000), // Use a reasonable amount
+            script_pubkey: tap_addr.script_pubkey(),
+        };
+
+        // Fund the address (required for testmempoolaccept)
+        let outpoint = rpc
+            .send_to_address(&tap_addr, Amount::from_sat(50000))
+            .await
+            .unwrap();
+
+        rpc.mine_blocks(1).await.unwrap(); // Confirm the funding transaction
+
+        // Build a transaction spending the UTXO with TapSighashType::SinglePlusAnyoneCanPay
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+            // Use Challenge which maps to NofnSharedDeposit(TapSighashType::SinglePlusAnyoneCanPay)
+            .add_input(
+                NormalSignatureKind::Challenge,
+                SpendableTxIn::new(outpoint, prevtxo.clone(), vec![], Some(spend_info.clone())),
+                SpendPath::KeySpend,
+                bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            );
+
+        // Add a dummy output
+        builder = builder.add_output(UnspentTxOut::new(
+            bitcoin::TxOut {
+                value: Amount::from_sat(49000), // Account for fee
+                script_pubkey: actor.address.script_pubkey(),
+            },
+            vec![],
+            None,
+        ));
+
+        let mut txhandler = builder.finalize();
+
+        // Actor signs the key spend input using the non-default sighash type
+        actor
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+            .expect("Key spend signature with SighashNone should succeed");
+
+        // Retrieve the signed transaction
+        let tx: &Transaction = txhandler.get_cached_tx();
+
+        // Use testmempoolaccept to verify the transaction is valid by consensus rules
+        let mempool_accept_result = rpc.client.test_mempool_accept(&[tx]).await.unwrap();
+
+        assert!(
+            mempool_accept_result[0].allowed.unwrap(),
+            "Transaction should be allowed in mempool. Rejection reason: {:?}",
+            mempool_accept_result[0].reject_reason.as_ref().unwrap()
+        );
+
+        // TapSighashType::Default
+        // Fund the address (required for testmempoolaccept)
+        let outpoint = rpc
+            .send_to_address(&tap_addr, Amount::from_sat(40000))
+            .await
+            .unwrap();
+
+        rpc.mine_blocks(1).await.unwrap(); // Confirm the funding transaction
+
+        // Build a transaction spending the UTXO with TapSighashType::Default
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+            // Use Reimburse2 which maps to NofnSharedDeposit(TapSighashType::None)
+            .add_input(
+                NormalSignatureKind::Reimburse2,
+                SpendableTxIn::new(outpoint, prevtxo.clone(), vec![], Some(spend_info.clone())),
+                SpendPath::KeySpend,
+                bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            );
+
+        // Add a dummy output
+        builder = builder.add_output(UnspentTxOut::new(
+            bitcoin::TxOut {
+                value: Amount::from_sat(39000), // Account for fee
+                script_pubkey: actor.address.script_pubkey(),
+            },
+            vec![],
+            None,
+        ));
+
+        let mut txhandler = builder.finalize();
+
+        // Actor signs the key spend input using the non-default sighash type
+        actor
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+            .expect("Key spend signature with SighashNone should succeed");
+
+        // Retrieve the signed transaction
+        let tx: &Transaction = txhandler.get_cached_tx();
+
+        // Use testmempoolaccept to verify the transaction is valid by consensus rules
+        let mempool_accept_result = rpc.client.test_mempool_accept(&[tx]).await.unwrap();
+
+        assert!(
+            mempool_accept_result[0].allowed.unwrap(),
+            "Transaction should be allowed in mempool. Rejection reason: {:?}",
+            mempool_accept_result[0].reject_reason.as_ref().unwrap()
+        );
     }
 }

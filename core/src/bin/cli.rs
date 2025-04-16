@@ -1,3 +1,5 @@
+//! This module defines a command line interface for the RPC client.
+
 use clap::{Parser, Subcommand};
 use clementine_core::rpc::clementine::{
     clementine_aggregator_client::ClementineAggregatorClient,
