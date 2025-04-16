@@ -14,6 +14,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
+use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::grpc_transaction_id;
 use crate::rpc::clementine::GrpcTransactionId;
 use crate::rpc::clementine::{
@@ -23,6 +24,7 @@ use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 use eyre::Context;
@@ -80,8 +82,8 @@ pub enum TxError {
     SignatureNotFound(TransactionType),
     #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
     TxHandlerNotFound(TransactionType),
-    #[error("BitvmSetupNotFound for operator {0}, deposit_txid {1}")]
-    BitvmSetupNotFound(i32, Txid),
+    #[error("BitvmSetupNotFound for operator {0:?}, deposit_txid {1}")]
+    BitvmSetupNotFound(XOnlyPublicKey, Txid),
     #[error("Transaction input is missing spend info")]
     MissingSpendInfo,
     #[error("Incorrect watchtower challenge data length")]
@@ -91,58 +93,124 @@ pub enum TxError {
     Other(#[from] eyre::Report),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum DepositData {
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Ord, PartialOrd,
+)]
+pub struct KickoffData {
+    pub operator_xonly_pk: XOnlyPublicKey,
+    pub round_idx: u32,
+    pub kickoff_idx: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct DepositData {
+    /// Cached nofn xonly public key used for deposit.
+    pub nofn_xonly_pk: Option<XOnlyPublicKey>,
+    pub deposit: DepositInfo,
+    pub actors: Actors,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct DepositInfo {
+    pub deposit_outpoint: OutPoint,
+    pub deposit_type: DepositType,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub enum DepositType {
     BaseDeposit(BaseDepositData),
     ReplacementDeposit(ReplacementDepositData),
 }
 
 impl DepositData {
     pub fn get_deposit_outpoint(&self) -> OutPoint {
-        match self {
-            DepositData::BaseDeposit(data) => data.deposit_outpoint,
-            DepositData::ReplacementDeposit(data) => data.deposit_outpoint,
-        }
+        self.deposit.deposit_outpoint
     }
-    pub fn get_nofn_xonly_pk(&self) -> XOnlyPublicKey {
-        match self {
-            DepositData::BaseDeposit(data) => data.nofn_xonly_pk,
-            DepositData::ReplacementDeposit(data) => data.nofn_xonly_pk,
+    pub fn get_nofn_xonly_pk(&mut self) -> Result<XOnlyPublicKey, BridgeError> {
+        if let Some(pk) = self.nofn_xonly_pk {
+            return Ok(pk);
         }
+        let verifiers = self.get_verifiers();
+        let nofn_xonly_pk = bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers, None)?;
+        self.nofn_xonly_pk = Some(nofn_xonly_pk);
+        Ok(nofn_xonly_pk)
     }
     pub fn get_num_verifiers(&self) -> usize {
-        match self {
-            DepositData::BaseDeposit(data) => data.num_verifiers,
-            DepositData::ReplacementDeposit(data) => data.num_verifiers,
-        }
+        self.actors.verifiers.len()
+    }
+    pub fn get_num_watchtowers(&self) -> usize {
+        self.get_num_verifiers() + self.actors.watchtowers.len()
+    }
+    pub fn get_verifier_index(&self, public_key: &PublicKey) -> Result<usize, eyre::Report> {
+        self.get_verifiers()
+            .iter()
+            .position(|pk| pk == public_key)
+            .ok_or_else(|| eyre::eyre!("Verifier with public key {} not found", public_key))
+    }
+    pub fn get_watchtower_index(&self, xonly_pk: &XOnlyPublicKey) -> Result<usize, eyre::Report> {
+        self.get_watchtowers()
+            .iter()
+            .position(|pk| pk == xonly_pk)
+            .ok_or_else(|| eyre::eyre!("Watchtower with xonly key {} not found", xonly_pk))
+    }
+    pub fn get_operator_index(&self, xonly_pk: XOnlyPublicKey) -> Result<usize, eyre::Report> {
+        self.get_operators()
+            .iter()
+            .position(|pk| pk == &xonly_pk)
+            .ok_or_else(|| eyre::eyre!("Operator with xonly key {} not found", xonly_pk))
+    }
+    /// Returns sorted verifiers, they are sorted so that their order is deterministic.
+    pub fn get_verifiers(&self) -> Vec<PublicKey> {
+        let mut verifiers = self.actors.verifiers.clone();
+        verifiers.sort();
+        verifiers
+    }
+    /// Returns sorted watchtowers, they are sorted so that their order is deterministic.
+    pub fn get_watchtowers(&self) -> Vec<XOnlyPublicKey> {
+        let mut watchtowers = self
+            .actors
+            .verifiers
+            .iter()
+            .map(|pk| pk.x_only_public_key().0)
+            .collect::<Vec<_>>();
+        watchtowers.extend(self.actors.watchtowers.iter());
+        watchtowers.sort();
+        watchtowers
+    }
+    pub fn get_operators(&self) -> Vec<XOnlyPublicKey> {
+        let mut operators = self.actors.operators.clone();
+        operators.sort();
+        operators
+    }
+    pub fn get_num_operators(&self) -> usize {
+        self.actors.operators.len()
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct Actors {
+    /// Public keys of verifiers that will participate in the deposit.
+    pub verifiers: Vec<PublicKey>,
+    /// X-only public keys of watchtowers that will participate in the deposit.
+    /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+    pub watchtowers: Vec<XOnlyPublicKey>,
+    /// X-only public keys of operators that will participate in the deposit.
+    pub operators: Vec<XOnlyPublicKey>,
+}
+
 /// Type to uniquely identify a deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct BaseDepositData {
-    /// User's deposit UTXO.
-    pub deposit_outpoint: bitcoin::OutPoint,
     /// User's EVM address.
     pub evm_address: EVMAddress,
     /// User's recovery taproot address.
     pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
-    /// nofn xonly public key used for deposit.
-    pub nofn_xonly_pk: XOnlyPublicKey,
-    /// Num of verifiers that will participate in the deposit. TODO: Change to verifier xonly pks?
-    pub num_verifiers: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ReplacementDepositData {
-    /// deposit UTXO.
-    pub deposit_outpoint: bitcoin::OutPoint,
     /// old move_to_vault txid that was replaced
     pub old_move_txid: Txid,
-    /// nofn xonly public key used for deposit.
-    pub nofn_xonly_pk: XOnlyPublicKey,
-    /// Num of verifiers that will participate in the deposit. TODO: Change to verifier xonly pks?
-    pub num_verifiers: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
@@ -391,15 +459,17 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
 /// the funds to a NofN address from the deposit intent address, after all the signature
 /// collection operations are done.
 pub fn create_move_to_vault_txhandler(
-    deposit_data: DepositData,
+    deposit_data: &mut DepositData,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
-    let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()));
+    let nofn_xonly_pk = deposit_data.get_nofn_xonly_pk()?;
+    let deposit_outpoint = deposit_data.get_deposit_outpoint();
+    let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
 
-    let builder = match deposit_data {
-        DepositData::BaseDeposit(original_deposit_data) => {
+    let builder = match &mut deposit_data.deposit.deposit_type {
+        DepositType::BaseDeposit(original_deposit_data) => {
             let deposit_script = Arc::new(BaseDepositScript::new(
-                original_deposit_data.nofn_xonly_pk,
+                nofn_xonly_pk,
                 original_deposit_data.evm_address,
                 paramset.bridge_amount,
             ));
@@ -424,7 +494,7 @@ pub fn create_move_to_vault_txhandler(
                 .add_input(
                     NormalSignatureKind::NotStored,
                     SpendableTxIn::from_scripts(
-                        original_deposit_data.deposit_outpoint,
+                        deposit_outpoint,
                         paramset.bridge_amount,
                         vec![deposit_script, script_timelock],
                         None,
@@ -434,9 +504,9 @@ pub fn create_move_to_vault_txhandler(
                     DEFAULT_SEQUENCE,
                 )
         }
-        DepositData::ReplacementDeposit(replacement_deposit_data) => {
+        DepositType::ReplacementDeposit(replacement_deposit_data) => {
             let deposit_script = Arc::new(ReplacementDepositScript::new(
-                replacement_deposit_data.nofn_xonly_pk,
+                nofn_xonly_pk,
                 replacement_deposit_data.old_move_txid,
                 paramset.bridge_amount,
             ));
@@ -446,7 +516,7 @@ pub fn create_move_to_vault_txhandler(
                 .add_input(
                     NormalSignatureKind::NotStored,
                     SpendableTxIn::from_scripts(
-                        replacement_deposit_data.deposit_outpoint,
+                        deposit_outpoint,
                         paramset.bridge_amount,
                         vec![deposit_script],
                         None,

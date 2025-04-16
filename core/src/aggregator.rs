@@ -2,7 +2,6 @@ use crate::builder::transaction::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
 use crate::tx_sender::TxSenderClient;
-use crate::verifier::NofN;
 use crate::{
     builder::{self},
     config::BridgeConfig,
@@ -18,11 +17,10 @@ use crate::{
     },
 };
 use bitcoin::hashes::Hash;
-use bitcoin::secp256k1::{schnorr, Message};
-use eyre::eyre;
+use bitcoin::secp256k1::{schnorr, Message, PublicKey};
+use bitcoin::XOnlyPublicKey;
 use futures_util::future::try_join_all;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
-use std::sync::Arc;
 use tonic::Status;
 
 /// Aggregator struct.
@@ -38,10 +36,11 @@ pub struct Aggregator {
     pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     pub(crate) tx_sender: TxSenderClient,
-    pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
-    pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+    operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+    verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+    verifier_keys: Vec<PublicKey>,
+    operator_keys: Vec<XOnlyPublicKey>,
 }
 
 impl Aggregator {
@@ -83,17 +82,38 @@ impl Aggregator {
             operator_clients.len(),
         );
 
-        let nofn = Arc::new(tokio::sync::RwLock::new(None));
+        let operator_keys =
+            Aggregator::collect_operator_xonly_public_keys_with_clients(&operator_clients).await?;
+
+        let (_, verifier_keys) =
+            Aggregator::collect_verifier_public_keys_with_clients(&verifier_clients).await?;
 
         Ok(Aggregator {
             rpc,
             db,
             config,
-            nofn,
             tx_sender,
             verifier_clients,
             operator_clients,
+            verifier_keys,
+            operator_keys,
         })
+    }
+
+    pub fn get_verifier_clients(&self) -> &[ClementineVerifierClient<tonic::transport::Channel>] {
+        &self.verifier_clients
+    }
+
+    pub fn get_verifier_keys(&self) -> Vec<PublicKey> {
+        self.verifier_keys.clone()
+    }
+
+    pub fn get_operator_keys(&self) -> Vec<XOnlyPublicKey> {
+        self.operator_keys.clone()
+    }
+
+    pub fn get_operator_clients(&self) -> &[ClementineOperatorClient<tonic::transport::Channel>] {
+        &self.operator_clients
     }
 
     /// collects and distributes keys to verifiers from operators and watchtowers for the new deposit
@@ -109,58 +129,60 @@ impl Aggregator {
         tracing::info!("Starting collect_and_distribute_keys");
         let start_time = std::time::Instant::now();
 
+        let deposit_data: DepositData = deposit_params.clone().try_into()?;
+
         // Create channels with larger capacity to prevent blocking
-        let (operator_keys_tx, operator_keys_rx) =
-            tokio::sync::broadcast::channel(self.config.num_operators * self.config.num_verifiers);
-        let operator_rx_handles = (0..self.config.num_verifiers)
+        let (operator_keys_tx, operator_keys_rx) = tokio::sync::broadcast::channel(
+            deposit_data.get_num_operators() * deposit_data.get_num_verifiers(),
+        );
+        let operator_rx_handles = (0..deposit_data.get_num_verifiers())
             .map(|_| operator_keys_rx.resubscribe())
             .collect::<Vec<_>>();
 
-        let mut operators = self.operator_clients.clone();
-        let num_operators = operators.len();
+        let mut operators = self.get_participating_operators(&deposit_data).await?;
+        let operator_xonly_pks = deposit_data.get_operators();
+        let num_operators = deposit_data.get_num_operators();
         let deposit = deposit_params.clone();
 
         tracing::info!("Starting operator key collection");
         let get_operators_keys_handle = tokio::spawn(async move {
-            let operator_futures =
-                operators
-                    .iter_mut()
-                    .enumerate()
-                    .map(|(idx, operator_client)| {
-                        let deposit_params = deposit.clone();
-                        let tx = operator_keys_tx.clone();
-                        async move {
-                            tracing::debug!("Requesting keys from operator {}", idx);
-                            let start = std::time::Instant::now();
-                            let operator_keys = timeout(
-                                OPERATION_TIMEOUT,
-                                operator_client.get_deposit_keys(deposit_params.clone()),
-                            )
-                            .await
-                            .map_err(|_| {
-                                Status::deadline_exceeded("Operator key retrieval timed out")
-                            })??
-                            .into_inner();
-                            tracing::debug!(
-                                "Got keys from operator {} in {:?}",
-                                idx,
-                                start.elapsed()
-                            );
+            let operator_futures = operators.iter_mut().zip(operator_xonly_pks.iter()).map(
+                |(operator_client, operator_xonly_pk)| {
+                    let deposit_params = deposit.clone();
+                    let tx = operator_keys_tx.clone();
+                    async move {
+                        tracing::debug!("Requesting keys from operator {}", operator_xonly_pk);
+                        let start = std::time::Instant::now();
+                        let operator_keys = timeout(
+                            OPERATION_TIMEOUT,
+                            operator_client.get_deposit_keys(deposit_params.clone()),
+                        )
+                        .await
+                        .map_err(|_| {
+                            Status::deadline_exceeded("Operator key retrieval timed out")
+                        })??
+                        .into_inner();
+                        tracing::debug!(
+                            "Got keys from operator {} in {:?}",
+                            operator_xonly_pk,
+                            start.elapsed()
+                        );
 
-                            tx.send(OperatorKeysWithDeposit {
-                                deposit_params: Some(deposit_params),
-                                operator_keys: Some(operator_keys),
-                                operator_idx: idx as u32,
-                            })
-                            .map_err(|_| Status::internal("Failed to send operator keys"))?;
-                            Ok::<_, Status>(())
-                        }
-                    });
+                        tx.send(OperatorKeysWithDeposit {
+                            deposit_params: Some(deposit_params),
+                            operator_keys: Some(operator_keys),
+                            operator_xonly_pk: operator_xonly_pk.serialize().to_vec(),
+                        })
+                        .map_err(|_| Status::internal("Failed to send operator keys"))?;
+                        Ok::<_, Status>(())
+                    }
+                },
+            );
             try_join_all(operator_futures).await
         });
 
         tracing::info!("Starting operator key distribution to verifiers");
-        let mut verifiers = self.verifier_clients.clone();
+        let mut verifiers = self.get_participating_verifiers(&deposit_data).await?;
         let distribute_operators_keys_handle = tokio::spawn(async move {
             let distribution_futures = verifiers.iter_mut().zip(operator_rx_handles).map(
                 |(verifier, mut rx)| async move {
@@ -175,11 +197,11 @@ impl Aggregator {
                         let start = std::time::Instant::now();
                         match timeout(OPERATION_TIMEOUT, rx.recv()).await {
                             Ok(Ok(operator_keys)) => {
-                                let operator_idx = operator_keys.operator_idx;
-                                if received_keys.insert(operator_idx) {
+                                let operator_xonly_pk = operator_keys.operator_xonly_pk.clone();
+                                if received_keys.insert(operator_xonly_pk.clone()) {
                                     tracing::debug!(
-                                        "Received operator key {} in {:?}",
-                                        operator_idx,
+                                        "Received operator key {:?} in {:?}",
+                                        operator_xonly_pk,
                                         start.elapsed()
                                     );
                                     timeout(
@@ -237,7 +259,7 @@ impl Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn aggregate_move_partial_sigs(
         &self,
-        deposit_data: DepositData,
+        deposit_data: &mut DepositData,
         agg_nonce: &MusigAggNonce,
         partial_sigs: Vec<MusigPartialSignature>,
     ) -> Result<schnorr::Signature, BridgeError> {
@@ -251,13 +273,7 @@ impl Aggregator {
                 .to_byte_array(),
         );
 
-        let verifiers_public_keys = self
-            .nofn
-            .read()
-            .await
-            .clone()
-            .ok_or(eyre!("N-of-N not set, yet"))?
-            .public_keys;
+        let verifiers_public_keys = deposit_data.get_verifiers();
 
         let final_sig = aggregate_partial_signatures(
             &verifiers_public_keys,
@@ -268,5 +284,47 @@ impl Aggregator {
         )?;
 
         Ok(final_sig)
+    }
+
+    /// Returns a list of verifier clients that are participating in the deposit.
+    pub async fn get_participating_verifiers(
+        &self,
+        deposit_data: &DepositData,
+    ) -> Result<Vec<ClementineVerifierClient<tonic::transport::Channel>>, BridgeError> {
+        let verifier_keys = self.get_verifier_keys();
+        let mut participating_verifiers = Vec::new();
+
+        let verifiers = deposit_data.get_verifiers();
+
+        for verifier_pk in verifiers {
+            if let Some(pos) = verifier_keys.iter().position(|key| key == &verifier_pk) {
+                participating_verifiers.push(self.verifier_clients[pos].clone());
+            } else {
+                return Err(BridgeError::VerifierNotFound(verifier_pk));
+            }
+        }
+
+        Ok(participating_verifiers)
+    }
+
+    /// Returns a list of operator clients that are participating in the deposit.
+    pub async fn get_participating_operators(
+        &self,
+        deposit_data: &DepositData,
+    ) -> Result<Vec<ClementineOperatorClient<tonic::transport::Channel>>, BridgeError> {
+        let operator_keys = self.get_operator_keys();
+        let mut participating_operators = Vec::new();
+
+        let operators = deposit_data.get_operators();
+
+        for operator_pk in operators {
+            if let Some(pos) = operator_keys.iter().position(|key| key == &operator_pk) {
+                participating_operators.push(self.operator_clients[pos].clone());
+            } else {
+                return Err(BridgeError::OperatorNotFound(operator_pk));
+            }
+        }
+
+        Ok(participating_operators)
     }
 }
