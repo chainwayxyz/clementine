@@ -202,7 +202,11 @@ impl TxSender {
         total_fee_payer_amount: Amount,
         fee_payer_utxos_len: usize,
     ) -> Result<()> {
-        tracing::info!("Creating fee payer UTXO for txid {} with bump id {}", &tx.compute_txid().to_string(), bumped_id);
+        tracing::info!(
+            "Creating fee payer UTXO for txid {} with bump id {}",
+            &tx.compute_txid().to_string(),
+            bumped_id
+        );
         let required_fee = Self::calculate_required_fee(
             tx.weight(),
             fee_payer_utxos_len + 1,
@@ -258,18 +262,16 @@ impl TxSender {
             .await;
 
         match fee_rate {
-            Ok(fee_rate) => {
-                match fee_rate.fee_rate {
-                    Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
-                    None => {
-                        if self.network == bitcoin::Network::Regtest {
-                            tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
-                            return Ok(FeeRate::from_sat_per_vb_unchecked(1));
-                        }
-
-                        tracing::error!("TXSENDER: Fee estimation error: {:?}", fee_rate.errors);
-                        Ok(FeeRate::from_sat_per_vb_unchecked(1))
+            Ok(fee_rate) => match fee_rate.fee_rate {
+                Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
+                None => {
+                    if self.network == bitcoin::Network::Regtest {
+                        tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
+                        return Ok(FeeRate::from_sat_per_vb_unchecked(1));
                     }
+
+                    tracing::error!("TXSENDER: Fee estimation error: {:?}", fee_rate.errors);
+                    Ok(FeeRate::from_sat_per_vb_unchecked(1))
                 }
             },
             Err(e) => {
@@ -286,7 +288,10 @@ impl TxSender {
         fee_rate: FeeRate,
         fee_paying_type: FeePayingType,
     ) -> Result<Amount> {
-        tracing::info!("Calculating required fee for {} fee payer utxos", num_fee_payer_utxos);
+        tracing::info!(
+            "Calculating required fee for {} fee payer utxos",
+            num_fee_payer_utxos
+        );
         // Each additional p2tr input adds 230 WU and each additional p2tr
         // output adds 172 WU to the transaction:
         // https://bitcoin.stackexchange.com/a/116959
@@ -320,7 +325,10 @@ impl TxSender {
         fee_rate: FeeRate,
         change_address: Address,
     ) -> Result<Transaction> {
-        tracing::info!("Creating child tx with {} fee payer utxos", fee_payer_utxos.len());
+        tracing::info!(
+            "Creating child tx with {} fee payer utxos",
+            fee_payer_utxos.len()
+        );
         let required_fee = Self::calculate_required_fee(
             parent_tx_size,
             fee_payer_utxos.len(),
@@ -418,7 +426,10 @@ impl TxSender {
         fee_rate: FeeRate,
         fee_payer_utxos: Vec<SpendableTxIn>,
     ) -> Result<Vec<Transaction>> {
-        tracing::info!("Creating package with {} fee payer utxos", fee_payer_utxos.len());
+        tracing::info!(
+            "Creating package with {} fee payer utxos",
+            fee_payer_utxos.len()
+        );
         let txid = tx.compute_txid();
 
         let p2a_vout = self
@@ -695,7 +706,12 @@ impl TxSender {
             .map_to_eyre()?;
 
         for (id, fee_payer_txid, vout, amount) in bumpable_fee_payer_txs {
-            tracing::info!("Bumping fee for fee payer tx {} with bumped tx {} for fee rate {}", fee_payer_txid, bumped_id, fee_rate);
+            tracing::info!(
+                "Bumping fee for fee payer tx {} with bumped tx {} for fee rate {}",
+                fee_payer_txid,
+                bumped_id,
+                fee_rate
+            );
             let new_txi_result = self
                 .rpc
                 .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
