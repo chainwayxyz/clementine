@@ -691,7 +691,7 @@ impl Database {
     ) -> Result<Option<String>, BridgeError> {
         let query = sqlx::query_as::<_, (Option<String>,)>(
             r#"
-            SELECT state,
+            SELECT state
             FROM tx_sender_debug_sending_state
             WHERE tx_id = $1
             "#,

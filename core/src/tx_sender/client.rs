@@ -1,5 +1,6 @@
 use super::Result;
 use bitcoin::hashes::Hash;
+use eyre::OptionExt;
 use std::collections::BTreeMap;
 
 use bitcoin::{OutPoint, Transaction, Txid};
@@ -372,7 +373,15 @@ impl TxSenderClient {
             })
             .collect::<Vec<_>>();
 
-        let txid = tx.compute_txid();
+        let txid = match fee_paying_type {
+            FeePayingType::CPFP => tx.compute_txid(),
+            FeePayingType::RBF => self
+                .db
+                .get_last_rbf_txid(None, tx_id)
+                .await
+                .map_to_eyre()?
+                .unwrap_or(Txid::all_zeros()),
+        };
         let debug_info = TxDebugInfo {
             tx_id,
             is_active: seen_block_id.is_none(),
