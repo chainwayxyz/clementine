@@ -144,4 +144,4 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests
-      run: BITCOIN_NETWORK=testnet4 cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
+      run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored

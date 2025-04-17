@@ -1,3 +1,4 @@
+use risc0_binfmt::compute_image_id;
 use risc0_build::{embed_methods_with_options, DockerOptionsBuilder, GuestOptionsBuilder};
 use std::{collections::HashMap, env, fs, path::Path};
 
@@ -153,4 +154,13 @@ fn copy_binary_to_elfs_folder(network: String, bridge_circuit_mode: String) {
         ),
         Err(e) => println!("cargo:warning=Failed to copy binary: {}", e),
     }
+
+    let elf_bytes: Vec<u8> = fs::read(dest_path).expect("Failed to read ELF file");
+
+    let method_id = compute_image_id(elf_bytes.as_slice()).unwrap();
+    println!("cargo:warning=Computed method ID: {:x?}", method_id);
+    println!(
+        "cargo:warning=Computed method ID words: {:?}",
+        method_id.as_words()
+    );
 }

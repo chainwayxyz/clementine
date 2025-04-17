@@ -11,7 +11,7 @@ use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{
     BridgeCircuitInput, WatchtowerInputs, WorkOnlyCircuitInput,
 };
-use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
+use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
 use final_spv::merkle_tree::BitcoinMerkleTree;
 use final_spv::spv::SPV;
 use header_chain::header_chain::CircuitBlockHeader;
@@ -21,7 +21,7 @@ use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Rece
 
 const _BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
-const WORK_ONLY_ELF: &[u8] =
+const TESTNET4_WORK_ONLY_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
 /// Generates a Groth16 proof for the Bridge Circuit after performing sanity checks.
@@ -95,10 +95,18 @@ pub fn prove_bridge_circuit(
         panic!("Header chain proof output mismatch");
     }
 
+    let network_method_id = match bridge_circuit_host_params.network {
+        bitcoin::Network::Bitcoin => MAINNET,
+        bitcoin::Network::Testnet4 => TESTNET4,
+        bitcoin::Network::Signet => SIGNET,
+        bitcoin::Network::Regtest => REGTEST,
+        _ => panic!("Unsupported network"),
+    };
+
     // Check for headerchain receipt
     if bridge_circuit_host_params
         .headerchain_receipt
-        .verify(HEADER_CHAIN_METHOD_ID)
+        .verify(network_method_id)
         .is_err()
     {
         panic!("Header chain receipt verification failed");
@@ -259,7 +267,7 @@ pub fn prove_work_only_header_chain_proof(
         .unwrap();
     let prover = default_prover();
     prover
-        .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
+        .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
         .unwrap()
         .receipt
 }
@@ -327,32 +335,16 @@ fn generate_succinct_bridge_circuit_public_inputs(
 mod tests {
 
     use super::*;
-    use once_cell::sync::Lazy;
 
     // const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     //     include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
 
-    const WORK_ONLY_ELF: &[u8] =
+    const TESTNET4_WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     // ALSO IMPORTANT FOR HEADERCHAIN IMAGE ID BITCOIN_NETWORK SHOULD BE SET TO "testnet4"
-    pub static WORK_ONLY_IMAGE_ID: Lazy<[u8; 32]> =
-        Lazy::new(|| match option_env!("BITCOIN_NETWORK") {
-            Some("mainnet") => hex_literal::hex!(
-                "f32e881ba4bbf8a5cc3fed7a6eca02c4f087bc1c9cafb0ae7d350fdab1230d6f"
-            ),
-            Some("testnet4") => hex_literal::hex!(
-                "6d104e43b3c55b70a47873edbbd22c8cf01b5fc77e5ff973ad8ba4b9cf3528dc"
-            ),
-            Some("signet") => hex_literal::hex!(
-                "4672711a78b07166acd61c7d0f0c59d3f786562480d2f3ec780749544d04e000"
-            ),
-            Some("regtest") => hex_literal::hex!(
-                "70e23c3d05a32e4577b4b91ff0891f3ade75a381b815f343c78eb18d08ffccf2"
-            ),
-            Some(other) => panic!("Unsupported BITCOIN_NETWORK: {other}"),
-            None => panic!("BITCOIN_NETWORK not set"),
-        });
+    pub const TESTNET4_WORK_ONLY_IMAGE_ID: [u8; 32] =
+        hex_literal::hex!("6d104e43b3c55b70a47873edbbd22c8cf01b5fc77e5ff973ad8ba4b9cf3528dc");
 
     // const HEADERS: &[u8] = include_bytes!("../bin-files/testnet4_headers.bin");
     // const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");
@@ -381,10 +373,10 @@ mod tests {
         //     total_work_and_watchtower_flags,
         // };
 
-        let work_only_method_id_from_elf = compute_image_id(WORK_ONLY_ELF).unwrap();
+        let work_only_method_id_from_elf = compute_image_id(TESTNET4_WORK_ONLY_ELF).unwrap();
         assert_eq!(
             work_only_method_id_from_elf.as_bytes(),
-            *WORK_ONLY_IMAGE_ID,
+            TESTNET4_WORK_ONLY_IMAGE_ID,
             "Method ID mismatch, make sure to build the guest programs with new hardcoded values."
         );
 
