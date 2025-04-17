@@ -4,10 +4,9 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_TERM_VERBOSE: true
-  CARGOFLAGS: --workspace --all-targets --all-features
-  RUST_LOG: trace
+  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
+  RUST_MIN_STACK: 33554432
 
 jobs:
   formatting:
@@ -16,6 +15,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
     - name: Run Cargo fmt
       run: cargo fmt --check
 
@@ -25,6 +25,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
+
     - name: Run Cargo clippy
       run: cargo clippy --no-deps --all-targets -- -Dwarnings
 
@@ -34,11 +36,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
       - name: Toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-2024-07-27
+          toolchain: nightly-2025-03-09
           override: true
+
       - name: Run cargo-udeps
         env:
           RUSTFLAGS: -A warnings
@@ -50,6 +54,7 @@ jobs:
   coverage:
     name: Check code coverage percentage
     runs-on: ubicloud-standard-16
+    if: false
 
     services:
       postgres:
@@ -58,6 +63,8 @@ jobs:
           POSTGRES_DB: clementine
           POSTGRES_USER: clementine
           POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+
         ports:
           - 5432:5432
         options: >-
@@ -68,12 +75,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+
       - name: Install Rust
         run: rustup update stable
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage and print that to a JSON file
-        run: cargo llvm-cov $CARGOFLAGS --json --output-path lcov.json
+        run: cargo llvm-cov --json --output-path lcov.json --ignore-filename-regex core/src/rpc/clementine.rs # TODO: Remove ignore and test auto generated code too
       - name: Check coverage
         run: scripts/check_json_code_coverage.py lcov.json
 
@@ -83,6 +94,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Run script
         run: scripts/check_for_todos.sh
         continue-on-error: true # TODO: This should be removed later

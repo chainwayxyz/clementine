@@ -4,7 +4,7 @@ Clementine is Citrea's BitVM based trust-minimized two-way peg program.
 
 The repository includes:
 
-- A library for bridge operator, verifiers and aggregator
+- A library for bridge operator, verifiers, aggregator and watchtower
 - Circuits that will be optimistically verified with BitVM
 
 > [!WARNING]
@@ -15,71 +15,81 @@ The repository includes:
 
 ## Instructions
 
-Clementine requires a Bitcoin node up and running on the client. Please install
-and configure Bitcoin Core if you haven't already.
+### Setup
 
-### Preparing a Configuration File
+Clementine requires a Bitcoin node up and running. Please install and configure
+Bitcoin Core if you haven't already.
 
-Running a binary as a verifier, aggregator or operator requires a configuration
-file. Example configuration file is located at
+### Preparing a Configuration File or Using Environment Variables to Configure Clementine
+
+Running the binary as a verifier, aggregator, operator or watchtower requires a
+configuration file. An example configuration file is located at
 [`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
+It is also possible to use environment variables, instead of a configuration
+file. [`.env.example`] file can be taken as a reference for this matter.
+
+Please note that configuration file and environment variables can't be mix used.
+If all the environment variables are specified, configuration file will be
+omitted even if it's given.
+
 ### Starting a Server
 
-A server can be started using its corresponding CLI flag:
+Clementine is designed to be run multiple times for every actor that an entity
+requires. An actor's server can be started using its corresponding argument:
 
 ```sh
 # Build the binary
-cargo build --release --bin server
+cargo build --release
 
 # Run binary with a target
-./target/release/server $CONFIGFILE --verifier-server # Start verifier server
-./target/release/server $CONFIGFILE --aggregator-server # Start aggregator server
-./target/release/server $CONFIGFILE --operator-server # Start operator server
+./target/release/clementine-core verifier $CONFIGFILE # Start verifier server
+./target/release/clementine-core operator $CONFIGFILE # Start operator server
+./target/release/clementine-core aggregator $CONFIGFILE # Start aggregator server
+./target/release/clementine-core watchtower $CONFIGFILE # Start watchtower server
 ```
 
 A server's log level can be specified with `--verbose` flag:
 
 ```sh
-./target/release/server $CONFIGFILE --operator-server --verbose 5 # Logs everything
+./target/release/clementine-core operator $CONFIGFILE --verbose 5 # Logs everything
 ```
 
-More information, use `--help` flag:
+For more information, use `--help` flag:
 
 ```sh
-./target/release/server --help
+./target/release/clementine-core --help
 ```
 
 ### Testing
 
-#### Bitcoin Regtest Setup
+#### Prerequisites
 
-To simulate deposits, withdrawals, proof generation on the Bitcoin Regtest
-network, some configuration is needed.
+1. **PostgreSQL Database**
 
-Start the regtest server with the following command:
+   Tests require a PostgreSQL database with a high max connection limit due to parallelism of tests.
+   You can quickly set one up using Docker:
 
-```sh
-bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1
-```
+   ```bash
+   docker run --name clementine-test-db \
+   -e POSTGRES_USER=clementine \
+   -e POSTGRES_PASSWORD=clementine \
+   -e POSTGRES_DB=clementine \
+   -p 5432:5432 \
+   --restart always \
+   -d postgres:15 \
+   bash -c "exec docker-entrypoint.sh postgres -c 'max_connections=1000'"
+   ```
 
-Create a wallet for the operator:
+2. **RISC Zero Toolchain**
 
-```sh
-bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
-```
+   For prover tests, you'll need to install the RISC Zero toolchain:
 
-Mine some blocks to the wallet:
-
-```sh
-bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
-```
-
-Please note that this step is not necessary if
-[bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc) will be used
-for testing.
+   ```bash
+   cargo install cargo-risczero
+   ```
 
 #### [Optional] Docker
 
@@ -102,7 +112,8 @@ docker compose -f scripts/docker/docker-compose.yml up
 
 #### Configuration
 
-Enabling dev-mode for risc0-zkvm can help lower the compilation times.
+Enabling dev-mode for risc0-zkvm can help lower the proving times, in tests.
+Please note that this should only be enabled when testing.
 
 ```sh
 export RISC0_DEV_MODE=1
@@ -123,14 +134,6 @@ To run all tests:
 
 ```sh
 cargo test
-```
-
-Tests can also be run with
-[bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc), which is an
-alternative to Bitcoin Regtest:
-
-```sh
-cargo test --features mock_rpc
 ```
 
 ## License

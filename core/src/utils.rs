@@ -1,144 +1,17 @@
-use crate::builder::transaction::TxHandler;
-use crate::cli::Args;
-use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use bitcoin;
-use bitcoin::sighash::SighashCache;
-use bitcoin::taproot::LeafVersion;
-use bitcoin::XOnlyPublicKey;
-use std::borrow::BorrowMut;
-use std::process::exit;
-use std::str::FromStr;
+use std::fmt::Debug;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
 
-lazy_static::lazy_static! {
-    /// Global secp context.
-    pub static ref SECP: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
-}
-
-lazy_static::lazy_static! {
-    /// This is an unspendable pubkey.
-    ///
-    /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
-    pub static ref UNSPENDABLE_PUBKEY: bitcoin::secp256k1::PublicKey =
-        "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51".parse().unwrap();
-}
-
-lazy_static::lazy_static! {
-    /// This is an unspendable pubkey.
-    ///
-    /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
-    pub static ref UNSPENDABLE_XONLY_PUBKEY: bitcoin::secp256k1::XOnlyPublicKey =
-        XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
-}
-
-lazy_static::lazy_static! {
-    pub static ref NETWORK : bitcoin::Network = bitcoin::Network::Regtest;
-}
-
-/// Gets configuration from CLI, for binaries. If there are any errors, print
-/// error to stderr and exit program.
-///
-/// Steps:
-///
-/// 1. Get CLI arguments
-/// 2. Initialize logger
-/// 3. Get configuration file
-///
-/// These steps are pretty standard and binaries can use this to get a
-/// `BridgeConfig`.
-///
-/// # Returns
-///
-/// A tuple, containing:
-///
-/// - [`BridgeConfig`] from CLI argument
-/// - [`Args`] from CLI options
-pub fn get_configuration_for_binaries() -> (BridgeConfig, Args) {
-    let args = match crate::cli::parse() {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("{e}");
-            exit(1);
-        }
-    };
-    match crate::utils::initialize_logger(args.verbose) {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("{e}");
-            exit(1);
-        }
-    };
-    let config = match crate::cli::get_configuration_from(args.clone()) {
-        Ok(config) => config,
-        Err(e) => {
-            eprintln!("{e}");
-            exit(1);
-        }
-    };
-
-    (config, args)
-}
-
 pub fn usize_to_var_len_bytes(x: usize) -> Vec<u8> {
     let usize_bytes = (usize::BITS / 8) as usize;
     let bits = x.max(1).ilog2() + 1;
-    let len = ((bits + 7) / 8) as usize;
+    let len = bits.div_ceil(8) as usize;
     let empty = usize_bytes - len;
     let op_idx_bytes = x.to_be_bytes();
     let op_idx_bytes = &op_idx_bytes[empty..];
     op_idx_bytes.to_vec()
-}
-
-pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
-    tx: &mut TxHandler,
-    witness_elements: &[T],
-    txin_index: usize,
-    script_index: Option<usize>,
-) -> Result<(), BridgeError> {
-    let mut sighash_cache = SighashCache::new(tx.tx.borrow_mut());
-
-    let witness = sighash_cache
-        .witness_mut(txin_index)
-        .ok_or(BridgeError::TxInputNotFound)?;
-
-    witness_elements
-        .iter()
-        .for_each(|element| witness.push(element));
-    if let Some(index) = script_index {
-        let script = &tx.scripts[txin_index][index];
-        let spend_control_block = tx.taproot_spend_infos[txin_index]
-            .control_block(&(script.clone(), LeafVersion::TapScript))
-            .ok_or(BridgeError::ControlBlockError)?;
-
-        witness.push(script.clone());
-        witness.push(spend_control_block.serialize());
-    }
-    Ok(())
-}
-
-pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
-    assert!(count <= 2u32.pow(depth as u32));
-
-    if count == 0 {
-        return vec![(0, 0)];
-    }
-
-    let mut indices: Vec<(usize, usize)> = Vec::new();
-    if count == 2u32.pow(depth as u32) {
-        return indices;
-    }
-
-    if count % 2 == 1 {
-        indices.push((depth, count as usize));
-        indices.extend(get_claim_reveal_indices(depth - 1, (count + 1) / 2));
-    } else {
-        indices.extend(get_claim_reveal_indices(depth - 1, count / 2));
-    }
-
-    indices
 }
 
 /// Initializes `tracing` as the logger.
@@ -154,25 +27,27 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
 ///
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emmitted and will return `Ok(())`.
-pub fn initialize_logger(level: u8) -> Result<(), BridgeError> {
-    let level = match level {
-        0 => None,
-        1 => Some(LevelFilter::ERROR),
-        2 => Some(LevelFilter::WARN),
-        3 => Some(LevelFilter::INFO),
-        4 => Some(LevelFilter::DEBUG),
-        5 => Some(LevelFilter::TRACE),
-        _ => {
-            return Err(BridgeError::ConfigError(format!(
-                "Verbosity level can only be between 0 and 5 (given {level})!"
-            )))
-        }
-    };
+pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
+    // Configure JSON formatting with additional fields
+    let json_layer = fmt::layer::<Registry>()
+        .with_test_writer()
+        // .with_timer(time::UtcTime::rfc_3339())
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
+        .with_target(true)
+        // .with_current_span(true)
+        // .with_span_list(true)
+        .json();
 
-    // Standard layer that will output human readable logs.
-    let layer = fmt::layer().with_test_writer();
-    // JSON layer that will output JSON formatted logs.
-    let json_layer = fmt::layer::<Registry>().with_test_writer().json();
+    // Standard human-readable layer for non-JSON output
+    let standard_layer = fmt::layer()
+        .with_test_writer()
+        // .with_timer(time::UtcTime::rfc_3339())
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true);
 
     let filter = match level {
         Some(level) => EnvFilter::builder()
@@ -181,14 +56,16 @@ pub fn initialize_logger(level: u8) -> Result<(), BridgeError> {
         None => EnvFilter::from_default_env(),
     };
 
-    // Try to initialize tracing, depending on the `JSON_LOGS` env var,
+    // Try to initialize tracing, depending on the `JSON_LOGS` env var
     let res = if std::env::var("JSON_LOGS").is_ok() {
         tracing_subscriber::util::SubscriberInitExt::try_init(
             tracing_subscriber::registry().with(json_layer).with(filter),
         )
     } else {
         tracing_subscriber::util::SubscriberInitExt::try_init(
-            tracing_subscriber::registry().with(layer).with(filter),
+            tracing_subscriber::registry()
+                .with(standard_layer)
+                .with(filter),
         )
     };
 
@@ -205,41 +82,36 @@ pub fn initialize_logger(level: u8) -> Result<(), BridgeError> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Monitors a JoinHandle and aborts the process if the task completes with an error.
+/// Returns a handle to the monitoring task that can be used to cancel it.
+pub fn monitor_task_with_panic<T: Send + 'static, E: Debug + Send + 'static>(
+    task_handle: tokio::task::JoinHandle<Result<T, E>>,
+    task_name: &str,
+) {
+    let task_name = task_name.to_string();
 
-    #[test]
-    fn test_get_indices() {
-        let test_cases = vec![
-            ((0, 0), vec![(0, 0)]),
-            ((0, 1), vec![]),
-            ((1, 0), vec![(0, 0)]),
-            ((1, 1), vec![(1, 1)]),
-            ((1, 2), vec![]),
-            ((2, 0), vec![(0, 0)]),
-            ((2, 1), vec![(2, 1), (1, 1)]),
-            ((2, 2), vec![(1, 1)]),
-            ((2, 3), vec![(2, 3)]),
-            ((2, 4), vec![]),
-            ((3, 0), vec![(0, 0)]),
-            ((3, 1), vec![(3, 1), (2, 1), (1, 1)]),
-            ((3, 2), vec![(2, 1), (1, 1)]),
-            ((3, 3), vec![(3, 3), (1, 1)]),
-            ((3, 4), vec![(1, 1)]),
-            ((3, 5), vec![(3, 5), (2, 3)]),
-            ((3, 6), vec![(2, 3)]),
-            ((3, 7), vec![(3, 7)]),
-            ((3, 8), vec![]),
-        ];
-
-        for ((depth, index), expected) in test_cases {
-            let indices = get_claim_reveal_indices(depth, index);
-            assert_eq!(
-                indices, expected,
-                "Failed at get_indices({}, {})",
-                depth, index
-            );
+    // Move task_handle into the spawned task to make it Send
+    tokio::spawn(async move {
+        match task_handle.await {
+            Ok(Ok(_)) => {
+                // Task completed successfully
+                tracing::debug!("Task {} completed successfully", task_name);
+            }
+            Ok(Err(e)) => {
+                // Task returned an error
+                tracing::error!("Task {} failed with error: {:?}", task_name, e);
+                panic!();
+            }
+            Err(e) => {
+                if e.is_cancelled() {
+                    // Task was cancelled, which is expected during cleanup
+                    tracing::debug!("Task {} was cancelled", task_name);
+                    return;
+                }
+                // Task panicked or was aborted
+                tracing::error!("Task {} panicked: {:?}", task_name, e);
+                panic!();
+            }
         }
-    }
+    });
 }

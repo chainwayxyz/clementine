@@ -1,185 +1,246 @@
 //! # Errors
 //!
-//! This module defines errors, returned by the library.
+//! This module defines globally shared error messages, the crate-level error wrapper and extension traits for error/results.
+//! Our error paradigm is as follows:
+//! 1. Modules define their own error types when they need shared error messages. Module-level errors can wrap eyre::Report to capture arbitrary errors.
+//! 2. The crate-level error wrapper (BridgeError) is used to wrap errors from modules and attach extra context (ie. which module caused the error).
+//! 3. External crate errors are always wrapped by the BridgeError and never by module-level errors.
+//! 4. When using external crates inside modules, extension traits are used to convert external-crate errors into BridgeError. This is further wrapped in an eyre::Report to avoid a circular dependency.
+//! 5. BridgeError can be converted to tonic::Status to be returned to the client. Module-level errors can define Into<Status> to customize the returned status.
+//! 6. BridgeError can be used to share error messages across modules.
+//! 7. When the error cause is not sufficiently explained by the error messages, use `eyre::Context::wrap_err` to add more context. This will not hinder modules that are trying to match the error.
+//!
+//! ## Error wrapper example usage with `TxError`
+//! ```rust
+//! use thiserror::Error;
+//! use clementine_core::errors::{BridgeError, TxError, ErrorExt, ResultExt};
+//!
+//! // Function with external crate signature
+//! pub fn external_crate() -> Result<(), hex::FromHexError> {
+//!     Err(hex::FromHexError::InvalidStringLength)
+//! }
+//!
+//! // Internal function failing with some error
+//! pub fn internal_function_in_another_module() -> Result<(), BridgeError> {
+//!     Err(eyre::eyre!("I just failed").into())
+//! }
+//!
+//!
+//! // This function returns module-level errors
+//! // It can wrap external crate errors, and other crate-level errors
+//! pub fn create_some_txs() -> Result<(), TxError> {
+//!     // Do external things
+//!     // This wraps the external crate error with BridgeError, then boxes inside an eyre::Report. The `?` will convert the eyre::Report into a TxError.
+//!     external_crate().map_to_eyre()?;
+//!
+//!     // Do internal things
+//!     // This will simply wrap in eyre::Report, then rewrap in TxError.
+//!     internal_function_in_another_module().map_to_eyre()?;
+//!
+//!     // Return a module-level error
+//!     Err(TxError::TxInputNotFound)
+//! }
+//!
+//! pub fn test() -> Result<(), BridgeError> {
+//!     create_some_txs()?;
+//!     // This will convert the TxError into a BridgeError, wrapping the error with the message "Failed to build transactions" regardless of the actual error.
+//!
+//!     // Chain will be:
+//!     // 1. External case: BridgeError -> TxError -> eyre::Report -> hex::FromHexError
+//!     // 2. Internal case: BridgeError -> TxError -> eyre::Report -> BridgeError -> eyre::Report (this could've been any other module-level error)
+//!     // 3. Module-level error: BridgeError -> TxError
+//!
+//!
+//!     // error(transparent) ensures that unnecessary error messages are not repeated.
+//!     Ok(())
+//! }
+//!
+//! pub fn main() {
+//!     assert!(test().is_err());
+//! }
+//! ```
 
-use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, Txid};
+use crate::{
+    builder::transaction::input::SpendableTxInError,
+    extended_rpc::BitcoinRPCError,
+    header_chain_prover::HeaderChainProverError,
+    rpc::{aggregator::AggregatorError, ParserError},
+    states::StateMachineError,
+    tx_sender::SendTxError,
+};
+use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
 use core::fmt::Debug;
-use jsonrpsee::types::ErrorObject;
-use musig2::secp::errors::InvalidScalarBytes;
+use hex::FromHexError;
 use thiserror::Error;
+
+pub use crate::builder::transaction::TxError;
 
 /// Errors returned by the bridge.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    /// Returned when the secp256k1 crate returns an error
-    #[error("Secpk256Error: {0}")]
-    Secp256k1Error(#[from] secp256k1::Error),
-    /// Returned when the bitcoin crate returns an error in the sighash taproot module
-    #[error("BitcoinSighashTaprootError: {0}")]
-    BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
-    /// Returned when a non finalized deposit request is found
-    #[error("DepositNotFinalized")]
-    DepositNotFinalized,
-    /// Returned when an invalid deposit UTXO is found
-    #[error("InvalidDepositUTXO")]
-    InvalidDepositUTXO,
-    /// Returned when a UTXO is already spent
-    #[error("UTXOSpent")]
-    UTXOSpent,
-    /// Returned when it fails to get FailedToGetPresigns
-    #[error("FailedToGetPresigns")]
-    FailedToGetPresigns,
-    /// Returned when it fails to find the txid in the block
-    #[error("TxidNotFound")]
-    TxidNotFound,
-    /// Returned in RPC error
-    #[error("BitcoinCoreRPCError: {0}")]
-    BitcoinRpcError(#[from] bitcoincore_rpc::Error),
-    /// Returned if there is no confirmation data
-    #[error("NoConfirmationData")]
-    NoConfirmationData,
-    /// For Vec<u8> conversion
-    #[error("VecConversionError")]
-    VecConversionError,
-    /// For TryFromSliceError
-    #[error("TryFromSliceError")]
-    TryFromSliceError,
-    /// Returned when bitcoin::Transaction error happens, also returns the error
-    #[error("BitcoinTransactionError: {0}")]
-    BitcoinConsensusEncodeError(#[from] bitcoin::consensus::encode::Error),
-    /// TxInputNotFound is returned when the input is not found in the transaction
-    #[error("TxInputNotFound")]
-    TxInputNotFound,
-    /// PreimageNotFound is returned when the preimage is not found in the the connector tree or claim proof
-    #[error("PreimageNotFound")]
-    PreimageNotFound,
-    /// TaprootBuilderError is returned when the taproot builder returns an error
-    /// Errors if the leaves are not provided in DFS walk order
-    #[error("TaprootBuilderError")]
-    TaprootBuilderError,
-    #[error("TaprootScriptError")]
-    TaprootScriptError,
-    /// ControlBlockError is returned when the control block is not found
-    #[error("ControlBlockError")]
-    ControlBlockError,
-    /// PkSkLengthMismatch is returned when the public key and secret key length do not match
-    #[error("PkSkLengthMismatch")]
-    PkSkLengthMismatch,
-    /// PublicKeyNotFound is returned when the public key is not found in all public keys
-    #[error("PublicKeyNotFound")]
-    PublicKeyNotFound,
-    /// InvalidOperatorKey
-    #[error("InvalidOperatorKey")]
-    InvalidOperatorKey,
-    /// AlreadyInitialized is returned when the operator is already initialized
-    #[error("AlreadyInitialized")]
-    AlreadyInitialized,
-    /// Blockhash not found
-    #[error("Blockhash not found")]
-    BlockhashNotFound,
-    /// Block not found
-    #[error("Block not found")]
-    BlockNotFound,
-    /// Merkle Block Error
-    #[error("MerkleBlockError: {0}")]
-    MerkleBlockError(#[from] MerkleBlockError),
-    /// Merkle Proof Error
-    #[error("MerkleProofError")]
-    MerkleProofError,
-    /// JSON RPC call failed
-    #[error("JsonRpcError: {0}")]
-    JsonRpcError(#[from] jsonrpsee::core::client::Error),
-    /// ConfigError is returned when the configuration is invalid
-    #[error("ConfigError: {0}")]
+    // TODO: migrate
+    #[error("Uncategorized error: {0}")]
+    Error(String),
+
+    // Module-level errors
+    // Header chain prover errors
+    #[error("Prover returned an error: {0}")]
+    Prover(#[from] HeaderChainProverError),
+    #[error("Failed to build transactions: {0}")]
+    Transaction(#[from] TxError),
+    #[error("Failed to send transactions: {0}")]
+    SendTx(#[from] SendTxError),
+    #[error("Aggregator error: {0}")]
+    Aggregator(#[from] AggregatorError),
+    #[error("Failed to parse request: {0}")]
+    Parser(#[from] ParserError),
+    #[error("SpendableTxIn error: {0}")]
+    SpendableTxIn(#[from] SpendableTxInError),
+    #[error("Bitcoin RPC error: {0}")]
+    BitcoinRPC(#[from] BitcoinRPCError),
+    #[error("State machine error: {0}")]
+    StateMachine(#[from] StateMachineError),
+
+    // Shared error messages
+    #[error("Unsupported network")]
+    UnsupportedNetwork,
+    #[error("Invalid configuration: {0}")]
     ConfigError(String),
-    /// Bitcoin Address Parse Error, probably given address network is invalid
-    #[error("BitcoinAddressParseError: {0}")]
-    BitcoinAddressParseError(#[from] bitcoin::address::ParseError),
-    /// Port error for tests
-    #[error("PortError: {0}")]
-    PortError(String),
-    /// Database error
-    #[error("DatabaseError: {0}")]
+    #[error("Environment variable {1}: {0}")]
+    EnvVarNotSet(std::env::VarError, &'static str),
+    #[error("Environment variable {0} is malformed: {1}")]
+    EnvVarMalformed(&'static str, String),
+
+    #[error("Failed to convert between integer types")]
+    IntConversionError,
+    #[error("Failed to encode/decode data using borsh")]
+    BorshError,
+    #[error("Operator x-only public key {0} was not found in the DB")]
+    OperatorNotFound(XOnlyPublicKey),
+    #[error("Verifier with public key {0} was not found among the verifier clients")]
+    VerifierNotFound(PublicKey),
+    #[error("Deposit not found in DB: {0:?}")]
+    DepositNotFound(OutPoint),
+
+    // External crate error wrappers
+    #[error("Failed to call database: {0}")]
     DatabaseError(#[from] sqlx::Error),
-    /// Database error
-    #[error("PgDatabaseError: {0}")]
-    PgDatabaseError(String),
-    /// Operator tries to claim with different bridge funds with the same withdrawal idx
-    #[error("AlreadySpentWithdrawal")]
-    AlreadySpentWithdrawal,
-    /// There was an error while creating a server.
-    #[error("ServerError")]
-    ServerError(#[from] std::io::Error),
-    /// When the operators funding utxo is not found
-    #[error("OperatorFundingUtxoNotFound: Funding utxo not found, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
-    OperatorFundingUtxoNotFound(bitcoin::Address),
-    /// OperatorFundingUtxoAmountNotEnough is returned when the operator funding utxo amount is not enough
-    #[error("OperatorFundingUtxoAmountNotEnough: Operator funding utxo amount is not enough, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
-    OperatorFundingUtxoAmountNotEnough(bitcoin::Address),
-    /// OperatorWithdrawalFeeNotSet is returned when the operator withdrawal fee is not set
-    #[error("OperatorWithdrawalFeeNotSet")]
-    OperatorWithdrawalFeeNotSet,
-    /// InvalidKickoffUtxo is returned when the kickoff utxo is invalid
-    #[error("InvalidKickoffUtxo")]
-    InvalidKickoffUtxo,
-
-    #[error("KeyAggContextError: {0}")]
-    KeyAggContextError(#[from] musig2::errors::KeyAggError),
-
-    #[error("KeyAggContextTweakError: {0}")]
-    KeyAggContextTweakError(#[from] musig2::errors::TweakError),
-
-    #[error("InvalidScalarBytes: {0}")]
-    InvalidScalarBytes(#[from] InvalidScalarBytes),
-
-    #[error("NoncesNotFound")]
-    NoncesNotFound,
-
-    #[error("MuSig2VerifyError: {0}")]
-    MuSig2VerifyError(#[from] musig2::errors::VerifyError),
-
-    #[error("KickoffOutpointsNotFound")]
-    KickoffOutpointsNotFound,
-    #[error("DepositInfoNotFound")]
-    DepositInfoNotFound,
-
-    #[error("FromHexError: {0}")]
+    #[error("Failed to convert hex string: {0}")]
     FromHexError(#[from] FromHexError),
-
-    #[error("FromSliceError: {0}")]
+    #[error("Failed to convert to hash from slice: {0}")]
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
+    #[error("Error while calling EVM contract: {0}")]
+    AlloyContract(#[from] alloy::contract::Error),
+    #[error("Error while calling EVM RPC function: {0}")]
+    AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
+    #[error("Error while encoding/decoding EVM type: {0}")]
+    AlloySolTypes(#[from] alloy::sol_types::Error),
 
-    #[error("InvalidInputUTXO: {0}, {1}")]
-    InvalidInputUTXO(Txid, Txid),
+    #[error("Tonic status: {0}")]
+    TonicStatus(#[from] tonic::Status),
 
-    #[error("InvalidOperatorIndex: {0}, {1}")]
-    InvalidOperatorIndex(usize, usize),
-
-    #[error("InvalidDepositOutpointGiven: {0}, {1}")]
-    InvalidDepositOutpointGiven(usize, usize),
-
-    #[error("NotEnoughFeeForOperator")]
-    NotEnoughFeeForOperator,
-
-    #[error("KickoffGeneratorTxNotFound")]
-    KickoffGeneratorTxNotFound,
-
-    #[error("KickoffGeneratorTxsTooManyIterations")]
-    KickoffGeneratorTxsTooManyIterations,
-
-    #[error("OperatorSlashOrTakeSigNotFound")]
-    OperatorSlashOrTakeSigNotFound,
-
-    #[error("OperatorTakesSigNotFound")]
-    OperatorTakesSigNotFound,
-
-    #[error("Musig2 error: {0}")]
-    Musig2Error(#[from] musig2::secp256k1::Error),
+    // Base wrapper for eyre
+    #[error(transparent)]
+    Eyre(#[from] eyre::Report),
 }
 
-impl From<BridgeError> for ErrorObject<'static> {
+/// Extension traits for errors to easily convert them to eyre::Report and
+/// tonic::Status through BridgeError.
+pub trait ErrorExt: Sized {
+    /// Converts the error into an eyre::Report, first wrapping in
+    /// BridgeError if necessary. It does not rewrap in eyre::Report if
+    /// the given error is already an eyre::Report.
+    fn into_eyre(self) -> eyre::Report;
+    /// Converts the error into a tonic::Status. Currently defaults to
+    /// tonic::Status::from_error which will walk the error chain and attempt to
+    /// find a [`tonic::Status`] in the chain. If it can't find one, it will
+    /// return an Status::unknown with the Display representation of the error.
+    ///
+    /// TODO: We should change the implementation to walk the chain of errors
+    /// and return the first [`TryInto<tonic::Status>`] error. This is
+    /// impossible to do dynamically, each error must be included in the match
+    /// arms of the conversion logic.
+    fn into_status(self) -> tonic::Status;
+}
+
+/// Extension traits for results to easily convert them to eyre::Report and
+/// tonic::Status through BridgeError.
+pub trait ResultExt: Sized {
+    type Output;
+
+    fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
+    fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
+}
+
+impl<T: Into<BridgeError>> ErrorExt for T {
+    fn into_eyre(self) -> eyre::Report {
+        match self.into() {
+            BridgeError::Eyre(report) => report,
+            other => eyre::eyre!(other),
+        }
+    }
+    fn into_status(self) -> tonic::Status {
+        self.into().into()
+    }
+}
+
+impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
+    type Output = U;
+
+    fn map_to_eyre(self) -> Result<Self::Output, eyre::Report> {
+        self.map_err(ErrorExt::into_eyre)
+    }
+
+    fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
+        self.map_err(ErrorExt::into_status)
+    }
+}
+
+impl From<BridgeError> for tonic::Status {
     fn from(val: BridgeError) -> Self {
-        ErrorObject::owned(-30000, format!("{:?}", val), Some(1))
+        // TODO: we need a better solution for user-facing errors.
+        // This exposes our internal errors to the user. What we want here is:
+        // 1. We don't want to expose internal errors to the user.
+        // 2. We want lower-level errors to be able to define whether and how they want to be exposed to the user.
+        tracing::error!(
+            "Casting BridgeError to Status message (possibly lossy): {:?}",
+            val
+        );
+        tonic::Status::from_error(Box::new(val))
+
+        // Possible future implementation, requires manually matching all TryInto<Status> types
+        // for err in val.into_eyre().chain() {
+        //     match err.downcast_ref::<BridgeError>() {
+        //         Some(BridgeError::Aggregator(err)) => {
+        //             if let Ok(status) = err.try_into() {
+        //                 return status;
+        //             }
+        //         }
+        //         Some(_) | None => {}
+        //     }
+        // }
+
+        // tracing::error!("Internal server error: {:?}", val);
+        // tonic::Status::internal("Internal server error.")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_downcast() {
+        assert_eq!(
+            BridgeError::IntConversionError
+                .into_eyre()
+                .wrap_err("Some other error")
+                .into_eyre()
+                .wrap_err("some other")
+                .downcast_ref::<BridgeError>()
+                .unwrap()
+                .to_string(),
+            BridgeError::IntConversionError.to_string()
+        );
     }
 }

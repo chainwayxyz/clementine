@@ -5,39 +5,44 @@
 
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
+use crate::utils;
 use clap::Parser;
+use clap::ValueEnum;
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::exit;
+use std::str::FromStr;
+use tracing::level_filters::LevelFilter;
+use tracing::Level;
 
-/// Clementine (C) 2024 Chainway Limited
+#[derive(Debug, Clone, Copy, ValueEnum, Eq, PartialEq)]
+pub enum Actors {
+    Verifier,
+    Operator,
+    Aggregator,
+}
+
+/// Clementine (C) 2025 Chainway Limited
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
+    /// Actor to run.
+    pub actor: Actors,
     /// TOML formatted configuration file.
-    pub config_file: PathBuf,
+    pub config_file: Option<PathBuf>,
     /// Verbosity level, ranging from 0 (none) to 5 (highest)
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(short, long, default_value_t = 3)]
     pub verbose: u8,
-    /// Enable verifier server.
-    #[clap(long)]
-    pub verifier_server: bool,
-    /// Enable operator server.
-    #[clap(long)]
-    pub operator_server: bool,
-    /// Enable aggregator server.
-    #[clap(long)]
-    pub aggregator_server: bool,
 }
 
 /// Parse all the command line arguments and generate a `BridgeConfig`.
-pub fn parse() -> Result<Args, BridgeError> {
+fn parse() -> Result<Args, BridgeError> {
     parse_from(env::args())
 }
 
 /// Parse given iterator. This is good for isolated environments, like tests.
-pub fn parse_from<I, T>(itr: I) -> Result<Args, BridgeError>
+fn parse_from<I, T>(itr: I) -> Result<Args, BridgeError>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -48,38 +53,93 @@ where
     }
 }
 
-/// Parses cli arguments, reads configuration file, parses it and generates a
-/// `BridgeConfig`.
+/// Reads configuration file, parses it and generates a `BridgeConfig` from
+/// given cli arguments.
+fn get_configuration_from(config_file: PathBuf) -> Result<BridgeConfig, BridgeError> {
+    match BridgeConfig::try_parse_file(config_file) {
+        Ok(c) => Ok(c),
+        Err(e) => Err(BridgeError::ConfigError(e.to_string())),
+    }
+}
+
+/// Gets configuration from CLI, for binaries. If there are any errors, prints
+/// error and exits the program.
 ///
-/// # Exits
+/// Steps:
 ///
-/// Prints help + error messages and kills process on error. This will not panic
-/// intentionally, just to print a user friendly message and not a trace.
-pub fn get_configuration() -> BridgeConfig {
+/// 1. Get CLI arguments
+/// 2. Initialize logger
+/// 3. Get configuration file, either from environment variables or
+///    configuration file
+///
+/// # Returns
+///
+/// A tuple, containing:
+///
+/// - [`BridgeConfig`] from CLI argument
+/// - [`Args`] from CLI options
+pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
     let args = match parse() {
-        Ok(c) => c,
+        Ok(args) => args,
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{e}");
             exit(1);
         }
     };
 
-    match get_configuration_from(args) {
-        Ok(c) => c,
+    let level_filter = match args.verbose {
+        0 => None,
+        other => Some(LevelFilter::from_level(
+            Level::from_str(&other.to_string()).unwrap_or(Level::INFO),
+        )),
+    };
+
+    match utils::initialize_logger(level_filter) {
+        Ok(args) => args,
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{e}");
+            exit(1);
+        }
+    };
+
+    // Return early if environment variables are set.
+    match BridgeConfig::from_env() {
+        Ok(config) => {
+            tracing::info!(
+                "All the environment variables are set. Using them instead of a configuration file..."
+            );
+
+            return (config, args);
+        }
+        Err(BridgeError::EnvVarNotSet(e, field)) => {
+            tracing::info!("Environment variable {field} is not set ({e}). Skipping reading environment variables and using configuration file...");
+        }
+        Err(e) => {
+            // TODO: Almost every error is converted automatically and it's not
+            // possible to tell which env var is malformed without managing
+            // every error manually. Maybe the new error interface will solve
+            // this problem?
+            tracing::error!("Malformed value set to an environment variable: {e}");
             exit(1);
         }
     }
-}
 
-/// Reads configuration file, parses it and generates a `BridgeConfig` from
-/// given cli arguments.
-pub fn get_configuration_from(args: Args) -> Result<BridgeConfig, BridgeError> {
-    match BridgeConfig::try_parse_file(args.config_file.clone()) {
-        Ok(c) => Ok(c),
-        Err(e) => Err(BridgeError::ConfigError(e.to_string())),
-    }
+    let config_file = if let Some(config_file) = args.config_file.clone() {
+        config_file
+    } else {
+        tracing::error!("Configuration file is not provided!");
+        exit(1);
+    };
+
+    let config = match get_configuration_from(config_file) {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::error!("Can't read configuration from file: {e}");
+            exit(1);
+        }
+    };
+
+    (config, args)
 }
 
 #[cfg(test)]

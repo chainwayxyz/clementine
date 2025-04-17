@@ -9,13 +9,42 @@
 use crate::{config::BridgeConfig, errors::BridgeError};
 use sqlx::{Pool, Postgres};
 
-mod common;
+mod bitcoin_syncer;
+mod header_chain_prover;
+mod operator;
+mod state_machine;
+mod tx_sender;
+mod verifier;
 mod wrapper;
+
+#[cfg(test)]
+pub use wrapper::*;
 
 /// PostgreSQL database connection details.
 #[derive(Clone, Debug)]
 pub struct Database {
     connection: Pool<Postgres>,
+}
+
+/// Database transaction for Postgres.
+pub type DatabaseTransaction<'a, 'b> = &'a mut sqlx::Transaction<'b, Postgres>;
+
+/// Executes a query with a transaction if it is provided.
+///
+/// # Parameters
+///
+/// - `$conn`: Database connection.
+/// - `$tx`: Optional database transaction
+/// - `$query`: Query to execute.
+/// - `$method`: Method to execute on the query.
+#[macro_export]
+macro_rules! execute_query_with_tx {
+    ($conn:expr, $tx:expr, $query:expr, $method:ident) => {
+        match $tx {
+            Some(tx) => $query.$method(&mut **tx).await,
+            None => $query.$method(&$conn).await,
+        }
+    };
 }
 
 impl Database {
@@ -39,66 +68,21 @@ impl Database {
         self.connection.close().await;
     }
 
-    /// Initializes a new database with given configuration. If the database is
-    /// already initialized, it will be dropped before initialization. Meaning,
-    /// a clean state is guaranteed.
-    ///
-    /// [`Database::new`] must be called after this to connect to the
-    /// initialized database.
-    ///
-    /// **Warning:** This must not be used in release environments and is only
-    /// suitable for testing.
-    ///
-    /// TODO: This function must be marked with `#[cfg(test)]` to prevent it
-    /// from infiltrating the binaries. See:
-    /// https://github.com/chainwayxyz/clementine/issues/181
-    pub async fn initialize_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        Database::drop_database(config).await?;
-
-        Database::create_database(config).await?;
-
-        Database::run_schema_script(config).await?;
-
-        Ok(())
+    pub fn get_pool(&self) -> Pool<Postgres> {
+        self.connection.clone()
     }
 
-    /// Creates a new database with given configuration.
-    ///
-    /// # Errors
-    ///
-    /// Will return [`BridgeError`] if there was a problem with database
-    /// connection.
-    async fn create_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+    pub async fn is_pgmq_installed(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<bool, BridgeError> {
+        let query = sqlx::query_as::<_, (i64,)>(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pgmq' AND table_name = 'meta'"
+        );
 
-        sqlx::query(&format!(
-            "CREATE DATABASE {} WITH OWNER {}",
-            config.db_name, config.db_user
-        ))
-        .execute(&conn)
-        .await?;
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        conn.close().await;
-        Ok(())
-    }
-
-    /// Drops the database for the given configuration, if it exists.
-    ///
-    /// # Errors
-    ///
-    /// Will return [`BridgeError`] if there was a problem with database
-    /// connection. It won't return any errors if the database does not already
-    /// exist.
-    async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
-        let query = format!("DROP DATABASE IF EXISTS {}", &config.db_name);
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-        Ok(())
+        Ok(result.0 > 0)
     }
 
     /// Runs the schema script on a database for the given configuration.
@@ -107,12 +91,26 @@ impl Database {
     ///
     /// Will return [`BridgeError`] if there was a problem with database
     /// connection.
-    pub async fn run_schema_script(config: &BridgeConfig) -> Result<(), BridgeError> {
+    pub async fn run_schema_script(
+        config: &BridgeConfig,
+        is_verifier: bool,
+    ) -> Result<(), BridgeError> {
         let database = Database::new(config).await?;
 
         sqlx::raw_sql(include_str!("../../../scripts/schema.sql"))
             .execute(&database.connection)
             .await?;
+        if is_verifier {
+            // Check if PGMQ schema already exists
+            let is_pgmq_installed = database.is_pgmq_installed(None).await?;
+
+            // Only execute PGMQ setup if it doesn't exist
+            if !is_pgmq_installed {
+                sqlx::raw_sql(include_str!("../../../scripts/pgmq.sql"))
+                    .execute(&database.connection)
+                    .await?;
+            }
+        }
 
         database.close().await;
         Ok(())
@@ -122,7 +120,7 @@ impl Database {
     ///
     /// URL contains user, password, host and port fields, which are picked from
     /// the given configuration.
-    fn get_postgresql_url(config: &BridgeConfig) -> String {
+    pub fn get_postgresql_url(config: &BridgeConfig) -> String {
         "postgresql://".to_owned()
             + &config.db_user
             + ":"
@@ -137,7 +135,7 @@ impl Database {
     ///
     /// URL contains user, password, host, port and database name fields, which
     /// are picked from the given configuration.
-    fn get_postgresql_database_url(config: &BridgeConfig) -> String {
+    pub fn get_postgresql_database_url(config: &BridgeConfig) -> String {
         Database::get_postgresql_url(config) + "/" + &config.db_name
     }
 
@@ -154,15 +152,12 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        config::BridgeConfig,
-        database::Database,
-        mock::{common, database::create_test_config_with_thread_name},
-    };
+    use crate::test::common::*;
+    use crate::{config::BridgeConfig, database::Database};
 
     #[tokio::test]
     async fn valid_database_connection() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name().await;
 
         Database::new(&config).await.unwrap();
     }
@@ -178,46 +173,6 @@ mod tests {
         config.db_port = 123;
 
         Database::new(&config).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn create_drop_database() {
-        let mut config = common::get_test_config("test_config.toml").unwrap();
-        config.db_name = "create_drop_database".to_string();
-
-        // Drop database (clear previous test run artifacts) and check that
-        // connection can't be established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
-
-        // It should be possible to connect new database after creating it.
-        Database::create_database(&config).await.unwrap();
-        Database::new(&config).await.unwrap();
-
-        // Dropping database again should result connection to not be
-        // established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn initialize_database() {
-        let mut config = common::get_test_config("test_config.toml").unwrap();
-        config.db_name = "initialize_database".to_string();
-
-        // Drop database (clear previous test run artifacts) and check that
-        // connection can't be established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
-
-        // It should be possible to initialize and connect to the new database.
-        Database::initialize_database(&config).await.unwrap();
-        Database::new(&config).await.unwrap();
-
-        // Dropping database again should result connection to not be
-        // established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
     }
 
     #[test]

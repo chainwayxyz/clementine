@@ -1,111 +1,22 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-use crate::mock::database::create_test_config_with_thread_name;
-use crate::traits::rpc::AggregatorServer;
-use crate::{aggregator, create_extended_rpc};
-use crate::{
-    config::BridgeConfig,
-    errors,
-    extended_rpc::ExtendedRpc,
-    operator,
-    traits::{self, rpc::VerifierRpcServer},
-    verifier::Verifier,
-};
-use bitcoin_mock_rpc::RpcApiWrapper;
+use crate::aggregator::Aggregator;
+use crate::citrea::CitreaClientT;
+use crate::extended_rpc::ExtendedRpc;
+use crate::operator::OperatorServer;
+use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
+use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
+use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
+use crate::verifier::VerifierServer;
+use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
-use jsonrpsee::{
-    http_client::{HttpClient, HttpClientBuilder},
-    server::{Server, ServerHandle},
-};
-use operator::Operator;
+use eyre::Context;
 use std::thread;
-use traits::rpc::OperatorRpcServer;
+use tokio::sync::oneshot;
+use tonic::server::NamedService;
 
-/// Starts a server for a verifier.
-#[tracing::instrument(skip(rpc), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-pub async fn create_verifier_server<R>(
-    config: BridgeConfig,
-    rpc: ExtendedRpc<R>,
-) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
-where
-    R: RpcApiWrapper,
-{
-    let server = match Server::builder()
-        .build(format!("{}:{}", config.host, config.port))
-        .await
-    {
-        Ok(s) => s,
-        Err(e) => return Err(BridgeError::ServerError(e)),
-    };
-    let verifier = Verifier::new(rpc, config).await?;
-
-    let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
-    let handle = server.start(verifier.into_rpc());
-
-    let client =
-        HttpClientBuilder::default().build(format!("http://{}:{}/", addr.ip(), addr.port()))?;
-
-    tracing::info!("Verifier server started with address: {}", addr);
-
-    Ok((client, handle, addr))
-}
-
-/// Starts the server for the operator.
-#[tracing::instrument(skip(rpc), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-pub async fn create_operator_server<R>(
-    config: BridgeConfig,
-    rpc: ExtendedRpc<R>,
-) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
-where
-    R: RpcApiWrapper,
-{
-    let operator = Operator::new(config.clone(), rpc).await?;
-
-    let server = match Server::builder()
-        .build(format!("{}:{}", config.host, config.port))
-        .await
-    {
-        Ok(s) => s,
-        Err(e) => return Err(BridgeError::ServerError(e)),
-    };
-
-    let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
-    let handle = server.start(operator.into_rpc());
-
-    let client =
-        HttpClientBuilder::default().build(format!("http://{}:{}/", addr.ip(), addr.port()))?;
-
-    tracing::info!("Operator server started with address: {}", addr);
-
-    Ok((client, handle, addr))
-}
-
-/// Starts the server for the aggregator.
-#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-pub async fn create_aggregator_server(
-    config: BridgeConfig,
-) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError> {
-    let aggregator = aggregator::Aggregator::new(config.clone()).await?;
-
-    let server = match Server::builder()
-        .build(format!("{}:{}", config.host, config.port))
-        .await
-    {
-        Ok(s) => s,
-        Err(e) => return Err(BridgeError::ServerError(e)),
-    };
-
-    let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
-    let handle = server.start(aggregator.into_rpc());
-
-    let client =
-        HttpClientBuilder::default().build(format!("http://{}:{}/", addr.ip(), addr.port()))?;
-
-    tracing::info!("Aggregator server started with address: {}", addr);
-
-    Ok((client, handle, addr))
-}
+pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
 
 #[tracing::instrument(ret(level = tracing::Level::TRACE))]
 fn is_test_env() -> bool {
@@ -113,114 +24,276 @@ fn is_test_env() -> bool {
     thread::current().name().unwrap_or_default() != "main"
 }
 
-/// Starts operators and verifiers servers. This function's intended use is for
-/// tests.
-///
-/// # Returns
-///
-/// Returns a tuple of vectors of clients, handles, and addresses for the
-/// verifiers + operators.
-///
-/// # Panics
-///
-/// Panics if there was an error while creating any of the servers.
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
-#[allow(clippy::type_complexity)] // Enabling tracing::instrument causes this.
-pub async fn create_verifiers_and_operators(
-    config_name: &str,
-    // rpc: ExtendedRpc<R>,
-) -> (
-    Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Verifier clients
-    Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Operator clients
-    (HttpClient, ServerHandle, std::net::SocketAddr),      // Aggregator client
-) {
-    let mut config = create_test_config_with_thread_name(config_name, None).await;
-    let start_port = config.port;
-    let rpc = create_extended_rpc!(config);
-    let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
-        panic!("All secret keys of the verifiers are required for testing");
-    });
-    let verifier_futures = all_verifiers_secret_keys
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| {
-            let port = start_port + i as u16;
-            // println!("Port: {}", port);
-            let i = i.to_string();
-            let rpc = rpc.clone();
-            async move {
-                let config_with_new_db =
-                    create_test_config_with_thread_name(config_name, Some(&i.to_string())).await;
-                let verifier = create_verifier_server(
-                    BridgeConfig {
-                        secret_key: *sk,
-                        port: if is_test_env() { 0 } else { port },
-                        ..config_with_new_db.clone()
-                    },
-                    rpc,
-                )
-                .await?;
-                Ok::<
-                    (
-                        (HttpClient, ServerHandle, std::net::SocketAddr),
-                        BridgeConfig,
-                    ),
-                    BridgeError,
-                >((verifier, config_with_new_db))
+/// Represents a network address that can be either TCP or Unix socket
+#[derive(Debug, Clone)]
+pub enum ServerAddr {
+    Tcp(std::net::SocketAddr),
+    #[cfg(unix)]
+    Unix(std::path::PathBuf),
+}
+
+impl From<std::net::SocketAddr> for ServerAddr {
+    fn from(addr: std::net::SocketAddr) -> Self {
+        ServerAddr::Tcp(addr)
+    }
+}
+
+#[cfg(unix)]
+impl From<std::path::PathBuf> for ServerAddr {
+    fn from(path: std::path::PathBuf) -> Self {
+        ServerAddr::Unix(path)
+    }
+}
+
+/// Generic function to create a gRPC server with the given service
+pub async fn create_grpc_server<S>(
+    addr: ServerAddr,
+    service: S,
+    server_name: &str,
+) -> Result<(ServerAddr, oneshot::Sender<()>), BridgeError>
+where
+    S: tower::Service<
+            http::Request<tonic::body::BoxBody>,
+            Response = http::Response<tonic::body::BoxBody>,
+            Error = std::convert::Infallible,
+        > + Clone
+        + Send
+        + NamedService
+        + 'static,
+    S::Future: Send + 'static,
+{
+    // Create channels for server readiness and shutdown
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+
+    let server_builder = tonic::transport::Server::builder().add_service(service);
+
+    match addr {
+        ServerAddr::Tcp(socket_addr) => {
+            tracing::info!(
+                "Starting {} gRPC server with TCP address: {}",
+                server_name,
+                socket_addr
+            );
+            let server_name_str = server_name.to_string();
+
+            let handle = server_builder.serve_with_shutdown(socket_addr, async move {
+                let _ = ready_tx.send(());
+                shutdown_rx.await.ok();
+                tracing::info!("{} gRPC server shutting down", server_name_str);
+            });
+
+            let server_name_str = server_name.to_string();
+
+            tokio::spawn(async move {
+                if let Err(e) = handle.await {
+                    tracing::error!("{} gRPC server error: {:?}", server_name_str, e);
+                }
+            });
+        }
+        #[cfg(unix)]
+        ServerAddr::Unix(ref socket_path) => {
+            tracing::info!(
+                "Starting {} gRPC server with Unix socket: {:?}",
+                server_name,
+                socket_path
+            );
+
+            // Remove socket file if it already exists
+            if socket_path.exists() {
+                std::fs::remove_file(socket_path)
+                    .wrap_err("Failed to remove existing gRPC unix socket file")?;
             }
-        })
-        .collect::<Vec<_>>();
-    let verifier_results = futures::future::try_join_all(verifier_futures)
-        .await
-        .unwrap();
-    let verifier_endpoints = verifier_results
-        .iter()
-        .map(|(v, _)| v.clone())
-        .collect::<Vec<_>>();
-    let verifier_configs = verifier_results
-        .iter()
-        .map(|(_, c)| c.clone())
-        .collect::<Vec<_>>();
 
-    let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
-        panic!("All secret keys of the operators are required for testing");
-    });
+            // Create Unix socket listener
+            let uds = tokio::net::UnixListener::bind(socket_path)
+                .wrap_err("Failed to bind to Unix socket")?;
+            let incoming = tokio_stream::wrappers::UnixListenerStream::new(uds);
 
-    let operator_futures = all_operators_secret_keys
-        .iter()
-        .enumerate()
-        .map(|(i, sk)| {
-            let port = start_port + i as u16 + all_verifiers_secret_keys.len() as u16;
-            let rpc = rpc.clone();
-            let verifier_config = verifier_configs[i].clone();
-            async move {
-                create_operator_server(
-                    BridgeConfig {
-                        secret_key: *sk,
-                        port: if is_test_env() { 0 } else { port },
-                        ..verifier_config
-                    },
-                    rpc,
-                )
-                .await
-            }
-        })
-        .collect::<Vec<_>>();
-    let operator_endpoints = futures::future::try_join_all(operator_futures)
-        .await
-        .unwrap();
+            let server_name_str = server_name.to_string();
 
-    let config = create_test_config_with_thread_name(config_name, None).await;
-    println!("Port: {}", start_port);
-    let port = start_port
-        + all_verifiers_secret_keys.len() as u16
-        + all_operators_secret_keys.len() as u16;
-    let aggregator = create_aggregator_server(BridgeConfig {
-        port: if is_test_env() { 0 } else { port },
-        ..config
-    })
+            let handle = server_builder.serve_with_incoming_shutdown(incoming, async move {
+                let _ = ready_tx.send(());
+                shutdown_rx.await.ok();
+                tracing::info!("{} gRPC server shutting down", server_name_str);
+            });
+
+            let server_name_str = server_name.to_string();
+
+            tokio::spawn(async move {
+                if let Err(e) = handle.await {
+                    tracing::error!("{} gRPC server error: {:?}", server_name_str, e);
+                }
+            });
+        }
+    }
+
+    // Wait for server to be ready
+    let _ = ready_rx.await;
+    tracing::info!("{} gRPC server started", server_name);
+
+    Ok((addr, shutdown_tx))
+}
+
+pub async fn create_verifier_grpc_server<C: CitreaClientT>(
+    config: BridgeConfig,
+) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
+    let _rpc = ExtendedRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    )
     .await
-    .unwrap();
+    .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    (verifier_endpoints, operator_endpoints, aggregator)
+    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
+        .parse()
+        .wrap_err("Failed to parse address")?;
+    let verifier = VerifierServer::<C>::new(config).await?;
+    let svc = ClementineVerifierServer::new(verifier);
+
+    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Verifier").await?;
+
+    match server_addr {
+        ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),
+        _ => Err(BridgeError::ConfigError("Expected TCP address".into())),
+    }
+}
+
+pub async fn create_operator_grpc_server<C: CitreaClientT>(
+    config: BridgeConfig,
+) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
+    tracing::info!(
+        "config host and port are: {} and {}",
+        config.host,
+        config.port
+    );
+    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
+        .parse()
+        .wrap_err("Failed to parse address")?;
+    let operator = OperatorServer::<C>::new(config).await?;
+
+    let svc = ClementineOperatorServer::new(operator);
+    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Operator").await?;
+    tracing::info!("Operator gRPC server created");
+
+    match server_addr {
+        ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),
+        _ => Err(BridgeError::ConfigError("Expected TCP address".into())),
+    }
+}
+
+pub async fn create_aggregator_grpc_server(
+    config: BridgeConfig,
+) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
+    let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
+        .parse()
+        .wrap_err("Failed to parse address")?;
+    let aggregator = Aggregator::new(config).await?;
+    let svc = ClementineAggregatorServer::new(aggregator);
+
+    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Aggregator").await?;
+
+    match server_addr {
+        ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),
+        _ => Err(BridgeError::ConfigError("Expected TCP address".into())),
+    }
+}
+
+// Functions for creating servers with Unix sockets (useful for tests)
+#[cfg(unix)]
+pub async fn create_verifier_unix_server<C: CitreaClientT>(
+    config: BridgeConfig,
+    socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    let _rpc = ExtendedRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    )
+    .await
+    .wrap_err("Failed to connect to Bitcoin RPC")?;
+
+    let verifier = VerifierServer::<C>::new(config).await?;
+    let svc = ClementineVerifierServer::new(verifier);
+
+    let (server_addr, shutdown_tx) =
+        create_grpc_server(socket_path.into(), svc, "Verifier").await?;
+
+    match server_addr {
+        ServerAddr::Unix(path) => Ok((path, shutdown_tx)),
+        _ => Err(BridgeError::ConfigError("Expected Unix socket path".into())),
+    }
+}
+
+#[cfg(not(unix))]
+pub async fn create_verifier_unix_server(
+    _config: BridgeConfig,
+    _socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    Err(BridgeError::ConfigError(
+        "Unix sockets are not supported on this platform".into(),
+    ))
+}
+
+#[cfg(unix)]
+pub async fn create_operator_unix_server<C: CitreaClientT>(
+    config: BridgeConfig,
+    socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    let _rpc = ExtendedRpc::connect(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    )
+    .await
+    .wrap_err("Failed to connect to Bitcoin RPC")?;
+
+    let operator = OperatorServer::<C>::new(config).await?;
+    let svc = ClementineOperatorServer::new(operator);
+
+    let (server_addr, shutdown_tx) =
+        create_grpc_server(socket_path.into(), svc, "Operator").await?;
+
+    match server_addr {
+        ServerAddr::Unix(path) => Ok((path, shutdown_tx)),
+        _ => Err(BridgeError::ConfigError("Expected Unix socket path".into())),
+    }
+}
+
+#[cfg(not(unix))]
+pub async fn create_operator_unix_server(
+    _config: BridgeConfig,
+    _socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    Err(BridgeError::ConfigError(
+        "Unix sockets are not supported on this platform".into(),
+    ))
+}
+
+#[cfg(unix)]
+pub async fn create_aggregator_unix_server(
+    config: BridgeConfig,
+    socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    let aggregator = Aggregator::new(config).await?;
+    let svc = ClementineAggregatorServer::new(aggregator);
+
+    let (server_addr, shutdown_tx) =
+        create_grpc_server(socket_path.into(), svc, "Aggregator").await?;
+
+    match server_addr {
+        ServerAddr::Unix(path) => Ok((path, shutdown_tx)),
+        _ => Err(BridgeError::ConfigError("Expected Unix socket path".into())),
+    }
+}
+
+#[cfg(not(unix))]
+pub async fn create_aggregator_unix_server(
+    _config: BridgeConfig,
+    _socket_path: std::path::PathBuf,
+) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
+    Err(BridgeError::ConfigError(
+        "Unix sockets are not supported on this platform".into(),
+    ))
 }
