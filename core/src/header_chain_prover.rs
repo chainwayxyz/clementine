@@ -16,7 +16,7 @@ use crate::{
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
-use eyre::Context;
+use eyre::{eyre, Context};
 use lazy_static::lazy_static;
 use risc0_to_bitvm2_core::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
@@ -258,6 +258,51 @@ impl HeaderChainProver {
         );
 
         Ok(receipt)
+    }
+
+    /// Proves finalized blocks, starting from the latest block with a proof
+    /// to the block with given hash.
+    pub async fn prove_till_hash(
+        &self,
+        block_hash: BlockHash,
+    ) -> Result<Option<Receipt>, BridgeError> {
+        let latest_proven_block = self
+            .db
+            .get_latest_proven_block_info(None)
+            .await?
+            .ok_or(eyre::eyre!("No proven block found"))?;
+        let (_, height) = self
+            .db
+            .get_block_info_from_hash(None, block_hash)
+            .await?
+            .ok_or(eyre::eyre!("Block not found"))?;
+
+        if latest_proven_block.2 == height as u64 {
+            self.db
+                .get_block_proof_by_hash(None, latest_proven_block.0)
+                .await
+                .wrap_err("Failed to get block proof")?
+                .ok_or(eyre!("Failed to get block proof"))?;
+        }
+
+        let block_headers = self
+            .db
+            .get_block_info_from_range(None, latest_proven_block.2 + 1, height.into())
+            .await?
+            .into_iter()
+            .map(|(_hash, header)| header)
+            .collect::<Vec<_>>();
+
+        let previous_proof = self
+            .db
+            .get_block_proof_by_hash(None, latest_proven_block.0)
+            .await?
+            .ok_or(eyre::eyre!("No proven block found"))?;
+        let receipt = self
+            .prove_and_save_block(latest_proven_block.0, block_headers, previous_proof)
+            .await?;
+
+        Ok(Some(receipt))
     }
 
     /// Gets the proof of the latest finalized blockchain tip. If the finalized
