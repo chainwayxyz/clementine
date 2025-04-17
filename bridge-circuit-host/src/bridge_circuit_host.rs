@@ -95,7 +95,7 @@ pub fn prove_bridge_circuit(
         panic!("Header chain proof output mismatch");
     }
 
-    let network_method_id = match bridge_circuit_host_params.network {
+    let header_chain_method_id = match bridge_circuit_host_params.network {
         bitcoin::Network::Bitcoin => MAINNET,
         bitcoin::Network::Testnet4 => TESTNET4,
         bitcoin::Network::Signet => SIGNET,
@@ -106,7 +106,7 @@ pub fn prove_bridge_circuit(
     // Check for headerchain receipt
     if bridge_circuit_host_params
         .headerchain_receipt
-        .verify(network_method_id)
+        .verify(header_chain_method_id)
         .is_err()
     {
         panic!("Header chain receipt verification failed");
