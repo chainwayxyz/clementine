@@ -413,14 +413,16 @@ impl<T: Owner> RoundStateMachine<T> {
                         .owner
                         .create_txhandlers(TransactionType::Round, current_round_context)
                         .await?;
-                    let current_round_txid = current_round_txhandlers
-                        .get(&TransactionType::Round)
-                        .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
+                    let current_ready_to_reimburse_txid = current_round_txhandlers
+                        .get(&TransactionType::ReadyToReimburse)
+                        .ok_or(TxError::TxHandlerNotFound(
+                            TransactionType::ReadyToReimburse,
+                        ))?
                         .get_txid();
                     // To determine if operator exited the protocol, we check if collateral was not spent in the next round tx.
                     self.matchers.insert(
                         matcher::Matcher::SpentUtxoButNotTxid(
-                            OutPoint::new(*current_round_txid, 0),
+                            OutPoint::new(*current_ready_to_reimburse_txid, 0),
                             *next_round_txid,
                         ),
                         RoundEvent::OperatorExit,
