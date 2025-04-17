@@ -3,6 +3,7 @@ use super::clementine::{
     self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
     TransactionRequest, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
+    XOnlyPublicKeyRpc,
 };
 use super::error::*;
 use super::parser::ParserError;
@@ -171,7 +172,7 @@ where
             .generate_assert_winternitz_pubkeys(deposit_data.get_deposit_outpoint())?;
         let hashes = self
             .operator
-            .generate_challenge_ack_preimages_and_hashes(deposit_data.get_deposit_outpoint())?;
+            .generate_challenge_ack_preimages_and_hashes(&deposit_data)?;
         tracing::info!("Generated deposit keys in {:?}", start.elapsed());
 
         Ok(Response::new(OperatorKeys {
@@ -255,5 +256,16 @@ where
         self.operator.end_round(&mut dbtx).await?;
         dbtx.commit().await.expect("Failed to commit transaction");
         Ok(Response::new(Empty {}))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn get_x_only_public_key(
+        &self,
+        _request: Request<Empty>,
+    ) -> Result<Response<XOnlyPublicKeyRpc>, Status> {
+        let xonly_pk = self.operator.signer.xonly_public_key.serialize();
+        Ok(Response::new(XOnlyPublicKeyRpc {
+            xonly_public_key: xonly_pk.to_vec(),
+        }))
     }
 }

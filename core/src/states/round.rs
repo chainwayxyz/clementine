@@ -41,8 +41,7 @@ pub enum RoundEvent {
 pub struct RoundStateMachine<T: Owner> {
     #[serde_as(as = "Vec<(_, _)>")]
     pub(crate) matchers: HashMap<matcher::Matcher, RoundEvent>,
-    operator_data: OperatorData,
-    pub(crate) operator_idx: u32,
+    pub(crate) operator_data: OperatorData,
     pub(crate) dirty: bool,
     phantom: std::marker::PhantomData<T>,
 }
@@ -65,11 +64,10 @@ impl<T: Owner> BlockMatcher for RoundStateMachine<T> {
 }
 
 impl<T: Owner> RoundStateMachine<T> {
-    pub fn new(operator_data: OperatorData, operator_idx: u32) -> Self {
+    pub fn new(operator_data: OperatorData) -> Self {
         Self {
             matchers: HashMap::new(),
             operator_data,
-            operator_idx,
             dirty: true,
             phantom: std::marker::PhantomData,
         }
@@ -86,14 +84,14 @@ use eyre::Context;
 impl<T: Owner> RoundStateMachine<T> {
     #[action]
     pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
-        tracing::trace!(?self.operator_data, ?self.operator_idx, "Transitioning from {:?} to {:?}", state_a, state_b);
+        tracing::trace!(?self.operator_data, "Transitioning from {:?} to {:?}", state_a, state_b);
         self.dirty = true;
     }
 
     pub fn round_meta(&self, method: &'static str) -> StateMachineError {
         eyre::eyre!(
             "Error in round state machine for operator {} in {}",
-            self.operator_idx,
+            self.operator_data.xonly_pk,
             method
         )
         .into()
@@ -118,7 +116,7 @@ impl<T: Owner> RoundStateMachine<T> {
         if matches!(evt, RoundEvent::SavedToDb) {
             self.dirty = false;
         } else {
-            tracing::debug!(?self.operator_data, ?self.operator_idx, "Dispatching event {:?}", evt);
+            tracing::debug!(?self.operator_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
             // Remove the matcher corresponding to the event.
@@ -162,7 +160,7 @@ impl<T: Owner> RoundStateMachine<T> {
 
                     // To determine if operator exited the protocol, we check if collateral was not spent in the first round tx.
                     let contract_context = ContractContext::new_context_for_rounds(
-                        self.operator_idx,
+                        self.operator_data.xonly_pk,
                         0,
                         context.paramset,
                     );
@@ -282,7 +280,7 @@ impl<T: Owner> RoundStateMachine<T> {
                         .handle_duty(Duty::NewReadyToReimburse {
                             round_idx: *round_idx,
                             used_kickoffs: used_kickoffs.clone(),
-                            operator_idx: self.operator_idx,
+                            operator_xonly_pk: self.operator_data.xonly_pk,
                         })
                         .await?;
                     Ok::<(), BridgeError>(())
@@ -306,7 +304,7 @@ impl<T: Owner> RoundStateMachine<T> {
                 {
                     self.matchers = HashMap::new();
                     let contract_context = ContractContext::new_context_for_rounds(
-                        self.operator_idx,
+                        self.operator_data.xonly_pk,
                         *round_idx,
                         context.paramset,
                     );
@@ -388,7 +386,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     self.matchers = HashMap::new();
                     // get next rounds Round tx
                     let next_round_context = ContractContext::new_context_for_rounds(
-                        self.operator_idx,
+                        self.operator_data.xonly_pk,
                         *round_idx + 1,
                         context.paramset,
                     );
@@ -407,7 +405,7 @@ impl<T: Owner> RoundStateMachine<T> {
                         },
                     );
                     let current_round_context = ContractContext::new_context_for_rounds(
-                        self.operator_idx,
+                        self.operator_data.xonly_pk,
                         *round_idx,
                         context.paramset,
                     );

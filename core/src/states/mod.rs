@@ -213,7 +213,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             .await?;
 
         // Process and recreate round machines
-        for (state_json, operator_idx, saved_block_height) in &round_machines {
+        for (state_json, operator_xonly_pk, saved_block_height) in &round_machines {
             tracing::debug!(
                 "Loaded round machine: state={}, block_height={}",
                 state_json,
@@ -241,7 +241,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 Err(e) => {
                     tracing::warn!(
                         "Failed to deserialize round machine with operator index {:?}: {}",
-                        operator_idx,
+                        operator_xonly_pk,
                         e
                     );
                 }
@@ -296,7 +296,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     format!("Failed to serialize kickoff machine: {:?}", machine)
                 })?;
                 let kickoff_id =
-                    serde_json::to_string(&machine.kickoff_id).wrap_err_with(|| {
+                    serde_json::to_string(&machine.kickoff_data).wrap_err_with(|| {
                         format!("Failed to serialize kickoff id for machine: {:?}", machine)
                     })?;
 
@@ -313,12 +313,12 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 let state_json = serde_json::to_string(machine).wrap_err_with(|| {
                     format!("Failed to serialize round machine: {:?}", machine)
                 })?;
-                let operator_idx = machine.operator_idx;
+                let operator_xonly_pk = machine.operator_data.xonly_pk;
 
                 // Use the machine's dirty flag to determine if it needs updating
                 Ok((
                     state_json,
-                    (operator_idx as i32),
+                    (operator_xonly_pk),
                     owner_type.clone(),
                     machine.dirty,
                 ))

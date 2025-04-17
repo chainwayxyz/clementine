@@ -71,9 +71,8 @@ pub async fn send_tx(
                 tx_type,
                 deposit_outpoint: None,
                 kickoff_idx: None,
-                operator_idx: None,
+                operator_xonly_pk: None,
                 round_idx: None,
-                verifier_idx: None,
             }),
             &tx,
             if tx_type == TxType::Challenge {

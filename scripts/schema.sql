@@ -1,12 +1,8 @@
 BEGIN;
 -- Table to store the public keys of the verifiers
-create table if not exists verifier_public_keys (
-    idx int primary key,
-    public_key text not null
-);
+create table if not exists verifier_public_keys (public_key text primary key not null);
 create table if not exists operators (
-    operator_idx int primary key,
-    xonly_pk text not null,
+    xonly_pk text primary key not null,
     wallet_reimburse_address text not null,
     collateral_funding_outpoint text not null check (
         collateral_funding_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'
@@ -38,9 +34,8 @@ create table if not exists watchtower_xonly_public_keys (
 );
 -- Verifier table of operators Winternitz public keys for every kickoff utxo for committing blockhash
 create table if not exists operator_winternitz_public_keys (
-    operator_id int not null,
-    winternitz_public_keys bytea not null,
-    primary key (operator_id)
+    xonly_pk text primary key not null,
+    winternitz_public_keys bytea not null
 );
 create table if not exists deposits (
     deposit_id serial primary key,
@@ -53,40 +48,45 @@ create table if not exists deposits (
 -- Deposit signatures
 create table if not exists deposit_signatures (
     deposit_id int not null references deposits (deposit_id),
-    operator_idx int not null,
+    operator_xonly_pk text not null,
     round_idx int not null,
     kickoff_idx int not null,
     kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
     signatures bytea not null,
-    primary key (deposit_id, operator_idx, round_idx, kickoff_idx)
+    primary key (
+        deposit_id,
+        operator_xonly_pk,
+        round_idx,
+        kickoff_idx
+    )
 );
 -- Signatures of the operator for unspent kickoffs
 create table if not exists unspent_kickoff_signatures (
-    operator_idx int not null,
+    xonly_pk text not null,
     round_idx int not null,
     signatures bytea not null,
-    primary key (operator_idx, round_idx)
+    primary key (xonly_pk, round_idx)
 );
 -- Verifier table for BitVM setup data
 /* This table holds the BitVM setup data for each operator and deposit_id pair. */
 create table if not exists bitvm_setups (
-    operator_idx int not null,
+    xonly_pk text not null,
     deposit_id int not null,
     assert_tx_addrs bytea [] not null,
     root_hash bytea not null check (length(root_hash) = 32),
     --public_input_wots bytea[] not null,
     created_at timestamp not null default now(),
-    primary key (operator_idx, deposit_id)
+    primary key (xonly_pk, deposit_id)
 );
 -- Verifier table for the operators public digests to acknowledge watchtower challenges.
 /* This table holds the public digests of the operators  to use for the watchtower
- challenges for each (operator_idx, deposit_id) tuple. */
+ challenges for each (xonly_pk, deposit_id) tuple. */
 create table if not exists operators_challenge_ack_hashes (
-    operator_idx int not null,
+    xonly_pk text not null,
     deposit_id int not null,
     public_hashes bytea [] not null,
     created_at timestamp not null default now(),
-    primary key (operator_idx, deposit_id)
+    primary key (xonly_pk, deposit_id)
 );
 -------- BITCOIN SYNCER --------
 create table if not exists bitcoin_syncer (
@@ -208,7 +208,7 @@ create table if not exists withdrawals (
     withdrawal_utxo_vout int,
     withdrawal_batch_proof_bitcoin_block_height int,
     payout_txid text check (payout_txid ~ '^[a-fA-F0-9]{64}'),
-    payout_payer_operator_idx int,
+    payout_payer_operator_xonly_pk text,
     payout_tx_blockhash text check (payout_tx_blockhash ~ '^[a-fA-F0-9]{64}'),
     is_payout_handled boolean not null default false,
     kickoff_txid text check (kickoff_txid ~ '^[a-fA-F0-9]{64}'),
@@ -223,7 +223,7 @@ CREATE TABLE IF NOT EXISTS state_machines (
     state_json TEXT NOT NULL,
     kickoff_id TEXT NULL,
     -- only for kickoff machines
-    operator_idx INT NULL,
+    operator_xonly_pk TEXT NULL,
     -- only for round machines
     owner_type VARCHAR(100) NOT NULL DEFAULT 'default',
     -- Type of the owner managing this state machine
@@ -232,7 +232,7 @@ CREATE TABLE IF NOT EXISTS state_machines (
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(machine_type, kickoff_id, owner_type),
     -- For kickoff machines
-    UNIQUE(machine_type, operator_idx, owner_type) -- For round machines
+    UNIQUE(machine_type, operator_xonly_pk, owner_type) -- For round machines
 );
 -- Status table to track the last processed block
 CREATE TABLE IF NOT EXISTS state_manager_status (
@@ -248,8 +248,8 @@ CREATE INDEX IF NOT EXISTS state_machines_block_height_idx ON state_machines(blo
 CREATE INDEX IF NOT EXISTS state_machines_machine_type_idx ON state_machines(machine_type);
 CREATE INDEX IF NOT EXISTS state_machines_kickoff_id_idx ON state_machines(kickoff_id)
 WHERE kickoff_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS state_machines_operator_idx_idx ON state_machines(operator_idx)
-WHERE operator_idx IS NOT NULL;
+CREATE INDEX IF NOT EXISTS state_machines_operator_xonly_pk_idx ON state_machines(operator_xonly_pk)
+WHERE operator_xonly_pk IS NOT NULL;
 CREATE INDEX IF NOT EXISTS state_machines_owner_type_idx ON state_machines(owner_type);
 COMMIT;
 -------- TX SENDER TRIGGERS --------
