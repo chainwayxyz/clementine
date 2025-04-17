@@ -1,9 +1,10 @@
+use bitcoin::TxOut;
 use borsh::{BorshDeserialize, BorshSerialize};
 use final_spv::spv::SPV;
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
-use super::winternitz::WinternitzHandler;
+const NUM_OF_WATCHTOWERS: u8 = 160;
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitInput {
@@ -15,13 +16,19 @@ pub struct WorkOnlyCircuitOutput {
     pub work_u128: [u32; 4],
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+pub struct WatchTowerChallengeTxCommitment {
+    pub compressed_g16_proof: [u8; 128],
+    pub total_work: [u8; 16],
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
 pub struct LightClientProof {
     pub lc_journal: Vec<u8>,
     pub l2_height: String,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
 pub struct StorageProof {
     pub storage_proof_utxo: String, // This will be an Outpoint but only a txid is given
     pub storage_proof_deposit_idx: String, // This is the index of the withdrawal
@@ -30,34 +37,67 @@ pub struct StorageProof {
 }
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
+pub struct WatchtowerInputs {
+    pub watchtower_idxs: Vec<u8>,
+    pub watchtower_pubkeys: Vec<Vec<u8>>,
+    pub watchtower_challenge_input_idxs: Vec<u8>,
+    pub watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
+    pub watchtower_challenge_txs: Vec<Vec<u8>>,
+    pub watchtower_challenge_witnesses: Vec<Vec<u8>>,
+}
+
+impl WatchtowerInputs {
+    pub fn new(
+        watchtower_idxs: Vec<u8>,
+        watchtower_pubkeys: Vec<Vec<u8>>,
+        watchtower_challenge_input_idxs: Vec<u8>,
+        watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>,
+        watchtower_challenge_txs: Vec<Vec<u8>>,
+        watchtower_challenge_witnesses: Vec<Vec<u8>>,
+    ) -> Result<Self, &'static str> {
+        for idx in &watchtower_idxs {
+            if *idx >= NUM_OF_WATCHTOWERS {
+                return Err("watchtower_idx exceeds the number of watchtowers");
+            }
+        }
+
+        Ok(Self {
+            watchtower_idxs,
+            watchtower_pubkeys,
+            watchtower_challenge_input_idxs,
+            watchtower_challenge_utxos,
+            watchtower_challenge_txs,
+            watchtower_challenge_witnesses,
+        })
+    }
+}
+
+#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BridgeCircuitInput {
-    pub winternitz_details: Vec<WinternitzHandler>,
+    pub kickoff_tx: Vec<u8>,
+    pub watchtower_inputs: WatchtowerInputs,
     pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
     pub lcp: LightClientProof,
     pub sp: StorageProof,
-    pub num_watchtowers: u32,
 }
 
 impl BridgeCircuitInput {
     pub fn new(
-        winternitz_details: Vec<WinternitzHandler>,
+        kickoff_tx: Vec<u8>,
+        watchtower_inputs: WatchtowerInputs,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
         lcp: LightClientProof,
         sp: StorageProof,
-        num_watchtowers: u32,
     ) -> Result<Self, &'static str> {
-        if num_watchtowers > 160 {
-            return Err("num_watchtowers exceeds the limit: 160");
-        }
         Ok(Self {
-            winternitz_details,
+            kickoff_tx,
+            watchtower_inputs,
             hcp,
             payout_spv,
             lcp,
             sp,
-            num_watchtowers,
         })
     }
 }
@@ -70,4 +110,10 @@ pub struct BridgeCircuitOutput {
     pub last_blockhash: [u8; 32],
     pub deposit_txid: [u8; 32],
     pub operator_id: [u8; 32],
+}
+
+#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
+pub struct WatchtowerChallengeSet {
+    pub challenge_senders: [u8; 20],
+    pub challenge_outputs: Vec<[TxOut; 3]>,
 }

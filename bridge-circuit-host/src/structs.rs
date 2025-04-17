@@ -1,5 +1,6 @@
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
+use bitcoin::Network;
 use circuits_lib::bridge_circuit::{
     structs::{LightClientProof, StorageProof},
     winternitz::WinternitzHandler,
@@ -20,7 +21,8 @@ pub struct BridgeCircuitHostParams {
     pub light_client_proof: LightClientProof,
     pub lcp_receipt: Receipt,
     pub storage_proof: StorageProof,
-    pub num_of_watchtowers: u32,
+    pub num_of_watchtowers: u8,
+    pub network: Network,
 }
 
 #[derive(Debug, Clone, Copy)]
