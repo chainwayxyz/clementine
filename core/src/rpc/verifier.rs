@@ -1,7 +1,7 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, PartialSig, SignedTxWithType, SignedTxsWithType, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys,
+    VerifierDepositSignParams, VerifierParams,
 };
 use super::error;
 use super::parser::ParserError;
@@ -14,7 +14,6 @@ use crate::{
     fetch_next_message_from_stream,
     rpc::parser::{self},
 };
-use bitcoin::secp256k1::PublicKey;
 use bitcoin::Witness;
 use clementine::verifier_deposit_finalize_params::Params;
 use secp256k1::musig::MusigAggNonce;
@@ -63,18 +62,6 @@ where
         Ok(Response::new(params))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn set_verifiers(
-        &self,
-        request: Request<VerifierPublicKeys>,
-    ) -> Result<Response<Empty>, Status> {
-        let verifiers_public_keys: Vec<PublicKey> = request.into_inner().try_into()?;
-
-        self.verifier.set_verifiers(verifiers_public_keys).await?;
-
-        Ok(Response::new(Empty {}))
-    }
-
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_operator(
         &self,
@@ -82,12 +69,8 @@ where
     ) -> Result<Response<Empty>, Status> {
         let mut in_stream = req.into_inner();
 
-        let (
-            operator_index,
-            collateral_funding_outpoint,
-            operator_xonly_pk,
-            wallet_reimburse_address,
-        ) = parser::operator::parse_details(&mut in_stream).await?;
+        let (collateral_funding_outpoint, operator_xonly_pk, wallet_reimburse_address) =
+            parser::operator::parse_details(&mut in_stream).await?;
 
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
@@ -110,7 +93,6 @@ where
 
         self.verifier
             .set_operator(
-                operator_index,
                 collateral_funding_outpoint,
                 operator_xonly_pk,
                 wallet_reimburse_address,
@@ -158,12 +140,6 @@ where
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
         let verifier = self.verifier.clone();
-        let verifier_index = self
-            .verifier
-            .idx
-            .read()
-            .await
-            .ok_or(Status::internal("Verifier index not set, yet"))?;
 
         let (tx, rx) = mpsc::channel(1280);
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
@@ -179,7 +155,7 @@ where
                     deposit_sign_session,
                 ) => parser::verifier::parse_deposit_sign_session(
                     deposit_sign_session,
-                    verifier_index,
+                    &verifier.signer.public_key,
                 )?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
@@ -215,11 +191,11 @@ where
                 .ok_or(error::expected_msg_got_none("parameters")())?;
 
             let mut partial_sig_receiver = verifier
-                .deposit_sign(deposit_data, session_id, agg_nonce_rx)
+                .deposit_sign(deposit_data.clone(), session_id, agg_nonce_rx)
                 .await?;
 
             let mut nonce_idx = 0;
-            let num_required_sigs = verifier.config.get_num_required_nofn_sigs();
+            let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
             while let Some(partial_sig) = partial_sig_receiver.recv().await {
                 tx.send(Ok(PartialSig {
                     partial_sig: partial_sig.serialize().to_vec(),
@@ -233,8 +209,8 @@ where
 
                 nonce_idx += 1;
                 tracing::trace!(
-                    "Verifier {} signed and sent sighash {} of {} through rpc deposit_sign",
-                    verifier_index,
+                    "Verifier {:?} signed and sent sighash {} of {} through rpc deposit_sign",
+                    verifier.signer.public_key,
                     nonce_idx,
                     num_required_sigs
                 );
@@ -258,13 +234,10 @@ where
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
         let mut in_stream = req.into_inner();
-        let verifier_index = self
-            .verifier
-            .idx
-            .read()
-            .await
-            .ok_or(Status::internal("Verifier index not set, yet"))?;
-        tracing::trace!("In verifier {} deposit_finalize()", verifier_index);
+        tracing::trace!(
+            "In verifier {:?} deposit_finalize()",
+            self.verifier.signer.public_key
+        );
 
         let (sig_tx, sig_rx) = mpsc::channel(1280);
         let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
@@ -273,21 +246,25 @@ where
         let params = fetch_next_message_from_stream!(in_stream, params)?;
         let (deposit_data, session_id) = match params {
             Params::DepositSignFirstParam(deposit_sign_session) => {
-                parser::verifier::parse_deposit_sign_session(deposit_sign_session, verifier_index)?
+                parser::verifier::parse_deposit_sign_session(
+                    deposit_sign_session,
+                    &self.verifier.signer.public_key,
+                )?
             }
             _ => Err(Status::internal("Expected DepositOutpoint"))?,
         };
         tracing::trace!(
-            "verifier {} got DepositSignFirstParam in deposit_finalize()",
-            verifier_index
+            "Verifier {:?} got DepositSignFirstParam in deposit_finalize()",
+            self.verifier.signer.public_key
         );
 
         // Start deposit finalize job.
         let verifier = self.verifier.clone();
+        let mut dep_data = deposit_data.clone();
         let deposit_finalize_handle = tokio::spawn(async move {
             verifier
                 .deposit_finalize(
-                    deposit_data,
+                    &mut dep_data,
                     session_id,
                     sig_rx,
                     agg_nonce_rx,
@@ -299,7 +276,7 @@ where
         // Start parsing inputs and send them to deposit finalize job.
         let verifier = self.verifier.clone();
         tokio::spawn(async move {
-            let num_required_nofn_sigs = verifier.config.get_num_required_nofn_sigs();
+            let num_required_nofn_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
             let mut nonce_idx = 0;
             while let Some(sig) =
                 parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
@@ -336,10 +313,12 @@ where
                 .await
                 .map_err(error::output_stream_ended_prematurely)?;
 
-            let num_required_op_sigs = verifier.config.get_num_required_operator_sigs();
-            let num_required_total_op_sigs = num_required_op_sigs * verifier.config.num_operators;
+            let num_required_op_sigs = verifier
+                .config
+                .get_num_required_operator_sigs(&deposit_data);
+            let num_operators = deposit_data.get_num_operators();
+            let num_required_total_op_sigs = num_required_op_sigs * num_operators;
             let mut total_op_sig_count = 0;
-            let num_operators = verifier.db.get_operators(None).await?.len();
             for _ in 0..num_operators {
                 let mut op_sig_count = 0;
 
@@ -390,10 +369,10 @@ where
         request: tonic::Request<super::OperatorKeysWithDeposit>,
     ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
         let data = request.into_inner();
-        let (deposit_params, op_keys, operator_idx) =
+        let (deposit_params, op_keys, operator_xonly_pk) =
             parser::verifier::parse_op_keys_with_deposit(data)?;
         self.verifier
-            .set_operator_keys(deposit_params, op_keys, operator_idx)
+            .set_operator_keys(deposit_params, op_keys, operator_xonly_pk)
             .await?;
         Ok(Response::new(Empty {}))
     }
@@ -436,28 +415,14 @@ where
             .db
             .get_deposit_data_with_kickoff_txid(None, txid)
             .await?;
-        if let Some((deposit_data, kickoff_id)) = kickoff_data {
+        if let Some((mut deposit_data, kickoff_id)) = kickoff_data {
             self.verifier
-                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id)
+                .handle_kickoff(&mut dbtx, Witness::new(), &mut deposit_data, kickoff_id)
                 .await?;
         } else {
             return Err(Status::not_found("Kickoff txid not found"));
         }
         dbtx.commit().await.expect("Failed to commit transaction");
         Ok(Response::new(Empty {}))
-    }
-
-    async fn get_nofn_aggregated_xonly_pk(
-        &self,
-        _: tonic::Request<super::Empty>,
-    ) -> std::result::Result<tonic::Response<super::XonlyPublicKey>, tonic::Status> {
-        let nofn = self.verifier.nofn.read().await;
-        let agg_xonly_pk = nofn
-            .as_ref()
-            .ok_or_else(|| Status::internal("NofN not set"))?
-            .agg_xonly_pk;
-        Ok(Response::new(super::XonlyPublicKey {
-            xonly_pk: agg_xonly_pk.serialize().to_vec(),
-        }))
     }
 }

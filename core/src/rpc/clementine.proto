@@ -97,35 +97,40 @@ message WinternitzPubkey {
 }
 
 message DepositParams {
+  Deposit deposit = 1;
+  Actors actors = 2;
+}
+
+message Deposit {
+  /// User's deposit UTXO.
+  Outpoint deposit_outpoint = 1;
   oneof deposit_data {
-    BaseDeposit base_deposit = 1;
-    ReplacementDeposit replacement_deposit = 2;
+    BaseDeposit base_deposit = 2;
+    ReplacementDeposit replacement_deposit = 3;
   }
 }
 
+message Actors {
+  /// Public keys of verifiers that will participate in the deposit.
+  VerifierPublicKeys verifiers = 1;
+  /// X-only public keys of watchtowers that will participate in the deposit.
+  /// NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
+  XOnlyPublicKeys watchtowers = 2;
+  /// X-only public keys of operators that will participate in the deposit.
+  XOnlyPublicKeys operators = 3;
+}
+
 message ReplacementDeposit {
-  // Deposit UTXO.
-  Outpoint deposit_outpoint = 1;
   // Move to vault txid that is being replaced.
-  Txid old_move_txid = 2;
-  // nofn public key used to sign the deposit
-  bytes nofn_xonly_pk = 3;
-  // Num of verifiers that will participate in the deposit.
-  uint64 num_verifiers = 4;
+  Txid old_move_txid = 1;
 }
 
 // A new original deposit request's details.
 message BaseDeposit {
-  // User's deposit UTXO.
-  Outpoint deposit_outpoint = 1;
   // User's EVM address.
-  bytes evm_address = 2;
+  bytes evm_address = 1;
   // User's recovery taproot address.
-  string recovery_taproot_address = 3;
-  // nofn public key used to sign the deposit
-  bytes nofn_xonly_pk = 4;
-  // Num of verifiers that will participate in the deposit.
-  uint64 num_verifiers = 5;
+  string recovery_taproot_address = 2;
 }
 
 enum FeeType {
@@ -181,13 +186,13 @@ message GrpcTransactionId {
 }
 
 message KickoffId {
-  uint32 operator_idx = 1;
+  bytes operator_xonly_pk = 1;
   uint32 round_idx = 2;
   uint32 kickoff_idx = 3;
 }
 
 message TransactionRequest {
-  DepositParams deposit_params = 1;
+  Outpoint deposit_outpoint = 1;
   KickoffId kickoff_id = 2;
 }
 
@@ -200,10 +205,9 @@ message DepositSignSession {
 // Operator --------------------------------------------------------------------
 
 message OperatorConfig {
-  uint32 operator_idx = 1;
-  Outpoint collateral_funding_outpoint = 2;
-  string xonly_pk = 3;
-  string wallet_reimburse_address = 4;
+  Outpoint collateral_funding_outpoint = 1;
+  string xonly_pk = 2;
+  string wallet_reimburse_address = 3;
 }
 
 message OperatorParams {
@@ -220,7 +224,7 @@ message OperatorParams {
 message OperatorKeysWithDeposit {
   OperatorKeys operator_keys = 1;
   DepositParams deposit_params = 2;
-  uint32 operator_idx = 3;
+  bytes operator_xonly_pk = 3;
 }
 
 message OperatorKeys {
@@ -272,6 +276,10 @@ message WithdrawalFinalizedParams {
 message FinalizedPayoutParams {
   bytes payout_blockhash = 1;
   Outpoint deposit_outpoint = 2;
+}
+
+message XOnlyPublicKeyRpc {
+  bytes xonly_public_key = 1;
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
@@ -349,16 +357,15 @@ service ClementineOperator {
   rpc InternalFinalizedPayout(FinalizedPayoutParams) returns (Txid) {}
 
   rpc InternalEndRound(Empty) returns (Empty) {}
+
+  // Returns the operator's xonly public key
+  rpc GetXOnlyPublicKey(Empty) returns (XOnlyPublicKeyRpc) {}
 }
 
 // Verifier --------------------------------------------------------------------
 
 message VerifierParams {
-  optional uint32 id = 1;
-  bytes public_key = 2;
-  uint32 num_verifiers = 3;
-  uint32 num_operators = 4;
-  uint32 num_round_txs = 5;
+  bytes public_key = 1;
 }
 
 message PartialSig {
@@ -401,6 +408,10 @@ message VerifierPublicKeys {
   repeated bytes verifier_public_keys = 1;
 }
 
+message XOnlyPublicKeys {
+  repeated bytes xonly_public_keys = 1;
+}
+
 service ClementineVerifier {
   // Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
   rpc SetOperatorKeys(OperatorKeysWithDeposit)  returns (Empty) {}
@@ -420,9 +431,6 @@ service ClementineVerifier {
   rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (SignedTxWithType) {}
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
-
-  // Saves all verifiers public keys.
-  rpc SetVerifiers(VerifierPublicKeys) returns (Empty) {}
 
   // Saves an operator.
   rpc SetOperator(stream OperatorParams) returns (Empty) {}
@@ -445,8 +453,6 @@ service ClementineVerifier {
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
-
-  rpc GetNofnAggregatedXonlyPk(Empty) returns (XonlyPublicKey) {}
 }
 
 // Aggregator ------------------------------------------------------------------
@@ -492,7 +498,7 @@ service ClementineAggregator {
   // this will also call the operator to get their signatures and send it to
   // DepositFinalize then it will collect the partial sigs and create the move
   // tx.
-  rpc NewDeposit(DepositParams) returns (Txid) {}
+  rpc NewDeposit(Deposit) returns (Txid) {}
 
   // Call's withdraw on all operators
   rpc Withdraw(WithdrawParams)

@@ -7,10 +7,10 @@ use statig::prelude::*;
 
 use crate::{
     builder::transaction::{
-        input::UtxoVout, remove_txhandler_from_map, ContractContext, DepositData, TransactionType,
+        input::UtxoVout, remove_txhandler_from_map, ContractContext, DepositData, KickoffData,
+        TransactionType,
     },
     errors::BridgeError,
-    rpc::clementine::KickoffId,
 };
 
 use super::{
@@ -64,7 +64,7 @@ pub struct KickoffStateMachine<T: Owner> {
     #[serde_as(as = "Vec<(_, _)>")]
     pub(crate) matchers: HashMap<Matcher, KickoffEvent>,
     pub(crate) dirty: bool,
-    pub(crate) kickoff_id: KickoffId,
+    pub(crate) kickoff_data: KickoffData,
     deposit_data: DepositData,
     kickoff_height: u32,
     payout_blockhash: Witness,
@@ -96,13 +96,13 @@ impl<T: Owner> BlockMatcher for KickoffStateMachine<T> {
 impl<T: Owner> KickoffStateMachine<T> {
     // TODO: num_operators and num_watchtowers in deposit_data in the future
     pub fn new(
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         kickoff_height: u32,
         deposit_data: DepositData,
         payout_blockhash: Witness,
     ) -> Self {
         Self {
-            kickoff_id,
+            kickoff_data,
             kickoff_height,
             deposit_data,
             payout_blockhash,
@@ -127,14 +127,14 @@ impl<T: Owner> KickoffStateMachine<T> {
 impl<T: Owner> KickoffStateMachine<T> {
     #[action]
     pub(crate) fn on_transition(&mut self, state_a: &State, state_b: &State) {
-        tracing::trace!(?self.kickoff_id, ?self.deposit_data, "Transitioning from {:?} to {:?}", state_a, state_b);
+        tracing::trace!(?self.kickoff_data, ?self.deposit_data, "Transitioning from {:?} to {:?}", state_a, state_b);
         self.dirty = true;
     }
 
     pub fn kickoff_meta(&self, method: &'static str) -> StateMachineError {
         eyre::eyre!(format!(
             "Error in kickoff state machine for kickoff {:?} in {}",
-            self.kickoff_id, method
+            self.kickoff_data, method
         ))
         .into()
     }
@@ -148,7 +148,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         if matches!(evt, KickoffEvent::SavedToDb) {
             self.dirty = false;
         } else {
-            tracing::debug!(?self.kickoff_id, "Dispatching event {:?}", evt);
+            tracing::debug!(?self.kickoff_data, "Dispatching event {:?}", evt);
             self.dirty = true;
 
             // Remove the matcher corresponding to the event.
@@ -164,11 +164,12 @@ impl<T: Owner> KickoffStateMachine<T> {
             .capture_error(async |context| {
                 {
                     // if all watchtower challenge utxos are spent, its safe to send asserts
-                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_verifiers() {
+                    if self.spent_watchtower_utxos.len() == self.deposit_data.get_num_watchtowers()
+                    {
                         context
                             .owner
                             .handle_duty(Duty::SendLatestBlockhash {
-                                kickoff_id: self.kickoff_id,
+                                kickoff_data: self.kickoff_data,
                                 deposit_data: self.deposit_data.clone(),
                                 latest_blockhash: context
                                     .cache
@@ -198,7 +199,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                         context
                             .owner
                             .handle_duty(Duty::SendOperatorAsserts {
-                                kickoff_id: self.kickoff_id,
+                                kickoff_data: self.kickoff_data,
                                 deposit_data: self.deposit_data.clone(),
                                 watchtower_challenges: self.watchtower_challenges.clone(),
                                 payout_blockhash: self.payout_blockhash.clone(),
@@ -220,7 +221,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     context
                         .owner
                         .handle_duty(Duty::WatchtowerChallenge {
-                            kickoff_id: self.kickoff_id,
+                            kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
                         })
                         .await?;
@@ -238,7 +239,7 @@ impl<T: Owner> KickoffStateMachine<T> {
                     context
                         .owner
                         .handle_duty(Duty::VerifierDisprove {
-                            kickoff_id: self.kickoff_id,
+                            kickoff_data: self.kickoff_data,
                             deposit_data: self.deposit_data.clone(),
                             operator_asserts: self.operator_asserts.clone(),
                             operator_acks: self.operator_challenge_acks.clone(),
@@ -371,7 +372,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             KickoffEvent::BurnConnectorSpent => {
                 tracing::error!(
                     "Burn connector spent before kickoff was finalized for kickoff {:?}",
-                    self.kickoff_id
+                    self.kickoff_data
                 );
                 Transition(State::closed())
             }
@@ -409,7 +410,7 @@ impl<T: Owner> KickoffStateMachine<T> {
     ) -> Response<State> {
         match event {
             KickoffEvent::Challenged => {
-                tracing::warn!("Warning: Operator challenged: {:?}", self.kickoff_id);
+                tracing::warn!("Warning: Operator challenged: {:?}", self.kickoff_data);
                 Transition(State::challenged())
             }
             KickoffEvent::WatchtowerChallengeSent { .. }
@@ -432,7 +433,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         context: &mut StateContext<T>,
     ) -> Result<(), BridgeError> {
         let contract_context = ContractContext::new_context_for_kickoffs(
-            self.kickoff_id,
+            self.kickoff_data,
             self.deposit_data.clone(),
             context.paramset,
         );
@@ -490,7 +491,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             },
         );
         // add watchtower challenges and challenge acks
-        for watchtower_idx in 0..self.deposit_data.get_num_verifiers() {
+        for watchtower_idx in 0..self.deposit_data.get_num_watchtowers() {
+            // TODO: use dedicated functions or smth else, not hardcoded here.
             // It will be easier when we have data of operators/watchtowers that participated in the deposit in DepositData
             let watchtower_challenge_vout =
                 UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout();

@@ -4,14 +4,12 @@
 
 use super::{
     wrapper::{
-        DepositParamsDB, OutPointDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB,
+        AddressDB, DepositParamsDB, OutPointDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB,
+        XOnlyPublicKeyDB,
     },
     Database, DatabaseTransaction,
 };
-use crate::{
-    builder::transaction::{DepositData, OperatorData},
-    rpc::clementine::KickoffId,
-};
+use crate::builder::transaction::{DepositData, KickoffData, OperatorData};
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -36,16 +34,14 @@ impl Database {
     pub async fn set_operator(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: i32,
         xonly_pubkey: XOnlyPublicKey,
         wallet_address: String,
         collateral_funding_outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO operators (operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) VALUES ($1, $2, $3, $4)
+            "INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) VALUES ($1, $2, $3)
                     ON CONFLICT DO NOTHING;",
         )
-        .bind(operator_idx)
         .bind(XOnlyPublicKeyDB(xonly_pubkey))
         .bind(wallet_address)
         .bind(OutPointDB(collateral_funding_outpoint));
@@ -60,28 +56,18 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<(XOnlyPublicKey, bitcoin::Address, OutPoint)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_outpoint FROM operators ORDER BY operator_idx;"
+            "SELECT xonly_pk, wallet_reimburse_address, collateral_funding_outpoint FROM operators;"
         );
 
-        let operators: Vec<(i32, String, String, OutPointDB)> =
+        let operators: Vec<(XOnlyPublicKeyDB, AddressDB, OutPointDB)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-
-        // Check for missing indices
-        let indices: Vec<i32> = operators.iter().map(|(idx, _, _, _)| *idx).collect();
-        let expected_indices: Vec<i32> = (0..indices.len() as i32).collect();
-
-        if indices != expected_indices {
-            return Err(eyre::eyre!("Operator index is not sequential").into());
-        }
 
         // Convert the result to the desired format
         let data = operators
             .into_iter()
-            .map(|(_, pk, addr, outpoint_db)| {
-                let xonly_pk = XOnlyPublicKey::from_str(&pk).wrap_err("Invalid XOnlyPublicKey")?;
-                let addr = bitcoin::Address::from_str(&addr)
-                    .wrap_err("Invalid Address")?
-                    .assume_checked();
+            .map(|(pk, addr, outpoint_db)| {
+                let xonly_pk = pk.0;
+                let addr = addr.0.assume_checked();
                 let outpoint = outpoint_db.0; // Extract the Txid from TxidDB
                 Ok((xonly_pk, addr, outpoint))
             })
@@ -92,83 +78,28 @@ impl Database {
     pub async fn get_operator(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: i32,
+        operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Option<OperatorData>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_outpoint FROM operators WHERE operator_idx = $1;"
-        ).bind(operator_idx);
+            "SELECT xonly_pk, wallet_reimburse_address, collateral_funding_outpoint FROM operators WHERE xonly_pk = $1;"
+        ).bind(XOnlyPublicKeyDB(operator_xonly_pk));
 
-        let result: Option<(i32, String, String, OutPointDB)> =
+        let result: Option<(String, String, OutPointDB)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
             None => Ok(None),
-            Some((_, pk, addr, outpoint_db)) => {
+            Some((_, addr, outpoint_db)) => {
                 // Convert the result to the desired format
-                let xonly_pk = XOnlyPublicKey::from_str(&pk).wrap_err("Invalid XOnlyPublicKey")?;
                 let addr = bitcoin::Address::from_str(&addr)
                     .wrap_err("Invalid Address")?
                     .assume_checked();
                 let outpoint = outpoint_db.0; // Extract the Txid from TxidDB
                 Ok(Some(OperatorData {
-                    xonly_pk,
+                    xonly_pk: operator_xonly_pk,
                     reimburse_addr: addr,
                     collateral_funding_outpoint: outpoint,
                 }))
-            }
-        }
-    }
-
-    /// Get unused kickoff_utxo at ready if there are any.
-    pub async fn get_unused_kickoff_utxo_and_increase_idx(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<UTXO>, BridgeError> {
-        // Attempt to fetch the latest transaction details
-        let query = sqlx::query_as(
-            "UPDATE deposit_kickoff_generator_txs
-                SET cur_unused_kickoff_index = cur_unused_kickoff_index + 1
-                WHERE id = (
-                    SELECT id
-                    FROM deposit_kickoff_generator_txs
-                    WHERE cur_unused_kickoff_index < num_kickoffs
-                    ORDER BY id DESC
-                    LIMIT 1
-                )
-                RETURNING txid, raw_signed_tx, cur_unused_kickoff_index;", // This query returns the updated cur_unused_kickoff_index.
-        );
-
-        let result: Result<(TxidDB, String, i32), sqlx::Error> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one);
-
-        match result {
-            Ok((txid, raw_signed_tx, cur_unused_kickoff_index)) => {
-                // Deserialize the transaction
-                //
-                let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
-                    &hex::decode(raw_signed_tx).wrap_err("Failed to decode raw_signed_tx hex")?,
-                )
-                .wrap_err("Failed to deserialize raw_signed_tx")?;
-
-                // Create the outpoint and txout
-                let outpoint = OutPoint {
-                    txid: txid.0,
-                    vout: cur_unused_kickoff_index as u32 - 1,
-                };
-                let txout = tx.output[cur_unused_kickoff_index as usize - 1].clone();
-
-                Ok(Some(UTXO { outpoint, txout }))
-            }
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => {
-                if let Some(postgresql_error) = e.as_database_error() {
-                    // if error is 23514 (check_violation), it means there is no more unused kickoffs
-                    if postgresql_error.is_check_violation() {
-                        return Ok(None);
-                    }
-                };
-
-                Err(BridgeError::DatabaseError(e))
             }
         }
     }
@@ -217,15 +148,15 @@ impl Database {
     pub async fn set_unspent_kickoff_sigs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: usize,
+        operator_xonly_pk: XOnlyPublicKey,
         round_idx: usize,
         signatures: Vec<TaggedSignature>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO unspent_kickoff_signatures (operator_idx, round_idx, signatures) VALUES ($1, $2, $3)
-             ON CONFLICT (operator_idx, round_idx) DO UPDATE
+            "INSERT INTO unspent_kickoff_signatures (xonly_pk, round_idx, signatures) VALUES ($1, $2, $3)
+             ON CONFLICT (xonly_pk, round_idx) DO UPDATE
              SET signatures = EXCLUDED.signatures;",
-        ).bind(operator_idx as i32).bind(round_idx as i32).bind(SignaturesDB(DepositSignatures{signatures}));
+        ).bind(XOnlyPublicKeyDB(operator_xonly_pk)).bind(round_idx as i32).bind(SignaturesDB(DepositSignatures{signatures}));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -235,11 +166,11 @@ impl Database {
     pub async fn get_unspent_kickoff_sigs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: usize,
+        operator_xonly_pk: XOnlyPublicKey,
         round_idx: usize,
     ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
-        let query = sqlx::query_as::<_, (SignaturesDB,)>("SELECT signatures FROM unspent_kickoff_signatures WHERE operator_idx = $1 AND round_idx = $2;")
-            .bind(operator_idx as i32)
+        let query = sqlx::query_as::<_, (SignaturesDB,)>("SELECT signatures FROM unspent_kickoff_signatures WHERE xonly_pk = $1 AND round_idx = $2;")
+            .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(round_idx as i32);
 
         let result: Result<(SignaturesDB,), sqlx::Error> =
@@ -256,15 +187,15 @@ impl Database {
     pub async fn set_operator_kickoff_winternitz_public_keys(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_id: u32,
+        operator_xonly_pk: XOnlyPublicKey,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
         let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
-                "INSERT INTO operator_winternitz_public_keys (operator_id, winternitz_public_keys) VALUES ($1, $2);",
+                "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) VALUES ($1, $2);",
             )
-            .bind(operator_id as i64)
+            .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(wpk);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -277,12 +208,12 @@ impl Database {
     pub async fn get_operator_kickoff_winternitz_public_keys(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_id: u32,
+        op_xonly_pk: XOnlyPublicKey,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
-                "SELECT winternitz_public_keys FROM operator_winternitz_public_keys WHERE operator_id = $1;",
+                "SELECT winternitz_public_keys FROM operator_winternitz_public_keys WHERE xonly_pk = $1;",
             )
-            .bind(operator_id as i64);
+            .bind(XOnlyPublicKeyDB(op_xonly_pk));
 
         let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
@@ -298,7 +229,7 @@ impl Database {
     pub async fn set_operator_challenge_ack_hashes(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: i32,
+        operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
         public_hashes: &Vec<[u8; 20]>,
     ) -> Result<(), BridgeError> {
@@ -306,12 +237,12 @@ impl Database {
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
         let query = sqlx::query(
-            "INSERT INTO operators_challenge_ack_hashes (operator_idx, deposit_id, public_hashes)
+            "INSERT INTO operators_challenge_ack_hashes (xonly_pk, deposit_id, public_hashes)
              VALUES ($1, $2, $3)
-             ON CONFLICT (operator_idx, deposit_id) DO UPDATE
+             ON CONFLICT (xonly_pk, deposit_id) DO UPDATE
              SET public_hashes = EXCLUDED.public_hashes;",
         )
-        .bind(operator_idx)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(public_hashes);
 
@@ -325,7 +256,7 @@ impl Database {
     pub async fn get_operators_challenge_ack_hashes(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: i32,
+        operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<PublicHash>>, BridgeError> {
         let deposit_id = self
@@ -334,9 +265,9 @@ impl Database {
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
             "SELECT public_hashes
             FROM operators_challenge_ack_hashes
-            WHERE operator_idx = $1 AND deposit_id = $2;",
+            WHERE xonly_pk = $1 AND deposit_id = $2;",
         )
-        .bind(operator_idx)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
@@ -442,7 +373,7 @@ impl Database {
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
-        operator_idx: usize,
+        operator_xonly_pk: XOnlyPublicKey,
         round_idx: usize,
         kickoff_idx: usize,
         kickoff_txid: Txid,
@@ -454,11 +385,11 @@ impl Database {
 
         let query = sqlx::query(
             "
-            INSERT INTO deposit_signatures (deposit_id, operator_idx, round_idx, kickoff_idx, kickoff_txid, signatures)
+            INSERT INTO deposit_signatures (deposit_id, operator_xonly_pk, round_idx, kickoff_idx, kickoff_txid, signatures)
             VALUES ($1, $2, $3, $4, $5, $6);"
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
-        .bind(operator_idx as i32)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32)
         .bind(TxidDB(kickoff_txid))
@@ -493,7 +424,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
-        operator_idx: usize,
+        operator_xonly_pk: XOnlyPublicKey,
         round_idx: usize,
         kickoff_idx: usize,
     ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
@@ -501,12 +432,12 @@ impl Database {
             "SELECT ds.signatures FROM deposit_signatures ds
                     INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
                  WHERE d.deposit_outpoint = $1
-                 AND ds.operator_idx = $2
+                 AND ds.operator_xonly_pk = $2
                  AND ds.round_idx = $3
                  AND ds.kickoff_idx = $4;",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(operator_idx as i32)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32);
 
@@ -524,9 +455,9 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         kickoff_txid: Txid,
-    ) -> Result<Option<(DepositData, KickoffId)>, BridgeError> {
-        let query = sqlx::query_as::<_, (DepositParamsDB, i32, i32, i32)>(
-            "SELECT d.deposit_params, ds.operator_idx, ds.round_idx, ds.kickoff_idx
+    ) -> Result<Option<(DepositData, KickoffData)>, BridgeError> {
+        let query = sqlx::query_as::<_, (DepositParamsDB, XOnlyPublicKeyDB, i32, i32)>(
+            "SELECT d.deposit_params, ds.operator_xonly_pk, ds.round_idx, ds.kickoff_idx
              FROM deposit_signatures ds
              INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
              WHERE ds.kickoff_txid = $1;",
@@ -536,11 +467,10 @@ impl Database {
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((deposit_params, operator_idx, round_idx, kickoff_idx)) => Ok(Some((
+            Some((deposit_params, operator_xonly_pk, round_idx, kickoff_idx)) => Ok(Some((
                 deposit_params.0.try_into()?,
-                KickoffId {
-                    operator_idx: u32::try_from(operator_idx)
-                        .wrap_err("Failed to convert operator idx to u32")?,
+                KickoffData {
+                    operator_xonly_pk: operator_xonly_pk.0,
                     round_idx: u32::try_from(round_idx)
                         .wrap_err("Failed to convert round idx to u32")?,
                     kickoff_idx: u32::try_from(kickoff_idx)
@@ -555,7 +485,7 @@ impl Database {
     pub async fn set_bitvm_setup(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: i32,
+        operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
         assert_tx_addrs: impl AsRef<[[u8; 32]]>,
         root_hash: &[u8; 32],
@@ -565,14 +495,14 @@ impl Database {
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
         let query = sqlx::query(
-            "INSERT INTO bitvm_setups (operator_idx, deposit_id, assert_tx_addrs, root_hash, latest_blockhash_root_hash)
+            "INSERT INTO bitvm_setups (xonly_pk, deposit_id, assert_tx_addrs, root_hash, latest_blockhash_root_hash)
              VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (operator_idx, deposit_id) DO UPDATE
+             ON CONFLICT (xonly_pk, deposit_id) DO UPDATE
              SET assert_tx_addrs = EXCLUDED.assert_tx_addrs,
                  root_hash = EXCLUDED.root_hash,
                  latest_blockhash_root_hash = EXCLUDED.latest_blockhash_root_hash;",
         )
-        .bind(operator_idx)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(
             assert_tx_addrs
@@ -593,7 +523,7 @@ impl Database {
     pub async fn get_bitvm_setup(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: i32,
+        operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<BitvmSetup>, BridgeError> {
         let deposit_id = self
@@ -602,9 +532,9 @@ impl Database {
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>, Vec<u8>)>(
             "SELECT assert_tx_addrs, root_hash, latest_blockhash_root_hash
              FROM bitvm_setups
-             WHERE operator_idx = $1 AND deposit_id = $2;",
+             WHERE xonly_pk = $1 AND deposit_id = $2;",
         )
-        .bind(operator_idx)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
@@ -685,7 +615,9 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_id: u32,
+        operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Option<(u32, u32)>, BridgeError> {
+        // TODO: check if AND ds.round_idx >= cr.round_idx is correct or if we should use = instead
         let query = sqlx::query_as::<_, (i32, i32)>(
             "WITH current_round AS (
                     SELECT round_idx
@@ -698,6 +630,7 @@ impl Database {
                 FROM deposit_signatures ds
                 CROSS JOIN current_round cr
                 WHERE ds.deposit_id = $1  -- Parameter for deposit_id
+                    AND ds.operator_xonly_pk = $2
                     AND ds.round_idx >= cr.round_idx
                     AND NOT EXISTS (
                         SELECT 1
@@ -708,7 +641,8 @@ impl Database {
                 ORDER BY ds.round_idx ASC
                 LIMIT 1;",
         )
-        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk));
 
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
@@ -753,6 +687,7 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
     use crate::rpc::clementine::{
@@ -762,7 +697,8 @@ mod tests {
     use crate::{database::Database, test::common::*};
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
-    use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid};
+    use bitcoin::key::Keypair;
+    use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 
     // #[tokio::test]
     // async fn save_get_operators() {
@@ -814,7 +750,6 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
-        let operator_idx = 0;
         let public_hashes = vec![[1u8; 20], [2u8; 20]];
 
         let deposit_outpoint = OutPoint {
@@ -822,11 +757,14 @@ mod tests {
             vout: 0,
         };
 
+        let operator_xonly_pk = generate_random_xonly_pk();
+        let non_existant_xonly_pk = generate_random_xonly_pk();
+
         // Save public hashes
         database
             .set_operator_challenge_ack_hashes(
                 None,
-                operator_idx,
+                operator_xonly_pk,
                 deposit_outpoint,
                 &public_hashes.clone(),
             )
@@ -835,7 +773,7 @@ mod tests {
 
         // Retrieve and verify
         let result = database
-            .get_operators_challenge_ack_hashes(None, operator_idx, deposit_outpoint)
+            .get_operators_challenge_ack_hashes(None, operator_xonly_pk, deposit_outpoint)
             .await
             .unwrap();
 
@@ -843,7 +781,7 @@ mod tests {
 
         // Test non-existent entry
         let non_existent = database
-            .get_operators_challenge_ack_hashes(None, 999, deposit_outpoint)
+            .get_operators_challenge_ack_hashes(None, non_existant_xonly_pk, deposit_outpoint)
             .await
             .unwrap();
         assert!(non_existent.is_none());
@@ -854,7 +792,6 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
-        let operator_idx = 0x45;
         let round_idx = 1;
         let signatures = DepositSignatures {
             signatures: vec![
@@ -877,26 +814,34 @@ mod tests {
             ],
         };
 
+        let operator_xonly_pk = generate_random_xonly_pk();
+        let non_existant_xonly_pk = generate_random_xonly_pk();
+
         database
-            .set_unspent_kickoff_sigs(None, operator_idx, round_idx, signatures.signatures.clone())
+            .set_unspent_kickoff_sigs(
+                None,
+                operator_xonly_pk,
+                round_idx,
+                signatures.signatures.clone(),
+            )
             .await
             .unwrap();
 
         let result = database
-            .get_unspent_kickoff_sigs(None, operator_idx, round_idx)
+            .get_unspent_kickoff_sigs(None, operator_xonly_pk, round_idx)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(result, signatures.signatures);
 
         let non_existent = database
-            .get_unspent_kickoff_sigs(None, operator_idx + 1, round_idx)
+            .get_unspent_kickoff_sigs(None, non_existant_xonly_pk, round_idx)
             .await
             .unwrap();
         assert!(non_existent.is_none());
 
         let non_existent = database
-            .get_unspent_kickoff_sigs(None, operator_idx, round_idx + 1)
+            .get_unspent_kickoff_sigs(None, non_existant_xonly_pk, round_idx + 1)
             .await
             .unwrap();
         assert!(non_existent.is_none());
@@ -939,7 +884,6 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
-        let operator_idx = 0;
         let assert_tx_hashes: Vec<[u8; 32]> = vec![[1u8; 32], [4u8; 32]];
         let root_hash = [42u8; 32];
         let latest_blockhash_root_hash = [43u8; 32];
@@ -949,12 +893,14 @@ mod tests {
             txid: Txid::from_byte_array([1u8; 32]),
             vout: 0,
         };
+        let operator_xonly_pk = generate_random_xonly_pk();
+        let non_existant_xonly_pk = generate_random_xonly_pk();
 
         // Save BitVM setup
         database
             .set_bitvm_setup(
                 None,
-                operator_idx,
+                operator_xonly_pk,
                 deposit_outpoint,
                 &assert_tx_hashes,
                 &root_hash,
@@ -965,7 +911,7 @@ mod tests {
 
         // Retrieve and verify
         let result = database
-            .get_bitvm_setup(None, operator_idx, deposit_outpoint)
+            .get_bitvm_setup(None, operator_xonly_pk, deposit_outpoint)
             .await
             .unwrap()
             .unwrap();
@@ -976,7 +922,7 @@ mod tests {
 
         // Test non-existent entry
         let non_existent = database
-            .get_bitvm_setup(None, 999, deposit_outpoint)
+            .get_bitvm_setup(None, non_existant_xonly_pk, deposit_outpoint)
             .await
             .unwrap();
         assert!(non_existent.is_none());
@@ -988,8 +934,11 @@ mod tests {
         let database = Database::new(&config).await.unwrap();
         let _regtest = create_regtest_rpc(&mut config).await;
 
-        let operator = Operator::<MockCitreaClient>::new(config).await.unwrap();
-        let operator_idx = 0x45;
+        let operator = Operator::<MockCitreaClient>::new(config.clone())
+            .await
+            .unwrap();
+        let op_xonly_pk =
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &config.secret_key)).0;
         let deposit_outpoint = OutPoint {
             txid: Txid::from_slice(&[0x45; 32]).unwrap(),
             vout: 0x1F,
@@ -999,18 +948,18 @@ mod tests {
             .unwrap();
 
         database
-            .set_operator_kickoff_winternitz_public_keys(None, operator_idx, wpks.clone())
+            .set_operator_kickoff_winternitz_public_keys(None, op_xonly_pk, wpks.clone())
             .await
             .unwrap();
 
         let result = database
-            .get_operator_kickoff_winternitz_public_keys(None, operator_idx)
+            .get_operator_kickoff_winternitz_public_keys(None, op_xonly_pk)
             .await
             .unwrap();
         assert_eq!(result, wpks);
 
         let non_existent = database
-            .get_operator_kickoff_winternitz_public_keys(None, operator_idx + 1)
+            .get_operator_kickoff_winternitz_public_keys(None, *UNSPENDABLE_XONLY_PUBKEY)
             .await;
         assert!(non_existent.is_err());
     }
@@ -1020,7 +969,8 @@ mod tests {
         let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
-        let operator_idx = 0x45;
+        let operator_xonly_pk = generate_random_xonly_pk();
+        let unset_operator_xonly_pk = generate_random_xonly_pk();
         let deposit_outpoint = OutPoint {
             txid: Txid::from_slice(&[0x45; 32]).unwrap(),
             vout: 0x1F,
@@ -1044,7 +994,7 @@ mod tests {
             .set_deposit_signatures(
                 None,
                 deposit_outpoint,
-                operator_idx,
+                operator_xonly_pk,
                 round_idx,
                 kickoff_idx,
                 Txid::all_zeros(),
@@ -1054,7 +1004,13 @@ mod tests {
             .unwrap();
 
         let result = database
-            .get_deposit_signatures(None, deposit_outpoint, operator_idx, round_idx, kickoff_idx)
+            .get_deposit_signatures(
+                None,
+                deposit_outpoint,
+                operator_xonly_pk,
+                round_idx,
+                kickoff_idx,
+            )
             .await
             .unwrap()
             .unwrap();
@@ -1064,7 +1020,7 @@ mod tests {
             .get_deposit_signatures(
                 None,
                 deposit_outpoint,
-                operator_idx + 1,
+                operator_xonly_pk,
                 round_idx + 1,
                 kickoff_idx + 1,
             )
@@ -1073,16 +1029,10 @@ mod tests {
         assert!(non_existent.is_none());
 
         let non_existent = database
-            .get_deposit_signatures(None, OutPoint::null(), operator_idx, round_idx, kickoff_idx)
-            .await
-            .unwrap();
-        assert!(non_existent.is_none());
-
-        let non_existent = database
             .get_deposit_signatures(
                 None,
                 OutPoint::null(),
-                operator_idx + 1,
+                unset_operator_xonly_pk,
                 round_idx,
                 kickoff_idx,
             )

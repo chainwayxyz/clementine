@@ -3,6 +3,7 @@ use super::input::UtxoVout;
 use super::op_return_txout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use super::DepositData;
+use super::KickoffData;
 use super::Signed;
 use super::TransactionType;
 use super::TxError;
@@ -14,7 +15,6 @@ use crate::config::protocol::ProtocolParamset;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
-use crate::rpc::clementine::KickoffId;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::{builder, UTXO};
 use bitcoin::hashes::Hash;
@@ -33,21 +33,19 @@ pub enum AssertScripts<'a> {
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
-    kickoff_id: KickoffId,
+    kickoff_data: KickoffData,
     round_txhandler: &TxHandler,
     move_txhandler: &TxHandler,
-    deposit_data: DepositData,
+    deposit_data: &mut DepositData,
     operator_xonly_pk: XOnlyPublicKey,
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
     disprove_root_hash: &[u8; 32],
     latest_blockhash_script: AssertScripts,
-    verifier_xonly_pks: &[XOnlyPublicKey],
     operator_unlock_hashes: &[[u8; 20]],
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let kickoff_idx: usize = kickoff_id.kickoff_idx as usize;
-    let operator_idx: usize = kickoff_id.operator_idx as usize;
+    let kickoff_idx = kickoff_data.kickoff_idx as usize;
     let move_txid: Txid = *move_txhandler.get_txid();
     let mut builder =
         TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(3));
@@ -58,7 +56,7 @@ pub fn create_kickoff_txhandler(
         DEFAULT_SEQUENCE,
     );
 
-    let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()));
+    let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()?));
     let operator_script = Arc::new(CheckSig::new(operator_xonly_pk));
 
     let operator_1week = Arc::new(TimelockScript::new(
@@ -105,7 +103,7 @@ pub fn create_kickoff_txhandler(
     ));
 
     let nofn_latest_blockhash = Arc::new(TimelockScript::new(
-        Some(deposit_data.get_nofn_xonly_pk()),
+        Some(deposit_data.get_nofn_xonly_pk()?),
         paramset.latest_blockhash_timeout_timelock,
     ));
 
@@ -139,7 +137,7 @@ pub fn create_kickoff_txhandler(
 
     // add nofn_4 week to all assert scripts
     let nofn_4week = Arc::new(TimelockScript::new(
-        Some(deposit_data.get_nofn_xonly_pk()),
+        Some(deposit_data.get_nofn_xonly_pk()?),
         paramset.assert_timeout_timelock,
     ));
 
@@ -167,44 +165,29 @@ pub fn create_kickoff_txhandler(
         }
     }
 
-    // create watchtower challenges
-    if deposit_data.get_num_verifiers() != verifier_xonly_pks.len() {
-        return Err(BridgeError::ConfigError(format!(
-            "Number of verifiers in config ({}) does not match number of verifier xonly addrs ({})",
-            deposit_data.get_num_verifiers(),
-            verifier_xonly_pks.len()
-        )));
-    }
+    let watchtower_xonly_pks = deposit_data.get_watchtowers();
 
-    if deposit_data.get_num_verifiers() != operator_unlock_hashes.len() {
-        return Err(BridgeError::ConfigError(format!(
-            "Number of verifiers in config ({}) does not match number of operator unlock addresses ({})",
-            deposit_data.get_num_verifiers(),
-            operator_unlock_hashes.len()
-        )));
-    }
-
-    for (verifier_idx, xonly_pk) in verifier_xonly_pks.iter().enumerate() {
+    for (watchtower_idx, watchtower_xonly_pk) in watchtower_xonly_pks.iter().enumerate() {
         let nofn_2week = Arc::new(TimelockScript::new(
-            Some(deposit_data.get_nofn_xonly_pk()),
+            Some(deposit_data.get_nofn_xonly_pk()?),
             paramset.watchtower_challenge_timeout_timelock,
         ));
         // UTXO for watchtower challenge or watchtower challenge timeouts
         builder = builder.add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT * 2 + ANCHOR_AMOUNT, // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
             vec![nofn_2week.clone()],
-            Some(*xonly_pk), // key path as watchtowers xonly pk
+            Some(*watchtower_xonly_pk), // key path as watchtowers xonly pk
             paramset.network,
         ));
 
         // UTXO for operator challenge ack, nack, and watchtower challenge timeouts
         let nofn_3week = Arc::new(TimelockScript::new(
-            Some(deposit_data.get_nofn_xonly_pk()),
+            Some(deposit_data.get_nofn_xonly_pk()?),
             paramset.operator_challenge_nack_timelock,
         ));
         let operator_with_preimage = Arc::new(PreimageRevealScript::new(
             operator_xonly_pk,
-            operator_unlock_hashes[verifier_idx],
+            operator_unlock_hashes[watchtower_idx],
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
@@ -219,7 +202,7 @@ pub fn create_kickoff_txhandler(
     }
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
-    op_return_script.extend(crate::utils::usize_to_var_len_bytes(operator_idx));
+    op_return_script.extend(kickoff_data.operator_xonly_pk.serialize());
 
     let push_bytes = PushBytesBuf::try_from(op_return_script)
         .expect("Can't fail since the script is shorter than 4294967296 bytes");
@@ -310,7 +293,7 @@ pub fn create_reimburse_txhandler(
 pub fn create_payout_txhandler(
     input_utxo: UTXO,
     output_txout: TxOut,
-    operator_idx: usize,
+    operator_xonly_pk: XOnlyPublicKey,
     user_sig: Signature,
     _network: bitcoin::Network,
 ) -> Result<TxHandler<Signed>, BridgeError> {
@@ -322,10 +305,7 @@ pub fn create_payout_txhandler(
 
     let output_txout = UnspentTxOut::from_partial(output_txout.clone());
 
-    let op_return_txout = op_return_txout(
-        PushBytesBuf::try_from(crate::utils::usize_to_var_len_bytes(operator_idx))
-            .expect("operator idx size < 8 bytes"),
-    );
+    let op_return_txout = op_return_txout(PushBytesBuf::from(operator_xonly_pk.serialize()));
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
         .with_version(Version::non_standard(3))

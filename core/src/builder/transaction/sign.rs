@@ -1,29 +1,27 @@
 use super::challenge::create_watchtower_challenge_txhandler;
-use super::{ContractContext, TxHandlerCache};
+use super::{ContractContext, KickoffData, TxHandlerCache};
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
 use crate::builder::transaction::creator::ReimburseDbCache;
-use crate::builder::transaction::{DepositData, TransactionType};
+use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::Operator;
-use crate::rpc::clementine::KickoffId;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
-use bitcoin::{BlockHash, Transaction, XOnlyPublicKey};
-use eyre::eyre;
+use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
 use secp256k1::rand::seq::SliceRandom;
 
 #[derive(Debug, Clone)]
 pub struct TransactionRequestData {
-    pub deposit_data: DepositData,
-    pub kickoff_id: KickoffId,
+    pub deposit_outpoint: OutPoint,
+    pub kickoff_data: KickoffData,
 }
 
 /// Deterministically generates a set of kickoff indices for an operator to sign.
@@ -78,9 +76,17 @@ pub async fn create_and_sign_txs(
     transaction_data: TransactionRequestData,
     block_hash: Option<[u8; 20]>, //to sign kickoff
 ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
+    let deposit_data = db
+        .get_deposit_data(None, transaction_data.deposit_outpoint)
+        .await?
+        .ok_or(BridgeError::DepositNotFound(
+            transaction_data.deposit_outpoint,
+        ))?
+        .1;
+
     let context = ContractContext::new_context_for_kickoffs(
-        transaction_data.kickoff_id,
-        transaction_data.deposit_data.clone(),
+        transaction_data.kickoff_data,
+        deposit_data.clone(),
         config.protocol_paramset(),
     );
 
@@ -90,8 +96,8 @@ pub async fn create_and_sign_txs(
         &mut TxHandlerCache::new(),
         &mut ReimburseDbCache::new_for_deposit(
             db.clone(),
-            transaction_data.kickoff_id.operator_idx,
-            transaction_data.deposit_data.get_deposit_outpoint(),
+            transaction_data.kickoff_data.operator_xonly_pk,
+            deposit_data.get_deposit_outpoint(),
             config.protocol_paramset(),
         ),
     )
@@ -101,10 +107,10 @@ pub async fn create_and_sign_txs(
     let deposit_sigs_query = db
         .get_deposit_signatures(
             None,
-            transaction_data.deposit_data.get_deposit_outpoint(),
-            transaction_data.kickoff_id.operator_idx as usize,
-            transaction_data.kickoff_id.round_idx as usize,
-            transaction_data.kickoff_id.kickoff_idx as usize,
+            transaction_data.deposit_outpoint,
+            transaction_data.kickoff_data.operator_xonly_pk,
+            transaction_data.kickoff_data.round_idx as usize,
+            transaction_data.kickoff_data.kickoff_idx as usize,
         )
         .await?;
     let mut signatures = deposit_sigs_query.unwrap_or_default();
@@ -113,8 +119,8 @@ pub async fn create_and_sign_txs(
     let setup_sigs_query = db
         .get_unspent_kickoff_sigs(
             None,
-            transaction_data.kickoff_id.operator_idx as usize,
-            transaction_data.kickoff_id.round_idx as usize,
+            transaction_data.kickoff_data.operator_xonly_pk,
+            transaction_data.kickoff_data.round_idx as usize,
         )
         .await?;
 
@@ -129,7 +135,7 @@ pub async fn create_and_sign_txs(
         if let TransactionType::OperatorChallengeAck(watchtower_idx) = tx_type {
             let path = WinternitzDerivationPath::ChallengeAckHash(
                 watchtower_idx as u32,
-                transaction_data.deposit_data.get_deposit_outpoint(),
+                transaction_data.deposit_outpoint,
                 config.protocol_paramset(),
             );
             let preimage = signer.generate_preimage_from_path(path)?;
@@ -140,8 +146,8 @@ pub async fn create_and_sign_txs(
             if let Some(block_hash) = block_hash {
                 // need to commit blockhash to start kickoff
                 let path = WinternitzDerivationPath::Kickoff(
-                    transaction_data.kickoff_id.round_idx,
-                    transaction_data.kickoff_id.kickoff_idx,
+                    transaction_data.kickoff_data.round_idx,
+                    transaction_data.kickoff_data.kickoff_idx,
                     config.protocol_paramset(),
                 );
                 signer.tx_sign_winternitz(&mut txhandler, &[(block_hash.to_vec(), path)])?;
@@ -182,9 +188,18 @@ where
             return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
         }
 
+        let deposit_data = self
+            .db
+            .get_deposit_data(None, transaction_data.deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DepositNotFound(
+                transaction_data.deposit_outpoint,
+            ))?
+            .1;
+
         let context = ContractContext::new_context_for_asserts(
-            transaction_data.kickoff_id,
-            transaction_data.deposit_data.clone(),
+            transaction_data.kickoff_data,
+            deposit_data.clone(),
             self.config.protocol_paramset(),
             self.signer.clone(),
         );
@@ -195,8 +210,8 @@ where
             &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
-                transaction_data.kickoff_id.operator_idx,
-                transaction_data.deposit_data.get_deposit_outpoint(),
+                transaction_data.kickoff_data.operator_xonly_pk,
+                transaction_data.deposit_outpoint,
                 self.config.protocol_paramset(),
             ),
         )
@@ -206,15 +221,11 @@ where
             .remove(&TransactionType::Kickoff)
             .ok_or(TxError::TxHandlerNotFound(TransactionType::Kickoff))?;
 
-        let verifier_index = self
-            .idx
-            .read()
-            .await
-            .ok_or(eyre!("Verifier index not set, yet"))?;
+        let watchtower_index = deposit_data.get_watchtower_index(&self.signer.xonly_public_key)?;
 
         let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
             &kickoff_txhandler,
-            verifier_index,
+            watchtower_index,
             commit_data,
             self.config.protocol_paramset(),
         )?;
@@ -225,7 +236,7 @@ where
         let checked_txhandler = watchtower_challenge_txhandler.promote()?;
 
         Ok((
-            TransactionType::WatchtowerChallenge(verifier_index),
+            TransactionType::WatchtowerChallenge(watchtower_index),
             checked_txhandler.get_cached_tx().clone(),
         ))
     }
@@ -235,10 +246,10 @@ where
     pub async fn create_and_sign_unspent_kickoff_connector_txs(
         &self,
         round_idx: u32,
-        operator_idx: u32,
+        operator_xonly_pk: XOnlyPublicKey,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let context = ContractContext::new_context_for_rounds(
-            operator_idx,
+            operator_xonly_pk,
             round_idx,
             self.config.protocol_paramset(),
         );
@@ -249,7 +260,7 @@ where
             &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_rounds(
                 self.db.clone(),
-                operator_idx,
+                operator_xonly_pk,
                 self.config.protocol_paramset(),
             ),
         )
@@ -258,11 +269,11 @@ where
         // signatures saved during setup
         let unspent_kickoff_sigs = self
             .db
-            .get_unspent_kickoff_sigs(None, operator_idx as usize, round_idx as usize)
+            .get_unspent_kickoff_sigs(None, operator_xonly_pk, round_idx as usize)
             .await?
             .ok_or(BridgeError::Error(format!(
-                "No unspent kickoff signatures found for operator {} and round {}",
-                operator_idx, round_idx
+                "No unspent kickoff signatures found for operator {:?} and round {}",
+                operator_xonly_pk, round_idx
             )))?;
 
         let mut signed_txs = Vec::with_capacity(txhandlers.len());
@@ -307,9 +318,15 @@ where
         &self,
         assert_data: TransactionRequestData,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
+        let deposit_data = self
+            .db
+            .get_deposit_data(None, assert_data.deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
+            .1;
         let context = ContractContext::new_context_for_asserts(
-            assert_data.kickoff_id,
-            assert_data.deposit_data.clone(),
+            assert_data.kickoff_data,
+            deposit_data.clone(),
             self.config.protocol_paramset(),
             self.signer.clone(),
         );
@@ -320,8 +337,8 @@ where
             &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
-                assert_data.kickoff_id.operator_idx,
-                assert_data.deposit_data.get_deposit_outpoint(),
+                self.signer.xonly_public_key,
+                assert_data.deposit_outpoint,
                 self.config.protocol_paramset(),
             ),
         )
@@ -335,7 +352,7 @@ where
                 .ok_or(TxError::TxHandlerNotFound(TransactionType::MiniAssert(idx)))?;
             let derivations = ClementineBitVMPublicKeys::get_assert_derivations(
                 idx,
-                assert_data.deposit_data.get_deposit_outpoint(),
+                assert_data.deposit_outpoint,
                 self.config.protocol_paramset(),
             );
             let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations
@@ -368,9 +385,16 @@ where
         assert_data: TransactionRequestData,
         block_hash: BlockHash,
     ) -> Result<(TransactionType, Transaction), BridgeError> {
+        let deposit_data = self
+            .db
+            .get_deposit_data(None, assert_data.deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
+            .1;
+
         let context = ContractContext::new_context_for_asserts(
-            assert_data.kickoff_id,
-            assert_data.deposit_data.clone(),
+            assert_data.kickoff_data,
+            deposit_data,
             self.config.protocol_paramset(),
             self.signer.clone(),
         );
@@ -381,8 +405,8 @@ where
             &mut TxHandlerCache::new(),
             &mut ReimburseDbCache::new_for_deposit(
                 self.db.clone(),
-                assert_data.kickoff_id.operator_idx,
-                assert_data.deposit_data.get_deposit_outpoint(),
+                assert_data.kickoff_data.operator_xonly_pk,
+                assert_data.deposit_outpoint,
                 self.config.protocol_paramset(),
             ),
         )
@@ -402,7 +426,7 @@ where
             &[(
                 block_hash_last_20,
                 ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
-                    assert_data.deposit_data.get_deposit_outpoint(),
+                    assert_data.deposit_outpoint,
                     self.config.protocol_paramset(),
                 ),
             )],

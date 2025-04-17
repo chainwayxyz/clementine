@@ -1,12 +1,13 @@
 use crate::builder::transaction::DepositData;
+use crate::builder::transaction::KickoffData;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
-use crate::rpc::clementine::KickoffId;
 
 use bitcoin::BlockHash;
 use bitcoin::Transaction;
 use bitcoin::Txid;
 use bitcoin::Witness;
+use bitcoin::XOnlyPublicKey;
 use statig::awaitable::InitializedStateMachine;
 use tonic::async_trait;
 
@@ -43,7 +44,7 @@ pub enum Duty {
     /// If there are unspent kickoffs, the owner can send a unspent kickoff connector tx.
     NewReadyToReimburse {
         round_idx: u32,
-        operator_idx: u32,
+        operator_xonly_pk: XOnlyPublicKey,
         used_kickoffs: HashSet<usize>,
     },
     /// This duty is sent after a kickoff utxo is spent by the operator.
@@ -59,7 +60,7 @@ pub enum Duty {
     /// This duty is sent after some time (paramset.time_to_send_watchtower_challenge number of blocks) passes after a kickoff was sent to chain.
     /// It denotes to the owner that it is time to send a watchtower challenge to the corresponding kickoff.
     WatchtowerChallenge {
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         deposit_data: DepositData,
     },
     /// This duty is only sent if a kickoff was challenged.
@@ -68,7 +69,7 @@ pub enum Duty {
     /// The duty denotes that it is time to start sending operator asserts to the corresponding kickoff.
     /// It includes the all watchtower challenges and the payout blockhash so that they can be used in the proof.
     SendOperatorAsserts {
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Transaction>,
         payout_blockhash: Witness,
@@ -80,7 +81,7 @@ pub enum Duty {
     /// It includes the operator asserts, operator acks and the payout blockhash so that they can be used in the disprove tx if the proof
     /// is invalid.
     VerifierDisprove {
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         deposit_data: DepositData,
         operator_asserts: HashMap<usize, Witness>,
         operator_acks: HashMap<usize, Witness>,
@@ -91,7 +92,7 @@ pub enum Duty {
     /// This duty is sent after every watchtower challenge is either sent or timed out.
     /// It denotes to the owner that it is time to send a latest blockhash to the corresponding kickoff to be used in the proof.
     SendLatestBlockhash {
-        kickoff_id: KickoffId,
+        kickoff_data: KickoffData,
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
     },

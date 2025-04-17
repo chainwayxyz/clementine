@@ -68,6 +68,7 @@ use crate::{
     states::StateMachineError,
     tx_sender::SendTxError,
 };
+use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
 use core::fmt::Debug;
 use hex::FromHexError;
 use thiserror::Error;
@@ -79,26 +80,26 @@ pub use crate::builder::transaction::TxError;
 #[non_exhaustive]
 pub enum BridgeError {
     // TODO: migrate
-    #[error("{0}")]
+    #[error("Uncategorized error: {0}")]
     Error(String),
 
     // Module-level errors
     // Header chain prover errors
-    #[error("Prover returned an error")]
+    #[error("Prover returned an error: {0}")]
     Prover(#[from] HeaderChainProverError),
-    #[error("Failed to build transactions")]
+    #[error("Failed to build transactions: {0}")]
     Transaction(#[from] TxError),
-    #[error("Failed to send transactions")]
+    #[error("Failed to send transactions: {0}")]
     SendTx(#[from] SendTxError),
-    #[error("Aggregator error")]
+    #[error("Aggregator error: {0}")]
     Aggregator(#[from] AggregatorError),
-    #[error("Failed to parse request")]
+    #[error("Failed to parse request: {0}")]
     Parser(#[from] ParserError),
-    #[error("SpendableTxIn error")]
+    #[error("SpendableTxIn error: {0}")]
     SpendableTxIn(#[from] SpendableTxInError),
-    #[error("Bitcoin RPC error")]
+    #[error("Bitcoin RPC error: {0}")]
     BitcoinRPC(#[from] BitcoinRPCError),
-    #[error("State machine error")]
+    #[error("State machine error: {0}")]
     StateMachine(#[from] StateMachineError),
 
     // Shared error messages
@@ -115,24 +116,28 @@ pub enum BridgeError {
     IntConversionError,
     #[error("Failed to encode/decode data using borsh")]
     BorshError,
-    #[error("Operator idx {0} was not found in the DB")]
-    OperatorNotFound(u32),
+    #[error("Operator x-only public key {0} was not found in the DB")]
+    OperatorNotFound(XOnlyPublicKey),
+    #[error("Verifier with public key {0} was not found among the verifier clients")]
+    VerifierNotFound(PublicKey),
+    #[error("Deposit not found in DB: {0:?}")]
+    DepositNotFound(OutPoint),
 
     // External crate error wrappers
-    #[error("Failed to call database")]
+    #[error("Failed to call database: {0}")]
     DatabaseError(#[from] sqlx::Error),
-    #[error("Failed to convert hex string")]
+    #[error("Failed to convert hex string: {0}")]
     FromHexError(#[from] FromHexError),
-    #[error("Failed to convert to hash from slice")]
+    #[error("Failed to convert to hash from slice: {0}")]
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
-    #[error("Error while calling EVM contract")]
+    #[error("Error while calling EVM contract: {0}")]
     AlloyContract(#[from] alloy::contract::Error),
-    #[error("Error while calling EVM RPC function")]
+    #[error("Error while calling EVM RPC function: {0}")]
     AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
-    #[error("Error while encoding/decoding EVM type")]
+    #[error("Error while encoding/decoding EVM type: {0}")]
     AlloySolTypes(#[from] alloy::sol_types::Error),
 
-    #[error("Tonic status")]
+    #[error("Tonic status: {0}")]
     TonicStatus(#[from] tonic::Status),
 
     // Base wrapper for eyre
