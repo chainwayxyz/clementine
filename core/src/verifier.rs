@@ -1288,7 +1288,7 @@ where
                 );
                 self.send_unspent_kickoff_connectors(round_idx, operator_idx, used_kickoffs)
                     .await?;
-                Ok(DutyResult::default())
+                Ok(DutyResult::Handled)
             }
             Duty::WatchtowerChallenge {
                 kickoff_id,
@@ -1300,9 +1300,9 @@ where
                 );
                 self.send_watchtower_challenge(kickoff_id, deposit_data)
                     .await?;
-                Ok(DutyResult::default())
+                Ok(DutyResult::Handled)
             }
-            Duty::SendOperatorAsserts { .. } => Ok(DutyResult::default()),
+            Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
             Duty::VerifierDisprove {
                 kickoff_id,
                 deposit_data,
@@ -1313,7 +1313,7 @@ where
                 tracing::warn!(
                     "Verifier {} called verifier disprove with kickoff_id: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
                     payout_blockhash: {:?}", verifier_index, kickoff_id, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
-                Ok(DutyResult::default())
+                Ok(DutyResult::Handled)
             }
             Duty::CheckIfKickoff {
                 txid,
@@ -1355,7 +1355,7 @@ where
                         .await?;
                     dbtx.commit().await?;
                 }
-                Ok(DutyResult { challenged })
+                Ok(DutyResult::CheckIfKickoff { challenged })
             }
         }
     }

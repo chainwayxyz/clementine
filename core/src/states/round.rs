@@ -10,7 +10,7 @@ use serde_with::serde_as;
 
 use super::{
     block_cache::BlockCache,
-    context::{Duty, StateContext},
+    context::{Duty, DutyResult, StateContext},
     matcher::{self, BlockMatcher},
     Owner, StateMachineError,
 };
@@ -212,7 +212,7 @@ impl<T: Owner> RoundStateMachine<T> {
                 context
                     .capture_error(async |context| {
                         {
-                            let challenged = context
+                            let duty_result = context
                                 .owner
                                 .handle_duty(Duty::CheckIfKickoff {
                                     txid,
@@ -223,9 +223,10 @@ impl<T: Owner> RoundStateMachine<T> {
                                         .expect("UTXO should be in block"),
                                     challenged_before: *challenged_before,
                                 })
-                                .await?
-                                .challenged;
-                            *challenged_before |= challenged;
+                                .await?;
+                            if let DutyResult::CheckIfKickoff { challenged } = duty_result {
+                                *challenged_before |= challenged;
+                            }
                             Ok::<(), BridgeError>(())
                         }
                         .wrap_err(self.round_meta("round_tx kickoff_utxo_used"))

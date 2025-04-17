@@ -88,9 +88,12 @@ pub enum Duty {
 }
 
 /// Result of handling a duty
-#[derive(Debug, Clone, Default)]
-pub struct DutyResult {
-    pub challenged: bool,
+#[derive(Debug, Clone)]
+pub enum DutyResult {
+    /// Duty was handled, no return value is necessary
+    Handled,
+    /// Result of checking if a kickoff contains if a challenge was sent because the kickoff was determined as malicious
+    CheckIfKickoff { challenged: bool },
 }
 
 /// Owner trait with async handling and tx handler creation

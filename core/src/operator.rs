@@ -1020,9 +1020,9 @@ where
                 used_kickoffs,
             } => {
                 tracing::info!("Operator {} called new ready to reimburse with round_idx: {}, operator_idx: {}, used_kickoffs: {:?}", self.idx, round_idx, operator_idx, used_kickoffs);
-                Ok(DutyResult::default())
+                Ok(DutyResult::Handled)
             }
-            Duty::WatchtowerChallenge { .. } => Ok(DutyResult::default()),
+            Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
             Duty::SendOperatorAsserts {
                 kickoff_id,
                 deposit_data,
@@ -1037,9 +1037,9 @@ where
                     payout_blockhash,
                 )
                 .await?;
-                Ok(DutyResult::default())
+                Ok(DutyResult::Handled)
             }
-            Duty::VerifierDisprove { .. } => Ok(DutyResult::default()),
+            Duty::VerifierDisprove { .. } => Ok(DutyResult::Handled),
             Duty::CheckIfKickoff {
                 txid,
                 block_height,
@@ -1070,7 +1070,7 @@ where
                     .await?;
                     dbtx.commit().await?;
                 }
-                Ok(DutyResult::default())
+                Ok(DutyResult::Handled)
             }
         }
     }

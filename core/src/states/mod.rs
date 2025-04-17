@@ -445,8 +445,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             "Block cache is not updated"
         );
 
-        let saved_kickoff_machines = self.kickoff_machines.clone();
-        let saved_round_machines = self.round_machines.clone();
+        let kickoff_machines_checkpoint = self.kickoff_machines.clone();
+        let round_machines_checkpoint = self.round_machines.clone();
 
         // Process all machines, for those unaffected collect them them, otherwise return
         // a future that processes the new events.
@@ -482,9 +482,9 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     self.context.owner_type,
                     all_errors
                 );
-                // revert state machines to the saved state
-                self.kickoff_machines = saved_kickoff_machines;
-                self.round_machines = saved_round_machines;
+                // revert state machines to the saved state as the content of the machines might be changed before the error occurred
+                self.kickoff_machines = kickoff_machines_checkpoint;
+                self.round_machines = round_machines_checkpoint;
                 // Return first error or create a combined error
                 return Err(BridgeError::Error(format!(
                     "Multiple errors occurred during state processing: {:?}",
@@ -517,7 +517,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 changed_kickoff_machines.extend(std::mem::take(&mut ctx.new_kickoff_machines));
             }
 
-            if iterations > 3000 {
+            // If the machines do not stabilize after a while, we return an error
+            // TODO: https://github.com/chainwayxyz/clementine/issues/675
+            // I think something like max(2 * num_kickoffs_per_round, number of utxos in a kickoff * 2) is a safe value
+            if iterations > 100000 {
                 return Err(eyre::eyre!(
                     r#"{}/{} kickoff and {}/{} round state machines did not stabilize after 100000 iterations, debug repr of changed machines:
                         ---- Kickoff machines ----

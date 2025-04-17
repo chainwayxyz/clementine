@@ -99,7 +99,7 @@ impl Owner for TestOwner {
 
     async fn handle_duty(&self, _duty: Duty) -> Result<DutyResult, BridgeError> {
         // For testing purposes, just return OK
-        Ok(DutyResult::default())
+        Ok(DutyResult::Handled)
     }
 
     async fn create_txhandlers(

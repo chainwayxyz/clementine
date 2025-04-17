@@ -597,7 +597,7 @@ impl Owner for MockOwner {
 
     async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         self.cached_duties.lock().await.push(duty);
-        Ok(DutyResult::default())
+        Ok(DutyResult::Handled)
     }
 
     async fn create_txhandlers(

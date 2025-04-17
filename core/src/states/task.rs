@@ -244,7 +244,7 @@ mod tests {
         const OWNER_TYPE: &'static str = "MockHandler";
 
         async fn handle_duty(&self, _: Duty) -> Result<DutyResult, BridgeError> {
-            Ok(DutyResult::default())
+            Ok(DutyResult::Handled)
         }
 
         async fn create_txhandlers(
