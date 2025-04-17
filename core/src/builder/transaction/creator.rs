@@ -12,9 +12,8 @@ use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
-use crate::rpc::clementine::KickoffId;
+use eyre::Context;
 use eyre::OptionExt;
-use eyre::{eyre, Context};
 use std::collections::BTreeMap;
 
 use super::{remove_txhandler_from_map, DepositData, KickoffData, RoundTxInput};
@@ -144,8 +143,8 @@ impl ReimburseDbCache {
                         .await
                         .wrap_err("Failed to get operator data from database")?
                         .ok_or_eyre(format!(
-                            "Operator not found for index {}",
-                            self.operator_idx
+                            "Operator not found for xonly_pk {}",
+                            self.operator_xonly_pk
                         ))?,
                 );
                 Ok(self.operator_data.as_ref().expect("Inserted before"))

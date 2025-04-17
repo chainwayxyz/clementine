@@ -415,15 +415,9 @@ where
             .db
             .get_deposit_data_with_kickoff_txid(None, txid)
             .await?;
-        if let Some((mut deposit_data, kickoff_id)) = kickoff_data {
+        if let Some((deposit_data, kickoff_id)) = kickoff_data {
             self.verifier
-                .handle_kickoff(
-                    &mut dbtx,
-                    Witness::new(),
-                    &mut deposit_data,
-                    kickoff_id,
-                    false,
-                )
+                .handle_kickoff(&mut dbtx, Witness::new(), deposit_data, kickoff_id, false)
                 .await?;
         } else {
             return Err(Status::not_found("Kickoff txid not found"));

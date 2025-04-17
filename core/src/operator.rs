@@ -19,7 +19,6 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::rpc::clementine::KickoffId;
 use crate::states::context::DutyResult;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
@@ -343,7 +342,7 @@ where
         self.db
             .set_operator_kickoff_winternitz_public_keys(
                 Some(&mut dbtx),
-                self.idx as u32,
+                self.signer.xonly_public_key,
                 self.generate_kickoff_winternitz_pubkeys()?,
             )
             .await?;

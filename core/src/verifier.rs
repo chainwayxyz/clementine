@@ -20,8 +20,8 @@ use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{self, AggregateFromPublicKeys};
-use crate::rpc::clementine::{KickoffId, NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::musig2::{self};
+use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::context::DutyResult;
 use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
@@ -914,7 +914,7 @@ where
         mut deposit_data: DepositData,
         kickoff_data: KickoffData,
         challenged_before: bool,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<bool, BridgeError> {
         let is_malicious = self
             .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data)
             .await?;
@@ -924,7 +924,7 @@ where
 
         tracing::warn!(
             "Malicious kickoff {:?} for deposit {:?}",
-            kickoff_id,
+            kickoff_data,
             deposit_data
         );
 
@@ -955,7 +955,7 @@ where
                 // do not send challenge tx operator was already challenged in the same round
                 tracing::warn!(
                     "Operator {:?} was already challenged in the same round, skipping challenge tx",
-                    kickoff_id.operator_idx
+                    kickoff_data.operator_xonly_pk
                 );
                 continue;
             }
@@ -1169,7 +1169,7 @@ where
 {
     const OWNER_TYPE: &'static str = "verifier";
 
-    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         let verifier_xonly_pk = &self.signer.xonly_public_key;
         match duty {
             Duty::NewReadyToReimburse {
@@ -1228,7 +1228,7 @@ where
                     .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
                 let mut challenged = false;
-                if let Some((mut deposit_data, kickoff_data)) = db_kickoff_data {
+                if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
                     tracing::debug!(
                         "New kickoff found {:?}, for deposit: {:?}",
                         kickoff_data,
