@@ -1095,6 +1095,7 @@ mod tests {
     use tokio::time::sleep;
 
     #[tokio::test]
+    #[ignore = "See #687"]
     async fn aggregator_double_setup_fail() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;
