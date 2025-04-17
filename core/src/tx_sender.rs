@@ -111,7 +111,7 @@ impl Task for TxSenderTask {
                 .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.btc_syncer_consumer_id)
                 .await?;
             if event.is_some() {
-                tracing::debug!("TXSENDER: Event: {:?}", event);
+                tracing::info!("TXSENDER: Event: {:?}", event);
             }
             Ok::<bool, BridgeError>(match event {
                 Some(event) => match event {
@@ -124,12 +124,12 @@ impl Task for TxSenderTask {
                             .ok_or(BridgeError::Error("Block not found".to_string()))?
                             .1;
 
-                        tracing::trace!("TXSENDER: Confirmed transactions for block {}", block_id);
+                        tracing::info!("TXSENDER: Confirmed transactions for block {}", block_id);
                         dbtx.commit().await?;
                         true
                     }
                     BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                        tracing::trace!(
+                        tracing::info!(
                             "TXSENDER: Unconfirming transactions for block {}",
                             block_id
                         );
@@ -148,9 +148,11 @@ impl Task for TxSenderTask {
             return Ok(true);
         }
 
-        tracing::trace!("TXSENDER: Getting fee rate");
-        let fee_rate = self.inner.get_fee_rate().await?;
-        tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
+        tracing::info!("TXSENDER: Getting fee rate");
+        let fee_rate = self.inner.get_fee_rate().await;
+        tracing::info!("TXSENDER: Fee rate: {:?}", fee_rate);
+        let fee_rate = fee_rate.expect("Failed to get fee rate");
+        tracing::info!("TXSENDER: Trying to send unconfirmed txs");
 
         self.inner
             .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)
@@ -200,6 +202,11 @@ impl TxSender {
         total_fee_payer_amount: Amount,
         fee_payer_utxos_len: usize,
     ) -> Result<()> {
+        tracing::info!(
+            "Creating fee payer UTXO for txid {} with bump id {}",
+            &tx.compute_txid().to_string(),
+            bumped_id
+        );
         let required_fee = Self::calculate_required_fee(
             tx.weight(),
             fee_payer_utxos_len + 1,
@@ -247,23 +254,29 @@ impl TxSender {
     ///
     /// TODO: Use more sophisticated fee estimation, like the one in mempool.space
     async fn get_fee_rate(&self) -> Result<FeeRate> {
+        tracing::info!("Getting fee rate");
         let fee_rate = self
             .rpc
             .client
             .estimate_smart_fee(1, Some(EstimateMode::Conservative))
-            .await
-            .wrap_err("Failed to estimate smart fee")?;
+            .await;
 
-        match fee_rate.fee_rate {
-            Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
-            None => {
-                if self.network == bitcoin::Network::Regtest {
-                    // TODO: Looks like this check never occurs.
-                    tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
-                    return Ok(FeeRate::from_sat_per_vb_unchecked(1));
+        match fee_rate {
+            Ok(fee_rate) => match fee_rate.fee_rate {
+                Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
+                None => {
+                    if self.network == bitcoin::Network::Regtest {
+                        tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
+                        return Ok(FeeRate::from_sat_per_vb_unchecked(1));
+                    }
+
+                    tracing::error!("TXSENDER: Fee estimation error: {:?}", fee_rate.errors);
+                    Ok(FeeRate::from_sat_per_vb_unchecked(1))
                 }
-
-                Err(eyre::eyre!("Fee estimation error: {:?}", fee_rate.errors).into())
+            },
+            Err(e) => {
+                tracing::error!("TXSENDER: Error getting fee rate: {:?}", e);
+                Ok(FeeRate::from_sat_per_vb_unchecked(1))
             }
         }
     }
@@ -275,6 +288,10 @@ impl TxSender {
         fee_rate: FeeRate,
         fee_paying_type: FeePayingType,
     ) -> Result<Amount> {
+        tracing::info!(
+            "Calculating required fee for {} fee payer utxos",
+            num_fee_payer_utxos
+        );
         // Each additional p2tr input adds 230 WU and each additional p2tr
         // output adds 172 WU to the transaction:
         // https://bitcoin.stackexchange.com/a/116959
@@ -308,6 +325,10 @@ impl TxSender {
         fee_rate: FeeRate,
         change_address: Address,
     ) -> Result<Transaction> {
+        tracing::info!(
+            "Creating child tx with {} fee payer utxos",
+            fee_payer_utxos.len()
+        );
         let required_fee = Self::calculate_required_fee(
             parent_tx_size,
             fee_payer_utxos.len(),
@@ -405,6 +426,10 @@ impl TxSender {
         fee_rate: FeeRate,
         fee_payer_utxos: Vec<SpendableTxIn>,
     ) -> Result<Vec<Transaction>> {
+        tracing::info!(
+            "Creating package with {} fee payer utxos",
+            fee_payer_utxos.len()
+        );
         let txid = tx.compute_txid();
 
         let p2a_vout = self
@@ -429,6 +454,7 @@ impl TxSender {
 
     /// Sends the tx with the given fee_rate.
     async fn send_tx(&self, id: u32, fee_rate: FeeRate) -> Result<()> {
+        tracing::info!("Sending tx {} with fee rate {}", id, fee_rate);
         let unconfirmed_fee_payer_utxos = self
             .db
             .get_bumpable_fee_payer_txs(None, id)
@@ -680,6 +706,12 @@ impl TxSender {
             .map_to_eyre()?;
 
         for (id, fee_payer_txid, vout, amount) in bumpable_fee_payer_txs {
+            tracing::info!(
+                "Bumping fee for fee payer tx {} with bumped tx {} for fee rate {}",
+                fee_payer_txid,
+                bumped_id,
+                fee_rate
+            );
             let new_txi_result = self
                 .rpc
                 .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
@@ -729,6 +761,7 @@ impl TxSender {
         new_fee_rate: FeeRate,
         current_tip_height: u32,
     ) -> Result<()> {
+        tracing::info!("Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}");
         let txs = self
             .db
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
