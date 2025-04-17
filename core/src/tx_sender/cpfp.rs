@@ -2,8 +2,7 @@ use eyre::eyre;
 use std::env;
 
 use bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut,
-    Weight,
+    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
 };
 use bitcoincore_rpc::PackageSubmissionResult;
 use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
@@ -17,16 +16,15 @@ use crate::{
         self,
         script::SpendPath,
         transaction::{
-            input::SpendableTxIn,
-            output::UnspentTxOut,
-            TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
+            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
+            DEFAULT_SEQUENCE,
         },
     },
     constants::MIN_TAPROOT_AMOUNT,
     rpc::clementine::NormalSignatureKind,
 };
 
-use super::{SendTxError, TxMetadata, TxSender, Result};
+use super::{Result, SendTxError, TxMetadata, TxSender};
 
 impl TxSender {
     /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP.
@@ -368,7 +366,12 @@ impl TxSender {
 
             // Update the sending state
             let _ = self
-                .db.update_tx_debug_sending_state(try_to_send_id,"waiting_for_utxo_confirmation",true)
+                .db
+                .update_tx_debug_sending_state(
+                    try_to_send_id,
+                    "waiting_for_utxo_confirmation",
+                    true,
+                )
                 .await;
 
             return Ok(());
@@ -380,7 +383,8 @@ impl TxSender {
         let confirmed_fee_payer_len = confirmed_fee_payers.len();
 
         let _ = self
-            .db.update_tx_debug_sending_state(try_to_send_id,"creating_package",true)
+            .db
+            .update_tx_debug_sending_state(try_to_send_id, "creating_package", true)
             .await;
 
         // to be used below
@@ -412,7 +416,12 @@ impl TxSender {
                     .await?;
 
                     let _ = self
-                        .db.update_tx_debug_sending_state(try_to_send_id,"waiting_for_fee_payer_utxos",true)
+                        .db
+                        .update_tx_debug_sending_state(
+                            try_to_send_id,
+                            "waiting_for_fee_payer_utxos",
+                            true,
+                        )
                         .await;
 
                     return Ok(());
@@ -441,7 +450,8 @@ impl TxSender {
 
         // Update sending state to submitting_package
         let _ = self
-            .db.update_tx_debug_sending_state(try_to_send_id,"submitting_package",true)
+            .db
+            .update_tx_debug_sending_state(try_to_send_id, "submitting_package", true)
             .await;
 
         tracing::debug!(try_to_send_id, "Submitting package, size {}", package.len());

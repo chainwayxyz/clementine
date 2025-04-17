@@ -5,7 +5,8 @@ members = [
   "circuits-lib",
   "risc0-circuits/bridge-circuit",
   "risc0-circuits/work-only",
-  "bridge-circuit-host"] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
+  "bridge-circuit-host",
+] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]
 hex = "0.4.3"
@@ -78,7 +79,10 @@ risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.g
 
 ark-groth16 = { version = "0.5.0", default-features = false }
 ark-serialize = "0.5.0"
-ark-bn254 = { version = "0.5.0", features = ["curve", "scalar_field"], default-features = false }
+ark-bn254 = { version = "0.5.0", features = [
+  "curve",
+  "scalar_field",
+], default-features = false }
 
 # Bridge Circuit Host
 risc0-circuit-recursion = "1.2.5"
@@ -105,7 +109,7 @@ hex-literal = "0.4.1"
 base64 = "0.22.1"
 
 [patch.crates-io]
-bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "44f9bba" }
+bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "2e8f9f1" }
 secp256k1 = { git = "https://github.com/jlest01/rust-secp256k1", rev = "1cc7410df436b73d06db3c8ff7cbb29a78916b06" }
 
 [profile.release]
