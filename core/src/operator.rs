@@ -142,21 +142,13 @@ where
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
         }
 
-        // TODO: Fix this where the config will only have one address. also check??
-        let reimburse_addr = rpc
-            .client
-            .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
-            .await
-            .wrap_err("Failed to get new address")?
-            .assume_checked();
-
         // check if we store our collateral outpoint already in db
         let mut dbtx = db.begin_transaction().await?;
         let op_data = db
             .get_operator(Some(&mut dbtx), signer.xonly_public_key)
             .await?;
-        let collateral_funding_outpoint = match op_data {
-            Some(op_data) => op_data.collateral_funding_outpoint,
+        let (collateral_funding_outpoint, reimburse_addr) = match op_data {
+            Some(op_data) => (op_data.collateral_funding_outpoint, op_data.reimburse_addr),
             None => {
                 let outpoint = rpc
                     .send_to_address(
@@ -164,6 +156,13 @@ where
                         config.protocol_paramset().collateral_funding_amount,
                     )
                     .await?;
+
+                let reimburse_addr = rpc
+                    .client
+                    .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
+                    .await
+                    .wrap_err("Failed to get new address")?
+                    .assume_checked();
                 db.set_operator(
                     Some(&mut dbtx),
                     signer.xonly_public_key,
@@ -171,7 +170,7 @@ where
                     outpoint,
                 )
                 .await?;
-                outpoint
+                (outpoint, reimburse_addr)
             }
         };
         dbtx.commit().await?;
