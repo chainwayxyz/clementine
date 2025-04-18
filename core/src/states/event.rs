@@ -89,6 +89,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 block,
                 height,
             } => {
+                if height <= self.last_processed_block_height {
+                    tracing::info!("Skipping block {:?} because it is less than or equal to the last processed block height {:?}", height, self.last_processed_block_height);
+                    return Ok(());
+                }
                 self.update_block_cache(&block, height);
 
                 self.owner
