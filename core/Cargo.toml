@@ -50,6 +50,7 @@ pgmq = { workspace = true }
 serde_with = { workspace = true }
 sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

@@ -1,4 +1,4 @@
-use super::input::{SpendableTxIn, SpentTxIn};
+use super::input::{SpendableTxIn, SpentTxIn, UtxoVout};
 use super::output::UnspentTxOut;
 use crate::builder::script::SpendPath;
 use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
@@ -48,15 +48,16 @@ pub type SighashCalculator<'a> =
     Box<dyn FnOnce(TapSighashType) -> Result<TapSighash, BridgeError> + 'a>;
 
 impl<T: State> TxHandler<T> {
-    pub fn get_spendable_output(&self, idx: usize) -> Result<SpendableTxIn, BridgeError> {
+    pub fn get_spendable_output(&self, vout: UtxoVout) -> Result<SpendableTxIn, BridgeError> {
+        let idx = vout.get_vout();
         let txout = self
             .txouts
-            .get(idx)
+            .get(idx as usize)
             .ok_or_else(|| eyre::eyre!("Could not find output {idx} in transaction"))?;
         Ok(SpendableTxIn::new(
             OutPoint {
                 txid: self.cached_txid,
-                vout: idx as u32,
+                vout: idx,
             },
             txout.txout().clone(),
             txout.scripts().clone(),

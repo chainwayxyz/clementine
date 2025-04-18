@@ -10,7 +10,7 @@
 //! The `round_tx` is used to create a collateral for the withdrawal, kickoff utxos for the current
 //! round and the reimburse connectors for the previous round.
 
-use super::input::get_assert_utxo_vout;
+use super::input::UtxoVout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use crate::builder;
 use crate::builder::address::create_taproot_address;
@@ -146,19 +146,19 @@ pub fn create_assert_timeout_txhandlers(
                 .with_version(Version::non_standard(3))
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout1, idx as i32),
-                    kickoff_txhandler.get_spendable_output(get_assert_utxo_vout(idx))?,
+                    kickoff_txhandler.get_spendable_output(UtxoVout::Assert(idx))?,
                     SpendPath::ScriptSpend(0),
                     Sequence::from_height(paramset.assert_timeout_timelock),
                 )
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout2, idx as i32),
-                    kickoff_txhandler.get_spendable_output(1)?,
+                    kickoff_txhandler.get_spendable_output(UtxoVout::KickoffFinalizer)?,
                     SpendPath::ScriptSpend(0),
                     DEFAULT_SEQUENCE,
                 )
                 .add_input(
                     (NumberedSignatureKind::AssertTimeout3, idx as i32),
-                    round_txhandler.get_spendable_output(0)?,
+                    round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
                     SpendPath::KeySpend,
                     DEFAULT_SEQUENCE,
                 )
@@ -193,7 +193,9 @@ pub fn create_round_nth_txhandler(
     for idx in 1..=index {
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
-            RoundTxInput::Prevout(ready_to_reimburse_txhandler.get_spendable_output(0)?),
+            RoundTxInput::Prevout(
+                ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
+            ),
             pubkeys.get_keys_for_round(idx),
             paramset,
         )?;
@@ -208,7 +210,7 @@ pub fn create_ready_to_reimburse_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
-    let prevout = round_txhandler.get_spendable_output(0)?;
+    let prevout = round_txhandler.get_spendable_output(UtxoVout::BurnConnector)?;
     let prev_value = prevout.get_prevout().value;
 
     Ok(TxHandlerBuilder::new(TransactionType::ReadyToReimburse)
@@ -243,13 +245,13 @@ pub fn create_unspent_kickoff_txhandlers(
                 .with_version(Version::non_standard(3))
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff1, idx as i32),
-                    ready_to_reimburse_txhandler.get_spendable_output(0)?,
+                    ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
                     SpendPath::KeySpend,
                     DEFAULT_SEQUENCE,
                 )
                 .add_input(
                     (NumberedSignatureKind::UnspentKickoff2, idx as i32),
-                    round_txhandler.get_spendable_output(1 + idx)?,
+                    round_txhandler.get_spendable_output(UtxoVout::Kickoff(idx))?,
                     SpendPath::ScriptSpend(1),
                     Sequence::from_height(1),
                 )
@@ -271,10 +273,10 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
     let mut tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
             .with_version(Version::non_standard(3));
-    for idx in unused_kickoff_connectors_indices {
+    for &idx in unused_kickoff_connectors_indices {
         tx_handler_builder = tx_handler_builder.add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            round_txhandler.get_spendable_output(1 + idx)?,
+            round_txhandler.get_spendable_output(UtxoVout::Kickoff(idx))?,
             SpendPath::ScriptSpend(1),
             Sequence::from_height(1),
         );
