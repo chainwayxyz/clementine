@@ -185,7 +185,7 @@ pub async fn set_initial_block_info_if_not_exists(
     let mut height = paramset.start_height;
     let mut dbtx = db.begin_transaction().await?;
     // first collect previous needed blocks according to paramset start height
-    while height < current_height {
+    while height <= current_height {
         let block_info = fetch_block_info_from_height(rpc, height).await?;
         let block = rpc
             .client
@@ -197,16 +197,6 @@ pub async fn set_initial_block_info_if_not_exists(
             .await?;
         height += 1;
     }
-    let block_info = fetch_block_info_from_height(rpc, current_height).await?;
-    let block = rpc
-        .client
-        .get_block(&block_info.hash)
-        .await
-        .wrap_err("Failed to get block")?;
-
-    let block_id = save_block(db, &mut dbtx, &block, current_height).await?;
-    db.add_event(Some(&mut dbtx), BitcoinSyncerEvent::NewBlock(block_id))
-        .await?;
 
     dbtx.commit().await?;
 
