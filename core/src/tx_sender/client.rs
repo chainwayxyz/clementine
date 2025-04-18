@@ -167,11 +167,6 @@ impl TxSenderClient {
                 .map_to_eyre()?;
         }
 
-        let _ = self
-            .db
-            .update_tx_debug_sending_state(try_to_send_id, "inserted", false)
-            .await;
-
         Ok(try_to_send_id)
     }
 

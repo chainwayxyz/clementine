@@ -789,6 +789,7 @@ async fn mock_citrea_run_malicious() {
 
     // check that challenge utxo was not spent on timeout -> meaning challenge was sent
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
+    println!("Challenge spent tx: {:?}", tx);
     // tx should have challenge amount output
     assert!(tx.output[0].value == config.protocol_paramset().operator_challenge_amount);
 

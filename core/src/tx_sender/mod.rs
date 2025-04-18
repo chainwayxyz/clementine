@@ -62,8 +62,9 @@ pub struct TxSender {
 /// Specifically the merkle root of the taproot to keyspend with and the output index of the utxo to be
 /// re-signed.
 ///
-/// Not needed for SinglePlusAnyoneCanPay RBF txs.
-/// Not needed for CPFP.
+/// - Not needed for SinglePlusAnyoneCanPay RBF txs.
+/// - Not needed for CPFP.
+/// - Only signs for a keypath spend
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RbfSigningInfo {
     pub vout: u32,
@@ -332,9 +333,8 @@ impl TxSender {
                     }
                 };
 
-            // Check if the transaction is already confirmed
+            // Check if the transaction is already confirmed (only happens if it was confirmed after this loop started)
             if let Some(block_id) = seen_block_id {
-                // Update debug state to confirm
                 tracing::debug!(
                     try_to_send_id = id,
                     "Transaction confirmed in block {}",
@@ -346,9 +346,6 @@ impl TxSender {
                     .db
                     .update_tx_debug_sending_state(id, "confirmed", true)
                     .await;
-
-                // We could purge debug info here if needed
-                // self.db.purge_tx_debug_info(None, id).await.ok();
 
                 continue;
             }
@@ -362,7 +359,7 @@ impl TxSender {
             };
 
             if let Err(e) = result {
-                tracing::error!(try_to_send_id = id, "Failed to send tx: {:?}", e);
+                log_error_for_tx!(self.db, id, format!("Failed to send tx: {:?}", e));
             }
         }
 

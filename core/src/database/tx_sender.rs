@@ -646,6 +646,9 @@ impl Database {
     }
 
     /// Updates or inserts the TX's sending state in the debug table
+    ///
+    /// Does not support a Transaction because it's for debugging purposes. Make
+    /// sure that tx_id exists (i.e. creation is committed) before use
     pub async fn update_tx_debug_sending_state(
         &self,
         tx_id: u32,
@@ -656,20 +659,18 @@ impl Database {
             r#"
             INSERT INTO tx_sender_debug_sending_state
             (tx_id, state, last_update, activated_timestamp)
-            VALUES ($1, $2, $3, $4, NOW(),
+            VALUES ($1, $2, NOW(),
                 CASE
-                    WHEN $5 = TRUE THEN NOW()
+                    WHEN $3 = TRUE THEN NOW()
                     ELSE NULL
                 END
             )
             ON CONFLICT (tx_id) DO UPDATE SET
             state = $2,
-            fee_payer_utxos_count = $3,
-            fee_payer_utxos_confirmed_count = $4,
             last_update = NOW(),
             activated_timestamp = COALESCE(tx_sender_debug_sending_state.activated_timestamp,
                 CASE
-                    WHEN $5 = TRUE THEN NOW()
+                    WHEN $3 = TRUE THEN NOW()
                     ELSE NULL
                 END
             )
@@ -1049,6 +1050,94 @@ mod tests {
             .unwrap();
         assert_eq!(sendable_txs.len(), 1);
         assert!(sendable_txs.contains(&id2));
+
+        dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_debug_sending_state() {
+        let db = setup_test_db().await;
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        // Create a test transaction
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
+            input: vec![],
+            output: vec![],
+        };
+
+        // Insert the transaction into the database
+        let tx_id = db
+            .save_tx(
+                None, // needed so that tx_id is available
+                None,
+                &tx,
+                FeePayingType::RBF,
+                tx.compute_txid(),
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Test updating the sending state
+        let initial_state = "waiting_for_fee_payer_utxos";
+        db.update_tx_debug_sending_state(tx_id, initial_state, false)
+            .await
+            .unwrap();
+
+        // Verify the state was saved correctly
+        let state = db.get_tx_debug_info(Some(&mut dbtx), tx_id).await.unwrap();
+        assert_eq!(state, Some(initial_state.to_string()));
+
+        // Update the state with activation
+        let active_state = "ready_to_send";
+        db.update_tx_debug_sending_state(tx_id, active_state, true)
+            .await
+            .unwrap();
+
+        // Verify the state was updated
+        let state = db.get_tx_debug_info(Some(&mut dbtx), tx_id).await.unwrap();
+        assert_eq!(state, Some(active_state.to_string()));
+
+        // Test saving an error message
+        let error_message = "Failed to send transaction: insufficient fee";
+        db.save_tx_debug_submission_error(tx_id, error_message)
+            .await
+            .unwrap();
+
+        // Verify the error was saved
+        let errors = db
+            .get_tx_debug_submission_errors(Some(&mut dbtx), tx_id)
+            .await
+            .unwrap();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].0, error_message);
+
+        // Add another error
+        let second_error = "Network connection timeout";
+        db.save_tx_debug_submission_error(tx_id, second_error)
+            .await
+            .unwrap();
+
+        // Verify both errors are retrieved in order
+        let errors = db
+            .get_tx_debug_submission_errors(Some(&mut dbtx), tx_id)
+            .await
+            .unwrap();
+        assert_eq!(errors.len(), 2);
+        assert_eq!(errors[0].0, error_message);
+        assert_eq!(errors[1].0, second_error);
+
+        // Update state again
+        let final_state = "sent";
+        db.update_tx_debug_sending_state(tx_id, final_state, true)
+            .await
+            .unwrap();
+
+        // Verify final state
+        let state = db.get_tx_debug_info(Some(&mut dbtx), tx_id).await.unwrap();
+        assert_eq!(state, Some(final_state.to_string()));
 
         dbtx.commit().await.unwrap();
     }
