@@ -179,14 +179,6 @@ impl CitreaClientT for MockCitreaClient {
         Ok((block_height - 1, block_height))
     }
 
-    async fn get_last_l2_height(
-        &self,
-        block_height: u64,
-        _timeout: Duration,
-    ) -> Result<u64, BridgeError> {
-        Ok(block_height)
-    }
-
     async fn get_replacement_deposit_move_txids(
         &self,
         from_height: u64,

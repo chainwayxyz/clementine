@@ -140,12 +140,6 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         timeout: Duration,
     ) -> Result<(u64, u64), BridgeError>;
 
-    async fn get_last_l2_height(
-        &self,
-        block_height: u64,
-        timeout: Duration,
-    ) -> Result<u64, BridgeError>;
-
     /// Returns the replacement deposit move txids for the given range of blocks.
     ///
     /// # Parameters
@@ -399,34 +393,6 @@ impl CitreaClientT for CitreaClient {
         let l2_height_start: u64 = proof_previous.0;
 
         Ok((l2_height_start, l2_height_end))
-    }
-
-    async fn get_last_l2_height(
-        &self,
-        block_height: u64,
-        timeout: Duration,
-    ) -> Result<u64, BridgeError> {
-        let start = std::time::Instant::now();
-        let proof_current = loop {
-            if let Some(proof) = self.get_light_client_proof(block_height).await? {
-                break proof;
-            }
-
-            if start.elapsed() > timeout {
-                return Err(eyre::eyre!(
-                    "Light client proof not found for block height {} after {} seconds",
-                    block_height,
-                    timeout.as_secs()
-                )
-                .into());
-            }
-
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        };
-
-        let l2_height_end: u64 = proof_current.0;
-
-        Ok(l2_height_end)
     }
 
     async fn get_replacement_deposit_move_txids(
