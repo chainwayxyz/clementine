@@ -98,7 +98,7 @@ pub struct StateManager<T: Owner> {
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     context: context::StateContext<T>,
     paramset: &'static ProtocolParamset,
-    last_processed_block_height: u32,
+    next_block_height: u32,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
@@ -130,7 +130,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             queue,
-            last_processed_block_height: paramset.start_height,
+            next_block_height: paramset.start_height,
         };
 
         mgr.load_from_db().await?;
@@ -355,8 +355,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(())
     }
 
-    pub fn get_last_processed_block_height(&self) -> u32 {
-        self.last_processed_block_height
+    pub fn get_next_block_height(&self) -> u32 {
+        self.next_block_height
     }
 
     /// Updates the machines using the context and returns machines without
@@ -415,7 +415,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.round_machines = new_round_machines;
         self.kickoff_machines = new_kickoff_machines;
 
-        for block_height in start_height..self.last_processed_block_height + 1 {
+        for block_height in start_height..self.next_block_height {
             let block = self.db.get_full_block(None, block_height).await?;
             if let Some(block) = block {
                 self.update_block_cache(&block, block_height);
@@ -549,7 +549,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Set back the original machines
         self.round_machines = final_round_machines;
         self.kickoff_machines = final_kickoff_machines;
-        self.last_processed_block_height = max(block_height, self.last_processed_block_height);
+        self.next_block_height = max(block_height + 1, self.next_block_height);
 
         Ok(())
     }

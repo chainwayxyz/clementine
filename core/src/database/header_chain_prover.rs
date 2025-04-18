@@ -136,10 +136,13 @@ impl Database {
     pub async fn get_next_n_non_proven_block(
         &self,
         count: u32,
-    ) -> Result<Option<(Vec<(BlockHash, Header, u64)>, Receipt)>, BridgeError> {
-        let Some(next_non_proven_block) = self.get_next_unproven_block(None).await? else {
-            return Ok(None);
-        };
+    ) -> Result<Option<(Vec<(BlockHash, Header, u64)>, Option<Receipt>)>, BridgeError> {
+        let (next_height, prev_proof) =
+            if let Some(next_non_proven_block) = self.get_next_unproven_block(None).await? {
+                (next_non_proven_block.2, Some(next_non_proven_block.3))
+            } else {
+                (0, None)
+            };
 
         let query = sqlx::query_as(
             "SELECT block_hash,
@@ -150,7 +153,7 @@ impl Database {
                 ORDER BY height ASC
                 LIMIT $2;",
         )
-        .bind(next_non_proven_block.2 as i64)
+        .bind(next_height as i64)
         .bind(count as i64);
         let result: Vec<(BlockHashDB, BlockHeaderDB, i64)> = execute_query_with_tx!(
             self.connection,
@@ -178,7 +181,7 @@ impl Database {
             return Ok(None);
         }
 
-        Ok(Some((blocks, next_non_proven_block.3)))
+        Ok(Some((blocks, prev_proof)))
     }
 
     /// Gets the latest block's info that it's proven.

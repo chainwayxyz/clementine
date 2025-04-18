@@ -146,7 +146,7 @@ pub async fn ensure_tx_onchain(rpc: &ExtendedRpc, tx: Txid) -> Result<(), eyre::
             let _ = mine_once_after_in_mempool(rpc, tx, Some("ensure_tx_onchain"), Some(1)).await;
             Ok(false)
         },
-        None,
+        Some(Duration::from_secs(5000)),
         None,
     )
     .await
@@ -163,7 +163,7 @@ pub async fn ensure_outpoint_spent(
             rpc.mine_blocks(1).await?;
             rpc.is_utxo_spent(&outpoint).await.map_err(Into::into)
         },
-        Some(Duration::from_secs(500)),
+        Some(Duration::from_secs(5000)),
         None,
     )
     .await

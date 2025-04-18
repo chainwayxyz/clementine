@@ -138,7 +138,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             }
         }
         // Save the state machines to the database with the current block height
-        self.save_state_to_db(self.last_processed_block_height, Some(dbtx))
+        self.save_state_to_db(self.next_block_height, Some(dbtx))
             .await?;
         Ok(())
     }

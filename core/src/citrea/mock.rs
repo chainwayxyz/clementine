@@ -174,7 +174,7 @@ impl CitreaClientT for MockCitreaClient {
         block_height: u64,
         _timeout: Duration,
     ) -> Result<(u64, u64), BridgeError> {
-        Ok((block_height - 1, block_height))
+        Ok((if block_height == 0 { 0 } else { block_height - 1 }, block_height))
     }
 
     async fn check_nofn_correctness(

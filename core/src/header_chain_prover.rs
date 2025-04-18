@@ -29,10 +29,19 @@ use std::{
 use thiserror::Error;
 
 // Prepare prover binaries and calculate their image ids, before anything else.
-const MAINNET_ELF: &[u8; 199812] = include_bytes!("../../scripts/mainnet-header-chain-guest");
-const TESTNET4_ELF: &[u8; 200180] = include_bytes!("../../scripts/testnet4-header-chain-guest");
-const SIGNET_ELF: &[u8; 199828] = include_bytes!("../../scripts/signet-header-chain-guest");
-const REGTEST_ELF: &[u8; 194128] = include_bytes!("../../scripts/regtest-header-chain-guest");
+const MAINNET_ELF: &[u8] = include_bytes!("../../scripts/mainnet-header-chain-guest.bin");
+const TESTNET4_ELF: &[u8] = include_bytes!("../../scripts/testnet4-header-chain-guest.bin");
+const SIGNET_ELF: &[u8] = include_bytes!("../../scripts/signet-header-chain-guest.bin");
+const REGTEST_ELF: &[u8] = include_bytes!("../../scripts/regtest-header-chain-guest.bin");
+const MAINNET_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/mainnet-work-only-guest.bin");
+const TESTNET4_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
+const SIGNET_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/signet-work-only-guest.bin");
+const REGTEST_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/regtest-work-only-guest.bin");
+
 lazy_static! {
     static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
         .expect("hardcoded ELF is valid")
@@ -50,6 +59,26 @@ lazy_static! {
         .try_into()
         .expect("hardcoded ELF is valid");
     static ref REGTEST_IMAGE_ID: [u32; 8] = compute_image_id(REGTEST_ELF)
+        .expect("hardcoded ELF is valid")
+        .as_words()
+        .try_into()
+        .expect("hardcoded ELF is valid");
+    static ref MAINNET_WORK_ONLY_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_WORK_ONLY_ELF)
+        .expect("hardcoded ELF is valid")
+        .as_words()
+        .try_into()
+        .expect("hardcoded ELF is valid");
+    static ref TESTNET4_WORK_ONLY_IMAGE_ID: [u32; 8] = compute_image_id(TESTNET4_WORK_ONLY_ELF)
+        .expect("hardcoded ELF is valid")
+        .as_words()
+        .try_into()
+        .expect("hardcoded ELF is valid");
+    static ref SIGNET_WORK_ONLY_IMAGE_ID: [u32; 8] = compute_image_id(SIGNET_WORK_ONLY_ELF)
+        .expect("hardcoded ELF is valid")
+        .as_words()
+        .try_into()
+        .expect("hardcoded ELF is valid");
+    static ref REGTEST_WORK_ONLY_IMAGE_ID: [u32; 8] = compute_image_id(REGTEST_WORK_ONLY_ELF)
         .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
@@ -164,7 +193,7 @@ impl HeaderChainProver {
         &self,
         current_block_hash: BlockHash,
         block_headers: Vec<Header>,
-        previous_proof: Receipt,
+        previous_proof: Option<Receipt>,
     ) -> Result<Receipt, BridgeError> {
         tracing::debug!(
             "Prover starts proving {} blocks ending with block with hash {}",
@@ -173,7 +202,8 @@ impl HeaderChainProver {
         );
 
         let headers: Vec<CircuitBlockHeader> = block_headers.into_iter().map(Into::into).collect();
-        let receipt = self.prove_block_headers(Some(previous_proof), headers)?;
+        let receipt = self.prove_block_headers(previous_proof, headers)?;
+        tracing::warn!("Prover received receipt: {:?}", receipt);
 
         self.db
             .set_block_proof(None, current_block_hash, receipt.clone())
@@ -242,19 +272,20 @@ impl HeaderChainProver {
         let prover = risc0_zkvm::default_prover();
 
         let elf = match self.network {
-            Network::Bitcoin => MAINNET_ELF.as_ref(),
-            Network::Testnet => TESTNET4_ELF.as_ref(),
-            Network::Testnet4 => TESTNET4_ELF.as_ref(),
-            Network::Signet => SIGNET_ELF.as_ref(),
-            Network::Regtest => REGTEST_ELF.as_ref(),
+            Network::Bitcoin => MAINNET_ELF,
+            Network::Testnet => TESTNET4_ELF,
+            Network::Testnet4 => TESTNET4_ELF,
+            Network::Signet => SIGNET_ELF,
+            Network::Regtest => REGTEST_ELF,
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
+        tracing::warn!("Before prover.prove");
         let receipt = prover.prove(env, elf).map_err(|e| eyre::eyre!(e))?.receipt;
-        tracing::debug!(
+        tracing::warn!(
             "Proof receipt for header chain circuit input {:?}: {:?}",
             input,
-            receipt
+            receipt,
         );
 
         Ok(receipt)
@@ -281,11 +312,12 @@ impl HeaderChainProver {
 
         // If tip is proven, return the proof.
         if latest_proven_block.2 == tip_height {
-            self.db
+            return Ok(self
+                .db
                 .get_block_proof_by_hash(None, latest_proven_block.0)
                 .await
                 .wrap_err("Failed to get block proof")?
-                .ok_or(HeaderChainProverError::BatchNotReady)?;
+                .ok_or(HeaderChainProverError::BatchNotReady)?);
         }
 
         // If in limits of the batch size but not in a target block, prove block
@@ -301,8 +333,7 @@ impl HeaderChainProver {
         let previous_proof = self
             .db
             .get_block_proof_by_hash(None, latest_proven_block.0)
-            .await?
-            .ok_or(eyre::eyre!("No proven block found"))?;
+            .await?;
         let receipt = self
             .prove_and_save_block(latest_proven_block.0, block_headers, previous_proof)
             .await?;
@@ -343,30 +374,33 @@ impl HeaderChainProver {
     /// Checks if there are enough blocks to prove.
     #[tracing::instrument(skip_all)]
     async fn is_batch_ready(&self) -> Result<bool, BridgeError> {
-        let non_proven_block = if let Some(block) = self.db.get_next_unproven_block(None).await? {
-            block
-        } else {
-            return Ok(false);
-        };
+        let non_proven_block_height =
+            if let Some(block) = self.db.get_next_unproven_block(None).await? {
+                block.2
+            } else {
+                0
+            };
         let tip_height = self
             .db
             .get_latest_finalized_block_height(None)
             .await?
-            .ok_or(eyre::eyre!("No tip block found"))?;
-
+            .unwrap_or(0);
+        if tip_height == 0 {
+            return Ok(false);
+        }
         tracing::debug!(
             "Tip height: {}, non proven block height: {}, {}",
             tip_height,
-            non_proven_block.2,
+            non_proven_block_height,
             self.batch_size
         );
-        if tip_height - non_proven_block.2 >= self.batch_size {
+        if 1 + tip_height - non_proven_block_height >= self.batch_size {
             return Ok(true);
         }
         tracing::debug!(
             "Batch not ready: {} - {} < {}",
             tip_height,
-            non_proven_block.2,
+            non_proven_block_height,
             self.batch_size
         );
 
@@ -395,6 +429,8 @@ impl HeaderChainProver {
             }
         };
 
+        tracing::warn!("prev proof in prove_if_ready: {:?}", prev_proof);
+
         let current_block_hash = unproven_blocks.iter().next_back().expect("Exists").0;
         let current_block_height = unproven_blocks.iter().next_back().expect("Exists").2;
         let block_headers = unproven_blocks
@@ -402,10 +438,19 @@ impl HeaderChainProver {
             .map(|(_, header, _)| *header)
             .collect::<Vec<_>>();
 
+        tracing::warn!(
+            "current block height and hash in prove_if_ready: {:?}, {:?}",
+            current_block_height,
+            current_block_hash
+        );
+        tracing::warn!(
+            "block headers len in prove_if_ready: {:?}",
+            block_headers.len()
+        );
         let receipt = self
             .prove_and_save_block(current_block_hash, block_headers, prev_proof)
             .await?;
-        tracing::info!(
+        tracing::warn!(
             "Receipt for block with hash {:?} and height with: {:?}: {:?}",
             current_block_hash,
             current_block_height,
@@ -530,7 +575,7 @@ mod tests {
             .unwrap();
 
         let receipt = prover
-            .prove_and_save_block(hash, vec![header], previous_receipt)
+            .prove_and_save_block(hash, vec![header], Some(previous_receipt))
             .await
             .unwrap();
 

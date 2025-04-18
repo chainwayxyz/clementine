@@ -192,8 +192,8 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
-    finality_depth: 1,
-    start_height: 201,
+    finality_depth: 0,
+    start_height: 0,
     header_chain_proof_batch_size: 100,
 };
 
@@ -244,7 +244,7 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_DAY * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
     time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
-    finality_depth: 1,
+    finality_depth: 0,
     start_height: 201,
     header_chain_proof_batch_size: 100,
 };
