@@ -31,7 +31,7 @@ rand_chacha = "0.3.1"
 
 # Citrea dependencies
 citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d1ba171" }
-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "ccdbd5a96" }
+sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "9192f37e6d148bb4064232ea9f66bc400c526d7d", features = ["native"] }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde"] }
@@ -68,7 +68,7 @@ risc0-zkvm = { version = "1.2" }
 ripemd = "0.1.3"
 once_cell = "1.10.0"
 jmt = "0.11.0"
-derive_more = "1.0.0"
+derive_more = { version = "1.0.0", features = ["display"] }
 blake3 = "1.5.1"
 itertools = "0.14.0"
 header-chain = { git = "https://github.com/chainwayxyz/BitVM", rev = "a3d7230" }
@@ -92,7 +92,7 @@ ark-crypto-primitives = "0.5.0"
 ark-relations = "0.5.0"
 
 alloy-rpc-types = "0.11.1"
-alloy-primitives = "0.8.7"
+alloy-primitives = "0.8.25"
 alloy-rpc-types-eth = "0.11.1"
 alloy-rpc-client = "0.11.1"
 

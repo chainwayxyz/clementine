@@ -1288,13 +1288,20 @@ where
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
+        tracing::info!("Handling finalized block height: {:?}", block_height);
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 
-        let (l2_height_start, l2_height_end) = self
+        let l2_range_result = self
             .citrea_client
             .get_citrea_l2_height_range(block_height.into(), timeout)
-            .await?;
+            .await;
+        if let Err(e) = l2_range_result {
+            tracing::error!("Error getting citrea l2 height range: {:?}", e);
+            return Err(e);
+        }
+        let (l2_height_start, l2_height_end) =
+            l2_range_result.expect("Failed to get citrea l2 height range");
 
         tracing::info!("l2_height_end: {:?}", l2_height_end);
         tracing::info!("l2_height_start: {:?}", l2_height_start);
