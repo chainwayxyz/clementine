@@ -124,7 +124,7 @@ impl CitreaClientT for MockCitreaClient {
         let results: Vec<(u64, Txid)> = storage
             .deposits
             .iter()
-            .filter(|deposit| deposit.height <= to_height && deposit.idx > last_deposit_idx as u64)
+            .filter(|deposit| deposit.height <= to_height && deposit.idx == last_deposit_idx as u64)
             .map(|deposit| (deposit.idx, deposit.move_txid))
             .collect();
 
@@ -232,16 +232,21 @@ mod tests {
         client
             .insert_deposit_move_txid(1, bitcoin::Txid::from_slice(&[2; 32]).unwrap())
             .await;
-        client
-            .insert_deposit_move_txid(2, bitcoin::Txid::from_slice(&[3; 32]).unwrap())
-            .await;
 
         let txids = client.collect_deposit_move_txids(1, 2).await.unwrap();
-
-        assert_eq!(txids.len(), 3);
+        assert_eq!(txids.len(), 1);
         assert_eq!(txids[0].1, bitcoin::Txid::from_slice(&[1; 32]).unwrap());
-        assert_eq!(txids[1].1, bitcoin::Txid::from_slice(&[2; 32]).unwrap());
-        assert_eq!(txids[2].1, bitcoin::Txid::from_slice(&[3; 32]).unwrap());
+
+        let txids = client.collect_deposit_move_txids(2, 2).await.unwrap();
+        assert_eq!(txids.len(), 1);
+        assert_eq!(txids[0].1, bitcoin::Txid::from_slice(&[2; 32]).unwrap());
+
+        // Idx 2 is not available till height 2 (0 indexed).
+        assert!(client
+            .collect_deposit_move_txids(2, 0)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
@@ -269,31 +274,22 @@ mod tests {
                 bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1),
             )
             .await;
-        client
-            .insert_withdrawal_utxo(
-                2,
-                bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2),
-            )
-            .await;
 
         let utxos = client.collect_withdrawal_utxos(1, 2).await.unwrap();
-
-        assert_eq!(utxos.len(), 3);
+        assert_eq!(utxos.len(), 1);
         assert_eq!(
             utxos[0].1,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[1; 32]).unwrap(), 0)
         );
+
+        let utxos = client.collect_withdrawal_utxos(2, 2).await.unwrap();
+        assert_eq!(utxos.len(), 1);
         assert_eq!(
-            utxos[1].1,
+            utxos[0].1,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
         );
-        assert_eq!(
-            utxos[2].1,
-            bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[3; 32]).unwrap(), 2)
-        );
 
-        // TODO: Fix Remove +1 when Bridge contract is fixed
-        let utxo_from_index = client.withdrawal_utxos(1 + 1).await.unwrap();
+        let utxo_from_index = client.withdrawal_utxos(2).await.unwrap();
         assert_eq!(
             utxo_from_index,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
