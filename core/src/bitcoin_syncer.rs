@@ -111,7 +111,7 @@ async fn _get_block_info_from_hash(
     let block_height = db
         .get_block_info_from_hash(Some(dbtx), hash)
         .await?
-        .ok_or_else(|| eyre::eyre!("Block not found"))?
+        .ok_or_else(|| eyre::eyre!("Block not found in get_block_info_from_hash"))?
         .1;
 
     let mut block_utxos: Vec<Vec<OutPoint>> = Vec::new();
@@ -350,7 +350,7 @@ impl BitcoinSyncer {
         let current_height = db
             .get_max_height(None)
             .await?
-            .ok_or_else(|| eyre::eyre!("Block not found"))?;
+            .ok_or_else(|| eyre::eyre!("Block not found in BitcoinSyncer::new"))?;
 
         Ok(Self {
             db,
