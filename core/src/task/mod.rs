@@ -246,7 +246,15 @@ where
     type Output = T::Output;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        Ok(self.inner.run_once().await.ok().unwrap_or_default())
+        Ok(self
+            .inner
+            .run_once()
+            .await
+            .inspect_err(|e| {
+                tracing::error!("Task error, suppressing due to errors ignored: {e:?}");
+            })
+            .ok()
+            .unwrap_or_default())
     }
 }
 
