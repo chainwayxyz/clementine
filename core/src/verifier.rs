@@ -1008,22 +1008,27 @@ where
         Ok(())
     }
 
-    async fn update_citrea_withdrawals(
+    async fn update_citrea_deposit_and_withdrawals(
         &self,
         dbtx: &mut DatabaseTransaction<'_, '_>,
         l2_height_start: u64,
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
+        let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
+
+        let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
+
         let new_deposits = self
             .citrea_client
-            .collect_deposit_move_txids(l2_height_start + 1, l2_height_end)
+            .collect_deposit_move_txids(last_deposit_idx + 1, l2_height_end)
             .await?;
-        tracing::info!("New Deposits: {:?}", new_deposits);
+
         let new_withdrawals = self
             .citrea_client
-            .collect_withdrawal_utxos(l2_height_start + 1, l2_height_end)
+            .collect_withdrawal_utxos(last_withdrawal_idx + 1, l2_height_end)
             .await?;
+
         tracing::info!("New Withdrawals: {:?}", new_withdrawals);
         for (idx, move_to_vault_txid) in new_deposits {
             tracing::info!("Setting move to vault txid: {:?}", move_to_vault_txid);
@@ -1046,6 +1051,23 @@ where
                 )
                 .await?;
         }
+
+        let replacement_move_txids = self
+            .citrea_client
+            .get_replacement_deposit_move_txids(l2_height_start + 1, l2_height_end)
+            .await?;
+
+        for (old_move_txid, new_move_txid) in replacement_move_txids {
+            tracing::info!(
+                "Setting replacement move txid: {:?} -> {:?}",
+                old_move_txid,
+                new_move_txid
+            );
+            self.db
+                .set_replacement_deposit_move_txid(Some(dbtx), old_move_txid, new_move_txid)
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -1278,8 +1300,13 @@ where
         tracing::info!("l2_height_start: {:?}", l2_height_start);
 
         tracing::info!("Collecting deposits and withdrawals");
-        self.update_citrea_withdrawals(&mut dbtx, l2_height_start, l2_height_end, block_height)
-            .await?;
+        self.update_citrea_deposit_and_withdrawals(
+            &mut dbtx,
+            l2_height_start,
+            l2_height_end,
+            block_height,
+        )
+        .await?;
 
         tracing::info!("Getting payout txids");
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)

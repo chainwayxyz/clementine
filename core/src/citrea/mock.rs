@@ -117,49 +117,51 @@ impl CitreaClientT for MockCitreaClient {
 
     async fn collect_deposit_move_txids(
         &self,
-        from_height: u64,
+        last_deposit_idx: i32,
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
-        let mut ret: Vec<(u64, Txid)> = vec![];
+        unimplemented!();
+        // let mut ret: Vec<(u64, Txid)> = vec![];
 
-        for i in from_height..to_height + 1 {
-            let storage = self.storage.lock().await;
-            let results: Vec<(i32, Txid)> = storage
-                .deposits
-                .iter()
-                .filter(|deposit| deposit.height == i)
-                .map(|deposit| (deposit.idx as i32, deposit.move_txid))
-                .collect();
+        // for i in from_height..to_height + 1 {
+        //     let storage = self.storage.lock().await;
+        //     let results: Vec<(i32, Txid)> = storage
+        //         .deposits
+        //         .iter()
+        //         .filter(|deposit| deposit.height == i)
+        //         .map(|deposit| (deposit.idx as i32, deposit.move_txid))
+        //         .collect();
 
-            for result in results {
-                ret.push((result.0 as u64, result.1));
-            }
-        }
+        //     for result in results {
+        //         ret.push((result.0 as u64, result.1));
+        //     }
+        // }
 
-        Ok(ret)
+        // Ok(ret)
     }
 
     async fn collect_withdrawal_utxos(
         &self,
-        from_height: u64,
+        last_withdrawal_idx: i32,
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
-        let mut ret = vec![];
+        unimplemented!();
+        // let mut ret = vec![];
 
-        for i in from_height..to_height + 1 {
-            let storage = self.storage.lock().await;
-            let results: Vec<(i32, OutPoint)> = storage
-                .withdrawals
-                .iter()
-                .filter(|withdrawal| withdrawal.height == i)
-                .map(|withdrawal| (withdrawal.idx as i32, withdrawal.utxo))
-                .collect();
-            for result in results {
-                ret.push((result.0 as u64 - 1, result.1)); // TODO: Remove -1 when Bridge contract is fixed
-            }
-        }
+        // for i in from_height..to_height + 1 {
+        //     let storage = self.storage.lock().await;
+        //     let results: Vec<(i32, OutPoint)> = storage
+        //         .withdrawals
+        //         .iter()
+        //         .filter(|withdrawal| withdrawal.height == i)
+        //         .map(|withdrawal| (withdrawal.idx as i32, withdrawal.utxo))
+        //         .collect();
+        //     for result in results {
+        //         ret.push((result.0 as u64 - 1, result.1)); // TODO: Remove -1 when Bridge contract is fixed
+        //     }
+        // }
 
-        Ok(ret)
+        // Ok(ret)
     }
 
     async fn get_light_client_proof(
@@ -175,6 +177,22 @@ impl CitreaClientT for MockCitreaClient {
         _timeout: Duration,
     ) -> Result<(u64, u64), BridgeError> {
         Ok((block_height - 1, block_height))
+    }
+
+    async fn get_last_l2_height(
+        &self,
+        block_height: u64,
+        _timeout: Duration,
+    ) -> Result<u64, BridgeError> {
+        Ok(block_height)
+    }
+
+    async fn get_replacement_deposit_move_txids(
+        &self,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<Vec<(Txid, Txid)>, BridgeError> {
+        unimplemented!();
     }
 
     async fn check_nofn_correctness(
