@@ -24,6 +24,7 @@ use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
+use lazy_static::lazy_static;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 use BRIDGE_CONTRACT::{Deposit, Withdrawal};
@@ -31,7 +32,13 @@ use BRIDGE_CONTRACT::{Deposit, Withdrawal};
 #[cfg(test)]
 pub mod mock;
 
-pub const CITREA_CHAIN_ID: u64 = 5655;
+lazy_static! {
+    pub static ref CITREA_CHAIN_ID: u64 = std::env::var("CITREA_CHAIN_ID")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(5655);
+}
+
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
 pub const BRIDGE_CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 pub const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
@@ -223,7 +230,7 @@ impl CitreaClientT for CitreaClient {
             Url::parse(&light_client_prover_url).wrap_err("Can't parse Citrea LCP RPC URL")?;
         let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
 
-        let key = secret_key.with_chain_id(Some(CITREA_CHAIN_ID));
+        let key = secret_key.with_chain_id(Some(*CITREA_CHAIN_ID));
         let wallet_address = key.address();
 
         let provider = ProviderBuilder::new()
