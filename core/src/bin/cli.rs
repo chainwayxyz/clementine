@@ -404,15 +404,15 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
         } => {
             println!("Processing withdrawal with id {}", withdrawal_id);
 
-            let mut input_outpoint_txid_bytes = hex::decode(input_outpoint_txid)
-                .expect("Failed to decode input outpoint txid");
+            let mut input_outpoint_txid_bytes =
+                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
             input_outpoint_txid_bytes.reverse();
-            
-            let input_signature_bytes = hex::decode(input_signature)
-                .expect("Failed to decode input signature");
-                
-            let output_script_pubkey_bytes = hex::decode(output_script_pubkey)
-                .expect("Failed to decode output script pubkey");
+
+            let input_signature_bytes =
+                hex::decode(input_signature).expect("Failed to decode input signature");
+
+            let output_script_pubkey_bytes =
+                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
 
             let params = clementine_core::rpc::clementine::WithdrawParams {
                 withdrawal_id,
@@ -431,16 +431,24 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .expect("Failed to make a request");
 
             let withdraw_responses = response.get_ref().withdraw_responses.clone();
-            
+
             for (i, result) in withdraw_responses.iter().enumerate() {
                 match &result.result {
-                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Success(success)) => {
+                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Success(
+                        success,
+                    )) => {
                         let txid = bitcoin::Txid::from_byte_array(
-                            success.txid.clone().try_into().expect("Failed to convert txid to array"),
+                            success
+                                .txid
+                                .clone()
+                                .try_into()
+                                .expect("Failed to convert txid to array"),
                         );
                         println!("Operator {}: Withdrawal successful, txid: {}", i, txid);
                     }
-                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Error(error)) => {
+                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Error(
+                        error,
+                    )) => {
                         println!("Operator {}: Withdrawal failed: {}", i, error.error);
                     }
                     None => {
