@@ -789,8 +789,11 @@ async fn mock_citrea_run_malicious() {
 
     // check that challenge utxo was not spent on timeout -> meaning challenge was sent
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
-    println!("Challenge spent tx: {:?}", tx);
+    // println!("Challenge spent tx: {:?}", tx);
     // tx should have challenge amount output
+    if tx.output.len() == 1 && tx.output[0].value != config.protocol_paramset().operator_challenge_amount {
+        panic!("Challenge amount output is not correct, likely challenge timed out.");
+    }
     assert!(tx.output[0].value == config.protocol_paramset().operator_challenge_amount);
 
     // TODO: check that operators collateral got burned. It cant be checked right now as we dont have auto disprove implemented.
