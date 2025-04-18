@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn work_only_from_header_chain_test() {
-        std::env::set_var("RISC0_DEV_MODE", "1");
+        // std::env::set_var("RISC0_DEV_MODE", "1");
         let testnet4_header_chain_method_id_from_elf: [u32; 8] =
             compute_image_id(TESTNET4_HEADER_CHAIN_GUEST_ELF)
                 .unwrap()
@@ -493,20 +493,20 @@ mod tests {
         let env = env.build().unwrap();
         let prover = default_prover();
 
-        let work_only_receipt = prover
+        let work_only_prove_info = prover
             .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
-            .unwrap()
-            .receipt;
+            .unwrap();
+
+        let groth16_seal = &work_only_prove_info.receipt.inner.groth16().unwrap().seal;
+        let seal: [u8; 256] = groth16_seal[0..256].try_into().unwrap();
 
         // Extract journal of receipt
-        let work_only_output =
-            WorkOnlyCircuitOutput::try_from_slice(&work_only_receipt.journal.bytes.clone())
-                .unwrap();
+        let work_only_output = WorkOnlyCircuitOutput::try_from_slice(
+            &work_only_prove_info.receipt.journal.bytes.clone(),
+        )
+        .unwrap();
 
         println!("Output: {:?}", work_only_output);
-
-        let work_only_g16_proof = &work_only_receipt.inner.groth16().unwrap().seal;
-        let seal: [u8; 256] = work_only_g16_proof[0..256].try_into().unwrap();
 
         let circuit_g16_proof = CircuitGroth16Proof::from_seal(&seal);
         println!("Circuit G16 proof: {:?}", circuit_g16_proof);
