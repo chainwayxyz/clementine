@@ -96,12 +96,12 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO state_manager_status (
                 id,
-                last_processed_block_height,
+                next_height_to_process,
                 updated_at
             ) VALUES (1, $1, NOW())
             ON CONFLICT (id)
             DO UPDATE SET
-                last_processed_block_height = EXCLUDED.last_processed_block_height,
+                next_height_to_process = EXCLUDED.next_height_to_process,
                 updated_at = NOW()",
         )
         .bind(block_height);
@@ -120,13 +120,12 @@ impl Database {
     /// # Errors
     ///
     /// Returns a `BridgeError` if the database operation fails
-    pub async fn get_last_processed_block_height(
+    pub async fn get_next_height_to_process(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<i32>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT last_processed_block_height FROM state_manager_status WHERE id = 1",
-        );
+        let query =
+            sqlx::query_as("SELECT next_height_to_process FROM state_manager_status WHERE id = 1");
 
         let result: Option<(i32,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
@@ -252,7 +251,7 @@ mod tests {
             .unwrap();
 
         // Check last processed block height
-        let block_height = db.get_last_processed_block_height(None).await.unwrap();
+        let block_height = db.get_next_height_to_process(None).await.unwrap();
         assert_eq!(block_height, Some(123));
 
         // Load kickoff machines

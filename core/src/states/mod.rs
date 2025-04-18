@@ -147,10 +147,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         let mut tx = self.db.begin_transaction().await?;
 
         // First, check if we have any state saved
-        let status = self
-            .db
-            .get_last_processed_block_height(Some(&mut tx))
-            .await?;
+        let status = self.db.get_next_height_to_process(Some(&mut tx)).await?;
 
         // If no state is saved, return early
         let Some(block_height) = status else {
@@ -256,7 +253,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
 
         tx.commit().await?;
         self.next_height_to_process =
-            u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)? + 1;
+            u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?;
         Ok(())
     }
     #[cfg(test)]
