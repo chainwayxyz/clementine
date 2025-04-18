@@ -29,7 +29,7 @@ pub struct SuccinctBridgeCircuitPublicInputs {
     pub latest_block_hash: [u8; 20],
     pub challenge_sending_watchtowers: [u8; 20],
     pub move_to_vault_txid: [u8; 32],
-    pub watcthower_challenge_wpks_hash: [u8; 32],
+    pub watchtower_challenge_wpks_hash: [u8; 32],
     pub operator_id: [u8; 32],
 }
 
@@ -37,7 +37,7 @@ impl SuccinctBridgeCircuitPublicInputs {
     pub fn journal_hash(self) -> blake3::Hash {
         let pre_deposit_constant = [
             self.move_to_vault_txid,
-            self.watcthower_challenge_wpks_hash,
+            self.watchtower_challenge_wpks_hash,
             self.operator_id,
         ]
         .concat();
@@ -61,7 +61,7 @@ impl SuccinctBridgeCircuitPublicInputs {
     pub fn deposit_constant(self) -> [u8; 32] {
         let pre_deposit_constant = [
             self.move_to_vault_txid,
-            self.watcthower_challenge_wpks_hash,
+            self.watchtower_challenge_wpks_hash,
             self.operator_id,
         ]
         .concat();
