@@ -18,9 +18,9 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<i32, BridgeError> {
-        let query = sqlx::query_as::<_, (i32,)>("SELECT MAX(idx) FROM withdrawals");
-        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
-        Ok(result.map(|(idx,)| idx).unwrap_or(-1))
+        let query = sqlx::query_as::<_, (i32,)>("SELECT COALESCE(MAX(idx), -1) FROM withdrawals");
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        Ok(result.0)
     }
 
     /// Returns the last withdrawal index where withdrawal_utxo_txid exists.
@@ -30,10 +30,10 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<i32, BridgeError> {
         let query = sqlx::query_as::<_, (i32,)>(
-            "SELECT MAX(idx) FROM withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
+            "SELECT COALESCE(MAX(idx), -1) FROM withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
         );
-        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
-        Ok(result.map(|(idx,)| idx).unwrap_or(-1))
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        Ok(result.0)
     }
 
     pub async fn set_move_to_vault_txid_from_citrea_deposit(

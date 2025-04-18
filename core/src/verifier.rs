@@ -1015,18 +1015,20 @@ where
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
+        tracing::info!("Updating citrea deposit and withdrawals");
         let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
+        tracing::info!("Last deposit idx: {:?}", last_deposit_idx);
 
         let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
-
+        tracing::info!("Last withdrawal idx: {:?}", last_withdrawal_idx);
         let new_deposits = self
             .citrea_client
-            .collect_deposit_move_txids(last_deposit_idx + 1, l2_height_end)
+            .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
 
         let new_withdrawals = self
             .citrea_client
-            .collect_withdrawal_utxos(last_withdrawal_idx + 1, l2_height_end)
+            .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
 
         tracing::info!("New Withdrawals: {:?}", new_withdrawals);
@@ -1035,7 +1037,7 @@ where
             self.db
                 .set_move_to_vault_txid_from_citrea_deposit(
                     Some(dbtx),
-                    idx as u32 - 1,
+                    idx as u32,
                     &move_to_vault_txid,
                 )
                 .await?;

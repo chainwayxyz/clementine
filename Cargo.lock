@@ -6610,7 +6610,7 @@ dependencies = [
 [[package]]
 name = "sov-keys"
 version = "0.7.0-rc.4"
-source = "git+https://github.com/chainwayxyz/citrea.git?rev=9192f37e6d148bb4064232ea9f66bc400c526d7d#9192f37e6d148bb4064232ea9f66bc400c526d7d"
+source = "git+https://github.com/chainwayxyz/citrea.git?rev=b1fbe83fdd60d29#b1fbe83fdd60d291a5c06f890650899ad7029193"
 dependencies = [
  "anyhow",
  "borsh",
@@ -6628,7 +6628,7 @@ dependencies = [
 [[package]]
 name = "sov-rollup-interface"
 version = "0.7.0-rc.4"
-source = "git+https://github.com/chainwayxyz/citrea.git?rev=9192f37e6d148bb4064232ea9f66bc400c526d7d#9192f37e6d148bb4064232ea9f66bc400c526d7d"
+source = "git+https://github.com/chainwayxyz/citrea.git?rev=b1fbe83fdd60d29#b1fbe83fdd60d291a5c06f890650899ad7029193"
 dependencies = [
  "alloy-primitives",
  "anyhow",
