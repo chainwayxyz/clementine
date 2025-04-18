@@ -118,6 +118,12 @@ pub enum BridgeError {
     BorshError,
     #[error("Operator x-only public key {0} was not found in the DB")]
     OperatorNotFound(XOnlyPublicKey),
+    #[error("2 Operator x-only public key {0} was not found in the DB")]
+    OperatorNotFound2(XOnlyPublicKey),
+    #[error("3 Operator x-only public key {0} was not found in the DB")]
+    OperatorNotFound3(XOnlyPublicKey),
+    #[error("4 Operator x-only public key {0} was not found in the DB")]
+    OperatorNotFound4(XOnlyPublicKey),
     #[error("Verifier with public key {0} was not found among the verifier clients")]
     VerifierNotFound(PublicKey),
     #[error("Deposit not found in DB: {0:?}")]

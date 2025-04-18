@@ -130,7 +130,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             queue,
-            last_processed_block_height: paramset.start_height,
+            last_processed_block_height: paramset.start_height - 1,
         };
 
         mgr.load_from_db().await?;

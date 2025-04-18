@@ -84,8 +84,6 @@ pub struct BridgeConfig {
     /// Operator endpoint. For the aggregator only
     pub operator_endpoints: Option<Vec<String>>,
 
-    // /// Directory containing unix sockets
-    // pub socket_path: String,
     /// All Secret keys. Just for testing purposes.
     pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
     /// All Secret keys. Just for testing purposes.
