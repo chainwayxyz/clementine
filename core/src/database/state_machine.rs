@@ -24,12 +24,13 @@ impl Database {
     pub async fn save_state_machines(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
-        kickoff_machines: Vec<(String, String, String, bool)>,
-        round_machines: Vec<(String, XOnlyPublicKey, String, bool)>,
+        kickoff_machines: Vec<(String, String, bool)>,
+        round_machines: Vec<(String, XOnlyPublicKey, bool)>,
         block_height: i32,
+        owner_type: &str,
     ) -> Result<(), BridgeError> {
         // Save kickoff machines that are dirty
-        for (state_json, kickoff_id, owner_type, dirty) in kickoff_machines {
+        for (state_json, kickoff_id, dirty) in kickoff_machines {
             // Skip machines that are not dirty
             if !dirty {
                 continue;
@@ -54,14 +55,14 @@ impl Database {
             .bind("kickoff")
             .bind(&state_json)
             .bind(kickoff_id)
-            .bind(&owner_type)
+            .bind(owner_type)
             .bind(block_height);
 
             execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
         }
 
         // Save round machines that are dirty
-        for (state_json, operator_xonly_pk, owner_type, dirty) in round_machines {
+        for (state_json, operator_xonly_pk, dirty) in round_machines {
             // Skip machines that are not dirty
             if !dirty {
                 continue;
@@ -86,7 +87,7 @@ impl Database {
             .bind("round")
             .bind(&state_json)
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
-            .bind(&owner_type)
+            .bind(owner_type)
             .bind(block_height);
 
             execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
@@ -95,15 +96,16 @@ impl Database {
         // Update state manager status
         let query = sqlx::query(
             "INSERT INTO state_manager_status (
-                id,
+                owner_type,
                 next_height_to_process,
                 updated_at
-            ) VALUES (1, $1, NOW())
-            ON CONFLICT (id)
+            ) VALUES ($1, $2, NOW())
+            ON CONFLICT (owner_type)
             DO UPDATE SET
                 next_height_to_process = EXCLUDED.next_height_to_process,
                 updated_at = NOW()",
         )
+        .bind(owner_type)
         .bind(block_height);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -123,9 +125,12 @@ impl Database {
     pub async fn get_next_height_to_process(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
+        owner_type: &str,
     ) -> Result<Option<i32>, BridgeError> {
-        let query =
-            sqlx::query_as("SELECT next_height_to_process FROM state_manager_status WHERE id = 1");
+        let query = sqlx::query_as(
+            "SELECT next_height_to_process FROM state_manager_status WHERE owner_type = $1",
+        )
+        .bind(owner_type);
 
         let result: Option<(i32,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
@@ -219,13 +224,11 @@ mod tests {
             (
                 "kickoff_state_1".to_string(),
                 "kickoff_id_1".to_string(),
-                owner_type.to_string(),
                 true, // dirty
             ),
             (
                 "kickoff_state_2".to_string(),
                 "kickoff_id_2".to_string(),
-                owner_type.to_string(),
                 true, // dirty
             ),
         ];
@@ -234,24 +237,31 @@ mod tests {
             (
                 "round_state_1".to_string(),
                 xonly_pk1,
-                owner_type.to_string(),
                 true, // dirty
             ),
             (
                 "round_state_2".to_string(),
                 xonly_pk2,
-                owner_type.to_string(),
                 true, // dirty
             ),
         ];
 
         // Save state machines
-        db.save_state_machines(None, kickoff_machines.clone(), round_machines.clone(), 123)
-            .await
-            .unwrap();
+        db.save_state_machines(
+            None,
+            kickoff_machines.clone(),
+            round_machines.clone(),
+            123,
+            owner_type,
+        )
+        .await
+        .unwrap();
 
         // Check last processed block height
-        let block_height = db.get_next_height_to_process(None).await.unwrap();
+        let block_height = db
+            .get_next_height_to_process(None, owner_type)
+            .await
+            .unwrap();
         assert_eq!(block_height, Some(123));
 
         // Load kickoff machines
@@ -273,18 +283,16 @@ mod tests {
             (
                 "kickoff_state_1_updated".to_string(),
                 "kickoff_id_1".to_string(),
-                owner_type.to_string(),
                 true, // dirty - will be updated
             ),
             (
                 "kickoff_state_2".to_string(),
                 "kickoff_id_2".to_string(),
-                owner_type.to_string(),
                 false, // not dirty - won't be updated
             ),
         ];
 
-        db.save_state_machines(None, kickoff_machines_update, vec![], 124)
+        db.save_state_machines(None, kickoff_machines_update, vec![], 124, owner_type)
             .await
             .unwrap();
 

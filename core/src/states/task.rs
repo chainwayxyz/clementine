@@ -98,7 +98,9 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                 let mut new_tip = false;
 
                 // Update states to catch up to finalized chain
-                while self.next_height <= current_tip_height - self.paramset.finality_depth {
+                while current_tip_height >= self.paramset.finality_depth
+                    && self.next_height <= current_tip_height - self.paramset.finality_depth
+                {
                     new_tip = true;
 
                     let block = self
@@ -106,8 +108,8 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                         .get_full_block(Some(&mut dbtx), self.next_height)
                         .await?
                         .ok_or(BridgeError::Error(format!(
-                            "Block at height {} not found",
-                            self.next_height
+                            "Block at height {} not found in BlockFetcherTask, current tip height is {}",
+                            self.next_height, current_tip_height
                         )))?;
 
                     let event = SystemEvent::NewBlock {

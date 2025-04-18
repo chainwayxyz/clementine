@@ -146,8 +146,14 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Start a transaction
         let mut tx = self.db.begin_transaction().await?;
 
+        // Get the owner type from the context
+        let owner_type = &self.context.owner_type;
+
         // First, check if we have any state saved
-        let status = self.db.get_next_height_to_process(Some(&mut tx)).await?;
+        let status = self
+            .db
+            .get_next_height_to_process(Some(&mut tx), owner_type)
+            .await?;
 
         // If no state is saved, return early
         let Some(block_height) = status else {
@@ -156,10 +162,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             return Ok(());
         };
 
-        tracing::info!("Loading state machines from block height {}", block_height);
-
-        // Get the owner type from the context
-        let owner_type = &self.context.owner_type;
+        tracing::warn!("Loading state machines from block height {}", block_height);
 
         // Load kickoff machines
         let kickoff_machines = self
@@ -300,7 +303,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     })?;
 
                 // Use the machine's dirty flag to determine if it needs updating
-                Ok((state_json, (kickoff_id), owner_type.clone(), machine.dirty))
+                Ok((state_json, (kickoff_id), machine.dirty))
             })
             .collect();
 
@@ -315,12 +318,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 let operator_xonly_pk = machine.operator_data.xonly_pk;
 
                 // Use the machine's dirty flag to determine if it needs updating
-                Ok((
-                    state_json,
-                    (operator_xonly_pk),
-                    owner_type.clone(),
-                    machine.dirty,
-                ))
+                Ok((state_json, (operator_xonly_pk), machine.dirty))
             })
             .collect();
 
@@ -331,6 +329,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 kickoff_machines?,
                 round_machines?,
                 block_height as i32,
+                owner_type,
             )
             .await?;
 
@@ -420,7 +419,10 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 self.update_block_cache(&block, block_height);
                 self.process_block_parallel(block_height).await?;
             } else {
-                return Err(eyre::eyre!("Block at height {} not found", block_height));
+                return Err(eyre::eyre!(
+                    "Block at height {} not found in process_and_add_new_states_from_height",
+                    block_height
+                ));
             }
         }
 
