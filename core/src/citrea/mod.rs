@@ -287,7 +287,7 @@ impl CitreaClientT for CitreaClient {
                 break;
             }
 
-            let deposit_txid = deposit_txid.unwrap();
+            let deposit_txid = deposit_txid.expect("Failed to get deposit txid");
             let move_txid = Txid::from_slice(deposit_txid._0.as_ref())
                 .wrap_err("Failed to convert move txid to Txid")?;
             move_txids.push(((last_deposit_idx + 1) as u64, move_txid));
@@ -313,7 +313,7 @@ impl CitreaClientT for CitreaClient {
             if withdrawal_utxo.is_err() {
                 break;
             }
-            let withdrawal_utxo = withdrawal_utxo.unwrap();
+            let withdrawal_utxo = withdrawal_utxo.expect("Failed to get withdrawal UTXO");
             let txid = withdrawal_utxo.txId.0;
             let txid =
                 Txid::from_slice(txid.as_ref()).wrap_err("Failed to convert txid to Txid")?;
