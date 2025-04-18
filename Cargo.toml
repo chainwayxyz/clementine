@@ -5,7 +5,8 @@ members = [
   "circuits-lib",
   "risc0-circuits/bridge-circuit",
   "risc0-circuits/work-only",
-  "bridge-circuit-host"] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
+  "bridge-circuit-host"
+  ]
 
 [workspace.dependencies]
 hex = "0.4.3"
@@ -71,9 +72,10 @@ jmt = "0.11.0"
 derive_more = "1.0.0"
 blake3 = "1.5.1"
 itertools = "0.14.0"
-header-chain = { git = "https://github.com/chainwayxyz/BitVM", rev = "5a59fd7" } # Update bitVM to 2.0.0 and change this dependency to the bitvm
-bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "5a59fd7" }
-final-spv = { git = "https://github.com/chainwayxyz/BitVM", rev = "5a59fd7" } # Update bitVM to 2.0.0 and change this dependency to the bitvm
+header-chain = { git = "https://github.com/chainwayxyz/BitVM", rev = "929c8e0" }
+bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "929c8e0" }
+final-spv = { git = "https://github.com/chainwayxyz/BitVM", rev = "929c8e0" }
+bitvm-prover = { git = "https://github.com/chainwayxyz/BitVM", rev = "929c8e0" }
 risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "ozan/risc0-2.0.0" }
 
 ark-groth16 = { version = "0.5.0", default-features = false }
