@@ -27,7 +27,6 @@ use jsonrpsee::proc_macros::rpc;
 use lazy_static::lazy_static;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
-use BRIDGE_CONTRACT::{Deposit, Withdrawal};
 
 #[cfg(test)]
 pub mod mock;
