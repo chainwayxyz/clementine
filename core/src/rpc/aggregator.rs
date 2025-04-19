@@ -1198,4 +1198,101 @@ mod tests {
 
         assert!(tx.confirmations.unwrap() > 0);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_double_deposit() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().bridge_amount,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info = DepositInfo {
+            deposit_outpoint,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        // Two deposits with the same values.
+        let _movetx_txid: Txid = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info.clone()))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        let movetx_txid: Txid = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let tx = poll_get(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
+
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&movetx_txid, None)
+                    .await;
+
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
+
+                Ok(tx_result)
+            },
+            None,
+            None,
+        )
+        .await
+        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
+        .unwrap();
+
+        assert!(tx.confirmations.unwrap() > 0);
+    }
 }
