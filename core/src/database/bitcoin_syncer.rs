@@ -159,6 +159,25 @@ impl Database {
             .map_err(Into::into)
     }
 
+    pub async fn get_canonical_block_id_from_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        height: u32,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT id FROM bitcoin_syncer WHERE height = $1 AND is_canonical = true",
+        )
+        .bind(i32::try_from(height).wrap_err(BridgeError::IntConversionError)?);
+
+        let block_id: Option<(i32,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        block_id
+            .map(|(block_id,)| u32::try_from(block_id).wrap_err(BridgeError::IntConversionError))
+            .transpose()
+            .map_err(Into::into)
+    }
+
     pub async fn add_txid_to_block(
         &self,
         tx: DatabaseTransaction<'_, '_>,

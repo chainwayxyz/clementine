@@ -1079,6 +1079,7 @@ where
         block_id: u32,
         block_cache: &block_cache::BlockCache,
     ) -> Result<(), BridgeError> {
+        tracing::info!("Updating finalized payouts for block: {:?}", block_id);
         let payout_txids = self
             .db
             .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
@@ -1093,10 +1094,19 @@ where
 
         let mut payout_txs_and_payer_operator_idx = vec![];
         for (idx, payout_txid) in payout_txids {
-            let payout_tx_idx = block_cache
-                .txids
-                .get(&payout_txid)
-                .ok_or(eyre::eyre!("Payout tx not found"))?;
+            let payout_tx_idx = block_cache.txids.get(&payout_txid);
+            if payout_tx_idx.is_none() {
+                tracing::error!(
+                    "Payout tx not found in block cache: {:?} and in block: {:?}",
+                    payout_txid,
+                    block_id
+                );
+                tracing::error!("Block cache: {:?}", block_cache);
+                return Err(BridgeError::Error(
+                    "Payout tx not found in block cache".to_string(),
+                ));
+            }
+            let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
             let payout_tx = &block.txdata[*payout_tx_idx];
             let last_output = &payout_tx.output[payout_tx.output.len() - 1]
                 .script_pubkey
@@ -1290,7 +1300,11 @@ where
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
-        tracing::info!("Handling finalized block height: {:?}", block_height);
+        tracing::info!(
+            "Handling finalized block height: {:?} and block cache height: {:?}",
+            block_height,
+            block_cache.block_height
+        );
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 
@@ -1305,10 +1319,11 @@ where
         let (l2_height_start, l2_height_end) =
             l2_range_result.expect("Failed to get citrea l2 height range");
 
-        tracing::info!("l2_height_end: {:?}", l2_height_end);
-        tracing::info!("l2_height_start: {:?}", l2_height_start);
-
-        tracing::info!("Collecting deposits and withdrawals");
+        tracing::info!(
+            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+            l2_height_start,
+            l2_height_end
+        );
         self.update_citrea_deposit_and_withdrawals(
             &mut dbtx,
             l2_height_start,
@@ -1317,7 +1332,7 @@ where
         )
         .await?;
 
-        tracing::info!("Getting payout txids");
+        tracing::info!("Getting payout txids for block height: {:?}", block_height);
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
 
