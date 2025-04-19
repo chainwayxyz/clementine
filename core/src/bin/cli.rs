@@ -586,7 +586,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             .await
             .expect("Failed to connect to Bitcoin RPC");
 
-            // I'm not sure about this part, Ekrem please check
             let flag: u16 = 1;
 
             let tx_id: &bitcoin::Txid =
