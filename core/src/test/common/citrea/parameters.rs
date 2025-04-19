@@ -135,3 +135,37 @@ pub fn get_transaction_params(
         index: Uint::from(index),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use bitcoincore_rpc::RpcApi;
+
+    use crate::extended_rpc::ExtendedRpc;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_transaction_params() {
+        let rpc = ExtendedRpc::connect(
+            "http://127.0.0.1:38332".to_string(),
+            "bitcoin".to_string(),
+            "bitcoin".to_string(),
+        )
+        .await
+        .unwrap();
+
+
+        let txid_str = "95fe701dd1fab6677d23e550dd7b7af12c9288ec209acb84bcc06708b8181d6a";
+        let txid = Txid::from_str(txid_str).unwrap();
+        let get_raw_transaction_result = rpc.client.get_raw_transaction_info(&txid, None).await.unwrap();
+        let block_hash = get_raw_transaction_result.blockhash.unwrap();
+        let block = rpc.client.get_block(&block_hash).await.unwrap();
+        let block_info = rpc.client.get_block_info(&block_hash).await.unwrap();
+        let tx = rpc.client.get_raw_transaction(&txid, None).await.unwrap();
+        println!("Raw tx: {:?}", hex::encode(bitcoin::consensus::serialize(&tx)));
+        let transaction_params = get_transaction_params(tx, block, block_info.height as u32, txid).unwrap();
+        println!("{:?}", transaction_params);
+    }
+}
