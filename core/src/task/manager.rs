@@ -1,3 +1,6 @@
+use super::{IntoTask, Task, TaskExt};
+use crate::errors::BridgeError;
+use crate::states::Owner;
 use futures::future::join_all;
 use std::marker::PhantomData;
 use std::time::Duration;
@@ -5,10 +8,6 @@ use tokio::sync::oneshot;
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::sleep;
 
-use crate::errors::BridgeError;
-use crate::states::Owner;
-
-use super::{IntoTask, Task, TaskExt};
 /// A background task manager that can hold and manage multiple tasks When
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
 /// `graceful_shutdown`
