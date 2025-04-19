@@ -308,7 +308,8 @@ fn get_block_merkle_proof(
 
     let merkle_tree = BitcoinMerkleTree::new(txids.clone());
     let _witness_root = block.witness_root().expect("Failed to get witness root");
-    let witness_idx_path = merkle_tree.get_idx_path(txid_index.try_into().expect("Failed to convert index"));
+    let witness_idx_path =
+        merkle_tree.get_idx_path(txid_index.try_into().expect("Failed to convert index"));
 
     let _root = merkle_tree.calculate_root_with_merkle_proof(
         txids[txid_index],
@@ -592,7 +593,10 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 .await
                 .expect("Failed to get tx of txid");
 
-            let block_hash = extended_rpc.get_blockhash_of_tx(tx_id).await.expect("Failed to get block hash");
+            let block_hash = extended_rpc
+                .get_blockhash_of_tx(tx_id)
+                .await
+                .expect("Failed to get block hash");
 
             let version = (tx.version.0 as u32).to_le_bytes();
 
@@ -620,9 +624,15 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                         .consensus_encode(&mut previous_output)
                         .expect("Failed to encode previous output");
                     let mut script_sig = Vec::new();
-                    input.script_sig.consensus_encode(&mut script_sig).expect("Failed to encode script sig");
+                    input
+                        .script_sig
+                        .consensus_encode(&mut script_sig)
+                        .expect("Failed to encode script sig");
                     let mut sequence = Vec::new();
-                    input.sequence.consensus_encode(&mut sequence).expect("Failed to encode sequence");
+                    input
+                        .sequence
+                        .consensus_encode(&mut sequence)
+                        .expect("Failed to encode sequence");
 
                     encoded_input.extend(previous_output);
                     encoded_input.extend(script_sig);
