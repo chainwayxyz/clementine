@@ -1,9 +1,6 @@
 use std::str::FromStr;
 
-use alloy::{
-    primitives::{Bytes, FixedBytes, Uint},
-    rpc,
-};
+use alloy::primitives::{Bytes, FixedBytes, Uint};
 use bitcoin::{consensus::Encodable, hashes::Hash, Amount, Block, Txid};
 use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
@@ -20,9 +17,8 @@ use clementine_core::{
     },
     EVMAddress,
 };
-use futures::lock;
 use serde::{Deserialize, Serialize};
-use sha2::{digest::typenum::UInt, Digest, Sha256};
+use sha2::{Digest, Sha256};
 use tonic::Request;
 
 #[derive(Parser)]
