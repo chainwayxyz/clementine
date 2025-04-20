@@ -65,7 +65,7 @@ impl Database {
         block_id: u32,
     ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1 AND is_canonical = true",
+            "SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1",
         )
         .bind(i32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?);
 
