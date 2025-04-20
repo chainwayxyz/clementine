@@ -19,7 +19,7 @@ use tonic::async_trait;
 const POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(100)
 } else {
-    Duration::from_secs(10)
+    Duration::from_secs(1)
 };
 
 /// Represents basic information of a Bitcoin block.
