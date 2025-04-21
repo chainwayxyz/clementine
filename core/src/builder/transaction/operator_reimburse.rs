@@ -309,6 +309,7 @@ pub fn create_payout_txhandler(
         )
         .add_output(output_txout)
         .add_output(UnspentTxOut::from_partial(op_return_txout))
+        .with_version(Version::non_standard(3))
         .finalize();
     txhandler.set_p2tr_key_spend_witness(&user_sig_wrapped, 0)?;
     txhandler.promote()

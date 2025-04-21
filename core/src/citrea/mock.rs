@@ -239,17 +239,17 @@ mod tests {
             .insert_deposit_move_txid(1, bitcoin::Txid::from_slice(&[2; 32]).unwrap())
             .await;
 
-        let txids = client.collect_deposit_move_txids(1, 2).await.unwrap();
+        let txids = client.collect_deposit_move_txids(0, 2).await.unwrap();
         assert_eq!(txids.len(), 1);
         assert_eq!(txids[0].1, bitcoin::Txid::from_slice(&[1; 32]).unwrap());
 
-        let txids = client.collect_deposit_move_txids(2, 2).await.unwrap();
+        let txids = client.collect_deposit_move_txids(1, 2).await.unwrap();
         assert_eq!(txids.len(), 1);
         assert_eq!(txids[0].1, bitcoin::Txid::from_slice(&[2; 32]).unwrap());
 
-        // Idx 2 is not available till height 2 (0 indexed).
+        // Idx 1 is not available till height 2 (0 indexed).
         assert!(client
-            .collect_deposit_move_txids(2, 0)
+            .collect_deposit_move_txids(1, 0)
             .await
             .unwrap()
             .is_empty());
@@ -263,7 +263,7 @@ mod tests {
             .unwrap();
 
         assert!(client
-            .collect_withdrawal_utxos(1, 2)
+            .collect_withdrawal_utxos(0, 2)
             .await
             .unwrap()
             .is_empty());
@@ -281,21 +281,21 @@ mod tests {
             )
             .await;
 
-        let utxos = client.collect_withdrawal_utxos(1, 2).await.unwrap();
+        let utxos = client.collect_withdrawal_utxos(0, 2).await.unwrap();
         assert_eq!(utxos.len(), 1);
         assert_eq!(
             utxos[0].1,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[1; 32]).unwrap(), 0)
         );
 
-        let utxos = client.collect_withdrawal_utxos(2, 2).await.unwrap();
+        let utxos = client.collect_withdrawal_utxos(1, 2).await.unwrap();
         assert_eq!(utxos.len(), 1);
         assert_eq!(
             utxos[0].1,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
         );
 
-        let utxo_from_index = client.withdrawal_utxos(2).await.unwrap();
+        let utxo_from_index = client.withdrawal_utxos(1).await.unwrap();
         assert_eq!(
             utxo_from_index,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[2; 32]).unwrap(), 1)
