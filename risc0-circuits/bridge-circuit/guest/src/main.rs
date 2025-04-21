@@ -1,10 +1,10 @@
 use circuits_lib::{common, bridge_circuit::bridge_circuit};
 use hex_literal::hex;
 
-static MAINNET: [u8; 32] = hex!("f32e881ba4bbf8a5cc3fed7a6eca02c4f087bc1c9cafb0ae7d350fdab1230d6f");
-static TESTNET4: [u8; 32] = hex!("6d104e43b3c55b70a47873edbbd22c8cf01b5fc77e5ff973ad8ba4b9cf3528dc");
-static REGTEST: [u8; 32] = hex!("70e23c3d05a32e4577b4b91ff0891f3ade75a381b815f343c78eb18d08ffccf2");
-static SIGNET: [u8; 32] = hex!("4672711a78b07166acd61c7d0f0c59d3f786562480d2f3ec780749544d04e000");
+static MAINNET: [u8; 32] = hex!("b237f3513a6ef4bbcec303d0e3363e3f7bb2ccd2487b58bd730f7dfce2a44d64");
+static TESTNET4: [u8; 32] = hex!("49e267eafc5e424a11232fbd8e8fa084f77f07cf74352d4eab56c853565e2a66");
+static REGTEST: [u8; 32] = hex!("0e43ec107a9f73f6d3446150503e4cec83254ab596ee21ebc2706b511237ba1b");
+static SIGNET: [u8; 32] = hex!("d4c5c8b7e57df34fde68af32d8f90b42e25b72b490795cd164bc7fd0d6aee8a8");
 
 pub static WORK_ONLY_IMAGE_ID: [u8; 32] = match option_env!("BITCOIN_NETWORK") {
     Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET,
