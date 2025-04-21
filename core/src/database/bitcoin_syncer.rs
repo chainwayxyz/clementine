@@ -31,6 +31,24 @@ impl Database {
             .wrap_err(BridgeError::IntConversionError)
             .map_err(Into::into)
     }
+
+    pub async fn set_block_as_canonical_if_exists(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_hash: BlockHash,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_scalar(
+            "UPDATE bitcoin_syncer SET is_canonical = true WHERE blockhash = $1 RETURNING id",
+        )
+        .bind(BlockHashDB(block_hash));
+
+        let id: Option<i32> = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        id.map(|id| u32::try_from(id).wrap_err(BridgeError::IntConversionError))
+            .transpose()
+            .map_err(Into::into)
+    }
+
     /// # Returns
     ///
     /// [`Some`] if the block exists in the database, [`None`] otherwise:
@@ -64,10 +82,8 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_id: u32,
     ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1",
-        )
-        .bind(i32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?);
+        let query = sqlx::query_as("SELECT blockhash, height FROM bitcoin_syncer WHERE id = $1")
+            .bind(i32::try_from(block_id).wrap_err(BridgeError::IntConversionError)?);
 
         let ret: Option<(BlockHashDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
