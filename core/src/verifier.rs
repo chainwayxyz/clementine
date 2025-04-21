@@ -34,6 +34,7 @@ use bitcoin::secp256k1::Message;
 use bitcoin::OutPoint;
 use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use eyre::{Context, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -976,13 +977,36 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
+        let current_tip_hcp = self
+            .header_chain_prover
+            .get_tip_header_chain_proof()
+            .await?;
+
+        let (work_only_proof, work_output) =
+            self.header_chain_prover.prove_work_only(current_tip_hcp)?;
+
+        let g16: [u8; 256] = work_only_proof
+            .clone()
+            .inner.clone()
+            .groth16()
+            .wrap_err("xdd")?
+            .seal.clone()
+            .try_into()
+            .unwrap();
+        let g16_proof = CircuitGroth16Proof::from_seal(&g16);
+        let mut commit_data: Vec<u8> = g16_proof.to_compressed().wrap_err("xdd")?.to_vec();
+        let total_work = borsh::to_vec(&work_output.work_u128).unwrap();
+        commit_data.extend_from_slice(&total_work);
+
+        tracing::warn!("watchtower challenge Commit data: {:?}", commit_data);
+
         let (tx_type, challenge_tx) = self
             .create_and_sign_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
                     kickoff_data,
                 },
-                &vec![0u8; self.config.protocol_paramset().watchtower_challenge_bytes], // dummy challenge
+                &commit_data,
             )
             .await?;
         let mut dbtx = self.db.begin_transaction().await?;
@@ -1271,7 +1295,6 @@ where
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
-        tracing::warn!("handle_finalized_block, block_height: {}", block_height);
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 

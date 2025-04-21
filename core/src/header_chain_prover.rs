@@ -16,12 +16,13 @@ use crate::{
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
+use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use eyre::Context;
-use lazy_static::lazy_static;
-use risc0_to_bitvm2_core::header_chain::{
+use header_chain::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
-use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
+use lazy_static::lazy_static;
+use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -203,7 +204,6 @@ impl HeaderChainProver {
 
         let headers: Vec<CircuitBlockHeader> = block_headers.into_iter().map(Into::into).collect();
         let receipt = self.prove_block_headers(previous_proof, headers)?;
-        tracing::warn!("Prover received receipt: {:?}", receipt);
 
         self.db
             .set_block_proof(None, current_block_hash, receipt.clone())
@@ -280,15 +280,58 @@ impl HeaderChainProver {
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
-        tracing::warn!("Before prover.prove");
         let receipt = prover.prove(env, elf).map_err(|e| eyre::eyre!(e))?.receipt;
-        tracing::warn!(
+        tracing::debug!(
             "Proof receipt for header chain circuit input {:?}: {:?}",
             input,
             receipt,
         );
 
         Ok(receipt)
+    }
+
+    pub fn prove_work_only(
+        &self,
+        hcp_receipt: Receipt,
+    ) -> Result<(Receipt, WorkOnlyCircuitOutput), HeaderChainProverError> {
+        let block_header_circuit_output: BlockHeaderCircuitOutput =
+            borsh::from_slice(&hcp_receipt.journal.bytes)
+                .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
+        let input = WorkOnlyCircuitInput {
+            header_chain_circuit_output: block_header_circuit_output,
+        };
+        tracing::warn!("input in prove_work_only: {:?}", input);
+        let mut env = ExecutorEnv::builder();
+
+        env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
+
+        let env = env
+            .build()
+            .map_err(|e| eyre::eyre!(e))
+            .wrap_err("Failed to build environment")?;
+
+        let prover = risc0_zkvm::default_prover();
+
+        let elf = match self.network {
+            Network::Bitcoin => MAINNET_WORK_ONLY_ELF,
+            Network::Testnet => TESTNET4_WORK_ONLY_ELF,
+            Network::Testnet4 => TESTNET4_WORK_ONLY_ELF,
+            Network::Signet => SIGNET_WORK_ONLY_ELF,
+            Network::Regtest => REGTEST_WORK_ONLY_ELF,
+            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
+        };
+
+        tracing::warn!("before proving work only");
+        let receipt = prover
+            .prove_with_opts(env, elf, &ProverOpts::groth16())
+            .map_err(|e| eyre::eyre!(e))?
+            .receipt;
+        tracing::warn!("after proving work only");
+        tracing::warn!("Work only proof receipt generated {:?}", receipt);
+        let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
+            .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
+
+        Ok((receipt, work_output))
     }
 
     /// Gets the proof of the latest finalized blockchain tip. If the finalized
@@ -311,14 +354,14 @@ impl HeaderChainProver {
             .ok_or(eyre::eyre!("No tip block found"))?;
 
         // If tip is proven, return the proof.
-        if latest_proven_block.2 == tip_height {
-            return Ok(self
-                .db
-                .get_block_proof_by_hash(None, latest_proven_block.0)
-                .await
-                .wrap_err("Failed to get block proof")?
-                .ok_or(HeaderChainProverError::BatchNotReady)?);
-        }
+        //if latest_proven_block.2 == tip_height {
+        return Ok(self
+            .db
+            .get_block_proof_by_hash(None, latest_proven_block.0)
+            .await
+            .wrap_err("Failed to get block proof")?
+            .ok_or(HeaderChainProverError::BatchNotReady)?);
+        // }
 
         // If in limits of the batch size but not in a target block, prove block
         // headers manually.
@@ -429,8 +472,6 @@ impl HeaderChainProver {
             }
         };
 
-        tracing::warn!("prev proof in prove_if_ready: {:?}", prev_proof);
-
         let current_block_hash = unproven_blocks.iter().next_back().expect("Exists").0;
         let current_block_height = unproven_blocks.iter().next_back().expect("Exists").2;
         let block_headers = unproven_blocks
@@ -442,10 +483,6 @@ impl HeaderChainProver {
             "current block height and hash in prove_if_ready: {:?}, {:?}",
             current_block_height,
             current_block_hash
-        );
-        tracing::warn!(
-            "block headers len in prove_if_ready: {:?}",
-            block_headers.len()
         );
         let receipt = self
             .prove_and_save_block(current_block_hash, block_headers, prev_proof)
@@ -472,7 +509,7 @@ mod tests {
     use bitcoin::{block::Header, hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
-    use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
+    use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use risc0_zkvm::Receipt;
 
     /// Mines `block_num` amount of blocks (if not already mined) and returns
