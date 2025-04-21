@@ -12,13 +12,13 @@ use tokio::sync::{Mutex, MutexGuard};
 use tonic::async_trait;
 
 pub struct Deposit {
-    idx: u64,
+    idx: i32,
     height: u64,
     move_txid: Txid,
 }
 
 pub struct Withdrawal {
-    idx: u64,
+    idx: i32,
     height: u64,
     utxo: OutPoint,
 }
@@ -99,6 +99,7 @@ impl CitreaClientT for MockCitreaClient {
         }
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::DEBUG))]
     async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError> {
         Ok(*self
             .get_storage()
@@ -106,7 +107,7 @@ impl CitreaClientT for MockCitreaClient {
             .withdrawals
             .iter()
             .find_map(|Withdrawal { idx, utxo, .. }| {
-                if *idx == withdrawal_index {
+                if *idx == withdrawal_index as i32 {
                     Some(utxo)
                 } else {
                     None
@@ -115,6 +116,7 @@ impl CitreaClientT for MockCitreaClient {
             .unwrap())
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::DEBUG))]
     async fn collect_deposit_move_txids(
         &self,
         last_deposit_idx: i32,
@@ -124,13 +126,14 @@ impl CitreaClientT for MockCitreaClient {
         let results: Vec<(u64, Txid)> = storage
             .deposits
             .iter()
-            .filter(|deposit| deposit.height <= to_height && deposit.idx == last_deposit_idx as u64)
-            .map(|deposit| (deposit.idx, deposit.move_txid))
+            .filter(|deposit| deposit.height <= to_height && deposit.idx == last_deposit_idx)
+            .map(|deposit| (deposit.idx as u64, deposit.move_txid))
             .collect();
 
         Ok(results)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::DEBUG))]
     async fn collect_withdrawal_utxos(
         &self,
         last_withdrawal_idx: i32,
@@ -141,9 +144,9 @@ impl CitreaClientT for MockCitreaClient {
             .withdrawals
             .iter()
             .filter(|withdrawal| {
-                withdrawal.height <= to_height && withdrawal.idx == last_withdrawal_idx as u64
+                withdrawal.height <= to_height && withdrawal.idx == last_withdrawal_idx
             })
-            .map(|withdrawal| (withdrawal.idx, withdrawal.utxo))
+            .map(|withdrawal| (withdrawal.idx as u64, withdrawal.utxo))
             .collect();
 
         Ok(results)
@@ -191,7 +194,9 @@ impl MockCitreaClient {
     /// Pushes a deposit move txid to the given height.
     pub async fn insert_deposit_move_txid(&mut self, height: u64, txid: Txid) {
         let mut storage = self.storage.lock().await;
-        let idx = storage.deposits.len() as u64 + 1;
+        let idx = storage.deposits.len() as i32;
+
+        tracing::debug!("Inserting deposit move txid {txid:?} at height {height} with index {idx}");
         storage.deposits.push(Deposit {
             idx,
             height,
@@ -202,7 +207,9 @@ impl MockCitreaClient {
     /// Pushes a withdrawal utxo and its index to the given height.
     pub async fn insert_withdrawal_utxo(&mut self, height: u64, utxo: OutPoint) {
         let mut storage = self.storage.lock().await;
-        let idx = storage.withdrawals.len() as u64 + 1;
+        let idx = storage.withdrawals.len() as i32;
+
+        tracing::debug!("Inserting withdrawal utxo {utxo:?} at height {height} with index {idx}");
         storage.withdrawals.push(Withdrawal { idx, height, utxo });
     }
 }

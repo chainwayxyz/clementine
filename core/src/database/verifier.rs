@@ -18,7 +18,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<i32, BridgeError> {
-        let query = sqlx::query_as::<_, (i32,)>("SELECT COALESCE(MAX(idx), -1) FROM withdrawals");
+        let query = sqlx::query_as::<_, (i32,)>("SELECT COALESCE(MAX(idx), 0) FROM withdrawals");
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok(result.0)
     }
@@ -30,7 +30,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<i32, BridgeError> {
         let query = sqlx::query_as::<_, (i32,)>(
-            "SELECT COALESCE(MAX(idx), -1) FROM withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
+            "SELECT COALESCE(MAX(idx), 0) FROM withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
         );
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         Ok(result.0)
