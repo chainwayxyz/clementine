@@ -87,8 +87,9 @@ fn work_conversion(work: U256) -> [u32; 4] {
     words
 }
 
+#[cfg(test)]
 mod tests {
-    use crypto_bigint::{Encoding, Integer, U128, U256};
+    use crypto_bigint::{Encoding, U256};
 
     use crate::work_only::work_conversion;
     #[test]
