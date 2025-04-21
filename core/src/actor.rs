@@ -1212,18 +1212,9 @@ mod tests {
             mempool_accept_result[0].reject_reason.as_ref().unwrap()
         );
 
-        // TapSighashType::Default
-        // Fund the address (required for testmempoolaccept)
-        let outpoint = rpc
-            .send_to_address(&tap_addr, Amount::from_sat(40000))
-            .await
-            .unwrap();
-
-        rpc.mine_blocks(1).await.unwrap(); // Confirm the funding transaction
-
         // Build a transaction spending the UTXO with TapSighashType::Default
         let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
-            // Use Reimburse2 which maps to NofnSharedDeposit(TapSighashType::None)
+            // Use Reimburse2 which maps to NofnSharedDeposit(TapSighashType::Default)
             .add_input(
                 NormalSignatureKind::Reimburse2,
                 SpendableTxIn::new(outpoint, prevtxo.clone(), vec![], Some(spend_info.clone())),
@@ -1246,7 +1237,7 @@ mod tests {
         // Actor signs the key spend input using the non-default sighash type
         actor
             .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
-            .expect("Key spend signature with SighashNone should succeed");
+            .expect("Key spend signature with SighashDefault should succeed");
 
         // Retrieve the signed transaction
         let tx: &Transaction = txhandler.get_cached_tx();

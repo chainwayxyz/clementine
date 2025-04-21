@@ -1,15 +1,12 @@
-use bitcoin::hex::DisplayHex;
 use bitcoin::script::Instruction;
 use bitcoin::sighash::{Prevouts, SighashCache};
 use bitcoin::taproot::{self};
-use bitcoin::transaction::Version;
 use bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
 use bitcoincore_rpc::json::{
     BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, FinalizePsbtResult,
     WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
 };
 use eyre::{eyre, OptionExt};
-use serde::Serialize;
 use std::str::FromStr;
 
 use bitcoin::{consensus, Address, Amount, FeeRate, Transaction};
@@ -45,7 +42,7 @@ impl TxSender {
         txid: &Txid,
         new_feerate: FeeRate,
     ) -> Result<Option<Amount>> {
-        let original_tx = self.rpc.get_tx_of_txid(&txid).await.map_err(|e| eyre!(e))?;
+        let original_tx = self.rpc.get_tx_of_txid(txid).await.map_err(|e| eyre!(e))?;
 
         // Calculate original tx fee
         let original_tx_fee = self.get_tx_fee(&original_tx).await.map_err(|e| eyre!(e))?;
@@ -315,7 +312,7 @@ impl TxSender {
     ///
     /// This is required for a transaction to be added to the wallet.
     pub fn verify_new_inputs(&self, psbt: &str, original_tx: &Transaction) -> bool {
-        let Ok(psbt) = Psbt::from_str(&psbt) else {
+        let Ok(psbt) = Psbt::from_str(psbt) else {
             tracing::error!("Failed to parse PSBT");
             return false;
         };
@@ -462,9 +459,7 @@ impl TxSender {
                     }
                 }
                 Ok(BumpFeeResult {
-                    psbt: Some(psbt),
-                    fee,
-                    ..
+                    psbt: Some(psbt), ..
                 }) => psbt,
                 Ok(BumpFeeResult { errors, .. }) if !errors.is_empty() => {
                     // TODO: handle errors here and update the state

@@ -471,18 +471,18 @@ pub fn create_move_to_vault_txhandler(
         .finalize())
 }
 
-/// Creates a [`TxHandler`] for the `move_to_vault_tx`. This transaction will move
+/// Creates a [`TxHandlerBuilder`] for the `move_to_vault_tx`. This transaction will move
 /// the funds to a NofN address from the deposit intent address, after all the signature
 /// collection operations are done.
 pub fn create_replacement_deposit_txhandler(
     old_move_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     paramset: &'static ProtocolParamset,
-) -> Result<TxHandler<Unsigned>, BridgeError> {
+) -> Result<TxHandlerBuilder, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ReplacementDeposit)
         .with_version(Version::non_standard(3))
         .add_input(
-            NormalSignatureKind::NotStored,
+            NormalSignatureKind::NoSignature,
             SpendableTxIn::from_scripts(
                 bitcoin::OutPoint {
                     txid: old_move_txid,
@@ -506,8 +506,7 @@ pub fn create_replacement_deposit_txhandler(
             None,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
-        .finalize())
+        .add_output(UnspentTxOut::from_partial(anchor_output())))
 }
 
 #[cfg(test)]

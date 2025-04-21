@@ -791,7 +791,9 @@ async fn mock_citrea_run_malicious() {
     let tx = rpc.get_tx_of_txid(&challenge_spent_txid).await.unwrap();
     // println!("Challenge spent tx: {:?}", tx);
     // tx should have challenge amount output
-    if tx.output.len() == 1 && tx.output[0].value != config.protocol_paramset().operator_challenge_amount {
+    if tx.output.len() == 1
+        && tx.output[0].value != config.protocol_paramset().operator_challenge_amount
+    {
         panic!("Challenge amount output is not correct, likely challenge timed out.");
     }
     assert!(tx.output[0].value == config.protocol_paramset().operator_challenge_amount);
