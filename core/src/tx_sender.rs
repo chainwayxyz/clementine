@@ -151,9 +151,10 @@ impl Task for TxSenderTask {
         }
 
         // tracing::info!("TXSENDER: Getting fee rate");
-        let fee_rate = self.inner.get_fee_rate().await;
-        tracing::info!("TXSENDER: Fee rate: {:?}", fee_rate);
-        let fee_rate = fee_rate.expect("Failed to get fee rate");
+        // let fee_rate = self.inner.get_fee_rate().await;
+        // tracing::info!("TXSENDER: Fee rate: {:?}", fee_rate);
+        // let fee_rate = fee_rate.expect("Failed to get fee rate");
+        let fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
         // tracing::info!("TXSENDER: Trying to send unconfirmed txs");
 
         self.inner
