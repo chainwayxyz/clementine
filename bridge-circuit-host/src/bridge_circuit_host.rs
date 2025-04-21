@@ -444,7 +444,7 @@ mod tests {
     #[test]
     #[ignore = "This test is too slow and only runs in x86_64."]
     fn work_only_from_header_chain_test() {
-        // std::env::set_var("RISC0_DEV_MODE", "1");
+        std::env::set_var("RISC0_DEV_MODE", "1");
         let testnet4_header_chain_method_id_from_elf: [u32; 8] =
             compute_image_id(TESTNET4_HEADER_CHAIN_GUEST_ELF)
                 .unwrap()
@@ -497,6 +497,15 @@ mod tests {
         let work_only_prove_info = prover
             .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
             .unwrap();
+
+        println!(
+            "Work only prove info . receipt: {:?}",
+            work_only_prove_info.receipt
+        );
+        println!(
+            "Work only prove info . session stats: {:?}",
+            work_only_prove_info.stats
+        );
 
         let groth16_seal = &work_only_prove_info.receipt.inner.groth16().unwrap().seal;
         let seal: [u8; 256] = groth16_seal[0..256].try_into().unwrap();
