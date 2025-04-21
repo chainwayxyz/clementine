@@ -34,6 +34,7 @@ num-traits = { workspace = true }
 bitcoin = { workspace = true, features = ["serde"] }
 header-chain = { workspace = true }
 final-spv = { workspace = true }
+bitvm-prover = { workspace = true }
 tempfile = { workspace = true }
 blake3 = { workspace = true }
 sha2 = { workspace = true }

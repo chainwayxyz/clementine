@@ -52,6 +52,7 @@ sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
 circuits-lib = { path = "../circuits-lib" }
 header-chain = { workspace = true }
+bitvm-prover = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

@@ -1879,7 +1879,7 @@ dependencies = [
 [[package]]
 name = "final-spv"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=5a59fd7#5a59fd7e7094424d195b0fb721caa6d9963c32b8"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=929c8e0#929c8e00eebd7947c1b225cca262a914db6be731"
 dependencies = [
  "bitcoin",
  "blake3",
@@ -2196,7 +2196,7 @@ dependencies = [
 [[package]]
 name = "header-chain"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=5a59fd7#5a59fd7e7094424d195b0fb721caa6d9963c32b8"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=929c8e0#929c8e00eebd7947c1b225cca262a914db6be731"
 dependencies = [
  "bitcoin",
  "borsh",

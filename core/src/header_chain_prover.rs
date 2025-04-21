@@ -16,6 +16,10 @@ use crate::{
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
+use bitvm_prover::{
+    MAINNET_HEADER_CHAIN_GUEST_ELF, REGTEST_HEADER_CHAIN_GUEST_ELF, SIGNET_HEADER_CHAIN_GUEST_ELF,
+    TESTNET4_HEADER_CHAIN_GUEST_ELF,
+};
 use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use eyre::Context;
 use header_chain::header_chain::{
@@ -30,10 +34,10 @@ use std::{
 use thiserror::Error;
 
 // Prepare prover binaries and calculate their image ids, before anything else.
-const MAINNET_ELF: &[u8] = include_bytes!("../../scripts/mainnet-header-chain-guest.bin");
-const TESTNET4_ELF: &[u8] = include_bytes!("../../scripts/testnet4-header-chain-guest.bin");
-const SIGNET_ELF: &[u8] = include_bytes!("../../scripts/signet-header-chain-guest.bin");
-const REGTEST_ELF: &[u8] = include_bytes!("../../scripts/regtest-header-chain-guest.bin");
+const MAINNET_ELF: &[u8] = MAINNET_HEADER_CHAIN_GUEST_ELF;
+const TESTNET4_ELF: &[u8] = TESTNET4_HEADER_CHAIN_GUEST_ELF;
+const SIGNET_ELF: &[u8] = SIGNET_HEADER_CHAIN_GUEST_ELF;
+const REGTEST_ELF: &[u8] = REGTEST_HEADER_CHAIN_GUEST_ELF;
 const MAINNET_WORK_ONLY_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/mainnet-work-only-guest.bin");
 const TESTNET4_WORK_ONLY_ELF: &[u8] =

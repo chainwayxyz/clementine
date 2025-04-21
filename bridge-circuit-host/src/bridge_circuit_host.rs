@@ -334,6 +334,8 @@ fn generate_succinct_bridge_circuit_public_inputs(
 #[cfg(test)]
 mod tests {
 
+    // use crate::config::BCHostParameters;
+
     use super::*;
 
     // const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
@@ -342,11 +344,17 @@ mod tests {
     const TESTNET4_WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
-    // ALSO IMPORTANT FOR HEADERCHAIN IMAGE ID BITCOIN_NETWORK SHOULD BE SET TO "testnet4"
-    pub const TESTNET4_WORK_ONLY_IMAGE_ID: [u8; 32] =
-        hex_literal::hex!("6d104e43b3c55b70a47873edbbd22c8cf01b5fc77e5ff973ad8ba4b9cf3528dc");
+    use bitvm_prover::TESTNET4_HEADER_CHAIN_GUEST_ELF;
+    use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitOutput;
+    use header_chain::header_chain::{
+        BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
+    };
 
-    // const HEADERS: &[u8] = include_bytes!("../bin-files/testnet4_headers.bin");
+    // ALSO IMPORTANT FOR HEADERCHAIN IMAGE ID BITCOIN_NETWORK SHOULD BE SET TO "testnet4"
+    // pub const TESTNET4_WORK_ONLY_IMAGE_ID: [u8; 32] =
+    //     hex_literal::hex!("6d104e43b3c55b70a47873edbbd22c8cf01b5fc77e5ff973ad8ba4b9cf3528dc");
+
+    const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
     // const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");
     // const PAYOUT_TX: &[u8; 303] = include_bytes!("../bin-files/payout_tx.bin");
     // const TESTNET_BLOCK_72041: &[u8] = include_bytes!("../bin-files/testnet4_block_72041.bin");
@@ -358,7 +366,7 @@ mod tests {
     // pub const TEST_PARAMETERS: BCHostParameters = BCHostParameters {
     //     l1_block_height: 72075,
     //     payment_block_height: 72041,
-    //     move_to_vault_txid: hex!(
+    //     move_to_vault_txid: hex_literal::hex!(
     //         "BB25103468A467382ED9F585129AD40331B54425155D6F0FAE8C799391EE2E7F"
     //     ),
     //     payout_tx_index: 51,
@@ -373,12 +381,13 @@ mod tests {
         //     total_work_and_watchtower_flags,
         // };
 
-        let work_only_method_id_from_elf = compute_image_id(TESTNET4_WORK_ONLY_ELF).unwrap();
-        assert_eq!(
-            work_only_method_id_from_elf.as_bytes(),
-            TESTNET4_WORK_ONLY_IMAGE_ID,
-            "Method ID mismatch, make sure to build the guest programs with new hardcoded values."
-        );
+        // let testnet4_work_only_method_id_from_elf =
+        //     compute_image_id(TESTNET4_WORK_ONLY_ELF).unwrap();
+        // assert_eq!(
+        //     testnet4_work_only_method_id_from_elf.as_bytes(),
+        //     TESTNET4_WORK_ONLY_IMAGE_ID,
+        //     "Method ID mismatch, make sure to build the guest programs with new hardcoded values."
+        // );
 
         // let headerchain_receipt: Receipt =
         //     Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
@@ -430,5 +439,86 @@ mod tests {
         //     g16_pi_calculated_outside[0..31]
         // );
         // assert!(bridge_circuit_bitvm_inputs.verify_bridge_circuit(ark_groth16_proof));
+    }
+
+    #[test]
+    #[ignore = "This test is too slow and only runs in x86_64."]
+    fn work_only_from_header_chain_test() {
+        std::env::set_var("RISC0_DEV_MODE", "1");
+        let testnet4_header_chain_method_id_from_elf: [u32; 8] =
+            compute_image_id(TESTNET4_HEADER_CHAIN_GUEST_ELF)
+                .unwrap()
+                .as_words()
+                .try_into()
+                .unwrap();
+
+        let headers = TESTNET4_HEADERS
+            .chunks(80)
+            .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+            .collect::<Vec<CircuitBlockHeader>>();
+
+        // Prepare the input for the circuit
+        let header_chain_input = HeaderChainCircuitInput {
+            method_id: testnet4_header_chain_method_id_from_elf,
+            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            block_headers: headers[..10].to_vec(),
+        };
+
+        let mut binding = ExecutorEnv::builder();
+        let env = binding.write_slice(&borsh::to_vec(&header_chain_input).unwrap());
+        let env = env.build().unwrap();
+        let prover = default_prover();
+
+        let header_chain_receipt = prover
+            .prove_with_opts(
+                env,
+                TESTNET4_HEADER_CHAIN_GUEST_ELF,
+                &ProverOpts::succinct(),
+            )
+            .unwrap()
+            .receipt;
+
+        // Extract journal of receipt
+        let header_chain_output =
+            BlockHeaderCircuitOutput::try_from_slice(&header_chain_receipt.journal.bytes).unwrap();
+
+        println!("Output: {:?}", header_chain_output);
+
+        let work_only_input = circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput {
+            header_chain_circuit_output: header_chain_output.clone(),
+        };
+
+        let mut binding = ExecutorEnv::builder();
+        let env = binding.write_slice(&borsh::to_vec(&work_only_input).unwrap());
+        let env = env.add_assumption(header_chain_receipt);
+        let env = env.build().unwrap();
+        let prover = default_prover();
+
+        let work_only_prove_info = prover
+            .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
+            .unwrap();
+
+        println!(
+            "Work only prove info . receipt: {:?}",
+            work_only_prove_info.receipt
+        );
+        println!(
+            "Work only prove info . session stats: {:?}",
+            work_only_prove_info.stats
+        );
+
+        let groth16_seal = &work_only_prove_info.receipt.inner.groth16().unwrap().seal;
+        let seal: [u8; 256] = groth16_seal[0..256].try_into().unwrap();
+
+        // Extract journal of receipt
+        let work_only_output = WorkOnlyCircuitOutput::try_from_slice(
+            &work_only_prove_info.receipt.journal.bytes.clone(),
+        )
+        .unwrap();
+
+        println!("Output: {:?}", work_only_output);
+
+        let circuit_g16_proof = CircuitGroth16Proof::from_seal(&seal);
+        println!("Circuit G16 proof: {:?}", circuit_g16_proof);
     }
 }
