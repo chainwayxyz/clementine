@@ -304,10 +304,11 @@ impl HeaderChainProver {
         let input = WorkOnlyCircuitInput {
             header_chain_circuit_output: block_header_circuit_output,
         };
-        tracing::warn!("input in prove_work_only: {:?}", input);
         let mut env = ExecutorEnv::builder();
 
         env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
+
+        env.add_assumption(hcp_receipt);
 
         let env = env
             .build()

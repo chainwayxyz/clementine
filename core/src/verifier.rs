@@ -1010,7 +1010,7 @@ where
             )
             .await?;
         tracing::warn!("Watchtower challenge tx: {:?}", challenge_tx);
-        tracing::warn!("Watchtower challenge tx bytes: {:?}", bitcoin::consensus::serialize(challenge_tx));
+        tracing::warn!("Watchtower challenge tx bytes: {:?}", bitcoin::consensus::serialize(&challenge_tx));
         let mut dbtx = self.db.begin_transaction().await?;
 
         self.tx_sender
