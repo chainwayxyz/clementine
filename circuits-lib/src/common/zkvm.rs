@@ -41,12 +41,14 @@ impl Default for Risc0Guest {
 }
 
 impl ZkvmGuest for Risc0Guest {
+    /// This uses little endianness in the items it deserializes
     fn read_from_host<T: borsh::BorshDeserialize>(&self) -> T {
         let mut reader = env::stdin();
         BorshDeserialize::deserialize_reader(&mut reader)
             .expect("Failed to deserialize input from host")
     }
 
+    /// This uses little endianness in the items it serializes
     fn commit<T: borsh::BorshSerialize>(&self, item: &T) {
         // use risc0_zkvm::guest::env::Write as _;
         let buf = borsh::to_vec(item).expect("Serialization to vec is infallible");
