@@ -1051,7 +1051,7 @@ where
         }
         for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
             tracing::info!(
-                "Setting withdrawal utxo: {:?} wirh index {}",
+                "Setting withdrawal utxo: {:?} with index {}",
                 withdrawal_utxo_outpoint,
                 idx
             );
