@@ -279,8 +279,8 @@ impl CitreaClientT for CitreaClient {
         loop {
             let deposit_txid = self
                 .contract
-                .depositTxIds(U256::from(last_deposit_idx + 1))
-                .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
+                .depositTxIds(U256::from(last_deposit_idx))
+                // .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
             if deposit_txid.is_err() {
@@ -295,7 +295,7 @@ impl CitreaClientT for CitreaClient {
             let deposit_txid = deposit_txid.expect("Failed to get deposit txid");
             let move_txid = Txid::from_slice(deposit_txid._0.as_ref())
                 .wrap_err("Failed to convert move txid to Txid")?;
-            move_txids.push(((last_deposit_idx + 1) as u64, move_txid));
+            move_txids.push(((last_deposit_idx) as u64, move_txid));
             last_deposit_idx += 1;
         }
         Ok(move_txids)
@@ -311,8 +311,8 @@ impl CitreaClientT for CitreaClient {
         loop {
             let withdrawal_utxo = self
                 .contract
-                .withdrawalUTXOs(U256::from(last_withdrawal_idx + 1))
-                .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
+                .withdrawalUTXOs(U256::from(last_withdrawal_idx))
+                // .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
             if withdrawal_utxo.is_err() {
@@ -325,7 +325,7 @@ impl CitreaClientT for CitreaClient {
             let vout = withdrawal_utxo.outputId.0;
             let vout = u32::from_be_bytes(vout);
             let utxo = OutPoint { txid, vout };
-            utxos.push(((last_withdrawal_idx + 1) as u64, utxo));
+            utxos.push(((last_withdrawal_idx) as u64, utxo));
             last_withdrawal_idx += 1;
         }
         Ok(utxos)
@@ -575,6 +575,10 @@ mod tests {
     #[tokio::test]
     #[ignore = "Includes code that won't change much and the test itself is too flaky; Ignoring..."]
     async fn citrea_get_logs_limit_check() -> citrea_e2e::Result<()> {
+        std::env::set_var(
+            "CITREA_DOCKER_IMAGE",
+            "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
+        );
         TestCaseRunner::new(CitreaGetLogsLimitCheck).run().await
     }
 }
