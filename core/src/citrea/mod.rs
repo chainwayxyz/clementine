@@ -575,11 +575,6 @@ mod tests {
     #[tokio::test]
     #[ignore = "Includes code that won't change much and the test itself is too flaky; Ignoring..."]
     async fn citrea_get_logs_limit_check() -> citrea_e2e::Result<()> {
-        // TODO: temp hack to use the correct docker image
-        std::env::set_var(
-            "CITREA_DOCKER_IMAGE",
-            "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
-        );
         TestCaseRunner::new(CitreaGetLogsLimitCheck).run().await
     }
 }

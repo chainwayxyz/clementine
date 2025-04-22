@@ -146,7 +146,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         // sleep for 1 second
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-        for _ in 0..sequencer.config.node.min_soft_confirmations_per_commitment {
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
 
@@ -174,7 +174,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await?;
 
-        for _ in 0..sequencer.config.node.min_soft_confirmations_per_commitment {
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
         // Make a withdrawal
@@ -240,7 +240,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         tracing::info!("Withdrawal tx sent");
 
         // 1. force sequencer to commit
-        for _ in 0..sequencer.config.node.min_soft_confirmations_per_commitment {
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
         tracing::info!("Publish batch request sent");
@@ -377,11 +377,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
 #[tokio::test]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
-    // TODO: temp hack to use the correct docker image
-    std::env::set_var(
-        "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
-    );
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
 
