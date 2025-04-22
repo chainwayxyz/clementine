@@ -15,10 +15,10 @@ pub mod structs;
 pub mod utils;
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
-    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000026");
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000007");
 
-const DEPOSIT_MAPPING_STORAGE_INDEX: [u8; 32] =
-    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000027");
+const DEPOSIT_STORAGE_INDEX: [u8; 32] =
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000008");
 
 const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
@@ -145,35 +145,40 @@ pub async fn fetch_light_client_proof(
 pub async fn fetch_storage_proof(
     l2_height: &String,
     deposit_index: u32,
-    move_to_vault_txid: [u8; 32],
     client: RpcClient,
 ) -> StorageProof {
     let ind = deposit_index;
     let tx_index: u32 = ind * 2;
 
-    let storage_address_bytes = keccak256(UTXOS_STORAGE_INDEX);
-    let storage_address: U256 = U256::from_be_bytes(
-        <[u8; 32]>::try_from(&storage_address_bytes[..]).expect("Slice with incorrect length"),
+    let storage_address_wd_utxo_bytes = keccak256(UTXOS_STORAGE_INDEX);
+    let storage_address_wd_utxo: U256 = U256::from_be_bytes(
+        <[u8; 32]>::try_from(&storage_address_wd_utxo_bytes[..]).expect("Slice with incorrect length"),
     );
 
     // Storage key address calculation UTXO
-    let storage_key: alloy_primitives::Uint<256, 4> = storage_address + U256::from(tx_index);
-    let storage_key_hex = hex::encode(storage_key.to_be_bytes::<32>());
-    let storage_key_hex = format!("0x{}", storage_key_hex);
+    let storage_key_wd_utxo: alloy_primitives::Uint<256, 4> = storage_address_wd_utxo + U256::from(tx_index);
+    let storage_key_wd_utxo_hex = hex::encode(storage_key_wd_utxo.to_be_bytes::<32>());
+    let storage_key_wd_utxo_hex = format!("0x{}", storage_key_wd_utxo_hex);
 
     // Storage key address calculation Deposit
-    let concatenated = [move_to_vault_txid, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
-    let storage_address_deposit = keccak256(concatenated);
-    let storage_address_deposit_hex = hex::encode(storage_address_deposit);
-    let storage_address_deposit_hex = format!("0x{}", storage_address_deposit_hex);
+    let storage_address_deposit_bytes = keccak256(DEPOSIT_STORAGE_INDEX);
+    let storage_address_deposit: U256 = U256::from_be_bytes(
+        <[u8; 32]>::try_from(&storage_address_deposit_bytes[..]).expect("Slice with incorrect length"),
+    );
+
+    let storage_key_deposit: alloy_primitives::Uint<256, 4> = storage_address_deposit + U256::from(deposit_index);
+    let storage_key_deposit_hex = hex::encode(storage_key_deposit.to_be_bytes::<32>());
+    let storage_key_deposit_hex = format!("0x{}", storage_key_deposit_hex);
 
     let request = json!([
         CONTRACT_ADDRESS,
-        [storage_key_hex, storage_address_deposit_hex],
+        [storage_key_wd_utxo_hex, storage_key_deposit_hex],
         l2_height
     ]);
 
     let response: serde_json::Value = client.request("eth_getProof", request).await.unwrap();
+
+    println!("Response: {:?}", response);
 
     let response: EIP1186AccountProofResponse = serde_json::from_value(response).unwrap();
 
@@ -181,11 +186,12 @@ pub async fn fetch_storage_proof(
 
     let serialized_deposit = serde_json::to_string(&response.storage_proof[1]).unwrap();
 
+
+
     StorageProof {
         storage_proof_utxo: serialized_utxo,
         storage_proof_deposit_idx: serialized_deposit,
         index: ind,
-        txid_hex: move_to_vault_txid,
     }
 }
 
@@ -221,4 +227,36 @@ fn receipt_from_inner(inner: InnerReceipt) -> eyre::Result<Receipt> {
         .value()
         .or_else(|_| bail!("Journal content is empty"))?;
     Ok(Receipt::new(inner, journal))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+    use alloy_rpc_client::ClientBuilder;
+
+    const CITREA_TESTNET_RPC: &str = "https://rpc.testnet.citrea.xyz/";
+
+    #[tokio::test]
+    async fn test_fetch_storage_proof() {
+        let citrea_rpc_client = ClientBuilder::default().http(CITREA_TESTNET_RPC.parse().unwrap());
+
+        let storage_proof = fetch_storage_proof(
+            &"latest".to_string(),
+            37,
+            citrea_rpc_client,
+        )
+        .await;
+
+        println!("Storage proof: {:?}", storage_proof);
+
+        // write to file 
+        let mut file = std::fs::File::create("storage_proof.bin").unwrap();
+        file.write_all(borsh::to_vec(&storage_proof).expect("Serialization failed").as_slice())
+            .expect("Failed to write to file");
+
+        assert_eq!(storage_proof.index, 37);
+    }
 }

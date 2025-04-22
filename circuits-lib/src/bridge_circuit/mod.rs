@@ -151,7 +151,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let state_root = lc_proof_verifier(input.lcp.clone());
 
     // Storage proof verification for deposit tx index and withdrawal outpoint
-    let user_wd_outpoint_str = verify_storage_proofs(&input.sp, state_root);
+    let (user_wd_outpoint_str, move_tx_id) = verify_storage_proofs(&input.sp, state_root);
 
     let user_wd_outpoint = num_bigint::BigUint::from_str(&user_wd_outpoint_str).unwrap();
 
@@ -174,7 +174,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         last_output,
         &kickoff_txid,
         &input.all_watchtower_pubkeys,
-        input.sp.txid_hex,
+        move_tx_id
     );
 
     let latest_blockhash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32]
