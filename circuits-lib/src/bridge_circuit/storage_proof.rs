@@ -149,8 +149,8 @@ mod tests {
     const STORAGE_PROOF: &[u8] =
         include_bytes!("../../../bridge-circuit-host/bin-files/storage_proof.bin");
 
-    #[tokio::test]
-    async fn test_verify_storage_proofs() {
+    #[test]
+    fn test_verify_storage_proofs() {
         let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
         let state_root: [u8; 32] =
