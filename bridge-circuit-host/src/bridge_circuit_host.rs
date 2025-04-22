@@ -4,16 +4,17 @@ use crate::structs::{
 };
 use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
+use bitcoin::absolute::Height;
+use bitcoin::transaction::Version;
 use bitcoin::Transaction;
 use bitcoin::{consensus::Decodable, hashes::Hash};
 use borsh::{self, BorshDeserialize};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit::structs::{
-    BridgeCircuitInput, WatchtowerInputs, WorkOnlyCircuitInput,
-};
+use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
 use final_spv::merkle_tree::BitcoinMerkleTree;
 use final_spv::spv::SPV;
+use final_spv::transaction::CircuitTransaction;
 use header_chain::header_chain::CircuitBlockHeader;
 
 use header_chain::mmr_native::MMRNative;
@@ -61,19 +62,18 @@ pub fn prove_bridge_circuit(
     BridgeCircuitBitvmInputs,
 ) {
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
-        kickoff_tx: vec![],
-        watchtower_inputs: WatchtowerInputs {
-            watchtower_idxs: vec![],
-            watchtower_challenge_input_idxs: vec![],
-            watchtower_pubkeys: vec![],
-            watchtower_challenge_utxos: vec![],
-            watchtower_challenge_txs: vec![],
-            watchtower_challenge_witnesses: vec![],
-        },
+        kickoff_tx: CircuitTransaction(Transaction {
+            version: Version(2),
+            lock_time: bitcoin::absolute::LockTime::Blocks(Height::from_consensus(0).unwrap()),
+            input: vec![],
+            output: vec![],
+        }),
+        watchtower_inputs: vec![], // Empty vector of WatchtowerInput
         hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
         payout_spv: bridge_circuit_host_params.spv,
         lcp: bridge_circuit_host_params.light_client_proof,
         sp: bridge_circuit_host_params.storage_proof,
+        all_watchtower_pubkeys: vec![],
     };
 
     let header_chain_proof_output_serialized =
@@ -233,7 +233,7 @@ pub fn create_spv(
     let payout_tx_proof = block_mt.generate_proof(payment_tx_index);
 
     SPV {
-        transaction: payout_tx.into(),
+        transaction: CircuitTransaction(payout_tx),
         block_inclusion_proof: payout_tx_proof,
         block_header: payment_block.header.into(),
         mmr_inclusion_proof: mmr_inclusion_proof.1,
