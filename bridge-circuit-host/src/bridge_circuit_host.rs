@@ -11,11 +11,12 @@ use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{
     BridgeCircuitInput, WatchtowerInputs, WorkOnlyCircuitInput,
 };
-use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
+use circuits_lib::bridge_circuit::{self, MAINNET, REGTEST, SIGNET, TESTNET4};
 use final_spv::merkle_tree::BitcoinMerkleTree;
 use final_spv::spv::SPV;
 use header_chain::header_chain::CircuitBlockHeader;
 
+use circuits_lib::assert_all_eq;
 use header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 
@@ -60,15 +61,30 @@ pub fn prove_bridge_circuit(
     [u8; 31],
     BridgeCircuitBitvmInputs,
 ) {
+    let watchtower_idxs = vec![];
+    let challenge_input_idxs = vec![];
+    let challenge_txs = vec![];
+    let challenge_witnesses = vec![];
+    let watchtower_pubkeys = vec![];
+    let challenge_utxos = vec![];
+
+    assert_all_eq!(
+        challenge_txs.len(),
+        challenge_utxos.len(),
+        challenge_input_idxs.len(),
+        watchtower_idxs.len(),
+        challenge_witnesses.len()
+    );
+
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         kickoff_tx: vec![],
         watchtower_inputs: WatchtowerInputs {
-            watchtower_idxs: vec![],
-            watchtower_challenge_input_idxs: vec![],
-            watchtower_pubkeys: vec![],
-            watchtower_challenge_utxos: vec![],
-            watchtower_challenge_txs: vec![],
-            watchtower_challenge_witnesses: vec![],
+            watchtower_idxs,
+            watchtower_pubkeys,
+            watchtower_challenge_input_idxs: challenge_input_idxs,
+            watchtower_challenge_utxos: challenge_utxos,
+            watchtower_challenge_txs: challenge_txs,
+            watchtower_challenge_witnesses: challenge_witnesses,
         },
         hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
         payout_spv: bridge_circuit_host_params.spv,

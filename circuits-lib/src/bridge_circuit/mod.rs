@@ -32,6 +32,7 @@ use structs::{
     BridgeCircuitInput, WatchTowerChallengeTxCommitment, WatchtowerChallengeSet, WatchtowerInputs,
 };
 
+#[macro_export]
 macro_rules! assert_all_eq {
     ($first:expr, $( $x:expr ),+ ) => {
         $(
@@ -244,6 +245,8 @@ fn convert_to_groth16_and_verify(
 /// - And, if all checks pass, it marks the corresponding bit in a 20-byte bitmap
 ///   (`challenge_sending_watchtowers`) and collects the first 3 outputs of the
 ///   watchtower transaction into `watchtower_challenges_outputs`.
+///
+///   Note: This function only verifies keypath spends.
 ///
 /// # Parameters
 /// - `circuit_input`: Data structure holding serialized watchtower transactions, UTXOs, input indices, and pubkeys.
