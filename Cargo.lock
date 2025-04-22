@@ -1993,7 +1993,6 @@ name = "circuits-lib"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
- "alloy-rpc-client",
  "alloy-rpc-types",
  "alloy-rpc-types-eth",
  "ark-bn254",
@@ -2028,7 +2027,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "tokio",
  "tracing",
 ]
 
