@@ -13,7 +13,7 @@ use sqlx::QueryBuilder;
 
 impl Database {
     /// Returns the last deposit index.
-    /// If no deposits exist, returns -1.
+    /// If no deposits exist, returns 0.
     pub async fn get_last_deposit_idx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -24,7 +24,7 @@ impl Database {
     }
 
     /// Returns the last withdrawal index where withdrawal_utxo_txid exists.
-    /// If no withdrawals with UTXOs exist, returns -1.
+    /// If no withdrawals with UTXOs exist, returns 0.
     pub async fn get_last_withdrawal_idx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
