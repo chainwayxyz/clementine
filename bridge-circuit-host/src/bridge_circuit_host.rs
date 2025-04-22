@@ -136,7 +136,7 @@ pub fn prove_bridge_circuit(
     let prover = default_prover();
 
     tracing::info!("PROVING Bridge CIRCUIT");
-    
+
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
         .unwrap()
@@ -323,10 +323,9 @@ fn generate_succinct_bridge_circuit_public_inputs(
     let mut operator_id = [0u8; 32];
     operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
 
-
     let deposit_storage_proof: EIP1186StorageProof =
-    serde_json::from_str(&input.sp.storage_proof_deposit_idx)
-        .expect("Failed to deserialize deposit storage proof");
+        serde_json::from_str(&input.sp.storage_proof_deposit_idx)
+            .expect("Failed to deserialize deposit storage proof");
 
     SuccinctBridgeCircuitPublicInputs {
         challenge_sending_watchtowers,

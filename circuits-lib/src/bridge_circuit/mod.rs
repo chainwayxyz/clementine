@@ -174,7 +174,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         last_output,
         &kickoff_txid,
         &input.all_watchtower_pubkeys,
-        move_tx_id
+        move_tx_id,
     );
 
     let latest_blockhash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32]
