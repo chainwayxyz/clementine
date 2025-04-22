@@ -18,7 +18,7 @@ use alloy::{
     sol_types::SolEvent,
     transports::http::reqwest::Url,
 };
-use bitcoin::{hashes::Hash, OutPoint, Txid};
+use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
@@ -130,6 +130,11 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         block_height: u64,
         timeout: Duration,
     ) -> Result<(u64, u64), BridgeError>;
+
+    async fn check_nofn_correctness(
+        &self,
+        nofn_xonly_pk: XOnlyPublicKey,
+    ) -> Result<(), BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -172,7 +177,7 @@ impl CitreaClient {
                 .wrap_err("Failed to get logs")?;
             logs.extend(logs_chunk);
 
-            from_height += to_height;
+            from_height = to_height + 1;
         }
 
         Ok(logs)
@@ -372,6 +377,30 @@ impl CitreaClientT for CitreaClient {
 
         Ok((l2_height_start, l2_height_end))
     }
+
+    /// TODO: This is not the best way to do this, but it's a quick fix for now
+    async fn check_nofn_correctness(
+        &self,
+        _nofn_xonly_pk: XOnlyPublicKey,
+    ) -> Result<(), BridgeError> {
+        // let script_prefix = self
+        //     .contract
+        //     .scriptPrefix()
+        //     .call()
+        //     .await
+        //     .wrap_err("Failed to get script prefix")?
+        //     ._0;
+        // if script_prefix.len() < 34 {
+        //     return Err(eyre::eyre!("script_prefix is too short").into());
+        // }
+        // let script_nofn_bytes = &script_prefix[2..2 + 32];
+        // let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(script_nofn_bytes)
+        //     .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
+        // if contract_nofn_xonly_pk != nofn_xonly_pk {
+        //     return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
+        // }
+        Ok(())
+    }
 }
 
 #[rpc(client, namespace = "lightClientProver")]
@@ -403,7 +432,7 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
 mod tests {
     use crate::citrea::CitreaClientT;
     use crate::citrea::BRIDGE_CONTRACT::Withdrawal;
-    use crate::test::common::citrea::BRIDGE_PARAMS;
+    use crate::test::common::citrea::get_bridge_params;
     use crate::{
         citrea::CitreaClient,
         test::common::{
@@ -448,7 +477,7 @@ mod tests {
 
         fn sequencer_config() -> SequencerConfig {
             SequencerConfig {
-                bridge_initialize_params: BRIDGE_PARAMS.to_string(),
+                bridge_initialize_params: get_bridge_params().to_string(),
                 ..Default::default()
             }
         }

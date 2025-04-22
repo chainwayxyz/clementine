@@ -14,6 +14,18 @@ pub struct Outpoint {
     #[prost(uint32, tag = "2")]
     pub vout: u32,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XonlyPublicKey {
+    #[prost(bytes = "vec", tag = "1")]
+    pub xonly_pk: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NofnResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "2")]
+    pub num_verifiers: u32,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NormalSignatureId {
     #[prost(enumeration = "NormalSignatureKind", tag = "1")]
@@ -62,52 +74,57 @@ pub struct WinternitzPubkey {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositParams {
-    #[prost(oneof = "deposit_params::DepositData", tags = "1, 2")]
-    pub deposit_data: ::core::option::Option<deposit_params::DepositData>,
+    #[prost(message, optional, tag = "1")]
+    pub deposit: ::core::option::Option<Deposit>,
+    #[prost(message, optional, tag = "2")]
+    pub actors: ::core::option::Option<Actors>,
 }
-/// Nested message and enum types in `DepositParams`.
-pub mod deposit_params {
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Deposit {
+    /// / User's deposit UTXO.
+    #[prost(message, optional, tag = "1")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+    #[prost(oneof = "deposit::DepositData", tags = "2, 3")]
+    pub deposit_data: ::core::option::Option<deposit::DepositData>,
+}
+/// Nested message and enum types in `Deposit`.
+pub mod deposit {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum DepositData {
-        #[prost(message, tag = "1")]
-        BaseDeposit(super::BaseDeposit),
         #[prost(message, tag = "2")]
+        BaseDeposit(super::BaseDeposit),
+        #[prost(message, tag = "3")]
         ReplacementDeposit(super::ReplacementDeposit),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ReplacementDeposit {
-    /// Deposit UTXO.
+pub struct Actors {
+    /// / Public keys of verifiers that will participate in the deposit.
     #[prost(message, optional, tag = "1")]
-    pub deposit_outpoint: ::core::option::Option<Outpoint>,
-    /// Move to vault txid that is being replaced.
+    pub verifiers: ::core::option::Option<VerifierPublicKeys>,
+    /// / X-only public keys of watchtowers that will participate in the deposit.
+    /// / NOTE: verifiers are automatically considered watchtowers. This field is only for additional watchtowers.
     #[prost(message, optional, tag = "2")]
+    pub watchtowers: ::core::option::Option<XOnlyPublicKeys>,
+    /// / X-only public keys of operators that will participate in the deposit.
+    #[prost(message, optional, tag = "3")]
+    pub operators: ::core::option::Option<XOnlyPublicKeys>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReplacementDeposit {
+    /// Move to vault txid that is being replaced.
+    #[prost(message, optional, tag = "1")]
     pub old_move_txid: ::core::option::Option<Txid>,
-    /// nofn public key used to sign the deposit
-    #[prost(bytes = "vec", tag = "3")]
-    pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
-    /// Num of verifiers that will participate in the deposit.
-    #[prost(uint64, tag = "4")]
-    pub num_verifiers: u64,
 }
 /// A new original deposit request's details.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BaseDeposit {
-    /// User's deposit UTXO.
-    #[prost(message, optional, tag = "1")]
-    pub deposit_outpoint: ::core::option::Option<Outpoint>,
     /// User's EVM address.
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "1")]
     pub evm_address: ::prost::alloc::vec::Vec<u8>,
     /// User's recovery taproot address.
-    #[prost(string, tag = "3")]
+    #[prost(string, tag = "2")]
     pub recovery_taproot_address: ::prost::alloc::string::String,
-    /// nofn public key used to sign the deposit
-    #[prost(bytes = "vec", tag = "4")]
-    pub nofn_xonly_pk: ::prost::alloc::vec::Vec<u8>,
-    /// Num of verifiers that will participate in the deposit.
-    #[prost(uint64, tag = "5")]
-    pub num_verifiers: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NumberedTransactionId {
@@ -131,11 +148,10 @@ pub mod grpc_transaction_id {
         NumberedTransaction(super::NumberedTransactionId),
     }
 }
-#[derive(Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct KickoffId {
-    #[prost(uint32, tag = "1")]
-    pub operator_idx: u32,
+    #[prost(bytes = "vec", tag = "1")]
+    pub operator_xonly_pk: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag = "2")]
     pub round_idx: u32,
     #[prost(uint32, tag = "3")]
@@ -144,7 +160,7 @@ pub struct KickoffId {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TransactionRequest {
     #[prost(message, optional, tag = "1")]
-    pub deposit_params: ::core::option::Option<DepositParams>,
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
     #[prost(message, optional, tag = "2")]
     pub kickoff_id: ::core::option::Option<KickoffId>,
 }
@@ -158,13 +174,11 @@ pub struct DepositSignSession {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorConfig {
-    #[prost(uint32, tag = "1")]
-    pub operator_idx: u32,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag = "1")]
     pub collateral_funding_outpoint: ::core::option::Option<Outpoint>,
-    #[prost(string, tag = "3")]
+    #[prost(string, tag = "2")]
     pub xonly_pk: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "3")]
     pub wallet_reimburse_address: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -193,8 +207,8 @@ pub struct OperatorKeysWithDeposit {
     pub operator_keys: ::core::option::Option<OperatorKeys>,
     #[prost(message, optional, tag = "2")]
     pub deposit_params: ::core::option::Option<DepositParams>,
-    #[prost(uint32, tag = "3")]
-    pub operator_idx: u32,
+    #[prost(bytes = "vec", tag = "3")]
+    pub operator_xonly_pk: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorKeys {
@@ -270,17 +284,14 @@ pub struct FinalizedPayoutParams {
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XOnlyPublicKeyRpc {
+    #[prost(bytes = "vec", tag = "1")]
+    pub xonly_public_key: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierParams {
-    #[prost(uint32, tag = "1")]
-    pub id: u32,
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes = "vec", tag = "1")]
     pub public_key: ::prost::alloc::vec::Vec<u8>,
-    #[prost(uint32, tag = "3")]
-    pub num_verifiers: u32,
-    #[prost(uint32, tag = "4")]
-    pub num_operators: u32,
-    #[prost(uint32, tag = "5")]
-    pub num_round_txs: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PartialSig {
@@ -420,6 +431,11 @@ pub struct TxDebugInfo {
     pub raw_tx: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag = "12")]
     pub metadata: ::core::option::Option<TxMetadata>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct XOnlyPublicKeys {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub xonly_public_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedTx {
@@ -833,7 +849,7 @@ pub mod clementine_operator_client {
             self
         }
         /// Returns an operator's deposit keys.
-        /// Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
+        /// Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
         pub async fn get_deposit_keys(
             &mut self,
             request: impl tonic::IntoRequest<super::DepositParams>,
@@ -1113,6 +1129,33 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// Returns the operator's xonly public key
+        pub async fn get_x_only_public_key(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::XOnlyPublicKeyRpc>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/GetXOnlyPublicKey",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineOperator", "GetXOnlyPublicKey"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated client implementations.
@@ -1320,30 +1363,6 @@ pub mod clementine_verifier_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "GetParams"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Saves all verifiers public keys.
-        pub async fn set_verifiers(
-            &mut self,
-            request: impl tonic::IntoRequest<super::VerifierPublicKeys>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineVerifier/SetVerifiers",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("clementine.ClementineVerifier", "SetVerifiers"),
-                );
             self.inner.unary(req, path, codec).await
         }
         /// Saves an operator.
@@ -1594,13 +1613,18 @@ pub mod clementine_aggregator_client {
             self
         }
         /// Sets up the system of verifiers, watchtowers and operators by:
-        /// 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
-        /// 2. Collecting all operator configs, and distributing them to all verifiers
-        /// 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
+        ///
+        /// 1. Collects verifier keys from each verifier
+        /// 2. Distributes these verifier keys to all verifiers
+        /// 3. Collects all operator configs from each operator
+        /// 4. Distributes these operator configs to all verifiers
         pub async fn setup(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::VerifierPublicKeys>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1626,7 +1650,7 @@ pub mod clementine_aggregator_client {
         /// tx.
         pub async fn new_deposit(
             &mut self,
-            request: impl tonic::IntoRequest<super::DepositParams>,
+            request: impl tonic::IntoRequest<super::Deposit>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status> {
             self.inner
                 .ready()
@@ -1696,6 +1720,32 @@ pub mod clementine_aggregator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn get_nofn_aggregated_xonly_pk(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/GetNofnAggregatedXonlyPk",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineAggregator",
+                        "GetNofnAggregatedXonlyPk",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -1712,7 +1762,7 @@ pub mod clementine_operator_server {
     #[async_trait]
     pub trait ClementineOperator: std::marker::Send + std::marker::Sync + 'static {
         /// Returns an operator's deposit keys.
-        /// Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
+        /// Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
         async fn get_deposit_keys(
             &self,
             request: tonic::Request<super::DepositParams>,
@@ -1824,6 +1874,14 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        /// Returns the operator's xonly public key
+        async fn get_x_only_public_key(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<
+            tonic::Response<super::XOnlyPublicKeyRpc>,
+            tonic::Status,
+        >;
     }
     /// An operator is responsible for paying withdrawals. It has an unique ID and
     /// chain of UTXOs named `round_txs`. An operator also runs a verifier. These are
@@ -2334,6 +2392,53 @@ pub mod clementine_operator_server {
                     };
                     Box::pin(fut)
                 }
+                "/clementine.ClementineOperator/GetXOnlyPublicKey" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetXOnlyPublicKeySvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty>
+                    for GetXOnlyPublicKeySvc<T> {
+                        type Response = super::XOnlyPublicKeyRpc;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::get_x_only_public_key(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetXOnlyPublicKeySvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 _ => {
                     Box::pin(async move {
                         let mut response = http::Response::new(empty_body());
@@ -2421,11 +2526,6 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::VerifierParams>, tonic::Status>;
-        /// Saves all verifiers public keys.
-        async fn set_verifiers(
-            &self,
-            request: tonic::Request<super::VerifierPublicKeys>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Saves an operator.
         async fn set_operator(
             &self,
@@ -2732,52 +2832,6 @@ pub mod clementine_verifier_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetParamsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/clementine.ClementineVerifier/SetVerifiers" => {
-                    #[allow(non_camel_case_types)]
-                    struct SetVerifiersSvc<T: ClementineVerifier>(pub Arc<T>);
-                    impl<
-                        T: ClementineVerifier,
-                    > tonic::server::UnaryService<super::VerifierPublicKeys>
-                    for SetVerifiersSvc<T> {
-                        type Response = super::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::VerifierPublicKeys>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ClementineVerifier>::set_verifiers(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = SetVerifiersSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -3129,13 +3183,18 @@ pub mod clementine_aggregator_server {
     #[async_trait]
     pub trait ClementineAggregator: std::marker::Send + std::marker::Sync + 'static {
         /// Sets up the system of verifiers, watchtowers and operators by:
-        /// 1. Collecting verifier keys, then distributing all verifier keys to all verifiers
-        /// 2. Collecting all operator configs, and distributing them to all verifiers
-        /// 3. Collecting all possible Winternitz pubkeys (determined by operator idx, seqcol idx, kickoff idx) from watchtowers, and distributing to verifiers.
+        ///
+        /// 1. Collects verifier keys from each verifier
+        /// 2. Distributes these verifier keys to all verifiers
+        /// 3. Collects all operator configs from each operator
+        /// 4. Distributes these operator configs to all verifiers
         async fn setup(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::VerifierPublicKeys>,
+            tonic::Status,
+        >;
         /// This will call, DepositNonceGen for every verifier,
         /// then it will aggregate one by one and then send it to DepositSign,
         /// then it will aggregate the partial sigs and send it to DepositFinalize,
@@ -3144,7 +3203,7 @@ pub mod clementine_aggregator_server {
         /// tx.
         async fn new_deposit(
             &self,
-            request: tonic::Request<super::DepositParams>,
+            request: tonic::Request<super::Deposit>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
         /// Call's withdraw on all operators
         async fn withdraw(
@@ -3159,6 +3218,10 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::SendTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        async fn get_nofn_aggregated_xonly_pk(
+            &self,
+            request: tonic::Request<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ClementineAggregatorServer<T> {
@@ -3243,7 +3306,7 @@ pub mod clementine_aggregator_server {
                     impl<
                         T: ClementineAggregator,
                     > tonic::server::UnaryService<super::Empty> for SetupSvc<T> {
-                        type Response = super::Empty;
+                        type Response = super::VerifierPublicKeys;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -3286,8 +3349,7 @@ pub mod clementine_aggregator_server {
                     struct NewDepositSvc<T: ClementineAggregator>(pub Arc<T>);
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::DepositParams>
-                    for NewDepositSvc<T> {
+                    > tonic::server::UnaryService<super::Deposit> for NewDepositSvc<T> {
                         type Response = super::Txid;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -3295,7 +3357,7 @@ pub mod clementine_aggregator_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::DepositParams>,
+                            request: tonic::Request<super::Deposit>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -3406,6 +3468,57 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalSendTxSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/GetNofnAggregatedXonlyPk" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetNofnAggregatedXonlyPkSvc<T: ClementineAggregator>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::Empty>
+                    for GetNofnAggregatedXonlyPkSvc<T> {
+                        type Response = super::NofnResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::get_nofn_aggregated_xonly_pk(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetNofnAggregatedXonlyPkSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

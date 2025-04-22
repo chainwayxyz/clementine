@@ -1,11 +1,17 @@
 //! This module defines a command line interface for the RPC client.
 
+use std::str::FromStr;
+
+use bitcoin::{hashes::Hash, Amount};
 use clap::{Parser, Subcommand};
-use clementine_core::rpc::clementine::{
-    clementine_aggregator_client::ClementineAggregatorClient,
-    clementine_operator_client::ClementineOperatorClient,
-    clementine_verifier_client::ClementineVerifierClient, deposit_params::DepositData, BaseDeposit,
-    DepositParams, Empty, Outpoint,
+use clementine_core::{
+    rpc::clementine::{
+        clementine_aggregator_client::ClementineAggregatorClient,
+        clementine_operator_client::ClementineOperatorClient,
+        clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
+        BaseDeposit, Deposit, Empty, Outpoint, VerifierPublicKeys, XOnlyPublicKeys,
+    },
+    EVMAddress,
 };
 use tonic::Request;
 
@@ -47,8 +53,6 @@ enum OperatorCommands {
         deposit_outpoint_txid: String,
         #[arg(long)]
         deposit_outpoint_vout: u32,
-        #[arg(long)]
-        num_verifiers: u64,
     },
     /// Get operator parameters
     GetParams,
@@ -79,11 +83,11 @@ enum VerifierCommands {
         #[arg(long)]
         num_nonces: u32,
     },
-    /// Set verifier public keys
-    SetVerifiers {
-        #[arg(long, num_args = 1.., value_delimiter = ',')]
-        public_keys: Vec<String>,
-    },
+    // /// Set verifier public keys
+    // SetVerifiers {
+    //     #[arg(long, num_args = 1.., value_delimiter = ',')]
+    //     public_keys: Vec<String>,
+    // },
     // Add other verifier commands as needed
 }
 
@@ -98,15 +102,30 @@ enum AggregatorCommands {
         #[arg(long)]
         deposit_outpoint_vout: u32,
         #[arg(long)]
-        evm_address: String,
+        evm_address: Option<String>,
         #[arg(long)]
-        recovery_taproot_address: String,
-        #[arg(long)]
-        nofn_xonly_pk: String,
-        #[arg(long)]
-        num_verifiers: u64,
+        recovery_taproot_address: Option<String>,
     },
-    // Add other aggregator commands as needed
+    /// Get the aggregated NofN x-only public key
+    GetNofnAggregatedKey,
+    /// Get deposit address
+    GetDepositAddress {
+        #[arg(long)]
+        evm_address: Option<String>,
+        #[arg(long)]
+        recovery_taproot_address: Option<String>,
+        #[arg(long)]
+        network: Option<String>,
+        #[arg(long)]
+        bridge_amount: Option<u64>,
+        #[arg(long)]
+        user_takes_after: Option<u64>,
+    },
+    /// Get transaction parameters of a move transaction
+    GetTxParamsOfMoveTx {
+        #[arg(long)]
+        move_txid: String,
+    },
 }
 
 async fn handle_operator_call(url: String, command: OperatorCommands) {
@@ -121,23 +140,33 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
         OperatorCommands::GetDepositKeys {
             deposit_outpoint_txid,
             deposit_outpoint_vout,
-            num_verifiers,
         } => {
             println!(
                 "Getting deposit keys for outpoint {}:{}",
                 deposit_outpoint_txid, deposit_outpoint_vout
             );
             let params = clementine_core::rpc::clementine::DepositParams {
-                deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                deposit: Some(Deposit {
                     deposit_outpoint: Some(Outpoint {
                         txid: deposit_outpoint_txid.into(),
                         vout: deposit_outpoint_vout,
                     }),
-                    evm_address: vec![1; 20],
-                    recovery_taproot_address: String::new(),
-                    nofn_xonly_pk: vec![1; 32],
-                    num_verifiers,
-                })),
+                    deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
+                        evm_address: vec![1; 20],
+                        recovery_taproot_address: String::new(),
+                    })),
+                }),
+                actors: Some(Actors {
+                    verifiers: Some(VerifierPublicKeys {
+                        verifier_public_keys: vec![],
+                    }),
+                    watchtowers: Some(XOnlyPublicKeys {
+                        xonly_public_keys: vec![],
+                    }),
+                    operators: Some(XOnlyPublicKeys {
+                        xonly_public_keys: vec![],
+                    }),
+                }),
             };
             let response = operator
                 .get_deposit_keys(Request::new(params))
@@ -205,16 +234,6 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .expect("Failed to make a request");
             println!("Noncegen response: {:?}", response);
         }
-        VerifierCommands::SetVerifiers { public_keys } => {
-            let params = clementine_core::rpc::clementine::VerifierPublicKeys {
-                verifier_public_keys: public_keys.iter().map(|k| k.as_bytes().to_vec()).collect(),
-            };
-            let response = verifier
-                .set_verifiers(Request::new(params))
-                .await
-                .expect("Failed to make a request");
-            println!("Set verifier public keys response: {:?}", response);
-        }
     }
 }
 
@@ -240,25 +259,127 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             deposit_outpoint_vout,
             evm_address,
             recovery_taproot_address,
-            nofn_xonly_pk,
-            num_verifiers,
         } => {
+            let evm_address = match evm_address {
+                Some(address) => EVMAddress(
+                    hex::decode(address)
+                        .expect("Failed to decode evm address")
+                        .try_into()
+                        .expect("Failed to convert evm address to array"),
+                ),
+                None => EVMAddress([1; 20]),
+            };
+
+            let recovery_taproot_address = match recovery_taproot_address {
+                Some(address) => bitcoin::Address::from_str(&address)
+                    .expect("Failed to parse recovery taproot address"),
+                None => bitcoin::Address::from_str(
+                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
+                )
+                .expect("Failed to parse recovery taproot address"),
+            };
+
+            let mut deposit_outpoint_txid =
+                hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
+            deposit_outpoint_txid.reverse();
+
             let deposit = aggregator
-                .new_deposit(DepositParams {
+                .new_deposit(Deposit {
+                    deposit_outpoint: Some(Outpoint {
+                        txid: deposit_outpoint_txid,
+                        vout: deposit_outpoint_vout,
+                    }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
-                        deposit_outpoint: Some(Outpoint {
-                            txid: deposit_outpoint_txid.as_bytes().to_vec(),
-                            vout: deposit_outpoint_vout,
-                        }),
-                        evm_address: evm_address.as_bytes().to_vec(),
-                        recovery_taproot_address,
-                        nofn_xonly_pk: nofn_xonly_pk.as_bytes().to_vec(),
-                        num_verifiers,
+                        evm_address: evm_address.0.to_vec(),
+                        recovery_taproot_address: recovery_taproot_address
+                            .assume_checked()
+                            .to_string(),
                     })),
                 })
                 .await
                 .expect("Failed to make a request");
-            println!("{:?}", deposit);
+            let move_txid = deposit.get_ref().txid.clone();
+            let txid = bitcoin::Txid::from_byte_array(
+                move_txid
+                    .try_into()
+                    .expect("Failed to convert txid to array"),
+            );
+            println!("Move txid: {}", txid);
+        }
+        AggregatorCommands::GetNofnAggregatedKey => {
+            let response = aggregator
+                .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
+                .await
+                .expect("Failed to make a request");
+            let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
+                .expect("Failed to parse xonly_pk");
+            println!("{:?}", xonly_pk.to_string());
+        }
+        AggregatorCommands::GetDepositAddress {
+            evm_address,
+            recovery_taproot_address,
+            network,
+            bridge_amount,
+            user_takes_after,
+        } => {
+            let response = aggregator
+                .get_nofn_aggregated_xonly_pk(Request::new(Empty {}))
+                .await
+                .expect("Failed to make a request");
+            let xonly_pk = bitcoin::XOnlyPublicKey::from_slice(&response.get_ref().nofn_xonly_pk)
+                .expect("Failed to parse xonly_pk");
+
+            let recovery_taproot_address = match recovery_taproot_address {
+                Some(address) => bitcoin::Address::from_str(&address)
+                    .expect("Failed to parse recovery taproot address"),
+                None => bitcoin::Address::from_str(
+                    "tb1p9k6y4my6vacczcyc4ph2m5q96hnxt5qlrqd9484qd9cwgrasc54qw56tuh",
+                )
+                .expect("Failed to parse recovery taproot address"),
+            };
+
+            let evm_address = match evm_address {
+                Some(address) => EVMAddress(
+                    hex::decode(address)
+                        .expect("Failed to decode evm address")
+                        .try_into()
+                        .expect("Failed to convert evm address to array"),
+                ),
+                None => EVMAddress([1; 20]),
+            };
+
+            let network = match network {
+                Some(network) => {
+                    bitcoin::Network::from_str(&network).expect("Failed to parse network")
+                }
+                None => bitcoin::Network::Regtest,
+            };
+
+            let bridge_amount = match bridge_amount {
+                Some(amount) => Amount::from_sat(amount),
+                None => Amount::from_sat(1_000_000_000),
+            };
+
+            let user_takes_after = match user_takes_after {
+                Some(amount) => amount as u16,
+                None => 200,
+            };
+
+            let deposit_address = clementine_core::builder::address::generate_deposit_address(
+                xonly_pk,
+                &recovery_taproot_address,
+                evm_address,
+                bridge_amount,
+                network,
+                user_takes_after,
+            )
+            .expect("Failed to generate deposit address");
+
+            println!("Deposit address: {}", deposit_address.0);
+        }
+        AggregatorCommands::GetTxParamsOfMoveTx { move_txid: _ } => {
+            // TODO: Implement get_tx_params_of_move_tx handler
+            println!("GetTxParamsOfMoveTx command not implemented yet");
         }
     }
 }

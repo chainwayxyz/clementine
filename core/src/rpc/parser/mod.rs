@@ -1,13 +1,14 @@
 use super::clementine::{
-    self, BaseDeposit, DepositParams, FeeType, Outpoint, RawSignedTx, ReplacementDeposit,
-    SchnorrSig, TransactionRequest, WinternitzPubkey,
+    self, DepositParams, FeeType, Outpoint, RawSignedTx, SchnorrSig, TransactionRequest,
+    WinternitzPubkey,
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
-use crate::builder::transaction::{BaseDepositData, DepositData, ReplacementDepositData};
+use crate::builder::transaction::{
+    Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
+};
 use crate::errors::BridgeError;
 use crate::tx_sender::FeePayingType;
-use crate::EVMAddress;
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
@@ -42,6 +43,7 @@ impl From<ParserError> for tonic::Status {
     }
 }
 
+#[allow(dead_code)]
 /// Converts an integer type in to another integer type. This is needed because
 /// tonic defaults to wrong integer types for some parameters.
 pub fn convert_int_to_another<SOURCE, TARGET>(
@@ -186,42 +188,184 @@ impl From<winternitz::PublicKey> for WinternitzPubkey {
     }
 }
 
-impl From<BaseDepositData> for BaseDeposit {
-    fn from(data: BaseDepositData) -> Self {
-        BaseDeposit {
-            deposit_outpoint: Some(data.deposit_outpoint.into()),
-            evm_address: data.evm_address.0.to_vec(),
-            recovery_taproot_address: data.recovery_taproot_address.assume_checked().to_string(),
-            nofn_xonly_pk: data.nofn_xonly_pk.serialize().to_vec(),
-            num_verifiers: data.num_verifiers as u64,
+impl From<DepositInfo> for clementine::Deposit {
+    fn from(value: DepositInfo) -> Self {
+        clementine::Deposit {
+            deposit_outpoint: Some(value.deposit_outpoint.into()),
+            deposit_data: Some(value.deposit_type.into()),
         }
     }
 }
 
-impl From<ReplacementDepositData> for ReplacementDeposit {
-    fn from(data: ReplacementDepositData) -> Self {
-        ReplacementDeposit {
-            deposit_outpoint: Some(data.deposit_outpoint.into()),
-            old_move_txid: Some(data.old_move_txid.into()),
-            nofn_xonly_pk: data.nofn_xonly_pk.serialize().to_vec(),
-            num_verifiers: data.num_verifiers as u64,
-        }
+impl TryFrom<clementine::Deposit> for DepositInfo {
+    type Error = Status;
+
+    fn try_from(value: clementine::Deposit) -> Result<Self, Self::Error> {
+        let deposit_outpoint: OutPoint = value
+            .deposit_outpoint
+            .ok_or_else(|| Status::invalid_argument("No deposit outpoint received"))?
+            .try_into()?;
+
+        let deposit_type = value
+            .deposit_data
+            .ok_or_else(|| Status::invalid_argument("No deposit data received"))?
+            .try_into()?;
+
+        Ok(DepositInfo {
+            deposit_outpoint,
+            deposit_type,
+        })
     }
 }
 
 impl From<DepositData> for DepositParams {
     fn from(value: DepositData) -> Self {
+        let actors: clementine::Actors = value.actors.into();
+
+        let deposit: clementine::Deposit = value.deposit.into();
+
+        DepositParams {
+            deposit: Some(deposit),
+            actors: Some(actors),
+        }
+    }
+}
+
+impl TryFrom<DepositParams> for DepositData {
+    type Error = Status;
+
+    fn try_from(value: DepositParams) -> Result<Self, Self::Error> {
+        let deposit: DepositInfo = value
+            .deposit
+            .ok_or(Status::invalid_argument("No deposit received"))?
+            .try_into()?;
+        let actors: Actors = value
+            .actors
+            .ok_or(Status::invalid_argument("No actors received"))?
+            .try_into()?;
+
+        Ok(DepositData {
+            nofn_xonly_pk: None,
+            deposit,
+            actors,
+        })
+    }
+}
+
+impl TryFrom<clementine::deposit::DepositData> for DepositType {
+    type Error = Status;
+
+    fn try_from(value: clementine::deposit::DepositData) -> Result<Self, Self::Error> {
         match value {
-            DepositData::BaseDeposit(data) => DepositParams {
-                deposit_data: Some(clementine::deposit_params::DepositData::BaseDeposit(
-                    data.into(),
-                )),
-            },
-            DepositData::ReplacementDeposit(data) => DepositParams {
-                deposit_data: Some(clementine::deposit_params::DepositData::ReplacementDeposit(
-                    data.into(),
-                )),
-            },
+            clementine::deposit::DepositData::BaseDeposit(data) => {
+                Ok(DepositType::BaseDeposit(BaseDepositData {
+                    evm_address: data.evm_address.try_into().map_err(|e| {
+                        Status::invalid_argument(format!(
+                            "Failed to convert evm_address to EVMAddress: {}",
+                            e
+                        ))
+                    })?,
+                    recovery_taproot_address: data
+                        .recovery_taproot_address
+                        .parse::<bitcoin::Address<_>>()
+                        .map_err(|e| Status::internal(e.to_string()))?,
+                }))
+            }
+            clementine::deposit::DepositData::ReplacementDeposit(data) => {
+                Ok(DepositType::ReplacementDeposit(ReplacementDepositData {
+                    old_move_txid: data
+                        .old_move_txid
+                        .ok_or(Status::invalid_argument("No move_txid received"))?
+                        .try_into().map_err(|e| {
+                            Status::invalid_argument(format!(
+                                "Failed to convert replacement deposit move_txid to bitcoin::Txid: {}",
+                                e
+                            ))
+                        })?,
+                }))
+            }
+        }
+    }
+}
+
+impl From<DepositType> for clementine::deposit::DepositData {
+    fn from(value: DepositType) -> Self {
+        match value {
+            DepositType::BaseDeposit(data) => {
+                clementine::deposit::DepositData::BaseDeposit(clementine::BaseDeposit {
+                    evm_address: data.evm_address.0.to_vec(),
+                    recovery_taproot_address: data
+                        .recovery_taproot_address
+                        .assume_checked()
+                        .to_string(),
+                })
+            }
+            DepositType::ReplacementDeposit(data) => {
+                clementine::deposit::DepositData::ReplacementDeposit(
+                    clementine::ReplacementDeposit {
+                        old_move_txid: Some(data.old_move_txid.into()),
+                    },
+                )
+            }
+        }
+    }
+}
+
+impl TryFrom<clementine::XOnlyPublicKeys> for Vec<XOnlyPublicKey> {
+    type Error = Status;
+
+    fn try_from(value: clementine::XOnlyPublicKeys) -> Result<Self, Self::Error> {
+        value
+            .xonly_public_keys
+            .iter()
+            .map(|pk| {
+                XOnlyPublicKey::from_slice(pk).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to parse xonly public key: {}", e))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
+impl From<Vec<XOnlyPublicKey>> for clementine::XOnlyPublicKeys {
+    fn from(value: Vec<XOnlyPublicKey>) -> Self {
+        clementine::XOnlyPublicKeys {
+            xonly_public_keys: value.iter().map(|pk| pk.serialize().to_vec()).collect(),
+        }
+    }
+}
+
+impl TryFrom<clementine::Actors> for Actors {
+    type Error = Status;
+
+    fn try_from(value: clementine::Actors) -> Result<Self, Self::Error> {
+        let verifiers = value
+            .verifiers
+            .ok_or(Status::invalid_argument("No verifiers received"))?
+            .try_into()?;
+        let watchtowers = value
+            .watchtowers
+            .ok_or(Status::invalid_argument("No watchtowers received"))?
+            .try_into()?;
+        let operators = value
+            .operators
+            .ok_or(Status::invalid_argument("No operators received"))?
+            .try_into()?;
+
+        Ok(Actors {
+            verifiers,
+            watchtowers,
+            operators,
+        })
+    }
+}
+
+impl From<Actors> for clementine::Actors {
+    fn from(value: Actors) -> Self {
+        clementine::Actors {
+            verifiers: Some(value.verifiers.into()),
+            watchtowers: Some(value.watchtowers.into()),
+            operators: Some(value.operators.into()),
         }
     }
 }
@@ -240,14 +384,6 @@ impl From<&bitcoin::Transaction> for RawSignedTx {
         RawSignedTx {
             raw_tx: bitcoin::consensus::encode::serialize(value),
         }
-    }
-}
-
-impl TryFrom<DepositParams> for DepositData {
-    type Error = Status;
-
-    fn try_from(value: DepositParams) -> Result<Self, Self::Error> {
-        parse_deposit_params(value)
     }
 }
 
@@ -272,89 +408,49 @@ impl TryFrom<clementine::Txid> for Txid {
     }
 }
 
-fn parse_base_deposit_data(data: BaseDeposit) -> Result<DepositData, Status> {
-    let deposit_outpoint: bitcoin::OutPoint = data
-        .deposit_outpoint
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
-        .try_into()?;
-    let evm_address: EVMAddress = data.evm_address.try_into().map_err(|e| {
-        Status::invalid_argument(format!(
-            "Failed to convert evm_address to EVMAddress: {}",
-            e
-        ))
-    })?;
-    let recovery_taproot_address = data
-        .recovery_taproot_address
-        .parse::<bitcoin::Address<_>>()
-        .map_err(|e| Status::internal(e.to_string()))?;
-
-    let nofn_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_slice(&data.nofn_xonly_pk)
-        .map_err(|e| BridgeError::Error(format!("Failed to parse xonly public key: {}", e)))?;
-    Ok(DepositData::BaseDeposit(BaseDepositData {
-        deposit_outpoint,
-        evm_address,
-        recovery_taproot_address,
-        nofn_xonly_pk,
-        num_verifiers: data.num_verifiers as usize,
-    }))
-}
-
-fn parse_replacement_deposit_data(data: ReplacementDeposit) -> Result<DepositData, Status> {
-    let deposit_outpoint: bitcoin::OutPoint = data
-        .deposit_outpoint
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
-        .try_into()?;
-    let move_txid: Txid = data
-        .old_move_txid
-        .ok_or(Status::invalid_argument("No move_txid received"))?
-        .try_into()
-        .map_err(|e| {
-            Status::invalid_argument(format!(
-                "Failed to convert replacement deposit move_txid to bitcoin::Txid: {}",
-                e
-            ))
-        })?;
-
-    let nofn_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_slice(&data.nofn_xonly_pk)
-        .map_err(|e| BridgeError::Error(format!("Failed to parse xonly public key: {}", e)))?;
-
-    Ok(DepositData::ReplacementDeposit(ReplacementDepositData {
-        deposit_outpoint,
-        old_move_txid: move_txid,
-        nofn_xonly_pk,
-        num_verifiers: data.num_verifiers as usize,
-    }))
-}
-
-fn parse_deposit_params(deposit_params: clementine::DepositParams) -> Result<DepositData, Status> {
-    let Some(deposit_data) = deposit_params.deposit_data else {
-        return Err(Status::invalid_argument("No deposit data received"));
-    };
-    match deposit_data {
-        clementine::deposit_params::DepositData::BaseDeposit(data) => parse_base_deposit_data(data),
-        clementine::deposit_params::DepositData::ReplacementDeposit(data) => {
-            parse_replacement_deposit_data(data)
-        }
-    }
-}
-
 pub fn parse_transaction_request(
     request: TransactionRequest,
 ) -> Result<TransactionRequestData, Status> {
-    let deposit_data = parse_deposit_params(
-        request
-            .deposit_params
-            .ok_or(Status::invalid_argument("No deposit params received"))?,
-    )?;
+    let deposit_outpoint: OutPoint = request
+        .deposit_outpoint
+        .ok_or(Status::invalid_argument("No deposit params received"))?
+        .try_into()?;
 
     let kickoff_id = request
         .kickoff_id
         .ok_or(Status::invalid_argument("No kickoff params received"))?;
 
     Ok(TransactionRequestData {
-        deposit_data,
-        kickoff_id,
+        deposit_outpoint,
+        kickoff_data: kickoff_id.try_into()?,
     })
+}
+
+impl TryFrom<clementine::KickoffId> for crate::builder::transaction::KickoffData {
+    type Error = Status;
+
+    fn try_from(value: clementine::KickoffId) -> Result<Self, Self::Error> {
+        let operator_xonly_pk =
+            XOnlyPublicKey::from_slice(&value.operator_xonly_pk).map_err(|e| {
+                Status::invalid_argument(format!("Failed to parse operator_xonly_pk: {}", e))
+            })?;
+
+        Ok(crate::builder::transaction::KickoffData {
+            operator_xonly_pk,
+            round_idx: value.round_idx,
+            kickoff_idx: value.kickoff_idx,
+        })
+    }
+}
+
+impl From<crate::builder::transaction::KickoffData> for clementine::KickoffId {
+    fn from(value: crate::builder::transaction::KickoffData) -> Self {
+        clementine::KickoffId {
+            operator_xonly_pk: value.operator_xonly_pk.serialize().to_vec(),
+            round_idx: value.round_idx,
+            kickoff_idx: value.kickoff_idx,
+        }
+    }
 }
 
 #[cfg(test)]

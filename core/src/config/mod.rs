@@ -11,8 +11,8 @@
 //! described in `BridgeConfig` struct.
 
 use crate::errors::BridgeError;
-use bitcoin::secp256k1::{PublicKey, SecretKey};
-use bitcoin::{Amount, XOnlyPublicKey};
+use bitcoin::secp256k1::SecretKey;
+use bitcoin::Amount;
 use protocol::{ProtocolParamset, ProtocolParamsetName};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -48,21 +48,10 @@ pub struct BridgeConfig {
     pub host: String,
     /// Port of the operator or the verifier
     pub port: u16,
-    /// Entity index.
-    pub index: u32,
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
     /// Additional secret key that will be used for creating Winternitz one time signature.
     pub winternitz_secret_key: Option<SecretKey>,
-    /// Verifiers public keys.
-    /// In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call
-    pub verifiers_public_keys: Vec<PublicKey>,
-    /// Number of verifiers.
-    pub num_verifiers: usize,
-    /// Operators x-only public keys.
-    pub operators_xonly_pks: Vec<XOnlyPublicKey>,
-    /// Number of operators.
-    pub num_operators: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Bitcoin remote procedure call URL.
@@ -154,44 +143,11 @@ impl Default for BridgeConfig {
             protocol_paramset: ProtocolParamsetName::Regtest,
             host: "127.0.0.1".to_string(),
             port: 17000,
-            index: 0,
 
             secret_key: SecretKey::from_str(
                 "1111111111111111111111111111111111111111111111111111111111111111",
             )
             .expect("known valid input"),
-
-            num_verifiers: 4,
-            verifiers_public_keys: vec![
-                PublicKey::from_str(
-                    "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
-                )
-                .expect("known valid input"),
-                PublicKey::from_str(
-                    "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
-                )
-                .expect("known valid input"),
-                PublicKey::from_str(
-                    "023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
-                )
-                .expect("known valid input"),
-                PublicKey::from_str(
-                    "032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991",
-                )
-                .expect("known valid input"),
-            ],
-
-            num_operators: 2,
-            operators_xonly_pks: vec![
-                XOnlyPublicKey::from_str(
-                    "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
-                )
-                .expect("known valid input"),
-                XOnlyPublicKey::from_str(
-                    "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
-                )
-                .expect("known valid input"),
-            ],
 
             operator_withdrawal_fee_sats: Some(Amount::from_sat(100000)),
 

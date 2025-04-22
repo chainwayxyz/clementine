@@ -174,7 +174,21 @@ impl CitreaClientT for MockCitreaClient {
         block_height: u64,
         _timeout: Duration,
     ) -> Result<(u64, u64), BridgeError> {
-        Ok((block_height - 1, block_height))
+        Ok((
+            if block_height == 0 {
+                0
+            } else {
+                block_height - 1
+            },
+            block_height,
+        ))
+    }
+
+    async fn check_nofn_correctness(
+        &self,
+        _nofn_xonly_pk: bitcoin::XOnlyPublicKey,
+    ) -> Result<(), BridgeError> {
+        Ok(())
     }
 }
 
@@ -190,7 +204,7 @@ impl MockCitreaClient {
         });
     }
 
-    /// Pushes a withdrawal utxo and its ondex to the given height.
+    /// Pushes a withdrawal utxo and its index to the given height.
     pub async fn insert_withdrawal_utxo(&mut self, height: u64, utxo: OutPoint) {
         let mut storage = self.storage.lock().await;
         let idx = storage.withdrawals.len() as u64 + 1;
