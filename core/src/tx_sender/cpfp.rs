@@ -51,6 +51,11 @@ impl TxSender {
         total_fee_payer_amount: Amount,
         fee_payer_utxos_len: usize,
     ) -> Result<()> {
+        tracing::info!(
+            "Creating fee payer UTXO for txid {} with bump id {}",
+            &tx.compute_txid().to_string(),
+            bumped_id
+        );
         let required_fee = Self::calculate_required_fee(
             tx.weight(),
             fee_payer_utxos_len + 1,
@@ -118,6 +123,10 @@ impl TxSender {
         fee_rate: FeeRate,
         change_address: Address,
     ) -> Result<Transaction> {
+        tracing::info!(
+            "Creating child tx with {} fee payer utxos",
+            fee_payer_utxos.len()
+        );
         let required_fee = Self::calculate_required_fee(
             parent_tx_size,
             fee_payer_utxos.len(),
@@ -196,6 +205,10 @@ impl TxSender {
         fee_rate: FeeRate,
         fee_payer_utxos: Vec<SpendableTxIn>,
     ) -> Result<Vec<Transaction>> {
+        tracing::info!(
+            "Creating package with {} fee payer utxos",
+            fee_payer_utxos.len()
+        );
         let txid = tx.compute_txid();
 
         let p2a_vout = self

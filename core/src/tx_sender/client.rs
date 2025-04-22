@@ -7,6 +7,7 @@ use bitcoin::{OutPoint, Transaction, Txid};
 use super::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, RbfSigningInfo, TxMetadata};
 use crate::errors::ResultExt;
 use crate::rpc;
+use crate::rpc::clementine::XonlyPublicKey;
 use crate::{
     builder::transaction::{input::get_watchtower_challenge_utxo_vout, TransactionType},
     config::BridgeConfig,
@@ -393,8 +394,10 @@ impl TxSenderClient {
             raw_tx: bitcoin::consensus::serialize(&tx),
             metadata: tx_metadata.map(|metadata| rpc::clementine::TxMetadata {
                 deposit_outpoint: metadata.deposit_outpoint.map(Into::into),
-                operator_idx: metadata.operator_idx.unwrap_or(0),
-                verifier_idx: metadata.verifier_idx.unwrap_or(0),
+                operator_xonly_pk: metadata.operator_xonly_pk.map(|pk| XonlyPublicKey {
+                    xonly_pk: pk.serialize().to_vec(),
+                }),
+
                 round_idx: metadata.round_idx.unwrap_or(0),
                 kickoff_idx: metadata.kickoff_idx.unwrap_or(0),
                 tx_type: Some(metadata.tx_type.into()),

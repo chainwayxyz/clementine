@@ -42,26 +42,30 @@ impl Task for TxSenderTask {
                 return Ok(false);
             };
 
-            match event {
+            tracing::info!("TXSENDER: Event: {:?}", event);
+            Ok::<_, BridgeError>(match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;
                     self.current_tip_height = self
                         .db
                         .get_block_info_from_id(Some(&mut dbtx), block_id)
                         .await?
-                        .ok_or(BridgeError::Error("Block not found".to_string()))?
+                        .ok_or(BridgeError::Error(
+                            "Block not found in TxSenderTask".to_string(),
+                        ))?
                         .1;
 
-                    tracing::trace!("TXSENDER: Confirmed transactions for block {}", block_id);
+                    tracing::info!("TXSENDER: Confirmed transactions for block {}", block_id);
+                    dbtx.commit().await?;
+                    true
                 }
                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                    tracing::trace!("TXSENDER: Unconfirming transactions for block {}", block_id);
+                    tracing::info!("TXSENDER: Unconfirming transactions for block {}", block_id);
                     self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
+                    dbtx.commit().await?;
+                    false
                 }
-            }
-
-            dbtx.commit().await?;
-            Ok::<_, BridgeError>(true)
+            })
         }
         .await?;
 
@@ -70,11 +74,12 @@ impl Task for TxSenderTask {
             return Ok(true);
         }
 
-        tracing::trace!("TXSENDER: Getting fee rate");
-        let fee_rate = self.inner.get_fee_rate().await?;
-        tracing::trace!("TXSENDER: Trying to send unconfirmed txs");
+        tracing::info!("TXSENDER: Getting fee rate");
+        let fee_rate_result = self.inner.get_fee_rate().await;
+        tracing::info!("TXSENDER: Fee rate result: {:?}", fee_rate_result);
+        let fee_rate = fee_rate_result?;
+        tracing::info!("TXSENDER: Trying to send unconfirmed txs");
 
-        // Main loop which handles sending unconfirmed txs
         self.inner
             .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)
             .await?;

@@ -393,10 +393,8 @@ pub struct TxMetadata {
     #[prost(message, optional, tag = "1")]
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
     /// Deposit identification
-    #[prost(uint32, tag = "2")]
-    pub operator_idx: u32,
-    #[prost(uint32, tag = "3")]
-    pub verifier_idx: u32,
+    #[prost(message, optional, tag = "2")]
+    pub operator_xonly_pk: ::core::option::Option<XonlyPublicKey>,
     #[prost(uint32, tag = "4")]
     pub round_idx: u32,
     #[prost(uint32, tag = "5")]

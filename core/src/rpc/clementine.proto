@@ -422,8 +422,7 @@ message TxMetadata {
   // Optional outpoint of the deposit transaction
   Outpoint deposit_outpoint = 1;
   // Deposit identification
-  uint32 operator_idx = 2;
-  uint32 verifier_idx = 3;
+  XonlyPublicKey operator_xonly_pk = 2;
   uint32 round_idx = 4;
   uint32 kickoff_idx = 5;
   // Transaction ID

@@ -7,7 +7,8 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::{
-    create_replacement_deposit_txhandler, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData, TxHandler, DEFAULT_SEQUENCE
+    create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
+    ReplacementDepositData, TxHandler, DEFAULT_SEQUENCE,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;

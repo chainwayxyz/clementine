@@ -1,10 +1,10 @@
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::TapNodeHash;
+use bitcoin::XOnlyPublicKey;
 use eyre::OptionExt;
 
 use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
-use eyre::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::ResultExt;
@@ -101,8 +101,7 @@ pub struct ActivatedWithOutpoint {
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TxMetadata {
     pub deposit_outpoint: Option<OutPoint>,
-    pub operator_idx: Option<u32>,
-    pub verifier_idx: Option<u32>,
+    pub operator_xonly_pk: Option<XOnlyPublicKey>,
     pub round_idx: Option<u32>,
     pub kickoff_idx: Option<u32>,
     pub tx_type: TransactionType,
@@ -113,11 +112,8 @@ impl std::fmt::Debug for TxMetadata {
         if let Some(deposit_outpoint) = self.deposit_outpoint {
             dbg_struct.field("deposit_outpoint", &deposit_outpoint);
         }
-        if let Some(operator_idx) = self.operator_idx {
-            dbg_struct.field("operator_idx", &operator_idx);
-        }
-        if let Some(verifier_idx) = self.verifier_idx {
-            dbg_struct.field("verifier_idx", &verifier_idx);
+        if let Some(operator_xonly_pk) = self.operator_xonly_pk {
+            dbg_struct.field("operator_xonly_pk", &operator_xonly_pk);
         }
         if let Some(round_idx) = self.round_idx {
             dbg_struct.field("round_idx", &round_idx);
@@ -179,22 +175,29 @@ impl TxSender {
     ///
     /// TODO: Implement more sophisticated fee estimation (e.g., mempool.space API).
     async fn get_fee_rate(&self) -> Result<FeeRate> {
+        tracing::info!("Getting fee rate");
         let fee_rate = self
             .rpc
             .client
             .estimate_smart_fee(1, Some(EstimateMode::Conservative))
-            .await
-            .wrap_err("Failed to estimate smart fee")?;
+            .await;
 
-        match fee_rate.fee_rate {
-            Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
-            None => {
-                if self.network == bitcoin::Network::Regtest {
-                    tracing::trace!("Using fee rate of 1 sat/vb (Broadcast min) [Regtest mode]");
-                    return Ok(FeeRate::BROADCAST_MIN);
+        match fee_rate {
+            Ok(fee_rate) => match fee_rate.fee_rate {
+                Some(fee_rate) => Ok(FeeRate::from_sat_per_kwu(fee_rate.to_sat())),
+                None => {
+                    if self.network == bitcoin::Network::Regtest {
+                        tracing::debug!("Using fee rate of 1 sat/vb (Regtest mode)");
+                        return Ok(FeeRate::from_sat_per_vb_unchecked(1));
+                    }
+
+                    tracing::error!("TXSENDER: Fee estimation error: {:?}", fee_rate.errors);
+                    Ok(FeeRate::from_sat_per_vb_unchecked(1))
                 }
-
-                Err(eyre::eyre!("Fee estimation error: {:?}", fee_rate.errors).into())
+            },
+            Err(e) => {
+                tracing::error!("TXSENDER: Error getting fee rate: {:?}", e);
+                Ok(FeeRate::from_sat_per_vb_unchecked(1))
             }
         }
     }
@@ -223,6 +226,10 @@ impl TxSender {
         fee_rate: FeeRate,
         fee_paying_type: FeePayingType,
     ) -> Result<Amount> {
+        tracing::info!(
+            "Calculating required fee for {} fee payer utxos",
+            num_fee_payer_utxos
+        );
         // Estimate the weight of the child transaction (for CPFP) or the RBF replacement.
         // P2TR input witness adds ~57.5vbytes (230 WU). P2TR output adds 43 vbytes (172 WU).
         // Base transaction overhead (version, locktime, input/output counts) ~ 10.5 vBytes (42 WU)
@@ -307,6 +314,7 @@ impl TxSender {
         new_fee_rate: FeeRate,
         current_tip_height: u32,
     ) -> Result<()> {
+        tracing::info!("Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}");
         let txs = self
             .db
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
