@@ -288,6 +288,12 @@ impl TxSender {
             .map_to_eyre()?;
 
         for (id, fee_payer_txid, vout, amount) in bumpable_fee_payer_txs {
+            tracing::info!(
+                "Bumping fee for fee payer tx {} with bumped tx {} for fee rate {}",
+                fee_payer_txid,
+                bumped_id,
+                fee_rate
+            );
             let new_txi_result = self
                 .rpc
                 .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
