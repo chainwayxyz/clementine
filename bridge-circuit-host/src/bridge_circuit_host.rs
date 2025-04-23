@@ -11,7 +11,7 @@ use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{
     BridgeCircuitInput, WatchtowerInputs, WorkOnlyCircuitInput,
 };
-use circuits_lib::bridge_circuit::{self, MAINNET, REGTEST, SIGNET, TESTNET4};
+use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
 use final_spv::merkle_tree::BitcoinMerkleTree;
 use final_spv::spv::SPV;
 use header_chain::header_chain::CircuitBlockHeader;
