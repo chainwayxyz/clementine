@@ -254,9 +254,7 @@ fn verify_watchtower_challenges(
         panic!("Invalid number of watchtower challenge transactions");
     }
 
-
     for watchtower_input in circuit_input.watchtower_inputs.iter() {
-
         let inner_txouts: Vec<TxOut> = watchtower_input
             .watchtower_challenge_utxos
             .iter()
@@ -576,7 +574,10 @@ mod tests {
     };
     use crate::bridge_circuit::structs::{LightClientProof, StorageProof};
     use bitcoin::{
-        absolute::Height, consensus::{Decodable, Encodable}, transaction::Version, ScriptBuf, Transaction, TxIn, Witness
+        absolute::Height,
+        consensus::{Decodable, Encodable},
+        transaction::Version,
+        ScriptBuf, Transaction, TxIn, Witness,
     };
     use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
     use header_chain::{
@@ -692,8 +693,11 @@ mod tests {
     fn test_total_work_and_watchtower_flags_incorrect_witness() {
         let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
 
-        
-        let mut old_witness = input.watchtower_inputs[0].watchtower_challenge_witness.0.to_vec()[0].clone();
+        let mut old_witness = input.watchtower_inputs[0]
+            .watchtower_challenge_witness
+            .0
+            .to_vec()[0]
+            .clone();
         old_witness[0] = 0x00;
 
         let mut new_witness = Witness::new();
@@ -718,8 +722,13 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_tx = CircuitTransaction(Transaction {
             version: Version(2),
             lock_time: bitcoin::absolute::LockTime::Blocks(Height::from_consensus(0).unwrap()),
-            input: vec![TxIn{ 
-                previous_output: bitcoin::OutPoint::new(kickoff_txid, input.watchtower_inputs[0].watchtower_challenge_tx.input[0].previous_output.vout),
+            input: vec![TxIn {
+                previous_output: bitcoin::OutPoint::new(
+                    kickoff_txid,
+                    input.watchtower_inputs[0].watchtower_challenge_tx.input[0]
+                        .previous_output
+                        .vout,
+                ),
                 script_sig: ScriptBuf::new(),
                 sequence: bitcoin::Sequence(0),
                 witness: Witness::new(),
