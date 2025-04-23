@@ -250,61 +250,12 @@ fn verify_watchtower_challenges(
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
     let mut watchtower_challenges_outputs: Vec<[TxOut; 3]> = vec![];
 
-    // let &BridgeCircuitInput {
-    //     watchtower_inputs:
-    //         WatchtowerInputs {
-    //             watchtower_challenge_txs: ref challenge_txs,
-    //             watchtower_challenge_utxos: ref challenge_utxos,
-    //             watchtower_challenge_input_idxs: ref challenge_input_idxs,
-    //             watchtower_challenge_witnesses: ref challenge_witnesses,
-    //             ref watchtower_idxs,
-    //             ref watchtower_pubkeys,
-    //         },
-    //     kickoff_tx: ref _kickoff_tx_bytes,
-    //     hcp: ref _hcp,
-    //     payout_spv: ref _payout_spv,
-    //     lcp: ref _lcp,
-    //     sp: ref _sp,
-    // } = circuit_input;
-
     if circuit_input.watchtower_inputs.len() > NUMBER_OF_WATCHTOWERS {
         panic!("Invalid number of watchtower challenge transactions");
     }
 
-    // assert_all_eq!(
-    //     challenge_txs.len(),
-    //     challenge_utxos.len(),
-    //     challenge_input_idxs.len(),
-    //     watchtower_idxs.len(),
-    //     challenge_witnesses.len()
-    // );
 
-    // for ((((tx, &idx), utxos), input_idx), intput_witness) in challenge_txs
-    //     .iter()
-    //     .zip(watchtower_idxs.iter())
-    //     .zip(challenge_utxos.iter())
-    //     .zip(challenge_input_idxs.iter())
-    //     .zip(challenge_witnesses.iter())
     for watchtower_input in circuit_input.watchtower_inputs.iter() {
-        // let Ok(watchtower_tx): Result<Transaction, _> =
-        //     Decodable::consensus_decode(&mut Cursor::new(tx))
-        // else {
-        //     panic!(
-        //         "Invalid watchtower challenge transaction, watchtower index: {}",
-        //         idx
-        //     );
-        // };
-
-        // let Ok(outputs): Result<Vec<TxOut>, _> = watchtower_input.watchtower_challenge_utxos
-        //     .iter()
-        //     .map(|utxo| deserialize_txout(reader))
-        //     .collect::<Result<_, _>>()
-        // else {
-        //     panic!(
-        //         "Invalid watchtower challenge UTXOs, watchtower index: {}",
-        //         idx
-        //     );
-        // };
 
         let inner_txouts: Vec<TxOut> = watchtower_input
             .watchtower_challenge_utxos
@@ -318,22 +269,14 @@ fn verify_watchtower_challenges(
             <= watchtower_input.watchtower_challenge_input_idx as usize
         {
             panic!(
-                "Invalid watchtower tx input index, watchtower index: {}",
-                watchtower_input.watchtower_challenge_input_idx
+                "Invalid watchtower challenge input index, watchtower index: {}",
+                watchtower_input.watchtower_idx
             );
         }
 
         let (sighash_type, sig_bytes): (TapSighashType, [u8; 64]) = {
-            if watchtower_input.watchtower_challenge_witness.len() != 1 {
-                panic!(
-                    "Invalid witness length, expected 1 witness, watchtower index: {}",
-                    watchtower_input.watchtower_challenge_input_idx
-                );
-            }
-            let signature = watchtower_input
-                .watchtower_challenge_witness
-                .nth(0)
-                .unwrap();
+            let signature = watchtower_input.watchtower_challenge_witness.0.to_vec()[0].clone();
+
             if signature.len() == 64 {
                 (
                     TapSighashType::Default,
@@ -347,13 +290,13 @@ fn verify_watchtower_challenges(
                     ),
                     Err(_) => panic!(
                         "Invalid sighash type, watchtower index: {}",
-                        watchtower_input.watchtower_challenge_input_idx
+                        watchtower_input.watchtower_idx
                     ),
                 }
             } else {
                 panic!(
                     "Invalid witness length, expected 64 or 65 bytes, watchtower index: {}",
-                    watchtower_input.watchtower_challenge_input_idx
+                    watchtower_input.watchtower_idx
                 );
             }
         };
@@ -366,7 +309,7 @@ fn verify_watchtower_challenges(
         ) else {
             panic!(
                 "Sighash could not be computed, watchtower index: {}",
-                watchtower_input.watchtower_challenge_input_idx
+                watchtower_input.watchtower_idx
             );
         };
 
@@ -378,10 +321,11 @@ fn verify_watchtower_challenges(
             || circuit_input.kickoff_tx.output.len() <= input.previous_output.vout as usize
         {
             panic!(
-                "Invalid input: expected input to reference an output from the kickoff transaction (txid: {}), but got txid: {}, vout: {}",
+                "Invalid input: expected input to reference an output from the kickoff transaction (txid: {}), but got txid: {}, vout: {}, watchtower index: {}",
                 kickoff_txid,
                 input.previous_output.txid,
-                input.previous_output.vout
+                input.previous_output.vout,
+                watchtower_input.watchtower_idx
             );
         };
 
@@ -392,41 +336,38 @@ fn verify_watchtower_challenges(
         if !script_pubkey.is_p2tr() {
             panic!(
                 "Invalid output script type - kickoff, watchtower index: {}",
-                watchtower_input.watchtower_challenge_input_idx
+                watchtower_input.watchtower_idx
             );
         };
 
-        if watchtower_input.watchtower_challenge_input_idx as usize
-            >= circuit_input.all_watchtower_pubkeys.len()
-        {
+        if watchtower_input.watchtower_idx as usize >= circuit_input.all_watchtower_pubkeys.len() {
             panic!(
                 "Invalid watchtower index, watchtower index: {}, number of watchtowers: {}",
-                watchtower_input.watchtower_challenge_input_idx,
+                watchtower_input.watchtower_idx,
                 circuit_input.all_watchtower_pubkeys.len()
             );
         }
 
-        if circuit_input.all_watchtower_pubkeys
-            [watchtower_input.watchtower_challenge_input_idx as usize]
+        if circuit_input.all_watchtower_pubkeys[watchtower_input.watchtower_idx as usize]
             != script_pubkey.as_bytes()[2..34]
         {
             panic!(
                 "Invalid watchtower public key, watchtower index: {}",
-                watchtower_input.watchtower_challenge_input_idx
+                watchtower_input.watchtower_idx
             );
         }
 
         let Ok(verifying_key) = VerifyingKey::from_bytes(&script_pubkey.as_bytes()[2..]) else {
             panic!(
                 "Invalid verifying key, watchtower index: {}",
-                watchtower_input.watchtower_challenge_input_idx
+                watchtower_input.watchtower_idx
             );
         };
 
         let Ok(signature) = Signature::try_from(sig_bytes.as_slice()) else {
             panic!(
                 "Invalid signature, watchtower index: {}",
-                watchtower_input.watchtower_challenge_input_idx
+                watchtower_input.watchtower_idx
             );
         };
 
@@ -436,9 +377,8 @@ fn verify_watchtower_challenges(
                 .is_ok()
         {
             // TODO: CHECK IF THIS IS CORRECT
-            challenge_sending_watchtowers
-                [(watchtower_input.watchtower_challenge_input_idx as usize) / 8] |=
-                1 << (watchtower_input.watchtower_challenge_input_idx % 8);
+            challenge_sending_watchtowers[(watchtower_input.watchtower_idx as usize) / 8] |=
+                1 << (watchtower_input.watchtower_idx % 8);
             if watchtower_input.watchtower_challenge_tx.output.len() >= 3 {
                 watchtower_challenges_outputs.push([
                     watchtower_input.watchtower_challenge_tx.output[0].clone(),
@@ -636,10 +576,7 @@ mod tests {
     };
     use crate::bridge_circuit::structs::{LightClientProof, StorageProof};
     use bitcoin::{
-        absolute::Height,
-        consensus::{Decodable, Encodable},
-        transaction::Version,
-        ScriptBuf, Transaction, Witness,
+        absolute::Height, consensus::{Decodable, Encodable}, transaction::Version, ScriptBuf, Transaction, TxIn, Witness
     };
     use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
     use header_chain::{
@@ -671,6 +608,8 @@ mod tests {
         let mut wt_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&wt_tx_bytes)).unwrap();
 
+        let witness = wt_tx.input[0].witness.clone();
+
         wt_tx.input[0].witness.clear();
 
         let kickoff_tx: Transaction =
@@ -698,7 +637,7 @@ mod tests {
             kickoff_tx: CircuitTransaction(kickoff_tx.clone()),
             watchtower_inputs: vec![WatchtowerInput {
                 watchtower_idx: operator_idx,
-                watchtower_challenge_witness: CircuitWitness(wt_tx.input[0].witness.clone()),
+                watchtower_challenge_witness: CircuitWitness(witness),
                 watchtower_challenge_input_idx: 0,
                 watchtower_challenge_utxos: vec![CircuitTxOut(tx_out)],
                 watchtower_challenge_tx: CircuitTransaction(wt_tx.clone()),
@@ -726,7 +665,7 @@ mod tests {
             },
             lcp: LightClientProof::default(),
             sp: StorageProof::default(),
-            all_watchtower_pubkeys: vec![pubkey],
+            all_watchtower_pubkeys: watchtower_pubkeys,
         };
 
         (input, kickoff_txid)
@@ -753,8 +692,13 @@ mod tests {
     fn test_total_work_and_watchtower_flags_incorrect_witness() {
         let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
 
+        
+        let mut old_witness = input.watchtower_inputs[0].watchtower_challenge_witness.0.to_vec()[0].clone();
+        old_witness[0] = 0x00;
+
         let mut new_witness = Witness::new();
-        new_witness.push([0x00]);
+        new_witness.push(old_witness);
+
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(new_witness);
 
         let (total_work, challenge_sending_watchtowers) =
@@ -774,7 +718,12 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_tx = CircuitTransaction(Transaction {
             version: Version(2),
             lock_time: bitcoin::absolute::LockTime::Blocks(Height::from_consensus(0).unwrap()),
-            input: vec![],
+            input: vec![TxIn{ 
+                previous_output: bitcoin::OutPoint::new(kickoff_txid, input.watchtower_inputs[0].watchtower_challenge_tx.input[0].previous_output.vout),
+                script_sig: ScriptBuf::new(),
+                sequence: bitcoin::Sequence(0),
+                witness: Witness::new(),
+            }],
             output: vec![],
         });
 
@@ -829,7 +778,8 @@ mod tests {
         let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
 
         // Modify the all_watchtower_pubkeys (the array that's actually used in the new code)
-        input.all_watchtower_pubkeys[0] = vec![0u8; 32];
+        let watch_tower_idx = input.watchtower_inputs[0].watchtower_idx as usize;
+        input.all_watchtower_pubkeys[watch_tower_idx] = vec![0u8; 32];
 
         let (_total_work, _challenge_sending_watchtowers) =
             total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
