@@ -13,27 +13,35 @@ use sqlx::QueryBuilder;
 
 impl Database {
     /// Returns the last deposit index.
-    /// If no deposits exist, returns 0.
+    /// If no deposits exist, returns None
     pub async fn get_last_deposit_idx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<i32, BridgeError> {
-        let query = sqlx::query_as::<_, (i32,)>("SELECT COALESCE(MAX(idx), 0) FROM withdrawals");
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32,)>("SELECT COALESCE(MAX(idx), -1) FROM withdrawals");
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        Ok(result.0)
+        if result.0 == -1 {
+            Ok(None)
+        } else {
+            Ok(Some(result.0 as u32))
+        }
     }
 
     /// Returns the last withdrawal index where withdrawal_utxo_txid exists.
-    /// If no withdrawals with UTXOs exist, returns 0.
+    /// If no withdrawals with UTXOs exist, returns None.
     pub async fn get_last_withdrawal_idx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<i32, BridgeError> {
+    ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_as::<_, (i32,)>(
-            "SELECT COALESCE(MAX(idx), 0) FROM withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
+            "SELECT COALESCE(MAX(idx), -1) FROM withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
         );
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-        Ok(result.0)
+        if result.0 == -1 {
+            Ok(None)
+        } else {
+            Ok(Some(result.0 as u32))
+        }
     }
 
     pub async fn set_move_to_vault_txid_from_citrea_deposit(
