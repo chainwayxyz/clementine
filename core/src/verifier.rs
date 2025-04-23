@@ -1025,13 +1025,13 @@ where
 
         let new_deposits = self
             .citrea_client
-            .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
+            .collect_deposit_move_txids(last_deposit_idx)
             .await?;
         tracing::info!("New deposits: {:?}", new_deposits);
 
         let new_withdrawals = self
             .citrea_client
-            .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
+            .collect_withdrawal_utxos(last_withdrawal_idx)
             .await?;
         tracing::info!("New Withdrawals: {:?}", new_withdrawals);
 

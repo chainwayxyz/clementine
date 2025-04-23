@@ -2,9 +2,8 @@
 
 use crate::citrea::BRIDGE_CONTRACT::DepositReplaced;
 use crate::errors::BridgeError;
-
 use alloy::{
-    eips::{BlockId, BlockNumberOrTag},
+    eips::BlockNumberOrTag,
     network::EthereumWallet,
     primitives::U256,
     providers::{
@@ -81,24 +80,20 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     ///
     /// # Parameters
     ///
-    /// - `last_deposit_idx`: Last deposit index. -1 if no deposit
-    /// - `to_height`: End block height (inclusive)
+    /// - `last_deposit_idx`: Last deposit index
     async fn collect_deposit_move_txids(
         &self,
         last_deposit_idx: i32,
-        to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError>;
 
     /// Returns withdrawal utxos, starting from the last withdrawal index.
     ///
     /// # Parameters
     ///
-    /// - `last_withdrawal_idx`: Last withdrawal index. -1 if no withdrawal
-    /// - `to_height`: End block height (inclusive)
+    /// - `last_withdrawal_idx`: Last withdrawal index
     async fn collect_withdrawal_utxos(
         &self,
         last_withdrawal_idx: i32,
-        to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError>;
 
     /// Returns the light client proof and its L2 height for the given L1 block
@@ -272,7 +267,6 @@ impl CitreaClientT for CitreaClient {
     async fn collect_deposit_move_txids(
         &self,
         mut last_deposit_idx: i32,
-        to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
         let mut move_txids = vec![];
 
@@ -280,7 +274,6 @@ impl CitreaClientT for CitreaClient {
             let deposit_txid = self
                 .contract
                 .depositTxIds(U256::from(last_deposit_idx))
-                // .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
             if deposit_txid.is_err() {
@@ -304,7 +297,6 @@ impl CitreaClientT for CitreaClient {
     async fn collect_withdrawal_utxos(
         &self,
         mut last_withdrawal_idx: i32,
-        to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
         let mut utxos = vec![];
 
@@ -312,7 +304,6 @@ impl CitreaClientT for CitreaClient {
             let withdrawal_utxo = self
                 .contract
                 .withdrawalUTXOs(U256::from(last_withdrawal_idx))
-                // .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
             if withdrawal_utxo.is_err() {
