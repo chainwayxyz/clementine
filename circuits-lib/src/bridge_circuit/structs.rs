@@ -35,7 +35,6 @@ pub struct StorageProof {
     pub storage_proof_utxo: String, // This will be an Outpoint but only a txid is given
     pub storage_proof_deposit_idx: String, // This is the index of the withdrawal
     pub index: u32,                 // For now this is 18, for a specifix withdrawal
-    pub txid_hex: [u8; 32],         // Move txid
 }
 
 // #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]

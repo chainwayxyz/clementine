@@ -3,6 +3,7 @@ use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
 use crate::utils::calculate_succinct_output_prefix;
+use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
 use bitcoin::absolute::Height;
 use bitcoin::transaction::Version;
@@ -135,6 +136,7 @@ pub fn prove_bridge_circuit(
     let prover = default_prover();
 
     tracing::info!("PROVING Bridge CIRCUIT");
+
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
         .unwrap()
@@ -321,11 +323,15 @@ fn generate_succinct_bridge_circuit_public_inputs(
     let mut operator_id = [0u8; 32];
     operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
 
+    let deposit_storage_proof: EIP1186StorageProof =
+        serde_json::from_str(&input.sp.storage_proof_deposit_idx)
+            .expect("Failed to deserialize deposit storage proof");
+
     SuccinctBridgeCircuitPublicInputs {
         challenge_sending_watchtowers,
         payout_tx_block_hash,
         latest_block_hash,
-        move_to_vault_txid: input.sp.txid_hex,
+        move_to_vault_txid: deposit_storage_proof.value.to_le_bytes(),
         watcthower_challenge_wpks_hash: [0u8; 32],
         operator_id,
     }
