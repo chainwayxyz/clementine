@@ -987,15 +987,23 @@ where
 
         let g16: [u8; 256] = work_only_proof
             .clone()
-            .inner.clone()
+            .inner
+            .clone()
             .groth16()
             .wrap_err("xdd")?
-            .seal.clone()
+            .seal
+            .clone()
             .try_into()
-            .unwrap();
+            .map_err(|e: Vec<u8>| {
+                eyre::eyre!(
+                    "Invalid g16 proof length, expected 256 bytes, got {}",
+                    e.len()
+                )
+            })?;
         let g16_proof = CircuitGroth16Proof::from_seal(&g16);
         let mut commit_data: Vec<u8> = g16_proof.to_compressed().wrap_err("xdd")?.to_vec();
-        let total_work = borsh::to_vec(&work_output.work_u128).unwrap();
+        let total_work =
+            borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
         commit_data.extend_from_slice(&total_work);
 
         tracing::warn!("watchtower challenge Commit data: {:?}", commit_data);
@@ -1010,7 +1018,10 @@ where
             )
             .await?;
         tracing::warn!("Watchtower challenge tx: {:?}", challenge_tx);
-        tracing::warn!("Watchtower challenge tx bytes: {:?}", bitcoin::consensus::serialize(&challenge_tx));
+        tracing::warn!(
+            "Watchtower challenge tx bytes: {:?}",
+            bitcoin::consensus::serialize(&challenge_tx)
+        );
         let mut dbtx = self.db.begin_transaction().await?;
 
         self.tx_sender
