@@ -359,14 +359,14 @@ impl HeaderChainProver {
             .ok_or(eyre::eyre!("No tip block found"))?;
 
         // If tip is proven, return the proof.
-        //if latest_proven_block.2 == tip_height {
-        return Ok(self
-            .db
-            .get_block_proof_by_hash(None, latest_proven_block.0)
-            .await
-            .wrap_err("Failed to get block proof")?
-            .ok_or(HeaderChainProverError::BatchNotReady)?);
-        // }
+        if latest_proven_block.2 == tip_height {
+            return Ok(self
+                .db
+                .get_block_proof_by_hash(None, latest_proven_block.0)
+                .await
+                .wrap_err("Failed to get block proof")?
+                .ok_or(HeaderChainProverError::BatchNotReady)?);
+        }
 
         // If in limits of the batch size but not in a target block, prove block
         // headers manually.
