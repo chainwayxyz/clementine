@@ -146,7 +146,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         assert_eq!(withdrawal_count._0, U256::from(1));
 
         let utxos = citrea_client
-            .collect_withdrawal_utxos(-1, withdrawal_tx_height_block_height)
+            .collect_withdrawal_utxos(0, withdrawal_tx_height_block_height)
             .await
             .unwrap();
         assert_eq!(withdrawal_utxo, utxos[0].1);
