@@ -959,7 +959,7 @@ where
     async fn send_asserts(
         &self,
         kickoff_data: KickoffData,
-        mut deposit_data: DepositData,
+        deposit_data: DepositData,
         _watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
     ) -> Result<(), BridgeError> {
@@ -983,7 +983,7 @@ where
             ))?
             .get_cached_tx()
             .compute_txid();
-        let kickoff_tx = txhandlers
+        let _kickoff_tx = txhandlers
             .get(&TransactionType::Kickoff)
             .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
             .get_cached_tx();
@@ -1096,7 +1096,7 @@ where
         let assert_txs = self
             .create_assert_commitment_txs(
                 TransactionRequestData {
-                    kickoff_data: kickoff_data.clone(),
+                    kickoff_data,
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
                 },
                 ClementineBitVMPublicKeys::get_assert_commit_data(asserts),
