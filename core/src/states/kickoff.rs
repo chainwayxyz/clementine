@@ -365,9 +365,10 @@ impl<T: Owner> KickoffStateMachine<T> {
             KickoffEvent::Challenged => {
                 tracing::warn!("Warning: Operator challenged: {:?}", self.kickoff_data);
                 tracing::warn!(
-                    "Kickoff height: {}, send wt challenge height {}",
+                    "Kickoff height: {}, send wt challenge height {}, assert timeout height {}",
                     self.kickoff_height,
-                    self.kickoff_height + context.paramset.time_to_send_watchtower_challenge as u32
+                    self.kickoff_height + context.paramset.time_to_send_watchtower_challenge as u32,
+                    self.kickoff_height + context.paramset.assert_timeout_timelock as u32
                 );
                 Transition(State::challenged())
             }
@@ -414,7 +415,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             )?;
             let assert_timeout_txid = assert_timeout_txhandler.get_txid();
             self.matchers.insert(
-                Matcher::SpentUtxoButNotTimeout(
+                Matcher::SpentUtxoButNotTxid(
                     OutPoint {
                         txid: kickoff_txid,
                         vout: mini_assert_vout as u32,
@@ -447,7 +448,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             );
             // martcher in case watchtower challenge is sent
             self.matchers.insert(
-                Matcher::SpentUtxoButNotTimeout(
+                Matcher::SpentUtxoButNotTxid(
                     OutPoint {
                         txid: kickoff_txid,
                         vout: watchtower_challenge_vout as u32,
@@ -470,7 +471,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             )?;
             let operator_challenge_nack_txid = operator_challenge_nack_txhandler.get_txid();
             self.matchers.insert(
-                Matcher::SpentUtxoButNotTimeout(
+                Matcher::SpentUtxoButNotTxid(
                     OutPoint {
                         txid: kickoff_txid,
                         vout: operator_challenge_ack_vout as u32,
@@ -511,7 +512,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             remove_txhandler_from_map(&mut txhandlers, TransactionType::ChallengeTimeout)?;
         let challenge_timeout_txid = challenge_timeout_txhandler.get_txid();
         self.matchers.insert(
-            Matcher::SpentUtxoButNotTimeout(
+            Matcher::SpentUtxoButNotTxid(
                 OutPoint {
                     txid: kickoff_txid,
                     vout: challenge_vout,

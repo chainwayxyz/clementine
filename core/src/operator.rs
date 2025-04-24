@@ -22,6 +22,7 @@ use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
+use crate::states::context::DutyResult;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
@@ -151,21 +152,13 @@ where
             return Err(eyre::eyre!("Operator withdrawal fee is not set").into());
         }
 
-        // TODO: Fix this where the config will only have one address. also check??
-        let reimburse_addr = rpc
-            .client
-            .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
-            .await
-            .wrap_err("Failed to get new address")?
-            .assume_checked();
-
         // check if we store our collateral outpoint already in db
         let mut dbtx = db.begin_transaction().await?;
         let op_data = db
             .get_operator(Some(&mut dbtx), signer.xonly_public_key)
             .await?;
-        let collateral_funding_outpoint = match op_data {
-            Some(op_data) => op_data.collateral_funding_outpoint,
+        let (collateral_funding_outpoint, reimburse_addr) = match op_data {
+            Some(op_data) => (op_data.collateral_funding_outpoint, op_data.reimburse_addr),
             None => {
                 let outpoint = rpc
                     .send_to_address(
@@ -173,6 +166,13 @@ where
                         config.protocol_paramset().collateral_funding_amount,
                     )
                     .await?;
+
+                let reimburse_addr = rpc
+                    .client
+                    .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
+                    .await
+                    .wrap_err("Failed to get new address")?
+                    .assume_checked();
                 db.set_operator(
                     Some(&mut dbtx),
                     signer.xonly_public_key,
@@ -180,7 +180,7 @@ where
                     outpoint,
                 )
                 .await?;
-                outpoint
+                (outpoint, reimburse_addr)
             }
         };
         dbtx.commit().await?;
@@ -349,6 +349,15 @@ where
     /// Creates the round state machine by adding a system event to the database
     pub async fn track_rounds(&self) -> Result<(), BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
+        // set operators own kickoff winternitz public keys before creating the round state machine
+        // as round machine needs kickoff keys to create the first round tx
+        self.db
+            .set_operator_kickoff_winternitz_public_keys(
+                Some(&mut dbtx),
+                self.signer.xonly_public_key,
+                self.generate_kickoff_winternitz_pubkeys()?,
+            )
+            .await?;
         StateManager::<Operator<C>>::dispatch_new_round_machine(
             self.db.clone(),
             &mut dbtx,
@@ -1143,7 +1152,7 @@ where
     C: CitreaClientT,
 {
     const OWNER_TYPE: &'static str = "operator";
-    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         match duty {
             Duty::NewReadyToReimburse {
                 round_idx,
@@ -1152,16 +1161,9 @@ where
             } => {
                 tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}", 
                     self.signer.xonly_public_key, round_idx, operator_xonly_pk, used_kickoffs);
+                Ok(DutyResult::Handled)
             }
-            Duty::WatchtowerChallenge {
-                kickoff_data,
-                deposit_data,
-            } => {
-                tracing::info!(
-                    "Operator {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
-                    self.signer.xonly_public_key, kickoff_data, deposit_data
-                );
-            }
+            Duty::WatchtowerChallenge { .. } => Ok(DutyResult::Handled),
             Duty::SendOperatorAsserts {
                 kickoff_data,
                 deposit_data,
@@ -1177,23 +1179,16 @@ where
                     payout_blockhash,
                 )
                 .await?;
+                Ok(DutyResult::Handled)
             }
-            Duty::VerifierDisprove {
-                kickoff_data,
-                deposit_data,
-                operator_asserts,
-                operator_acks,
-                payout_blockhash,
-            } => {
-                tracing::info!("Operator {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?}, operator_acks: {:?}
-                payout_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(), payout_blockhash.len());
-            }
+            Duty::VerifierDisprove { .. } => Ok(DutyResult::Handled),
             Duty::CheckIfKickoff {
                 txid,
                 block_height,
                 witness,
+                challenged_before: _,
             } => {
-                tracing::info!(
+                tracing::debug!(
                     "Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
                     self.signer.xonly_public_key,
                     txid,
@@ -1217,9 +1212,9 @@ where
                     .await?;
                     dbtx.commit().await?;
                 }
+                Ok(DutyResult::Handled)
             }
         }
-        Ok(())
     }
 
     async fn create_txhandlers(
