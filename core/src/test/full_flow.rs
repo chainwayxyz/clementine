@@ -796,6 +796,12 @@ pub async fn run_challenge_with_state_machine(
     // Send Challenge Transaction
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
 
+    // wait for necessary amount of blocks
+    rpc.mine_blocks(config.protocol_paramset().time_to_send_watchtower_challenge as u64)
+        .await?;
+
+    tokio::time::sleep(std::time::Duration::from_secs(40)).await;
+
     let deposit_outpoint = deposit_info.deposit_outpoint;
     let kickoff_tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::Kickoff)?;
     let kickoff_txid = kickoff_tx.compute_txid();
@@ -813,10 +819,6 @@ pub async fn run_challenge_with_state_machine(
             wtc.compute_txid()
         })
         .collect::<Vec<Txid>>();
-
-    // wait for necessary amount of blocks
-    rpc.mine_blocks(config.protocol_paramset().time_to_send_watchtower_challenge as u64)
-        .await?;
 
     tracing::info!("Checking if watchtower challenge utxos were spent");
     // check if watchtower challenge utxos were spent

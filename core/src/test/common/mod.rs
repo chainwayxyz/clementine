@@ -377,8 +377,10 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .into_inner()
         .try_into()?;
 
+    tracing::warn!("Move txid of deposit: {:?}", move_txid);
+
     // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
     // mine 1 block
     rpc.mine_blocks(1).await?;
 

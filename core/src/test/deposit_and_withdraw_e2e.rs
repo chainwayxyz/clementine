@@ -780,7 +780,7 @@ async fn mock_citrea_run_malicious() {
         .try_into()
         .unwrap();
 
-    tracing::info!("Kickoff txid: {:?}", kickoff_txid);
+    tracing::warn!("Kickoff txid: {:?}", kickoff_txid);
 
     // wait 3 seconds so fee payer txs are sent to mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -807,6 +807,8 @@ async fn mock_citrea_run_malicious() {
 
     // tx should have challenge amount output
     assert!(tx.output[0].value == config.protocol_paramset().operator_challenge_amount);
+
+    tracing::warn!("First challenge sent, sending second kickoff tx");
     // send second kickoff tx
     let kickoff_txid_2: bitcoin::Txid = operators[0]
         .internal_finalized_payout(FinalizedPayoutParams {

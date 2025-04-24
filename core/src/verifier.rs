@@ -1350,6 +1350,7 @@ where
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
+        tracing::warn!("Verifier handle finalized block {}", block_height);
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 

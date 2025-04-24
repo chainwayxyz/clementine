@@ -1320,6 +1320,13 @@ where
                     .as_ref()
                     .expect("Block should exist")
                     .txdata[1..]
+                    .iter()
+                    .map(|tx| tx
+                        .input
+                        .iter()
+                        .map(|input| input.previous_output)
+                        .collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
             );
         }
         Ok(())
