@@ -21,7 +21,7 @@ pub const WINTERNITZ_LOG_D: u32 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 /// A pre-defined paramset name that can be converted into a
-/// [`ProtocolParamset`] reference. Refers to a defined constant paramset in this module.
+/// [`ProtocolParamset`] reference. Refers to a defined constant paramset in this module or a defined external source.
 ///
 /// See: [`MAINNET_PARAMSET`], [`REGTEST_PARAMSET`], [`TESTNET_PARAMSET`].
 pub enum ProtocolParamsetName {
@@ -29,6 +29,10 @@ pub enum ProtocolParamsetName {
     Regtest,
     Testnet4,
     Signet,
+    /// Explicitly read from environment variables and exit with error if not set
+    Env,
+    /// Read from external config file and exit with error if not set
+    File,
 }
 
 impl FromStr for ProtocolParamsetName {
@@ -55,31 +59,21 @@ impl Display for ProtocolParamsetName {
             ProtocolParamsetName::Regtest => write!(f, "regtest"),
             ProtocolParamsetName::Testnet4 => write!(f, "testnet4"),
             ProtocolParamsetName::Signet => write!(f, "signet"),
+            ProtocolParamsetName::Env => write!(f, "env"),
+            ProtocolParamsetName::File => write!(f, "file"),
         }
     }
 }
 
 impl From<ProtocolParamsetName> for &'static ProtocolParamset {
     fn from(name: ProtocolParamsetName) -> Self {
-        let from_env = ProtocolParamset::from_env();
-        if from_env.is_ok() {
-            tracing::trace!("Using protocol params from env...");
-            return &ENV_PARAMSET;
-        }
-        tracing::trace!("Can't read protocol params from env: {from_env:?}. Trying to read from external config...");
-
-        let from_external_config = std::env::var("PROTOCOL_CONFIG_PATH");
-        if from_external_config.is_ok() {
-            tracing::trace!("Using protocol params from external config file...");
-            return &RUNTIME_PARAMSET;
-        }
-        tracing::trace!("Can't read protocol params from external config file: {from_external_config:?}. Using config file's value...");
-
         match name {
             ProtocolParamsetName::Mainnet => &MAINNET_PARAMSET,
             ProtocolParamsetName::Regtest => &REGTEST_PARAMSET,
             ProtocolParamsetName::Testnet4 => &TESTNET4_PARAMSET,
             ProtocolParamsetName::Signet => &SIGNET_PARAMSET,
+            ProtocolParamsetName::Env => &ENV_PARAMSET,
+            ProtocolParamsetName::File => &FILE_PARAMSET,
         }
     }
 }
@@ -244,7 +238,7 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
 };
 
 lazy_static! {
-    pub static ref RUNTIME_PARAMSET: Arc<ProtocolParamset> = {
+    pub static ref FILE_PARAMSET: Arc<ProtocolParamset> = {
         let config_path = std::env::var("PROTOCOL_CONFIG_PATH")
             .unwrap_or_else(|_| "protocol_params.toml".to_string());
 
