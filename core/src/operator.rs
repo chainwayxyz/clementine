@@ -1,17 +1,18 @@
+use ark_ff::PrimeField;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
-    create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
-    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
-    TxHandlerCache,
+    create_burn_unused_kickoff_connectors_txhandler, create_move_to_vault_txhandler,
+    create_round_nth_txhandler, create_round_txhandlers, create_txhandlers, ContractContext,
+    DepositData, KickoffData, KickoffWinternitzKeys, OperatorData, ReimburseDbCache,
+    TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -36,8 +37,14 @@ use bitcoin::{
 };
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
+use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
-use eyre::Context;
+use bridge_circuit_host::bridge_circuit_host::{
+    create_spv, prove_bridge_circuit, _BRIDGE_CIRCUIT_ELF,
+};
+use bridge_circuit_host::structs::BridgeCircuitHostParams;
+use bridge_circuit_host::utils::get_ark_verifying_key;
+use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -946,16 +953,110 @@ where
     async fn send_asserts(
         &self,
         kickoff_data: KickoffData,
-        deposit_data: DepositData,
+        mut deposit_data: DepositData,
         _watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
     ) -> Result<(), BridgeError> {
+        let move_txid =
+            create_move_to_vault_txhandler(&mut deposit_data, self.config.protocol_paramset())?
+                .get_cached_tx()
+                .compute_txid();
+        let (payout_op_xonly_pk, payout_block_hash, payout_txid, deposit_idx) = self
+            .db
+            .get_payout_info_from_move_txid(None, move_txid)
+            .await
+            .wrap_err("Failed to get payout info from db during sending asserts.")?
+            .ok_or_eyre(format!(
+                "Payout info not found in db while sending asserts for move txid: {}",
+                move_txid
+            ))?;
+
+        if payout_op_xonly_pk != kickoff_data.operator_xonly_pk {
+            return Err(eyre::eyre!(
+                "Payout operator xonly pk does not match kickoff operator xonly pk in send_asserts"
+            )
+            .into());
+        }
+
+        let (payout_block_height, payout_block) = self
+            .db
+            .get_full_block_from_hash(None, payout_block_hash)
+            .await?
+            .ok_or_eyre(format!(
+                "Payout block {:?} {:?} not found in db",
+                payout_op_xonly_pk, payout_block_hash
+            ))?;
+
+        let payout_tx_index = payout_block
+            .txdata
+            .iter()
+            .position(|tx| tx.compute_txid() == payout_txid)
+            .ok_or_eyre(format!(
+                "Payout txid {:?} not found in block {:?} {:?}",
+                payout_txid, payout_op_xonly_pk, payout_block_hash
+            ))?;
+
+        let payout_tx = &payout_block.txdata[payout_tx_index];
+
+        let spv = create_spv(
+            &mut bitcoin::consensus::serialize(payout_tx).as_slice(),
+            todo!(), // TODO: add headers
+            payout_block,
+            payout_block_height,
+            payout_tx_index as u32,
+        );
+
+        let (light_client_proof, lcp_receipt, l2_height) = self
+            .citrea_client
+            .get_light_client_proof(payout_block_height as u64)
+            .await
+            .wrap_err("Failed to get light client proof for payout block height")?
+            .ok_or_eyre("Light client proof is not available for payout block height")?;
+
+        let storage_proof = self
+            .citrea_client
+            .get_storage_proof(l2_height, deposit_idx as u32, move_txid)
+            .await
+            .wrap_err(format!(
+                "Failed to get storage proof for move txid {:?}, l2 height {}, deposit_idx {}",
+                move_txid, l2_height, deposit_idx
+            ))?;
+
+        let bridge_circuit_host_params = BridgeCircuitHostParams {
+            network: self.config.protocol_paramset().network,
+            winternitz_details: vec![],
+            spv,
+            block_header_circuit_output: todo!(),
+            headerchain_receipt: todo!(),
+            light_client_proof,
+            lcp_receipt,
+            storage_proof,
+            num_of_watchtowers: u8::try_from(deposit_data.get_num_watchtowers())
+                .wrap_err("Failed to convert num of watchtowers to u8")?,
+        };
+
+        let (g16_proof, g16_output, _public_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, _BRIDGE_CIRCUIT_ELF);
+
+        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
+
+        let asserts = generate_assertions(
+            g16_proof,
+            vec![public_input_scalar],
+            &get_ark_verifying_key(),
+        )
+        .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?;
+
         let assert_txs = self
-            .create_assert_commitment_txs(TransactionRequestData {
-                kickoff_data,
-                deposit_outpoint: deposit_data.get_deposit_outpoint(),
-            })
+            .create_assert_commitment_txs(
+                TransactionRequestData {
+                    kickoff_data: kickoff_data.clone(),
+                    deposit_outpoint: deposit_data.get_deposit_outpoint(),
+                },
+                ClementineBitVMPublicKeys::get_assert_commit_data(asserts),
+            )
             .await?;
+
         let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in assert_txs {
             self.tx_sender

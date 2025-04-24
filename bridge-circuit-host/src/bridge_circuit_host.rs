@@ -19,7 +19,7 @@ use header_chain::header_chain::CircuitBlockHeader;
 use header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 
-const _BRIDGE_CIRCUIT_ELF: &[u8] =
+pub const _BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
 const TESTNET4_WORK_ONLY_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");

@@ -877,7 +877,7 @@ where
             return Ok(true);
         }
         let payout_info = payout_info?;
-        if let Some((operator_xonly_pk, payout_blockhash)) = payout_info {
+        if let Some((operator_xonly_pk, payout_blockhash, _, _)) = payout_info {
             if operator_xonly_pk != kickoff_data.operator_xonly_pk {
                 return Ok(true);
             }

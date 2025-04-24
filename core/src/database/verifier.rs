@@ -175,19 +175,21 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         move_to_vault_txid: Txid,
-    ) -> Result<Option<(XOnlyPublicKey, BlockHash)>, BridgeError> {
-        let query = sqlx::query_as::<_, (XOnlyPublicKeyDB, BlockHashDB)>(
-            "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash
+    ) -> Result<Option<(XOnlyPublicKey, BlockHash, Txid, i32)>, BridgeError> {
+        let query = sqlx::query_as::<_, (XOnlyPublicKeyDB, BlockHashDB, TxidDB, i32)>(
+            "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash, w.payout_txid, w.idx
              FROM withdrawals w
              WHERE w.move_to_vault_txid = $1",
         )
         .bind(TxidDB(move_to_vault_txid));
 
-        let result: Option<(XOnlyPublicKeyDB, BlockHashDB)> =
+        let result: Option<(XOnlyPublicKeyDB, BlockHashDB, TxidDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         result
-            .map(|(operator_xonly_pk, block_hash)| Ok((operator_xonly_pk.0, block_hash.0)))
+            .map(|(operator_xonly_pk, block_hash, txid, deposit_idx)| {
+                Ok((operator_xonly_pk.0, block_hash.0, txid.0, deposit_idx))
+            })
             .transpose()
     }
 

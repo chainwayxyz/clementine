@@ -317,6 +317,7 @@ where
     pub async fn create_assert_commitment_txs(
         &self,
         assert_data: TransactionRequestData,
+        commit_data: Vec<Vec<Vec<u8>>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let deposit_data = self
             .db
@@ -357,9 +358,10 @@ where
             );
             let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations
                 .iter()
-                .map(|derivation| match derivation {
-                    WinternitzDerivationPath::BitvmAssert(len, _, _, _, _) => {
-                        (vec![0u8; *len as usize / 2], derivation.clone())
+                .zip(commit_data[idx].iter())
+                .map(|(derivation, commit_data)| match derivation {
+                    WinternitzDerivationPath::BitvmAssert(_len, _, _, _, _) => {
+                        (commit_data.clone(), derivation.clone())
                     }
                     _ => unreachable!(),
                 })
