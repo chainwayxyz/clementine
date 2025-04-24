@@ -4,7 +4,7 @@ use crate::citrea::BRIDGE_CONTRACT::DepositReplaced;
 use crate::errors::BridgeError;
 
 use alloy::{
-    eips::{BlockId, BlockNumberOrTag},
+    eips::BlockNumberOrTag,
     network::EthereumWallet,
     primitives::U256,
     providers::{
@@ -284,7 +284,7 @@ impl CitreaClientT for CitreaClient {
         loop {
             let deposit_txid = self
                 .contract
-                .depositTxIds(U256::from(last_deposit_idx))
+                .depositTxIds(U256::from(start_idx))
                 // .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
@@ -321,7 +321,7 @@ impl CitreaClientT for CitreaClient {
         loop {
             let withdrawal_utxo = self
                 .contract
-                .withdrawalUTXOs(U256::from(last_withdrawal_idx))
+                .withdrawalUTXOs(U256::from(start_idx))
                 // .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
