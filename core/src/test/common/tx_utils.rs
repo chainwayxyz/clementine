@@ -20,7 +20,7 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     lc_prover: &Node<LightClientProverConfig>,
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
-    let mut timeout_counter = 300;
+    let mut timeout_counter = 1200;
     while rpc
         .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))

@@ -288,7 +288,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         da.wait_mempool_len(2, None).await?;
 
         // 6. generate FINALITY_DEPTH da blocks
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 100).await.unwrap();
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 3).await.unwrap();
 
         let finalized_height = da.get_finalized_height(None).await.unwrap();
 
@@ -296,7 +296,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         lc_prover.wait_for_l1_height(finalized_height, None).await?;
         tracing::info!("Waited for L1 height {}", finalized_height);
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 100).await.unwrap();
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 3).await.unwrap();
 
         let payout_txid = loop {
             let withdrawal_response = operators[0]
@@ -329,7 +329,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None).await?;
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 100).await.unwrap();
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 3).await.unwrap();
 
         // Setup tx_sender for sending transactions
         let verifier_0_config = {
@@ -383,7 +383,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
 
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 100).await.unwrap();
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 3).await.unwrap();
 
         // wait until the light client prover is synced to the same height
         lc_prover
