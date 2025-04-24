@@ -360,6 +360,7 @@ impl HeaderChainProver {
 
         // If tip is proven, return the proof.
         if latest_proven_block.2 == tip_height {
+            tracing::warn!("Returning existing proof for height {}", tip_height);
             return Ok(self
                 .db
                 .get_block_proof_by_hash(None, latest_proven_block.0)
@@ -385,6 +386,7 @@ impl HeaderChainProver {
         let receipt = self
             .prove_and_save_block(latest_proven_block.0, block_headers, previous_proof)
             .await?;
+        tracing::warn!("Generated new proof for height {}", tip_height);
 
         Ok(receipt)
     }
@@ -436,7 +438,7 @@ impl HeaderChainProver {
         if tip_height == 0 {
             return Ok(false);
         }
-        tracing::debug!(
+        tracing::warn!(
             "Tip height: {}, non proven block height: {}, {}",
             tip_height,
             non_proven_block_height,

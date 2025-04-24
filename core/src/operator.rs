@@ -1,4 +1,5 @@
 use ark_ff::PrimeField;
+use header_chain::header_chain::BlockHeaderCircuitOutput;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +21,7 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::header_chain_prover::HeaderChainProver;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
@@ -65,6 +67,7 @@ pub struct Operator<C: CitreaClientT> {
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSenderClient,
+    pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
 }
 
@@ -195,6 +198,8 @@ where
             config.db_name
         );
 
+        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
+
         Ok(Operator {
             rpc,
             db: db.clone(),
@@ -203,6 +208,7 @@ where
             collateral_funding_outpoint,
             tx_sender,
             citrea_client,
+            header_chain_prover,
             reimburse_addr,
         })
     }
@@ -957,10 +963,31 @@ where
         _watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        let move_txid =
-            create_move_to_vault_txhandler(&mut deposit_data, self.config.protocol_paramset())?
-                .get_cached_tx()
-                .compute_txid();
+        let context = ContractContext::new_context_for_kickoffs(
+            kickoff_data,
+            deposit_data.clone(),
+            self.config.protocol_paramset(),
+        );
+        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
+        let txhandlers = create_txhandlers(
+            TransactionType::Kickoff,
+            context,
+            &mut TxHandlerCache::new(),
+            &mut db_cache,
+        )
+        .await?;
+        let move_txid = txhandlers
+            .get(&TransactionType::MoveToVault)
+            .ok_or(eyre::eyre!(
+                "Move to vault txhandler not found in send_asserts"
+            ))?
+            .get_cached_tx()
+            .compute_txid();
+        let kickoff_tx = txhandlers
+            .get(&TransactionType::Kickoff)
+            .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
+            .get_cached_tx();
+
         let (payout_op_xonly_pk, payout_block_hash, payout_txid, deposit_idx) = self
             .db
             .get_payout_info_from_move_txid(None, move_txid)
@@ -998,9 +1025,19 @@ where
 
         let payout_tx = &payout_block.txdata[payout_tx_index];
 
+        let headers = self
+            .db
+            .get_headers_until_height(None, payout_block_height as u64)
+            .await?;
+
+        let headers_serialized: Vec<u8> = headers
+            .iter()
+            .flat_map(bitcoin::consensus::serialize)
+            .collect::<Vec<_>>();
+
         let spv = create_spv(
             &mut bitcoin::consensus::serialize(payout_tx).as_slice(),
-            todo!(), // TODO: add headers
+            &headers_serialized,
             payout_block,
             payout_block_height,
             payout_tx_index as u32,
@@ -1022,12 +1059,21 @@ where
                 move_txid, l2_height, deposit_idx
             ))?;
 
+        let current_hcp = self
+            .header_chain_prover
+            .get_tip_header_chain_proof()
+            .await?;
+        let hcp_output: BlockHeaderCircuitOutput = borsh::from_slice(&current_hcp.journal.bytes)
+            .wrap_err(eyre::eyre!(
+                "Failed to deserialize block header circuit output in send_asserts"
+            ))?;
+
         let bridge_circuit_host_params = BridgeCircuitHostParams {
             network: self.config.protocol_paramset().network,
             winternitz_details: vec![],
             spv,
-            block_header_circuit_output: todo!(),
-            headerchain_receipt: todo!(),
+            block_header_circuit_output: hcp_output,
+            headerchain_receipt: current_hcp,
             light_client_proof,
             lcp_receipt,
             storage_proof,

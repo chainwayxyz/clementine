@@ -982,29 +982,31 @@ where
             .get_tip_header_chain_proof()
             .await?;
 
-        let (work_only_proof, work_output) =
-            self.header_chain_prover.prove_work_only(current_tip_hcp)?;
+        // let (work_only_proof, work_output) =
+        //     self.header_chain_prover.prove_work_only(current_tip_hcp)?;
 
-        let g16: [u8; 256] = work_only_proof
-            .clone()
-            .inner
-            .clone()
-            .groth16()
-            .wrap_err("xdd")?
-            .seal
-            .clone()
-            .try_into()
-            .map_err(|e: Vec<u8>| {
-                eyre::eyre!(
-                    "Invalid g16 proof length, expected 256 bytes, got {}",
-                    e.len()
-                )
-            })?;
-        let g16_proof = CircuitGroth16Proof::from_seal(&g16);
-        let mut commit_data: Vec<u8> = g16_proof.to_compressed().wrap_err("xdd")?.to_vec();
-        let total_work =
-            borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
-        commit_data.extend_from_slice(&total_work);
+        // let g16: [u8; 256] = work_only_proof
+        //     .clone()
+        //     .inner
+        //     .clone()
+        //     .groth16()
+        //     .wrap_err("xdd")?
+        //     .seal
+        //     .clone()
+        //     .try_into()
+        //     .map_err(|e: Vec<u8>| {
+        //         eyre::eyre!(
+        //             "Invalid g16 proof length, expected 256 bytes, got {}",
+        //             e.len()
+        //         )
+        //     })?;
+        // let g16_proof = CircuitGroth16Proof::from_seal(&g16);
+        // let mut commit_data: Vec<u8> = g16_proof.to_compressed().wrap_err("xdd")?.to_vec();
+        // let total_work =
+        //     borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
+        // commit_data.extend_from_slice(&total_work);
+
+        let commit_data = vec![0u8; 144];
 
         tracing::warn!("watchtower challenge Commit data: {:?}", commit_data);
 
