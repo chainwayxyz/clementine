@@ -220,6 +220,18 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
         tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
+        // Without a withdrawal in Citrea, operator can't withdraw.
+        assert!(operators[0]
+            .withdraw(WithdrawParams {
+                withdrawal_id: 0,
+                input_signature: sig.serialize().to_vec(),
+                input_outpoint: Some(withdrawal_utxo.into()),
+                output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
+                output_amount: payout_txout.txout().value.to_sat(),
+            })
+            .await
+            .is_err());
+
         let citrea_client = CitreaClient::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
