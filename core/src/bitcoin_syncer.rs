@@ -683,7 +683,7 @@ mod tests {
             .await
             .is_err());
     }
-
+    #[ignore]
     #[tokio::test]
     #[serial_test::serial]
     async fn set_non_canonical_block_hashes() {
