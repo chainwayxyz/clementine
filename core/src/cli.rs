@@ -5,6 +5,7 @@
 
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
+use crate::errors::ErrorExt;
 use crate::utils;
 use clap::Parser;
 use clap::ValueEnum;
@@ -55,14 +56,14 @@ where
 
 /// Reads configuration file, parses it and generates a `BridgeConfig` from
 /// given cli arguments.
-fn get_configuration_from(config_file: PathBuf) -> Result<BridgeConfig, BridgeError> {
+fn read_config_from(config_file: PathBuf) -> Result<BridgeConfig, BridgeError> {
     match BridgeConfig::try_parse_file(config_file) {
         Ok(c) => Ok(c),
         Err(e) => Err(BridgeError::ConfigError(e.to_string())),
     }
 }
 
-/// Gets configuration from CLI, for binaries. If there are any errors, prints
+/// Gets configuration using CLI arguments, for binaries. If there are any errors, prints
 /// error and exits the program.
 ///
 /// Steps:
@@ -102,44 +103,65 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
         }
     };
 
-    // Return early if environment variables are set.
-    match BridgeConfig::from_env() {
-        Ok(config) => {
-            tracing::info!(
-                "All the environment variables are set. Using them instead of a configuration file..."
-            );
+    match std::env::var("READ_FROM_ENV") {
+        Ok(str) => {
+            // Read from environment variables ONLY
+            if str != "1" {
+                tracing::warn!("Unknown value for READ_FROM_ENV: {str}. Expected 1. Using environment variables.");
+            }
 
-            return (config, args);
+            if args.config_file.is_some() {
+                tracing::warn!("Configuration file provided in CLI arguments while READ_FROM_ENV is set to 1. Ignoring configuration file and reading from environment variables.");
+            }
+
+            match BridgeConfig::from_env() {
+                Ok(config) => (config, args),
+                Err(e) => {
+                    // Handle the root cause
+                    let e = e.into_eyre();
+                    match e.root_cause().downcast_ref::<BridgeError>() {
+                        Some(BridgeError::EnvVarNotSet(e, field)) => {
+                            tracing::error!(
+                                "Missing environment variable {field} in environment config mode. ({e:?})."
+                            );
+                            exit(1);
+                        }
+                        Some(BridgeError::EnvVarMalformed(e, field)) => {
+                            tracing::error!("Malformed environment variable {field} in environment config mode. ({e:?}).");
+                            exit(1);
+                        }
+                        _ => {
+                            tracing::error!(
+                            "Error occurred while reading environment variables for config: {e:?}"
+                        );
+                            exit(1);
+                        }
+                    }
+                }
+            }
         }
-        Err(BridgeError::EnvVarNotSet(e, field)) => {
-            tracing::info!("Environment variable {field} is not set ({e}). Skipping reading environment variables and using configuration file...");
-        }
-        Err(e) => {
-            // TODO: Almost every error is converted automatically and it's not
-            // possible to tell which env var is malformed without managing
-            // every error manually. Maybe the new error interface will solve
-            // this problem?
-            tracing::error!("Malformed value set to an environment variable: {e}");
-            exit(1);
+        Err(_) => {
+            // Read from configuration file ONLY
+            let config_file = if let Some(config_file) = args.config_file.clone() {
+                config_file
+            } else {
+                tracing::error!(
+                    "Failed to read configuration file: No configuration file provided."
+                );
+                exit(1);
+            };
+
+            let config = match read_config_from(config_file) {
+                Ok(config) => config,
+                Err(e) => {
+                    tracing::error!("Can't read configuration from file: {e}");
+                    exit(1);
+                }
+            };
+
+            (config, args)
         }
     }
-
-    let config_file = if let Some(config_file) = args.config_file.clone() {
-        config_file
-    } else {
-        tracing::error!("Configuration file is not provided!");
-        exit(1);
-    };
-
-    let config = match get_configuration_from(config_file) {
-        Ok(config) => config,
-        Err(e) => {
-            tracing::error!("Can't read configuration from file: {e}");
-            exit(1);
-        }
-    };
-
-    (config, args)
 }
 
 #[cfg(test)]

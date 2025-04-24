@@ -182,6 +182,16 @@ pub async fn set_initial_block_info_if_not_exists(
             .wrap_err("Failed to get block count")?,
     )
     .wrap_err(BridgeError::IntConversionError)?;
+
+    if paramset.start_height > current_height {
+        tracing::error!(
+            "Bitcoin syncer does not have enough available blocks in chain (Likely a regtest problem). start_height ({}) > current_height ({})",
+            paramset.start_height,
+            current_height
+        );
+        return Ok(());
+    }
+
     let mut height = paramset.start_height;
     let mut dbtx = db.begin_transaction().await?;
     // first collect previous needed blocks according to paramset start height
