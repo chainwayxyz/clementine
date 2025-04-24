@@ -1,11 +1,8 @@
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
 use bitcoin::Network;
-use circuits_lib::bridge_circuit::{
-    structs::{LightClientProof, StorageProof},
-    winternitz::WinternitzHandler,
-};
-use final_spv::spv::SPV;
+use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof, WatchtowerInput};
+use final_spv::{spv::SPV, transaction::CircuitTransaction};
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
 use sha2::{Digest, Sha256};
@@ -14,32 +11,35 @@ use crate::utils::get_ark_verifying_key;
 
 #[derive(Debug, Clone)]
 pub struct BridgeCircuitHostParams {
-    pub winternitz_details: Vec<WinternitzHandler>,
+    pub kickoff_tx: CircuitTransaction,
     pub spv: SPV,
     pub block_header_circuit_output: BlockHeaderCircuitOutput,
     pub headerchain_receipt: Receipt,
     pub light_client_proof: LightClientProof,
     pub lcp_receipt: Receipt,
     pub storage_proof: StorageProof,
-    pub num_of_watchtowers: u8,
     pub network: Network,
+    pub watchtower_inputs: Vec<WatchtowerInput>,
+    pub all_watchtower_pubkeys: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct SuccinctBridgeCircuitPublicInputs {
+    pub kickoff_txid: [u8; 32],
     pub payout_tx_block_hash: [u8; 20],
     pub latest_block_hash: [u8; 20],
     pub challenge_sending_watchtowers: [u8; 20],
     pub move_to_vault_txid: [u8; 32],
-    pub watchtower_challenge_wpks_hash: [u8; 32],
+    pub watchtower_pubkeys_digest: [u8; 32],
     pub operator_id: [u8; 32],
 }
 
 impl SuccinctBridgeCircuitPublicInputs {
     pub fn journal_hash(self) -> blake3::Hash {
         let pre_deposit_constant = [
+            self.kickoff_txid,
             self.move_to_vault_txid,
-            self.watchtower_challenge_wpks_hash,
+            self.watchtower_pubkeys_digest,
             self.operator_id,
         ]
         .concat();
@@ -52,6 +52,7 @@ impl SuccinctBridgeCircuitPublicInputs {
             self.challenge_sending_watchtowers,
         ]
         .concat();
+
         let binding = blake3::hash(&concatenated_data);
         let hash_bytes = binding.as_bytes();
 
@@ -62,11 +63,13 @@ impl SuccinctBridgeCircuitPublicInputs {
 
     pub fn deposit_constant(self) -> [u8; 32] {
         let pre_deposit_constant = [
+            self.kickoff_txid,
             self.move_to_vault_txid,
-            self.watchtower_challenge_wpks_hash,
+            self.watchtower_pubkeys_digest,
             self.operator_id,
         ]
         .concat();
+
         Sha256::digest(&pre_deposit_constant).into()
     }
 }
