@@ -41,12 +41,12 @@ impl BridgeConfig {
     }
 
     pub fn get_num_required_nofn_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
-        6 + 4 * deposit_data.get_num_verifiers()
+        7 + 4 * deposit_data.get_num_verifiers()
             + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs() * 2
     }
 
     pub fn get_num_required_operator_sigs_per_kickoff(&self, deposit_data: &DepositData) -> usize {
-        2 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
+        4 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
             + deposit_data.get_num_verifiers()
     }
 

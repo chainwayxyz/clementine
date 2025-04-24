@@ -165,42 +165,40 @@ impl Default for BridgeConfig {
             citrea_light_client_prover_url: "".to_string(),
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
 
-            header_chain_proof_path: Some(
-                PathBuf::from_str("../core/tests/data/first_1.bin").expect("known valid input"),
-            ),
+            header_chain_proof_path: None,
 
             all_verifiers_secret_keys: Some(vec![
                 SecretKey::from_str(
                     "1111111111111111111111111111111111111111111111111111111111111111",
                 )
                 .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "3333333333333333333333333333333333333333333333333333333333333333",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "4444444444444444444444444444444444444444444444444444444444444444",
-                )
-                .expect("known valid input"),
+                // SecretKey::from_str(
+                //     "2222222222222222222222222222222222222222222222222222222222222222",
+                // )
+                // .expect("known valid input"),
+                // SecretKey::from_str(
+                //     "3333333333333333333333333333333333333333333333333333333333333333",
+                // )
+                // .expect("known valid input"),
+                // SecretKey::from_str(
+                //     "4444444444444444444444444444444444444444444444444444444444444444",
+                // )
+                // .expect("known valid input"),
             ]),
             all_operators_secret_keys: Some(vec![
                 SecretKey::from_str(
                     "1111111111111111111111111111111111111111111111111111111111111111",
                 )
                 .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
+                // SecretKey::from_str(
+                //     "2222222222222222222222222222222222222222222222222222222222222222",
+                // )
+                // .expect("known valid input"),
             ]),
 
             winternitz_secret_key: Some(
                 SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
+                    "1111111111111111111111111111111111111111111111111111111111111111",
                 )
                 .expect("known valid input"),
             ),

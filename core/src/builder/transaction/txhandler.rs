@@ -1,10 +1,10 @@
-use super::input::{SpendableTxIn, SpentTxIn};
+use super::input::{SpendableTxIn, SpentTxIn, UtxoVout};
 use super::output::UnspentTxOut;
 use crate::builder::script::SpendPath;
 use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
 use crate::builder::transaction::TransactionType;
-use crate::constants::BURN_SCRIPT;
+use crate::constants::{BURN_SCRIPT, MIN_TAPROOT_AMOUNT};
 use crate::errors::{BridgeError, TxError};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
@@ -48,15 +48,16 @@ pub type SighashCalculator<'a> =
     Box<dyn FnOnce(TapSighashType) -> Result<TapSighash, BridgeError> + 'a>;
 
 impl<T: State> TxHandler<T> {
-    pub fn get_spendable_output(&self, idx: usize) -> Result<SpendableTxIn, BridgeError> {
+    pub fn get_spendable_output(&self, vout: UtxoVout) -> Result<SpendableTxIn, BridgeError> {
+        let idx = vout.get_vout();
         let txout = self
             .txouts
-            .get(idx)
+            .get(idx as usize)
             .ok_or_else(|| eyre::eyre!("Could not find output {idx} in transaction"))?;
         Ok(SpendableTxIn::new(
             OutPoint {
                 txid: self.cached_txid,
-                vout: idx as u32,
+                vout: idx,
             },
             txout.txout().clone(),
             txout.scripts().clone(),
@@ -442,9 +443,13 @@ impl TxHandlerBuilder {
             .map(|s| s.txout().value)
             .sum::<bitcoin::Amount>();
 
+        // do not add burn output if there is not enough sats left for new output and some fee
+        if total_in - total_out < MIN_TAPROOT_AMOUNT * 10 {
+            return self;
+        }
         let burntxo = TxOut {
             script_pubkey: BURN_SCRIPT.clone(),
-            value: total_in - total_out,
+            value: total_in - total_out - MIN_TAPROOT_AMOUNT * 8, // leave some fee to prevent minfee errors
         };
 
         self.add_output(UnspentTxOut::from_partial(burntxo))

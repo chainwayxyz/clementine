@@ -15,10 +15,10 @@ pub mod structs;
 pub mod utils;
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
-    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000026");
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000007");
 
-const DEPOSIT_MAPPING_STORAGE_INDEX: [u8; 32] =
-    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000027");
+const DEPOSIT_STORAGE_INDEX: [u8; 32] =
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000008");
 
 const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 
@@ -145,48 +145,54 @@ pub async fn fetch_light_client_proof(
 pub async fn fetch_storage_proof(
     l2_height: &String,
     deposit_index: u32,
-    move_to_vault_txid: [u8; 32],
     client: RpcClient,
-) -> StorageProof {
+) -> eyre::Result<StorageProof> {
     let ind = deposit_index;
     let tx_index: u32 = ind * 2;
 
-    let storage_address_bytes = keccak256(UTXOS_STORAGE_INDEX);
-    let storage_address: U256 = U256::from_be_bytes(
-        <[u8; 32]>::try_from(&storage_address_bytes[..]).expect("Slice with incorrect length"),
+    let storage_address_wd_utxo_bytes = keccak256(UTXOS_STORAGE_INDEX);
+    let storage_address_wd_utxo: U256 = U256::from_be_bytes(
+        <[u8; 32]>::try_from(&storage_address_wd_utxo_bytes[..])
+            .expect("Slice with incorrect length"),
     );
 
     // Storage key address calculation UTXO
-    let storage_key: alloy_primitives::Uint<256, 4> = storage_address + U256::from(tx_index);
-    let storage_key_hex = hex::encode(storage_key.to_be_bytes::<32>());
-    let storage_key_hex = format!("0x{}", storage_key_hex);
+    let storage_key_wd_utxo: alloy_primitives::Uint<256, 4> =
+        storage_address_wd_utxo + U256::from(tx_index);
+    let storage_key_wd_utxo_hex = hex::encode(storage_key_wd_utxo.to_be_bytes::<32>());
+    let storage_key_wd_utxo_hex = format!("0x{}", storage_key_wd_utxo_hex);
 
     // Storage key address calculation Deposit
-    let concatenated = [move_to_vault_txid, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
-    let storage_address_deposit = keccak256(concatenated);
-    let storage_address_deposit_hex = hex::encode(storage_address_deposit);
-    let storage_address_deposit_hex = format!("0x{}", storage_address_deposit_hex);
+    let storage_address_deposit_bytes = keccak256(DEPOSIT_STORAGE_INDEX);
+    let storage_address_deposit: U256 = U256::from_be_bytes(
+        <[u8; 32]>::try_from(&storage_address_deposit_bytes[..])
+            .expect("Slice with incorrect length"),
+    );
+
+    let storage_key_deposit: alloy_primitives::Uint<256, 4> =
+        storage_address_deposit + U256::from(deposit_index);
+    let storage_key_deposit_hex = hex::encode(storage_key_deposit.to_be_bytes::<32>());
+    let storage_key_deposit_hex = format!("0x{}", storage_key_deposit_hex);
 
     let request = json!([
         CONTRACT_ADDRESS,
-        [storage_key_hex, storage_address_deposit_hex],
+        [storage_key_wd_utxo_hex, storage_key_deposit_hex],
         l2_height
     ]);
 
-    let response: serde_json::Value = client.request("eth_getProof", request).await.unwrap();
+    let response: serde_json::Value = client.request("eth_getProof", request).await?;
 
-    let response: EIP1186AccountProofResponse = serde_json::from_value(response).unwrap();
+    let response: EIP1186AccountProofResponse = serde_json::from_value(response)?;
 
-    let serialized_utxo = serde_json::to_string(&response.storage_proof[0]).unwrap();
+    let serialized_utxo = serde_json::to_string(&response.storage_proof[0])?;
 
-    let serialized_deposit = serde_json::to_string(&response.storage_proof[1]).unwrap();
+    let serialized_deposit = serde_json::to_string(&response.storage_proof[1])?;
 
-    StorageProof {
+    Ok(StorageProof {
         storage_proof_utxo: serialized_utxo,
         storage_proof_deposit_idx: serialized_deposit,
         index: ind,
-        txid_hex: move_to_vault_txid,
-    }
+    })
 }
 
 /// Converts an `InnerReceipt` into a `Receipt`, ensuring all required fields are present.
@@ -204,7 +210,7 @@ pub async fn fetch_storage_proof(
 /// * If `claim.output.value()` is empty.
 /// * If `output` is `None`.
 /// * If `output.journal.value()` is empty.
-fn receipt_from_inner(inner: InnerReceipt) -> eyre::Result<Receipt> {
+pub fn receipt_from_inner(inner: InnerReceipt) -> eyre::Result<Receipt> {
     let mb_claim = inner.claim().or_else(|_| bail!("Claim is empty"))?;
     let claim = mb_claim
         .value()

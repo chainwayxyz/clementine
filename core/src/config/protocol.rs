@@ -63,17 +63,17 @@ impl From<ProtocolParamsetName> for &'static ProtocolParamset {
     fn from(name: ProtocolParamsetName) -> Self {
         let from_env = ProtocolParamset::from_env();
         if from_env.is_ok() {
-            tracing::info!("Using protocol params from env...");
+            tracing::debug!("Using protocol params from env...");
             return &ENV_PARAMSET;
         }
-        tracing::info!("Can't read protocol params from env: {from_env:?}. Trying to read from external config...");
+        tracing::debug!("Can't read protocol params from env: {from_env:?}. Trying to read from external config...");
 
         let from_external_config = std::env::var("PROTOCOL_CONFIG_PATH");
         if from_external_config.is_ok() {
-            tracing::info!("Using protocol params from external config file...");
+            tracing::debug!("Using protocol params from external config file...");
             return &RUNTIME_PARAMSET;
         }
-        tracing::info!("Can't read protocol params from external config file: {from_external_config:?}. Using config file's value...");
+        tracing::debug!("Can't read protocol params from external config file: {from_external_config:?}. Using config file's value...");
 
         match name {
             ProtocolParamsetName::Mainnet => &MAINNET_PARAMSET,
@@ -127,8 +127,9 @@ pub struct ProtocolParamset {
     pub disprove_timeout_timelock: u16,
     /// Number of blocks for assert timeout timelock (currently BLOCKS_PER_WEEK * 4)
     pub assert_timeout_timelock: u16,
+    /// Number of blocks for latest blockhash timeout timelock (currently BLOCKS_PER_WEEK * 2.5)
+    pub latest_blockhash_timeout_timelock: u16,
     /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_DAY * 2)
-    ///
     /// Timelocks operator from sending the next Round Tx after the Ready to Reimburse Tx.
     pub operator_reimburse_timelock: u16,
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)
@@ -141,6 +142,8 @@ pub struct ProtocolParamset {
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
     pub start_height: u32,
+    /// Batch size of the header chain proofs
+    pub header_chain_proof_batch_size: u32,
 }
 
 pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -164,8 +167,10 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    latest_blockhash_timeout_timelock: BLOCKS_PER_WEEK * 5 / 2, // 2.5 weeks
     finality_depth: 6,
     start_height: 1,
+    header_chain_proof_batch_size: 100,
 };
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -190,7 +195,9 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
     finality_depth: 0,
-    start_height: 201,
+    start_height: 0,
+    header_chain_proof_batch_size: 200,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -214,8 +221,10 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    latest_blockhash_timeout_timelock: BLOCKS_PER_WEEK * 5 / 2, // 2.5 weeks
     finality_depth: 60,
-    start_height: 1,
+    start_height: 0,
+    header_chain_proof_batch_size: 100,
 };
 
 pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -239,8 +248,10 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_DAY * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
     time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
-    finality_depth: 1,
-    start_height: 201,
+    finality_depth: 0,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
+    start_height: 0,
+    header_chain_proof_batch_size: 100,
 };
 
 lazy_static! {

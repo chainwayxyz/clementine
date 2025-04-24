@@ -2,6 +2,7 @@ use crate::bitvm_client;
 use crate::builder::script::SpendableScript;
 use crate::builder::sighash::TapTweakData;
 use crate::builder::{address::create_taproot_address, script::SpendPath};
+use crate::config::protocol::ProtocolParamset;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use bitcoin::{
     taproot::{LeafVersion, TaprootSpendInfo},
@@ -37,16 +38,60 @@ pub enum SpendableTxInError {
     Error(String),
 }
 
-pub fn get_assert_utxo_vout(kickoff_idx: usize) -> usize {
-    kickoff_idx + 4
+#[derive(Debug, Clone, Copy)]
+/// The vouts of specific utxos in the deposit contract
+pub enum UtxoVout {
+    /// The vout of the assert utxo in KickoffTx
+    Assert(usize),
+    /// The vout of the watchtower challenge utxo in KickoffTx
+    WatchtowerChallenge(usize),
+    /// The vout of the watchtower challenge ack utxo in KickoffTx
+    WatchtowerChallengeAck(usize),
+    /// The vout of the challenge utxo in KickoffTx
+    Challenge,
+    /// The vout of the kickoff finalizer utxo in KickoffTx
+    KickoffFinalizer,
+    /// The vout of the reimburse utxo in KickoffTx
+    ReimburseInKickoff,
+    /// The vout of the disprove utxo in KickoffTx
+    Disprove,
+    /// The vout of the latest blockhash utxo in KickoffTx
+    LatestBlockhash,
+    /// The vout of the burn connector utxo in RoundTx and ReimburseTx
+    BurnConnector,
+    /// The vout of the deposited btc utxo in MoveTx
+    DepositInMove,
+    /// The vout of the reimburse connector utxo in RoundTx
+    ReimburseInRound(usize, &'static ProtocolParamset),
+    /// The vout of the kickoff utxo in RoundTx
+    Kickoff(usize),
 }
 
-pub fn get_watchtower_challenge_utxo_vout(watchtower_idx: usize) -> usize {
-    2 * watchtower_idx + 4 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs()
-}
-
-pub fn get_challenge_ack_vout(watchtower_idx: usize) -> usize {
-    get_watchtower_challenge_utxo_vout(watchtower_idx) + 1
+impl UtxoVout {
+    pub fn get_vout(self) -> u32 {
+        match self {
+            UtxoVout::Assert(idx) => idx as u32 + 5,
+            UtxoVout::WatchtowerChallenge(idx) => {
+                (2 * idx + 5 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
+                    as u32
+            }
+            UtxoVout::WatchtowerChallengeAck(idx) => {
+                (2 * idx + 6 + bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
+                    as u32
+            }
+            UtxoVout::Challenge => 0,
+            UtxoVout::KickoffFinalizer => 1,
+            UtxoVout::ReimburseInKickoff => 2,
+            UtxoVout::Disprove => 3,
+            UtxoVout::LatestBlockhash => 4,
+            UtxoVout::BurnConnector => 0,
+            UtxoVout::ReimburseInRound(idx, paramset) => {
+                (paramset.num_kickoffs_per_round + idx + 1) as u32
+            }
+            UtxoVout::Kickoff(idx) => idx as u32 + 1,
+            UtxoVout::DepositInMove => 0,
+        }
+    }
 }
 
 impl SpendableTxIn {

@@ -9,7 +9,7 @@ use tonic::async_trait;
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
 use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
-use crate::states::context::Duty;
+use crate::states::context::{Duty, DutyResult};
 use crate::states::{block_cache, Owner};
 
 use super::manager::BackgroundTaskManager;
@@ -97,9 +97,9 @@ struct TestOwner;
 impl Owner for TestOwner {
     const OWNER_TYPE: &'static str = "test_owner";
 
-    async fn handle_duty(&self, _duty: Duty) -> Result<(), BridgeError> {
+    async fn handle_duty(&self, _duty: Duty) -> Result<DutyResult, BridgeError> {
         // For testing purposes, just return OK
-        Ok(())
+        Ok(DutyResult::Handled)
     }
 
     async fn create_txhandlers(

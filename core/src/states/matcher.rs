@@ -16,9 +16,9 @@ pub(crate) trait BlockMatcher {
 pub enum Matcher {
     SentTx(Txid),
     SpentUtxo(OutPoint),
-    // stuff like watchtower challenge utxos, operator asserts utxos, that can be sent as a timeout (thus nofn)
-    // or by the entity themselves (meaning it is an winternitz assert)
-    SpentUtxoButNotTimeout(OutPoint, Txid),
+    /// This matcher is used to determine an outpoint was spent, but the tx that spent is does not have the txid.
+    /// It is used either to detect timeouts (like AssertTimeout) or exit from the protocol (like when Operator sends its collateral back to its wallet).
+    SpentUtxoButNotTxid(OutPoint, Txid),
     BlockHeight(u32),
 }
 
@@ -57,7 +57,7 @@ impl Matcher {
             Matcher::BlockHeight(height) if *height <= block.block_height => {
                 Some(MatcherOrd::BlockHeight)
             }
-            Matcher::SpentUtxoButNotTimeout(outpoint, txid)
+            Matcher::SpentUtxoButNotTxid(outpoint, txid)
                 if block.is_utxo_spent(outpoint) && !block.contains_txid(txid) =>
             {
                 Some(MatcherOrd::TxIndex(

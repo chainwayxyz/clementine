@@ -18,6 +18,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/install-risc0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
     - uses: ./.github/actions/build-prerequisites
 
     - name: Save build artifacts
@@ -35,6 +37,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/install-risc0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
     - uses: ./.github/actions/build-prerequisites
 
     - name: Save build artifacts
@@ -70,6 +74,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/install-risc0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
     - uses: ./.github/actions/build-prerequisites
     - uses: ./.github/actions/test-prerequisites
 
@@ -105,6 +111,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/install-risc0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
     - uses: ./.github/actions/build-prerequisites
     - uses: ./.github/actions/test-prerequisites
 
@@ -127,6 +135,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/install-risc0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Restore cached build artifacts
       uses: Swatinem/rust-cache@v2

@@ -82,8 +82,7 @@ pub async fn start_citrea(
     let light_client_prover = f.light_client_prover.as_ref();
     let da = f.bitcoin_nodes.get(0).expect("There is a bitcoin node");
 
-    let min_soft_confirmations_per_commitment =
-        sequencer_config.min_soft_confirmations_per_commitment;
+    let min_soft_confirmations_per_commitment = sequencer_config.max_l2_blocks_per_commitment;
 
     if sequencer_config.test_mode {
         for _ in 0..min_soft_confirmations_per_commitment {

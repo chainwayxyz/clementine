@@ -2,6 +2,7 @@
 name = "clementine-core"
 version = "0.2.0"
 edition = "2021"
+rust-version = "1.85.0"
 
 [build-dependencies]
 tonic-build = "0.12"
@@ -12,7 +13,7 @@ bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
-risc0-zkvm = { version = "=1.2.5", features = [ "prove" ] }
+risc0-zkvm = { version = "2.0.1", features = [ "prove" ] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
@@ -34,7 +35,7 @@ tokio-stream = { workspace = true }
 async-stream = { workspace = true }
 futures-util = { workspace = true }
 futures-core = { workspace = true }
-bitvm = { workspace = true}
+bitvm = { workspace = true }
 tempfile = { workspace = true }
 eyre = { workspace = true }
 http = { workspace = true }
@@ -42,7 +43,7 @@ hyper = { workspace = true }
 tower = { workspace = true }
 hyper-util = { workspace = true }
 alloy = { workspace = true }
-ark-groth16 = { workspace = true, features = ["default"]}
+ark-groth16 = { workspace = true, features = ["default"] }
 ark-bn254 = { workspace = true }
 ark-serialize = { workspace = true }
 statig = { workspace = true, features = ["async", "serde"] }
@@ -50,13 +51,19 @@ pgmq = { workspace = true }
 serde_with = { workspace = true }
 sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
+header-chain = { workspace = true }
+bitvm-prover = { workspace = true }
+bridge-circuit-host = { path = "../bridge-circuit-host" }
+circuits-lib = { path = "../circuits-lib" }
+bincode = { workspace = true }
+ark-ff = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
 citrea-e2e = { workspace = true }
 base64 = { workspace = true }
-bridge-circuit-host = { path = "../bridge-circuit-host" }
 
 [[bin]]
 name = "clementine-cli"

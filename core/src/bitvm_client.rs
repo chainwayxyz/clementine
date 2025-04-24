@@ -10,7 +10,8 @@ use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 
 use bitvm::chunk::api::{
-    api_generate_full_tapscripts, api_generate_partial_script, NUM_HASH, NUM_PUBS, NUM_U256,
+    api_generate_full_tapscripts, api_generate_partial_script, Assertions, NUM_HASH, NUM_PUBS,
+    NUM_U256,
 };
 use bitvm::signatures::wots_api::wots160;
 
@@ -425,8 +426,9 @@ impl ClementineBitVMPublicKeys {
         let mut scripts = Vec::new();
         let first_script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
             vec![
-                (self.latest_blockhash_pk.to_vec(), 40),
-                (self.challenge_sending_watchtowers_pk.to_vec(), 40),
+                // TODO: add later?
+                //(self.latest_blockhash_pk.to_vec(), 40),
+                //(self.challenge_sending_watchtowers_pk.to_vec(), 40),
                 (self.bitvm_pks.0[0].to_vec(), 64),
                 (self.bitvm_pks.1[NUM_U256 - 2].to_vec(), 64),
                 (self.bitvm_pks.1[NUM_U256 - 1].to_vec(), 64),
@@ -467,6 +469,59 @@ impl ClementineBitVMPublicKeys {
         scripts
     }
 
+    pub fn get_assert_commit_data(asserts: Assertions) -> Vec<Vec<Vec<u8>>> {
+        let mut commit_data = Vec::new();
+        // TODO: this is wrong, add clementine specific ones too
+        commit_data.push(vec![
+            asserts.0[0].to_vec(),
+            asserts.1[NUM_U256 - 2].to_vec(),
+            asserts.1[NUM_U256 - 1].to_vec(),
+            asserts.2[NUM_HASH - 3].to_vec(),
+            asserts.2[NUM_HASH - 2].to_vec(),
+            asserts.2[NUM_HASH - 1].to_vec(),
+        ]);
+        for i in (0..NUM_U256 - 2).step_by(6) {
+            let last_idx = std::cmp::min(i + 6, NUM_U256);
+            commit_data.push(
+                asserts.1[i..last_idx]
+                    .iter()
+                    .map(|x| x.to_vec())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        for i in (0..NUM_HASH - 3).step_by(12) {
+            let last_idx = std::cmp::min(i + 12, NUM_HASH);
+            commit_data.push(
+                asserts.2[i..last_idx]
+                    .iter()
+                    .map(|x| x.to_vec())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        commit_data
+    }
+
+    pub fn get_latest_blockhash_derivation(
+        deposit_outpoint: bitcoin::OutPoint,
+        paramset: &'static ProtocolParamset,
+    ) -> WinternitzDerivationPath {
+        WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, deposit_outpoint, paramset)
+    }
+
+    pub fn get_payout_tx_blockhash_derivation(
+        deposit_outpoint: bitcoin::OutPoint,
+        paramset: &'static ProtocolParamset,
+    ) -> WinternitzDerivationPath {
+        WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, deposit_outpoint, paramset)
+    }
+
+    pub fn get_challenge_sending_watchtowers_derivation(
+        deposit_outpoint: bitcoin::OutPoint,
+        paramset: &'static ProtocolParamset,
+    ) -> WinternitzDerivationPath {
+        WinternitzDerivationPath::BitvmAssert(20 * 2, 2, 0, deposit_outpoint, paramset)
+    }
+
     pub fn get_assert_derivations(
         mini_assert_idx: usize,
         deposit_outpoint: bitcoin::OutPoint,
@@ -474,14 +529,14 @@ impl ClementineBitVMPublicKeys {
     ) -> Vec<WinternitzDerivationPath> {
         if mini_assert_idx == 0 {
             vec![
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 0, 0, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(20 * 2, 1, 0, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 2, 0, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 12, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 13, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 360, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 361, deposit_outpoint, paramset),
-                WinternitzDerivationPath::BitvmAssert(16 * 2, 4, 362, deposit_outpoint, paramset),
+                Self::get_latest_blockhash_derivation(deposit_outpoint, paramset),
+                Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 360, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 361, deposit_outpoint, paramset),
+                WinternitzDerivationPath::BitvmAssert(16 * 2, 5, 362, deposit_outpoint, paramset),
             ]
         } else if (1..=2).contains(&mini_assert_idx) {
             // for 1, we will have 6 derivations index starting from 0 to 5
@@ -493,7 +548,7 @@ impl ClementineBitVMPublicKeys {
                 if derivations + i < NUM_U256 as u32 - 2 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         32 * 2,
-                        3,
+                        4,
                         derivations + i,
                         deposit_outpoint,
                         paramset,
@@ -508,7 +563,7 @@ impl ClementineBitVMPublicKeys {
                 if derivations + i < NUM_HASH as u32 - 3 {
                     derivations_vec.push(WinternitzDerivationPath::BitvmAssert(
                         16 * 2,
-                        4,
+                        5,
                         derivations + i,
                         deposit_outpoint,
                         paramset,
