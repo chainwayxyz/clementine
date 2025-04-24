@@ -4,7 +4,7 @@ use crate::citrea::BRIDGE_CONTRACT::DepositReplaced;
 use crate::errors::BridgeError;
 
 use alloy::{
-    eips::BlockNumberOrTag,
+    eips::{BlockId, BlockNumberOrTag},
     network::EthereumWallet,
     primitives::U256,
     providers::{
@@ -285,7 +285,7 @@ impl CitreaClientT for CitreaClient {
             let deposit_txid = self
                 .contract
                 .depositTxIds(U256::from(start_idx))
-                // .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
+                .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
             if deposit_txid.is_err() {
@@ -322,7 +322,7 @@ impl CitreaClientT for CitreaClient {
             let withdrawal_utxo = self
                 .contract
                 .withdrawalUTXOs(U256::from(start_idx))
-                // .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
+                .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
                 .call()
                 .await;
             if withdrawal_utxo.is_err() {
@@ -350,6 +350,11 @@ impl CitreaClientT for CitreaClient {
             .get_light_client_proof_by_l1_height(l1_height)
             .await
             .wrap_err("Failed to get light client proof")?;
+        tracing::debug!(
+            "Light client proof result {}: {:?}",
+            l1_height,
+            proof_result
+        );
 
         let ret = if let Some(proof_result) = proof_result {
             Some((
