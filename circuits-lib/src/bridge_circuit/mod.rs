@@ -4,7 +4,6 @@ pub mod groth16_verifier;
 pub mod lc_proof;
 pub mod storage_proof;
 pub mod structs;
-pub mod winternitz;
 
 use crate::common::zkvm::ZkvmGuest;
 use bitcoin::{
@@ -517,7 +516,7 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
 /// - If the length of the operator ID (extracted from `script_pubkey`) exceeds 32 bytes.
 fn deposit_constant(
     last_output: &TxOut,
-    kickoff_tx: &Txid,
+    kickoff_txid: &Txid,
     watchtower_pubkeys: &[Vec<u8>],
     move_txid_hex: [u8; 32],
 ) -> [u8; 32] {
@@ -547,7 +546,7 @@ fn deposit_constant(
 
     let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
     let pre_deposit_constant = [
-        kickoff_tx.to_byte_array(),
+        kickoff_txid.to_byte_array(),
         move_txid_hex,
         watchtower_pubkeys_digest,
         operator_id,

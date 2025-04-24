@@ -5,8 +5,6 @@ use crate::structs::{
 use crate::utils::calculate_succinct_output_prefix;
 use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
-use bitcoin::absolute::Height;
-use bitcoin::transaction::Version;
 use bitcoin::Transaction;
 use bitcoin::{consensus::Decodable, hashes::Hash};
 use borsh::{self, BorshDeserialize};
@@ -20,6 +18,7 @@ use header_chain::header_chain::CircuitBlockHeader;
 
 use header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
+use sha2::{Digest, Sha256};
 
 const _BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
@@ -63,18 +62,13 @@ pub fn prove_bridge_circuit(
     BridgeCircuitBitvmInputs,
 ) {
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
-        kickoff_tx: CircuitTransaction(Transaction {
-            version: Version(2),
-            lock_time: bitcoin::absolute::LockTime::Blocks(Height::from_consensus(0).unwrap()),
-            input: vec![],
-            output: vec![],
-        }),
-        watchtower_inputs: vec![], // Empty vector of WatchtowerInput
+        kickoff_tx: bridge_circuit_host_params.kickoff_tx,
+        watchtower_inputs: bridge_circuit_host_params.watchtower_inputs,
         hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
         payout_spv: bridge_circuit_host_params.spv,
         lcp: bridge_circuit_host_params.light_client_proof,
         sp: bridge_circuit_host_params.storage_proof,
-        all_watchtower_pubkeys: vec![],
+        all_watchtower_pubkeys: bridge_circuit_host_params.all_watchtower_pubkeys,
     };
 
     let header_chain_proof_output_serialized =
@@ -327,13 +321,23 @@ fn generate_succinct_bridge_circuit_public_inputs(
         serde_json::from_str(&input.sp.storage_proof_deposit_idx)
             .expect("Failed to deserialize deposit storage proof");
 
+    let pubkey_concat = input
+        .all_watchtower_pubkeys
+        .iter()
+        .flat_map(|pubkey| pubkey.to_vec())
+        .collect::<Vec<u8>>();
+
+    let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
+
+    let kickoff_txid = input.kickoff_tx.compute_txid().to_byte_array();
     SuccinctBridgeCircuitPublicInputs {
+        kickoff_txid,
         challenge_sending_watchtowers,
         payout_tx_block_hash,
         latest_block_hash,
         move_to_vault_txid: deposit_storage_proof.value.to_le_bytes(),
         operator_id,
-        watchtower_challenge_wpks_hash: [0u8; 32],
+        watchtower_pubkeys_digest,
     }
 }
 
