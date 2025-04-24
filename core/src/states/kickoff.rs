@@ -294,6 +294,10 @@ impl<T: Owner> KickoffStateMachine<T> {
                 watchtower_idx,
                 challenge_outpoint,
             } => {
+                tracing::warn!(
+                    "Watchtower challenge sent for kickoff {:?}",
+                    context.owner_type
+                );
                 self.spent_watchtower_utxos.insert(*watchtower_idx);
                 let tx = context
                     .cache
@@ -360,6 +364,11 @@ impl<T: Owner> KickoffStateMachine<T> {
         match event {
             KickoffEvent::Challenged => {
                 tracing::warn!("Warning: Operator challenged: {:?}", self.kickoff_data);
+                tracing::warn!(
+                    "Kickoff height: {}, send wt challenge height {}",
+                    self.kickoff_height,
+                    self.kickoff_height + context.paramset.time_to_send_watchtower_challenge as u32
+                );
                 Transition(State::challenged())
             }
             KickoffEvent::WatchtowerChallengeSent { .. }

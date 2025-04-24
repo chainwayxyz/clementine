@@ -987,7 +987,7 @@ where
             .get(&TransactionType::Kickoff)
             .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
             .get_cached_tx();
-
+        tracing::warn!("Calculated move and kickoff tx in send_asserts");
         let (payout_op_xonly_pk, payout_block_hash, payout_txid, deposit_idx) = self
             .db
             .get_payout_info_from_move_txid(None, move_txid)
@@ -1024,7 +1024,7 @@ where
             ))?;
 
         let payout_tx = &payout_block.txdata[payout_tx_index];
-
+        tracing::warn!("Calculated payout tx in send_asserts");
         let headers = self
             .db
             .get_headers_until_height(None, payout_block_height as u64)
@@ -1034,7 +1034,7 @@ where
             .iter()
             .flat_map(bitcoin::consensus::serialize)
             .collect::<Vec<_>>();
-
+        tracing::warn!("Calculated headers in send_asserts");
         let spv = create_spv(
             &mut bitcoin::consensus::serialize(payout_tx).as_slice(),
             &headers_serialized,
@@ -1042,14 +1042,14 @@ where
             payout_block_height,
             payout_tx_index as u32,
         );
-
+        tracing::warn!("Calculated spv in send_asserts");
         let (light_client_proof, lcp_receipt, l2_height) = self
             .citrea_client
             .get_light_client_proof(payout_block_height as u64)
             .await
             .wrap_err("Failed to get light client proof for payout block height")?
             .ok_or_eyre("Light client proof is not available for payout block height")?;
-
+        tracing::warn!("Got light client proof in send_asserts");
         let storage_proof = self
             .citrea_client
             .get_storage_proof(l2_height, deposit_idx as u32, move_txid)
@@ -1058,11 +1058,13 @@ where
                 "Failed to get storage proof for move txid {:?}, l2 height {}, deposit_idx {}",
                 move_txid, l2_height, deposit_idx
             ))?;
+        tracing::warn!("Got storage proof in send_asserts");
 
         let current_hcp = self
             .header_chain_prover
             .get_tip_header_chain_proof()
             .await?;
+        tracing::warn!("Got header chain proof in send_asserts");
         let hcp_output: BlockHeaderCircuitOutput = borsh::from_slice(&current_hcp.journal.bytes)
             .wrap_err(eyre::eyre!(
                 "Failed to deserialize block header circuit output in send_asserts"
@@ -1083,7 +1085,7 @@ where
 
         let (g16_proof, g16_output, _public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, _BRIDGE_CIRCUIT_ELF);
-
+        tracing::warn!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
         let asserts = generate_assertions(
@@ -1244,6 +1246,33 @@ where
         _block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
+        tracing::warn!("Operator called handle finalized block {}", _block_height);
+        if _block_cache
+            .block
+            .as_ref()
+            .expect("Block should exist")
+            .txdata
+            .len()
+            > 1
+        {
+            tracing::warn!(
+                "Block tx count: {}",
+                _block_cache
+                    .block
+                    .as_ref()
+                    .expect("Block should exist")
+                    .txdata
+                    .len()
+            );
+            tracing::warn!(
+                "Block txs: {:?}",
+                &_block_cache
+                    .block
+                    .as_ref()
+                    .expect("Block should exist")
+                    .txdata[1..]
+            );
+        }
         Ok(())
     }
 }

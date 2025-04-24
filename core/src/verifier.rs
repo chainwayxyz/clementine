@@ -23,8 +23,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::musig2;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
-use crate::states::{block_cache, StateManager};
-use crate::states::{Duty, Owner};
+use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
@@ -1332,6 +1331,7 @@ where
         self.header_chain_prover
             .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
             .await?;
+
         self.header_chain_prover.prove_if_ready().await?;
 
         Ok(())
