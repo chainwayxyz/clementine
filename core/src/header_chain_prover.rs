@@ -319,7 +319,6 @@ impl HeaderChainProver {
 
         let elf = match self.network {
             Network::Bitcoin => MAINNET_WORK_ONLY_ELF,
-            Network::Testnet => TESTNET4_WORK_ONLY_ELF,
             Network::Testnet4 => TESTNET4_WORK_ONLY_ELF,
             Network::Signet => SIGNET_WORK_ONLY_ELF,
             Network::Regtest => REGTEST_WORK_ONLY_ELF,

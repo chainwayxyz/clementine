@@ -146,7 +146,6 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         l2_height: u64,
         deposit_index: u32,
-        move_to_vault_txid: Txid,
     ) -> Result<StorageProof, BridgeError>;
 }
 
@@ -204,17 +203,11 @@ impl CitreaClientT for CitreaClient {
         &self,
         l2_height: u64,
         deposit_index: u32,
-        move_to_vault_txid: Txid,
     ) -> Result<StorageProof, BridgeError> {
         let alloy_client = ClientBuilder::default().http(self.rpc_url.clone());
-        fetch_storage_proof(
-            &l2_height.to_string(),
-            deposit_index,
-            move_to_vault_txid.to_byte_array(),
-            alloy_client,
-        )
-        .await
-        .map_err(BridgeError::from)
+        fetch_storage_proof(&l2_height.to_string(), deposit_index, alloy_client)
+            .await
+            .map_err(BridgeError::from)
     }
     async fn new(
         citrea_rpc_url: String,

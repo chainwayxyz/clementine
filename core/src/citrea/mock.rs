@@ -74,13 +74,11 @@ impl CitreaClientT for MockCitreaClient {
         &self,
         _l2_height: u64,
         deposit_index: u32,
-        move_to_vault_txid: Txid,
     ) -> Result<StorageProof, BridgeError> {
         Ok(StorageProof {
             storage_proof_utxo: "".to_string(),
             storage_proof_deposit_idx: "".to_string(),
             index: deposit_index,
-            txid_hex: move_to_vault_txid.to_byte_array(),
         })
     }
     /// Connects a database with the given URL which is stored in
@@ -200,7 +198,14 @@ impl CitreaClientT for MockCitreaClient {
         block_height: u64,
         _timeout: Duration,
     ) -> Result<(u64, u64), BridgeError> {
-        Ok((if block_height == 0 { 0 } else { block_height - 1 }, block_height))
+        Ok((
+            if block_height == 0 {
+                0
+            } else {
+                block_height - 1
+            },
+            block_height,
+        ))
     }
 
     async fn check_nofn_correctness(

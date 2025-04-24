@@ -121,7 +121,9 @@ impl Task for TxSenderTask {
                             .db
                             .get_block_info_from_id(Some(&mut dbtx), block_id)
                             .await?
-                            .ok_or(BridgeError::Error("Block not found".to_string()))?
+                            .ok_or(BridgeError::Error(
+                                "Block not found in TxSenderTask".to_string(),
+                            ))?
                             .1;
 
                         tracing::info!("TXSENDER: Confirmed transactions for block {}", block_id);

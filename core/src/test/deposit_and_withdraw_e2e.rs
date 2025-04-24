@@ -103,11 +103,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             citrea::start_citrea(Self::sequencer_config(), f)
                 .await
                 .unwrap();
-        let block_count = da.get_block_count().await?;
-        println!("Block count before deposit: {:?}", block_count);
-        let lc_prover = lc_prover.unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
+        let lc_prover = lc_prover.unwrap();
+
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
             da,
@@ -125,6 +124,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await?;
 
+        rpc.mine_blocks(5).await.unwrap();
+
+        let block_count = da.get_block_count().await?;
+        println!("Block count before deposit: {:?}", block_count);
         tracing::info!("Running deposit");
 
         tracing::info!(

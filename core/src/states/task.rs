@@ -92,9 +92,10 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                     .db
                     .get_block_info_from_id(Some(&mut dbtx), block_id)
                     .await?
-                    .ok_or(BridgeError::Error("Block not found".to_string()))?
+                    .ok_or(BridgeError::Error(
+                        "Block not found in BlockFetcherTask".to_string(),
+                    ))?
                     .1;
-
                 let mut new_tip = false;
 
                 // Update states to catch up to finalized chain

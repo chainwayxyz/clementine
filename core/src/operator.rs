@@ -994,7 +994,7 @@ where
             ))?
             .get_cached_tx()
             .compute_txid();
-        let _kickoff_tx = txhandlers
+        let kickoff_tx = txhandlers
             .get(&TransactionType::Kickoff)
             .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
             .get_cached_tx();
@@ -1063,7 +1063,7 @@ where
         tracing::warn!("Got light client proof in send_asserts");
         let storage_proof = self
             .citrea_client
-            .get_storage_proof(l2_height, deposit_idx as u32, move_txid)
+            .get_storage_proof(l2_height, deposit_idx as u32)
             .await
             .wrap_err(format!(
                 "Failed to get storage proof for move txid {:?}, l2 height {}, deposit_idx {}",
@@ -1081,17 +1081,19 @@ where
                 "Failed to deserialize block header circuit output in send_asserts"
             ))?;
 
+        return Ok(());
+
         let bridge_circuit_host_params = BridgeCircuitHostParams {
             network: self.config.protocol_paramset().network,
-            winternitz_details: vec![],
             spv,
             block_header_circuit_output: hcp_output,
             headerchain_receipt: current_hcp,
             light_client_proof,
             lcp_receipt,
             storage_proof,
-            num_of_watchtowers: u8::try_from(deposit_data.get_num_watchtowers())
-                .wrap_err("Failed to convert num of watchtowers to u8")?,
+            all_watchtower_pubkeys: todo!(),
+            kickoff_tx: todo!(),
+            watchtower_inputs: todo!(),
         };
 
         let (g16_proof, g16_output, _public_inputs) =
