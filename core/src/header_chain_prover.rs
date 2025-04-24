@@ -232,6 +232,7 @@ impl HeaderChainProver {
         block_headers: Vec<CircuitBlockHeader>,
     ) -> Result<Receipt, HeaderChainProverError> {
         // Prepare proof input.
+        tracing::warn!("proving block headers");
         let (prev_proof, method_id) = match &prev_receipt {
             Some(receipt) => {
                 let prev_output: BlockHeaderCircuitOutput =
@@ -285,6 +286,7 @@ impl HeaderChainProver {
         };
 
         let receipt = prover.prove(env, elf).map_err(|e| eyre::eyre!(e))?.receipt;
+        tracing::warn!("Proof receipt generated {:?}", receipt);
         tracing::debug!(
             "Proof receipt for header chain circuit input {:?}: {:?}",
             input,

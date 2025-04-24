@@ -1,7 +1,7 @@
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
     database::Database,
-    task::{BufferedErrors, IntoTask, WithDelay},
+    task::{BufferedErrors, IgnoreError, IntoTask, WithDelay},
 };
 use eyre::Context as _;
 use pgmq::{Message, PGMQueueExt};
@@ -192,7 +192,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for MessageConsumerTask<T> {
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
-    type Task = WithDelay<BufferedErrors<MessageConsumerTask<T>>>;
+    type Task = WithDelay<IgnoreError<MessageConsumerTask<T>>>;
 
     /// Converts the StateManager into the consumer task with a delay
     fn into_task(self) -> Self::Task {
@@ -201,8 +201,8 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
             inner: self,
             queue_name: StateManager::<T>::queue_name(),
         }
-        .into_buffered_errors(50)
-        .with_delay(POLL_DELAY)
+        .ignore_error()
+        .with_delay(Duration::from_millis(200))
     }
 }
 
