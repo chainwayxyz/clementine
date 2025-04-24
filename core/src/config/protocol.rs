@@ -127,8 +127,9 @@ pub struct ProtocolParamset {
     pub disprove_timeout_timelock: u16,
     /// Number of blocks for assert timeout timelock (currently BLOCKS_PER_WEEK * 4)
     pub assert_timeout_timelock: u16,
+    /// Number of blocks for latest blockhash timeout timelock (currently BLOCKS_PER_WEEK * 2.5)
+    pub latest_blockhash_timeout_timelock: u16,
     /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_DAY * 2)
-    ///
     /// Timelocks operator from sending the next Round Tx after the Ready to Reimburse Tx.
     pub operator_reimburse_timelock: u16,
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)
@@ -166,6 +167,7 @@ pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    latest_blockhash_timeout_timelock: BLOCKS_PER_WEEK * 5 / 2, // 2.5 weeks
     finality_depth: 6,
     start_height: 1,
     header_chain_proof_batch_size: 100,
@@ -195,6 +197,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     finality_depth: 0,
     start_height: 0,
     header_chain_proof_batch_size: 200,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
 };
 
 pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
@@ -218,8 +221,9 @@ pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
     time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
     time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
+    latest_blockhash_timeout_timelock: BLOCKS_PER_WEEK * 5 / 2, // 2.5 weeks
     finality_depth: 60,
-    start_height: 1,
+    start_height: 0,
     header_chain_proof_batch_size: 100,
 };
 
@@ -245,7 +249,8 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
     time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
     finality_depth: 0,
-    start_height: 201,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
+    start_height: 0,
     header_chain_proof_batch_size: 100,
 };
 

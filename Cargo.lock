@@ -2137,6 +2137,7 @@ dependencies = [
  "hyper-util",
  "jsonrpsee",
  "lazy_static",
+ "log",
  "pgmq",
  "prost",
  "rand_chacha 0.3.1",

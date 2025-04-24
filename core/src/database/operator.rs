@@ -27,7 +27,7 @@ pub type RootHash = [u8; 32];
 //pub type PublicInputWots = Vec<[u8; 20]>;
 pub type AssertTxHash = Vec<[u8; 32]>;
 
-pub type BitvmSetup = (AssertTxHash, RootHash);
+pub type BitvmSetup = (AssertTxHash, RootHash, RootHash);
 
 impl Database {
     /// TODO: wallet_address should have `Address` type.
@@ -489,16 +489,18 @@ impl Database {
         deposit_outpoint: OutPoint,
         assert_tx_addrs: impl AsRef<[[u8; 32]]>,
         root_hash: &[u8; 32],
+        latest_blockhash_root_hash: &[u8; 32],
     ) -> Result<(), BridgeError> {
         let deposit_id = self
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
         let query = sqlx::query(
-            "INSERT INTO bitvm_setups (xonly_pk, deposit_id, assert_tx_addrs, root_hash)
-             VALUES ($1, $2, $3, $4)
+            "INSERT INTO bitvm_setups (xonly_pk, deposit_id, assert_tx_addrs, root_hash, latest_blockhash_root_hash)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (xonly_pk, deposit_id) DO UPDATE
              SET assert_tx_addrs = EXCLUDED.assert_tx_addrs,
-                 root_hash = EXCLUDED.root_hash;",
+                 root_hash = EXCLUDED.root_hash,
+                 latest_blockhash_root_hash = EXCLUDED.latest_blockhash_root_hash;",
         )
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
@@ -509,7 +511,8 @@ impl Database {
                 .map(|addr| addr.as_ref())
                 .collect::<Vec<&[u8]>>(),
         )
-        .bind(root_hash.to_vec());
+        .bind(root_hash.to_vec())
+        .bind(latest_blockhash_root_hash.to_vec());
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -526,8 +529,8 @@ impl Database {
         let deposit_id = self
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
-        let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>)>(
-            "SELECT assert_tx_addrs, root_hash
+        let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>, Vec<u8>)>(
+            "SELECT assert_tx_addrs, root_hash, latest_blockhash_root_hash
              FROM bitvm_setups
              WHERE xonly_pk = $1 AND deposit_id = $2;",
         )
@@ -537,10 +540,14 @@ impl Database {
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((assert_tx_addrs, root_hash)) => {
+            Some((assert_tx_addrs, root_hash, latest_blockhash_root_hash)) => {
                 // Convert root_hash Vec<u8> back to [u8; 32]
-                let mut root_hash_array = [0u8; 32];
-                root_hash_array.copy_from_slice(&root_hash);
+                let root_hash_array: [u8; 32] = root_hash
+                    .try_into()
+                    .map_err(|_| eyre::eyre!("root_hash must be 32 bytes"))?;
+                let latest_blockhash_root_hash_array: [u8; 32] = latest_blockhash_root_hash
+                    .try_into()
+                    .map_err(|_| eyre::eyre!("latest_blockhash_root_hash must be 32 bytes"))?;
 
                 let assert_tx_addrs: Vec<[u8; 32]> = assert_tx_addrs
                     .into_iter()
@@ -551,38 +558,11 @@ impl Database {
                     })
                     .collect();
 
-                Ok(Some((assert_tx_addrs, root_hash_array)))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Retrieves BitVM disprove scripts root hash data for a specific operator, sequential collateral tx and kickoff index combination
-    pub async fn get_bitvm_root_hash(
-        &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_xonly_pk: XOnlyPublicKey,
-        deposit_outpoint: OutPoint,
-    ) -> Result<Option<RootHash>, BridgeError> {
-        let deposit_id = self
-            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
-            .await?;
-        let query = sqlx::query_as::<_, (Vec<u8>,)>(
-            "SELECT root_hash
-             FROM bitvm_setups
-             WHERE xonly_pk = $1 AND deposit_id = $2;",
-        )
-        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
-        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
-
-        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
-
-        match result {
-            Some((root_hash,)) => {
-                // Convert root_hash Vec<u8> back to [u8; 32]
-                let mut root_hash_array = [0u8; 32];
-                root_hash_array.copy_from_slice(&root_hash);
-                Ok(Some(root_hash_array))
+                Ok(Some((
+                    assert_tx_addrs,
+                    root_hash_array,
+                    latest_blockhash_root_hash_array,
+                )))
             }
             None => Ok(None),
         }
@@ -917,6 +897,7 @@ mod tests {
 
         let assert_tx_hashes: Vec<[u8; 32]> = vec![[1u8; 32], [4u8; 32]];
         let root_hash = [42u8; 32];
+        let latest_blockhash_root_hash = [43u8; 32];
         //let public_input_wots = vec![[1u8; 20], [2u8; 20]];
 
         let deposit_outpoint = OutPoint {
@@ -934,6 +915,7 @@ mod tests {
                 deposit_outpoint,
                 &assert_tx_hashes,
                 &root_hash,
+                &latest_blockhash_root_hash,
             )
             .await
             .unwrap();
@@ -947,13 +929,7 @@ mod tests {
 
         assert_eq!(result.0, assert_tx_hashes);
         assert_eq!(result.1, root_hash);
-
-        let hash = database
-            .get_bitvm_root_hash(None, operator_xonly_pk, deposit_outpoint)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(hash, root_hash);
+        assert_eq!(result.2, latest_blockhash_root_hash);
 
         // Test non-existent entry
         let non_existent = database

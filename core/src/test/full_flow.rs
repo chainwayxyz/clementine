@@ -1,7 +1,7 @@
 use super::common::{create_actors, create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
 use crate::bitvm_client::{self};
-use crate::builder::transaction::input::get_watchtower_challenge_utxo_vout;
+use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
     BaseDepositData, DepositInfo, DepositType, KickoffData, TransactionType as TxType,
@@ -22,7 +22,6 @@ use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
-use bitcoincore_rpc::RpcApi;
 use eyre::{Context, Result};
 use tonic::Request;
 
@@ -803,7 +802,7 @@ pub async fn run_challenge_with_state_machine(
 
     let watchtower_challenge_utxos = (0.._verifiers.len()).map(|i| OutPoint {
         txid: kickoff_txid,
-        vout: get_watchtower_challenge_utxo_vout(i) as u32,
+        vout: UtxoVout::WatchtowerChallenge(i).get_vout(),
     });
 
     let watchtower_challenge_timeout_txids = (0.._verifiers.len())
@@ -828,14 +827,20 @@ pub async fn run_challenge_with_state_machine(
     tracing::info!("Checking if watchtower challenge timeouts were not sent");
     // check if watchtower challenge timeouts were not sent
     for txid in watchtower_challenge_timeout_txids {
-        assert!(rpc
-            .client
-            .get_raw_transaction_info(&txid, None)
-            .await
-            .ok()
-            .and_then(|s| s.blockhash)
-            .is_none());
+        assert!(!rpc.is_txid_in_chain(&txid).await?);
     }
+
+    let latest_blockhash_outpoint = OutPoint {
+        txid: kickoff_txid,
+        vout: UtxoVout::LatestBlockhash.get_vout(),
+    };
+
+    ensure_outpoint_spent(&rpc, latest_blockhash_outpoint).await?;
+
+    // check if latest blockhash timeout was not sent
+    let latest_blockhash_timeout_txid =
+        get_tx_from_signed_txs_with_type(&all_txs, TxType::LatestBlockhashTimeout)?.compute_txid();
+    assert!(!rpc.is_txid_in_chain(&latest_blockhash_timeout_txid).await?);
 
     // check if operator asserts are sent by state machine
     // Get deposit data and kickoff ID for assert creation
@@ -865,7 +870,8 @@ pub async fn run_challenge_with_state_machine(
 
     tracing::warn!("Checking if operator asserts were sent");
     // check if operator asserts were sent
-    for txid in operator_assert_txids {
+    for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
+        tracing::warn!("operator assert {} ensure onchain", idx);
         ensure_tx_onchain(&rpc, txid).await?;
     }
 

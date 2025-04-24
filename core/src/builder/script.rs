@@ -227,13 +227,19 @@ impl WinternitzCommit {
         let mut witness = Witness::new();
         witness.push(signature.serialize());
         for (index, (data, secret_key)) in commit_data.iter().enumerate().rev() {
-            // #[cfg(debug_assertions)]
-            // {
-            //     let pk = winternitz::generate_public_key(&self.get_params(index), secret_key);
-            //     if pk != self.commitments[index].0 {
-            //         tracing::error!("Winternitz public key mismatch");
-            //     }
-            // }
+            #[cfg(debug_assertions)]
+            {
+                let pk = bitvm::signatures::winternitz::generate_public_key(
+                    &self.get_params(index),
+                    secret_key,
+                );
+                if pk != self.commitments[index].0 {
+                    tracing::error!(
+                        "Winternitz public key mismatch len: {}",
+                        self.commitments[index].1
+                    );
+                }
+            }
             bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
                 .sign(&self.get_params(index), secret_key, data)
                 .into_iter()

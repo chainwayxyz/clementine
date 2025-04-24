@@ -56,6 +56,7 @@ bridge-circuit-host = { path = "../bridge-circuit-host" }
 circuits-lib = { path = "../circuits-lib" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

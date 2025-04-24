@@ -381,4 +381,64 @@ where
             })
             .collect())
     }
+
+    pub async fn create_latest_blockhash_tx(
+        &self,
+        assert_data: TransactionRequestData,
+        block_hash: BlockHash,
+    ) -> Result<(TransactionType, Transaction), BridgeError> {
+        let deposit_data = self
+            .db
+            .get_deposit_data(None, assert_data.deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
+            .1;
+
+        let context = ContractContext::new_context_for_asserts(
+            assert_data.kickoff_data,
+            deposit_data,
+            self.config.protocol_paramset(),
+            self.signer.clone(),
+        );
+
+        let mut txhandlers = builder::transaction::create_txhandlers(
+            TransactionType::LatestBlockhash,
+            context,
+            &mut TxHandlerCache::new(),
+            &mut ReimburseDbCache::new_for_deposit(
+                self.db.clone(),
+                assert_data.kickoff_data.operator_xonly_pk,
+                assert_data.deposit_outpoint,
+                self.config.protocol_paramset(),
+            ),
+        )
+        .await?;
+
+        let mut latest_blockhash_txhandler =
+            txhandlers
+                .remove(&TransactionType::LatestBlockhash)
+                .ok_or(TxError::TxHandlerNotFound(TransactionType::LatestBlockhash))?;
+
+        // get last 20 bytes of block_hash
+        let block_hash = block_hash.to_byte_array();
+        let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
+
+        self.signer.tx_sign_winternitz(
+            &mut latest_blockhash_txhandler,
+            &[(
+                block_hash_last_20,
+                ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
+                    assert_data.deposit_outpoint,
+                    self.config.protocol_paramset(),
+                ),
+            )],
+        )?;
+
+        let latest_blockhash_txhandler = latest_blockhash_txhandler.promote()?;
+
+        Ok((
+            latest_blockhash_txhandler.get_transaction_type(),
+            latest_blockhash_txhandler.get_cached_tx().to_owned(),
+        ))
+    }
 }
