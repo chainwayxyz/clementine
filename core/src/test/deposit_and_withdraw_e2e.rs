@@ -84,7 +84,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            initial_da_height: 200,
+            initial_da_height: 60,
             ..Default::default()
         }
     }
@@ -262,6 +262,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         batch_prover
             .wait_for_l1_height(finalized_height, None)
             .await?;
+        lc_prover.wait_for_l1_height(finalized_height, None).await?;
 
         // 5. ensure 2 batch proof txs on DA (commit, reveal)
         da.wait_mempool_len(2, None).await?;
