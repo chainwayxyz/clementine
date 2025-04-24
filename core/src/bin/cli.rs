@@ -333,21 +333,7 @@ fn get_block_merkle_proof(
     );
 
     Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
-    /// Process a new withdrawal
-    NewWithdrawal {
-        #[arg(long)]
-        withdrawal_id: u32,
-        #[arg(long)]
-        input_signature: String,
-        #[arg(long)]
-        input_outpoint_txid: String,
-        #[arg(long)]
-        input_outpoint_vout: u32,
-        #[arg(long)]
-        output_script_pubkey: String,
-        #[arg(long)]
-        output_amount: u64,
-    },
+
 }
 
 async fn handle_operator_call(url: String, command: OperatorCommands) {
@@ -873,7 +859,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     }
                 }
             }
-            
+
         }
         AggregatorCommands::NewWithdrawal {
             withdrawal_id,
