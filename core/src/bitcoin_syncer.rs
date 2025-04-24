@@ -76,7 +76,9 @@ pub(crate) async fn save_block(
     );
 
     // update the block_info as canonical if it already exists
-    let block_id = db.set_block_as_canonical_if_exists(Some(dbtx), block_hash).await?;
+    let block_id = db
+        .set_block_as_canonical_if_exists(Some(dbtx), block_hash)
+        .await?;
     if let Some(block_id) = block_id {
         return Ok(block_id);
     }

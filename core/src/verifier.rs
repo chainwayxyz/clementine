@@ -1008,6 +1008,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, dbtx))]
     async fn update_citrea_deposit_and_withdrawals(
         &self,
         dbtx: &mut DatabaseTransaction<'_, '_>,
@@ -1015,25 +1016,32 @@ where
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
-        tracing::info!("Updating citrea deposit and withdrawals");
+        tracing::debug!("Updating citrea deposit and withdrawals");
+
         let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
         tracing::info!("Last deposit idx: {:?}", last_deposit_idx);
 
         let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
         tracing::info!("Last withdrawal idx: {:?}", last_withdrawal_idx);
+
         let new_deposits = self
             .citrea_client
             .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
+        tracing::info!("New deposits: {:?}", new_deposits);
 
         let new_withdrawals = self
             .citrea_client
             .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
-
         tracing::info!("New Withdrawals: {:?}", new_withdrawals);
+
         for (idx, move_to_vault_txid) in new_deposits {
-            tracing::info!("Setting move to vault txid: {:?}", move_to_vault_txid);
+            tracing::info!(
+                "Setting move to vault txid: {:?} with index {}",
+                move_to_vault_txid,
+                idx
+            );
             self.db
                 .set_move_to_vault_txid_from_citrea_deposit(
                     Some(dbtx),
@@ -1043,7 +1051,11 @@ where
                 .await?;
         }
         for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
-            tracing::info!("Setting withdrawal utxo: {:?}", withdrawal_utxo_outpoint);
+            tracing::info!(
+                "Setting withdrawal utxo: {:?} with index {}",
+                withdrawal_utxo_outpoint,
+                idx
+            );
             self.db
                 .set_withdrawal_utxo_from_citrea_withdrawal(
                     Some(dbtx),
