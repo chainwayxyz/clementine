@@ -30,7 +30,7 @@ impl Database {
     }
 
     /// Returns the last withdrawal index where withdrawal_utxo_txid exists.
-    /// If no deposits_and_withdrawals with UTXOs exist, returns None.
+    /// If no withdrawals with UTXOs exist, returns None.
     pub async fn get_last_withdrawal_idx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
