@@ -546,7 +546,6 @@ pub async fn generate_withdrawal_transaction_and_signature(
     let txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(bitcoin::transaction::Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

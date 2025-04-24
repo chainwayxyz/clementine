@@ -1086,35 +1086,54 @@ where
         Ok(())
     }
 
-    async fn update_citrea_withdrawals(
+    #[tracing::instrument(skip(self, dbtx))]
+    async fn update_citrea_deposit_and_withdrawals(
         &self,
         dbtx: &mut DatabaseTransaction<'_, '_>,
         l2_height_start: u64,
         l2_height_end: u64,
         block_height: u32,
     ) -> Result<(), BridgeError> {
+        tracing::debug!("Updating citrea deposit and withdrawals");
+
+        let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
+        tracing::info!("Last deposit idx: {:?}", last_deposit_idx);
+
+        let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
+        tracing::info!("Last withdrawal idx: {:?}", last_withdrawal_idx);
+
         let new_deposits = self
             .citrea_client
-            .collect_deposit_move_txids(l2_height_start + 1, l2_height_end)
+            .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
-        tracing::info!("New Deposits: {:?}", new_deposits);
+        tracing::info!("New deposits: {:?}", new_deposits);
+
         let new_withdrawals = self
             .citrea_client
-            .collect_withdrawal_utxos(l2_height_start + 1, l2_height_end)
+            .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
         tracing::info!("New Withdrawals: {:?}", new_withdrawals);
+
         for (idx, move_to_vault_txid) in new_deposits {
-            tracing::info!("Setting move to vault txid: {:?}", move_to_vault_txid);
+            tracing::info!(
+                "Setting move to vault txid: {:?} with index {}",
+                move_to_vault_txid,
+                idx
+            );
             self.db
                 .set_move_to_vault_txid_from_citrea_deposit(
                     Some(dbtx),
-                    idx as u32 - 1,
+                    idx as u32,
                     &move_to_vault_txid,
                 )
                 .await?;
         }
         for (idx, withdrawal_utxo_outpoint) in new_withdrawals {
-            tracing::info!("Setting withdrawal utxo: {:?}", withdrawal_utxo_outpoint);
+            tracing::info!(
+                "Setting withdrawal utxo: {:?} with index {}",
+                withdrawal_utxo_outpoint,
+                idx
+            );
             self.db
                 .set_withdrawal_utxo_from_citrea_withdrawal(
                     Some(dbtx),
@@ -1124,6 +1143,23 @@ where
                 )
                 .await?;
         }
+
+        let replacement_move_txids = self
+            .citrea_client
+            .get_replacement_deposit_move_txids(l2_height_start + 1, l2_height_end)
+            .await?;
+
+        for (old_move_txid, new_move_txid) in replacement_move_txids {
+            tracing::info!(
+                "Setting replacement move txid: {:?} -> {:?}",
+                old_move_txid,
+                new_move_txid
+            );
+            self.db
+                .set_replacement_deposit_move_txid(Some(dbtx), old_move_txid, new_move_txid)
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -1133,6 +1169,7 @@ where
         block_id: u32,
         block_cache: &block_cache::BlockCache,
     ) -> Result<(), BridgeError> {
+        tracing::info!("Updating finalized payouts for block: {:?}", block_id);
         let payout_txids = self
             .db
             .get_payout_txs_for_withdrawal_utxos(Some(dbtx), block_id)
@@ -1147,10 +1184,19 @@ where
 
         let mut payout_txs_and_payer_operator_idx = vec![];
         for (idx, payout_txid) in payout_txids {
-            let payout_tx_idx = block_cache
-                .txids
-                .get(&payout_txid)
-                .ok_or(eyre::eyre!("Payout tx not found"))?;
+            let payout_tx_idx = block_cache.txids.get(&payout_txid);
+            if payout_tx_idx.is_none() {
+                tracing::error!(
+                    "Payout tx not found in block cache: {:?} and in block: {:?}",
+                    payout_txid,
+                    block_id
+                );
+                tracing::error!("Block cache: {:?}", block_cache);
+                return Err(BridgeError::Error(
+                    "Payout tx not found in block cache".to_string(),
+                ));
+            }
+            let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
             let payout_tx = &block.txdata[*payout_tx_idx];
             let last_output = &payout_tx.output[payout_tx.output.len() - 1]
                 .script_pubkey
@@ -1352,24 +1398,40 @@ where
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
         tracing::warn!("Verifier handle finalized block {}", block_height);
-        let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
-        let timeout = Duration::from_secs(max_attempts as u64);
+        tracing::info!(
+            "Handling finalized block height: {:?} and block cache height: {:?}",
+            block_height,
+            block_cache.block_height
+        );
+        if block_height > 60 {
+            let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
+            let timeout = Duration::from_secs(max_attempts as u64);
 
-        if block_height > 200 {
-            // TODO: check for actual lcp start on citrea
-            let (l2_height_start, l2_height_end) = self
+            let l2_range_result = self
                 .citrea_client
                 .get_citrea_l2_height_range(block_height.into(), timeout)
-                .await?;
+                .await;
+            if let Err(e) = l2_range_result {
+                tracing::error!("Error getting citrea l2 height range: {:?}", e);
+                return Err(e);
+            }
+            let (l2_height_start, l2_height_end) =
+                l2_range_result.expect("Failed to get citrea l2 height range");
 
-            tracing::info!("l2_height_end: {:?}", l2_height_end);
-            tracing::info!("l2_height_start: {:?}", l2_height_start);
+            tracing::info!(
+                "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+                l2_height_start,
+                l2_height_end
+            );
+            self.update_citrea_deposit_and_withdrawals(
+                &mut dbtx,
+                l2_height_start,
+                l2_height_end,
+                block_height,
+            )
+            .await?;
 
-            tracing::info!("Collecting deposits and withdrawals");
-            self.update_citrea_withdrawals(&mut dbtx, l2_height_start, l2_height_end, block_height)
-                .await?;
-
-            tracing::info!("Getting payout txids");
+            tracing::info!("Getting payout txids for block height: {:?}", block_height);
             self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
                 .await?;
         }

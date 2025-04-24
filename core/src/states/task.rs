@@ -113,8 +113,21 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                             self.next_block_height
                         )))?;
 
+                    let new_block_id = self
+                        .db
+                        .get_canonical_block_id_from_height(Some(&mut dbtx), self.next_block_height)
+                        .await?;
+
+                    if new_block_id.is_none() {
+                        tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", self.next_block_height, new_block_height);
+                        return Err(BridgeError::Error(format!(
+                            "Block at height {} not found in BlockFetcherTask, current tip height is {}",
+                            self.next_block_height, new_block_height
+                        )));
+                    }
+
                     let event = SystemEvent::NewBlock {
-                        block_id,
+                        block_id: new_block_id.expect("it must be some"),
                         block,
                         height: self.next_block_height,
                     };
