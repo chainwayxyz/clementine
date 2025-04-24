@@ -18,7 +18,9 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<u32>, BridgeError> {
-        let query = sqlx::query_as::<_, (i32,)>("SELECT COALESCE(MAX(idx), -1) FROM withdrawals");
+        let query = sqlx::query_as::<_, (i32,)>(
+            "SELECT COALESCE(MAX(idx), -1) FROM deposits_and_withdrawals",
+        );
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         if result.0 == -1 {
             Ok(None)
@@ -28,13 +30,13 @@ impl Database {
     }
 
     /// Returns the last withdrawal index where withdrawal_utxo_txid exists.
-    /// If no withdrawals with UTXOs exist, returns None.
+    /// If no deposits_and_withdrawals with UTXOs exist, returns None.
     pub async fn get_last_withdrawal_idx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<u32>, BridgeError> {
         let query = sqlx::query_as::<_, (i32,)>(
-            "SELECT COALESCE(MAX(idx), -1) FROM withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
+            "SELECT COALESCE(MAX(idx), -1) FROM deposits_and_withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
         );
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         if result.0 == -1 {
@@ -51,7 +53,7 @@ impl Database {
         move_to_vault_txid: &Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO withdrawals (idx, move_to_vault_txid)
+            "INSERT INTO deposits_and_withdrawals (idx, move_to_vault_txid)
              VALUES ($1, $2)
              ON CONFLICT (idx) DO UPDATE
              SET move_to_vault_txid = $2",
@@ -70,7 +72,7 @@ impl Database {
         new_move_txid: Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE withdrawals
+            "UPDATE deposits_and_withdrawals
              SET move_to_vault_txid = $2
              WHERE move_to_vault_txid = $1
              RETURNING idx",
@@ -98,7 +100,7 @@ impl Database {
         withdrawal_batch_proof_bitcoin_block_height: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE withdrawals
+            "UPDATE deposits_and_withdrawals
              SET withdrawal_utxo_txid = $2,
                  withdrawal_utxo_vout = $3,
                  withdrawal_batch_proof_bitcoin_block_height = $4
@@ -126,7 +128,7 @@ impl Database {
     ) -> Result<Option<OutPoint>, BridgeError> {
         let query = sqlx::query_as::<_, (Option<TxidDB>, Option<i32>)>(
             "SELECT w.withdrawal_utxo_txid, w.withdrawal_utxo_vout
-             FROM withdrawals w
+             FROM deposits_and_withdrawals w
              WHERE w.idx = $1",
         )
         .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?);
@@ -154,7 +156,7 @@ impl Database {
     ) -> Result<Vec<(u32, Txid)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, TxidDB)>(
             "SELECT w.idx, bsu.spending_txid
-             FROM withdrawals w
+             FROM deposits_and_withdrawals w
              JOIN bitcoin_syncer_spent_utxos bsu
                 ON bsu.txid = w.withdrawal_utxo_txid
                 AND bsu.vout = w.withdrawal_utxo_vout
@@ -204,7 +206,7 @@ impl Database {
         let converted_values = converted_values?;
 
         let mut query_builder = QueryBuilder::new(
-            "UPDATE withdrawals AS w SET
+            "UPDATE deposits_and_withdrawals AS w SET
                 payout_txid = c.payout_txid,
                 payout_payer_operator_xonly_pk = c.payout_payer_operator_xonly_pk,
                 payout_tx_blockhash = c.payout_tx_blockhash
@@ -237,7 +239,7 @@ impl Database {
     ) -> Result<Option<(XOnlyPublicKey, BlockHash)>, BridgeError> {
         let query = sqlx::query_as::<_, (XOnlyPublicKeyDB, BlockHashDB)>(
             "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash
-             FROM withdrawals w
+             FROM deposits_and_withdrawals w
              WHERE w.move_to_vault_txid = $1",
         )
         .bind(TxidDB(move_to_vault_txid));
@@ -257,7 +259,7 @@ impl Database {
     ) -> Result<Option<(u32, Txid, BlockHash)>, BridgeError> {
         let query = sqlx::query_as::<_, (i32, Option<TxidDB>, Option<BlockHashDB>)>(
             "SELECT w.idx, w.move_to_vault_txid, w.payout_tx_blockhash
-             FROM withdrawals w
+             FROM deposits_and_withdrawals w
              WHERE w.payout_txid IS NOT NULL
                 AND w.is_payout_handled = FALSE
                 AND w.payout_payer_operator_xonly_pk = $1
@@ -290,7 +292,7 @@ impl Database {
         kickoff_txid: Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE withdrawals SET is_payout_handled = TRUE, kickoff_txid = $2 WHERE idx = $1",
+            "UPDATE deposits_and_withdrawals SET is_payout_handled = TRUE, kickoff_txid = $2 WHERE idx = $1",
         )
         .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?)
         .bind(TxidDB(kickoff_txid));
@@ -305,7 +307,7 @@ impl Database {
         payout_txid: Txid,
     ) -> Result<Option<Txid>, BridgeError> {
         let query = sqlx::query_as::<_, (Option<TxidDB>,)>(
-            "SELECT kickoff_txid FROM withdrawals WHERE payout_txid = $1 AND is_payout_handled = TRUE",
+            "SELECT kickoff_txid FROM deposits_and_withdrawals WHERE payout_txid = $1 AND is_payout_handled = TRUE",
         )
         .bind(TxidDB(payout_txid));
 

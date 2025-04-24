@@ -256,7 +256,7 @@ impl TxSender {
     /// **only for regtest**.
     ///
     /// TODO: Use more sophisticated fee estimation, like the one in mempool.space
-    async fn get_fee_rate(&self) -> Result<FeeRate> {
+    async fn _get_fee_rate(&self) -> Result<FeeRate> {
         tracing::info!("Getting fee rate");
         let fee_rate = self
             .rpc
@@ -1388,7 +1388,7 @@ mod tests {
         assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
 
         // Calculate and send with fee.
-        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        let fee_rate = tx_sender._get_fee_rate().await.unwrap();
         let fee = TxSender::calculate_required_fee(
             will_fail_tx.weight(),
             1,

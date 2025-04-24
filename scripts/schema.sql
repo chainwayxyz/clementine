@@ -201,7 +201,7 @@ create table if not exists tx_sender_activate_try_to_send_outpoints (
     primary key (activated_id, txid, vout)
 );
 -------- FINALIZED BLOCK SYNCER , CITREA DEPOSITS AND WITHDRAWALS --------
-create table if not exists withdrawals (
+create table if not exists deposits_and_withdrawals (
     idx int primary key,
     move_to_vault_txid text not null check (move_to_vault_txid ~ '^[a-fA-F0-9]{64}'),
     withdrawal_utxo_txid text check (withdrawal_utxo_txid ~ '^[a-fA-F0-9]{64}'),
