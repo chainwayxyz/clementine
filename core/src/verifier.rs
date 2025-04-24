@@ -1008,6 +1008,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, dbtx))]
     async fn update_citrea_deposit_and_withdrawals(
         &self,
         dbtx: &mut DatabaseTransaction<'_, '_>,

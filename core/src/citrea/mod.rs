@@ -350,6 +350,11 @@ impl CitreaClientT for CitreaClient {
             .get_light_client_proof_by_l1_height(l1_height)
             .await
             .wrap_err("Failed to get light client proof")?;
+        tracing::debug!(
+            "Light client proof result {}: {:?}",
+            l1_height,
+            proof_result
+        );
 
         let ret = if let Some(proof_result) = proof_result {
             Some((
@@ -585,10 +590,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "Includes code that won't change much and the test itself is too flaky; Ignoring..."]
     async fn citrea_get_logs_limit_check() -> citrea_e2e::Result<()> {
-        // TODO: temp hack to use the correct docker image
         std::env::set_var(
             "CITREA_DOCKER_IMAGE",
-            "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
+            "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
         );
         TestCaseRunner::new(CitreaGetLogsLimitCheck).run().await
     }
