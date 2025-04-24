@@ -446,8 +446,9 @@ async fn mock_citrea_run_truthful() {
         .height as u64;
 
     tracing::info!("Depositing to Citrea");
+    let current_block_height = rpc.client.get_block_count().await.unwrap();
     citrea_client
-        .insert_deposit_move_txid(tx.compute_txid())
+        .insert_deposit_move_txid(current_block_height + 1, tx.compute_txid())
         .await;
     rpc.mine_blocks(5).await.unwrap();
 
@@ -500,7 +501,11 @@ async fn mock_citrea_run_truthful() {
     // mine 1 block to make sure the withdrawal is in the next block
     // rpc.mine_blocks(1).await.unwrap();
 
-    citrea_client.insert_withdrawal_utxo(withdrawal_utxo).await;
+    let current_block_height = rpc.client.get_block_count().await.unwrap();
+
+    citrea_client
+        .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
+        .await;
     // Mine some blocks so that block syncer counts it as finalzied
     rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
 
@@ -711,8 +716,9 @@ async fn mock_citrea_run_malicious() {
         .height as u64;
 
     tracing::info!("Depositing to Citrea");
+    let current_block_height = rpc.client.get_block_count().await.unwrap();
     citrea_client
-        .insert_deposit_move_txid(tx.compute_txid())
+        .insert_deposit_move_txid(current_block_height + 1, tx.compute_txid())
         .await;
     rpc.mine_blocks(5).await.unwrap();
 
@@ -746,7 +752,9 @@ async fn mock_citrea_run_malicious() {
     )
     .await;
 
-    citrea_client.insert_withdrawal_utxo(withdrawal_utxo).await;
+    citrea_client
+        .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
+        .await;
     rpc.mine_blocks(5).await.unwrap();
 
     // Mine some blocks so that block syncer counts it as finalzied
