@@ -154,6 +154,21 @@ enum AggregatorCommands {
         #[arg(long)]
         bridge_amount: Option<u64>,
     },
+    /// Process a new withdrawal
+    NewWithdrawal {
+        #[arg(long)]
+        withdrawal_id: u32,
+        #[arg(long)]
+        input_signature: String,
+        #[arg(long)]
+        input_outpoint_txid: String,
+        #[arg(long)]
+        input_outpoint_vout: u32,
+        #[arg(long)]
+        output_script_pubkey: String,
+        #[arg(long)]
+        output_amount: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -318,6 +333,21 @@ fn get_block_merkle_proof(
     );
 
     Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
+    /// Process a new withdrawal
+    NewWithdrawal {
+        #[arg(long)]
+        withdrawal_id: u32,
+        #[arg(long)]
+        input_signature: String,
+        #[arg(long)]
+        input_outpoint_txid: String,
+        #[arg(long)]
+        input_outpoint_vout: u32,
+        #[arg(long)]
+        output_script_pubkey: String,
+        #[arg(long)]
+        output_amount: u64,
+    },
 }
 
 async fn handle_operator_call(url: String, command: OperatorCommands) {
@@ -780,6 +810,133 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     .expect("Failed to convert txid to array"),
             );
             println!("Move txid: {}", txid);
+        }
+        AggregatorCommands::NewWithdrawal {
+            withdrawal_id,
+            input_signature,
+            input_outpoint_txid,
+            input_outpoint_vout,
+            output_script_pubkey,
+            output_amount,
+        } => {
+            println!("Processing withdrawal with id {}", withdrawal_id);
+
+            let mut input_outpoint_txid_bytes =
+                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
+            input_outpoint_txid_bytes.reverse();
+
+            let input_signature_bytes =
+                hex::decode(input_signature).expect("Failed to decode input signature");
+
+            let output_script_pubkey_bytes =
+                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
+
+            let params = clementine_core::rpc::clementine::WithdrawParams {
+                withdrawal_id,
+                input_signature: input_signature_bytes,
+                input_outpoint: Some(Outpoint {
+                    txid: input_outpoint_txid_bytes,
+                    vout: input_outpoint_vout,
+                }),
+                output_script_pubkey: output_script_pubkey_bytes,
+                output_amount,
+            };
+
+            let response = aggregator
+                .withdraw(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+
+            let withdraw_responses = response.get_ref().withdraw_responses.clone();
+
+            for (i, result) in withdraw_responses.iter().enumerate() {
+                match &result.result {
+                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Success(
+                        success,
+                    )) => {
+                        let txid = bitcoin::Txid::from_byte_array(
+                            success
+                                .txid
+                                .clone()
+                                .try_into()
+                                .expect("Failed to convert txid to array"),
+                        );
+                        println!("Operator {}: Withdrawal successful, txid: {}", i, txid);
+                    }
+                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Error(
+                        error,
+                    )) => {
+                        println!("Operator {}: Withdrawal failed: {}", i, error.error);
+                    }
+                    None => {
+                        println!("Operator {}: Unknown result", i);
+                    }
+                }
+            }
+            
+        }
+        AggregatorCommands::NewWithdrawal {
+            withdrawal_id,
+            input_signature,
+            input_outpoint_txid,
+            input_outpoint_vout,
+            output_script_pubkey,
+            output_amount,
+        } => {
+            println!("Processing withdrawal with id {}", withdrawal_id);
+
+            let mut input_outpoint_txid_bytes =
+                hex::decode(input_outpoint_txid).expect("Failed to decode input outpoint txid");
+            input_outpoint_txid_bytes.reverse();
+
+            let input_signature_bytes =
+                hex::decode(input_signature).expect("Failed to decode input signature");
+
+            let output_script_pubkey_bytes =
+                hex::decode(output_script_pubkey).expect("Failed to decode output script pubkey");
+
+            let params = clementine_core::rpc::clementine::WithdrawParams {
+                withdrawal_id,
+                input_signature: input_signature_bytes,
+                input_outpoint: Some(Outpoint {
+                    txid: input_outpoint_txid_bytes,
+                    vout: input_outpoint_vout,
+                }),
+                output_script_pubkey: output_script_pubkey_bytes,
+                output_amount,
+            };
+
+            let response = aggregator
+                .withdraw(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+
+            let withdraw_responses = response.get_ref().withdraw_responses.clone();
+
+            for (i, result) in withdraw_responses.iter().enumerate() {
+                match &result.result {
+                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Success(
+                        success,
+                    )) => {
+                        let txid = bitcoin::Txid::from_byte_array(
+                            success
+                                .txid
+                                .clone()
+                                .try_into()
+                                .expect("Failed to convert txid to array"),
+                        );
+                        println!("Operator {}: Withdrawal successful, txid: {}", i, txid);
+                    }
+                    Some(clementine_core::rpc::clementine::withdraw_result::Result::Error(
+                        error,
+                    )) => {
+                        println!("Operator {}: Withdrawal failed: {}", i, error.error);
+                    }
+                    None => {
+                        println!("Operator {}: Unknown result", i);
+                    }
+                }
+            }
         }
     }
 }

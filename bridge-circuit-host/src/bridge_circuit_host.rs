@@ -308,7 +308,7 @@ fn generate_succinct_bridge_circuit_public_inputs(
         .try_into()
         .unwrap();
 
-    // watcthower_challenge_wpks_hash
+    // watchtower_challenge_wpks_hash
     let pub_key_concat: Vec<u8> = input
         .winternitz_details
         .iter()
@@ -339,7 +339,7 @@ fn generate_succinct_bridge_circuit_public_inputs(
         payout_tx_block_hash,
         latest_block_hash,
         move_to_vault_txid: input.sp.txid_hex,
-        watcthower_challenge_wpks_hash: wintertniz_pubkeys_digest,
+        watchtower_challenge_wpks_hash: wintertniz_pubkeys_digest,
         operator_id,
     }
 }
