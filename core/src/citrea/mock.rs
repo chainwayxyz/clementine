@@ -12,13 +12,13 @@ use tokio::sync::{Mutex, MutexGuard};
 use tonic::async_trait;
 
 pub struct Deposit {
-    idx: i32,
+    idx: u32,
     height: u64,
     move_txid: Txid,
 }
 
 pub struct Withdrawal {
-    idx: i32,
+    idx: u32,
     height: u64,
     utxo: OutPoint,
 }
@@ -107,7 +107,7 @@ impl CitreaClientT for MockCitreaClient {
             .withdrawals
             .iter()
             .find_map(|Withdrawal { idx, utxo, .. }| {
-                if *idx == withdrawal_index as i32 {
+                if *idx == withdrawal_index as u32 {
                     Some(utxo)
                 } else {
                     None
@@ -119,14 +119,19 @@ impl CitreaClientT for MockCitreaClient {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::DEBUG))]
     async fn collect_deposit_move_txids(
         &self,
-        last_deposit_idx: i32,
+        last_deposit_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
         let storage = self.storage.lock().await;
+        let start_idx = match last_deposit_idx {
+            Some(idx) => idx + 1,
+            None => 0,
+        };
+
         let results: Vec<(u64, Txid)> = storage
             .deposits
             .iter()
-            .filter(|deposit| deposit.height <= to_height && deposit.idx == last_deposit_idx)
+            .filter(|deposit| deposit.height <= to_height && deposit.idx >= start_idx)
             .map(|deposit| (deposit.idx as u64, deposit.move_txid))
             .collect();
 
@@ -136,16 +141,19 @@ impl CitreaClientT for MockCitreaClient {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::DEBUG))]
     async fn collect_withdrawal_utxos(
         &self,
-        last_withdrawal_idx: i32,
+        last_withdrawal_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
         let storage = self.storage.lock().await;
+        let start_idx = match last_withdrawal_idx {
+            Some(idx) => idx + 1,
+            None => 0,
+        };
+
         let results: Vec<(u64, OutPoint)> = storage
             .withdrawals
             .iter()
-            .filter(|withdrawal| {
-                withdrawal.height <= to_height && withdrawal.idx == last_withdrawal_idx
-            })
+            .filter(|withdrawal| withdrawal.height <= to_height && withdrawal.idx >= start_idx)
             .map(|withdrawal| (withdrawal.idx as u64, withdrawal.utxo))
             .collect();
 
@@ -194,7 +202,7 @@ impl MockCitreaClient {
     /// Pushes a deposit move txid to the given height.
     pub async fn insert_deposit_move_txid(&mut self, height: u64, txid: Txid) {
         let mut storage = self.storage.lock().await;
-        let idx = storage.deposits.len() as i32;
+        let idx = storage.deposits.len() as u32;
 
         tracing::debug!("Inserting deposit move txid {txid:?} at height {height} with index {idx}");
         storage.deposits.push(Deposit {
@@ -207,7 +215,7 @@ impl MockCitreaClient {
     /// Pushes a withdrawal utxo and its index to the given height.
     pub async fn insert_withdrawal_utxo(&mut self, height: u64, utxo: OutPoint) {
         let mut storage = self.storage.lock().await;
-        let idx = storage.withdrawals.len() as i32;
+        let idx = storage.withdrawals.len() as u32;
 
         tracing::debug!("Inserting withdrawal utxo {utxo:?} at height {height} with index {idx}");
         storage.withdrawals.push(Withdrawal { idx, height, utxo });
@@ -227,7 +235,7 @@ mod tests {
             .unwrap();
 
         assert!(client
-            .collect_deposit_move_txids(1, 2)
+            .collect_deposit_move_txids(None, 2)
             .await
             .unwrap()
             .is_empty());
@@ -239,17 +247,17 @@ mod tests {
             .insert_deposit_move_txid(1, bitcoin::Txid::from_slice(&[2; 32]).unwrap())
             .await;
 
-        let txids = client.collect_deposit_move_txids(0, 2).await.unwrap();
-        assert_eq!(txids.len(), 1);
+        let txids = client.collect_deposit_move_txids(None, 1).await.unwrap();
+        assert_eq!(txids.len(), 2);
         assert_eq!(txids[0].1, bitcoin::Txid::from_slice(&[1; 32]).unwrap());
 
-        let txids = client.collect_deposit_move_txids(1, 2).await.unwrap();
+        let txids = client.collect_deposit_move_txids(Some(0), 2).await.unwrap();
         assert_eq!(txids.len(), 1);
         assert_eq!(txids[0].1, bitcoin::Txid::from_slice(&[2; 32]).unwrap());
 
         // Idx 1 is not available till height 2 (0 indexed).
         assert!(client
-            .collect_deposit_move_txids(1, 0)
+            .collect_deposit_move_txids(Some(0), 0)
             .await
             .unwrap()
             .is_empty());
@@ -263,7 +271,7 @@ mod tests {
             .unwrap();
 
         assert!(client
-            .collect_withdrawal_utxos(0, 2)
+            .collect_withdrawal_utxos(None, 2)
             .await
             .unwrap()
             .is_empty());
@@ -281,14 +289,14 @@ mod tests {
             )
             .await;
 
-        let utxos = client.collect_withdrawal_utxos(0, 2).await.unwrap();
-        assert_eq!(utxos.len(), 1);
+        let utxos = client.collect_withdrawal_utxos(None, 2).await.unwrap();
+        assert_eq!(utxos.len(), 2);
         assert_eq!(
             utxos[0].1,
             bitcoin::OutPoint::new(bitcoin::Txid::from_slice(&[1; 32]).unwrap(), 0)
         );
 
-        let utxos = client.collect_withdrawal_utxos(1, 2).await.unwrap();
+        let utxos = client.collect_withdrawal_utxos(Some(0), 2).await.unwrap();
         assert_eq!(utxos.len(), 1);
         assert_eq!(
             utxos[0].1,

@@ -81,11 +81,11 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     ///
     /// # Parameters
     ///
-    /// - `last_deposit_idx`: Last deposit index. -1 if no deposit
+    /// - `last_deposit_idx`: Last deposit index. None if no deposit
     /// - `to_height`: End block height (inclusive)
     async fn collect_deposit_move_txids(
         &self,
-        last_deposit_idx: i32,
+        last_deposit_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError>;
 
@@ -93,11 +93,11 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     ///
     /// # Parameters
     ///
-    /// - `last_withdrawal_idx`: Last withdrawal index. -1 if no withdrawal
+    /// - `last_withdrawal_idx`: Last withdrawal index. None if no withdrawal
     /// - `to_height`: End block height (inclusive)
     async fn collect_withdrawal_utxos(
         &self,
-        last_withdrawal_idx: i32,
+        last_withdrawal_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError>;
 
@@ -271,10 +271,15 @@ impl CitreaClientT for CitreaClient {
 
     async fn collect_deposit_move_txids(
         &self,
-        mut last_deposit_idx: i32,
+        last_deposit_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
         let mut move_txids = vec![];
+
+        let mut start_idx = match last_deposit_idx {
+            Some(idx) => idx + 1,
+            None => 0,
+        };
 
         loop {
             let deposit_txid = self
@@ -295,18 +300,23 @@ impl CitreaClientT for CitreaClient {
             let deposit_txid = deposit_txid.expect("Failed to get deposit txid");
             let move_txid = Txid::from_slice(deposit_txid._0.as_ref())
                 .wrap_err("Failed to convert move txid to Txid")?;
-            move_txids.push(((last_deposit_idx) as u64, move_txid));
-            last_deposit_idx += 1;
+            move_txids.push((start_idx as u64, move_txid));
+            start_idx += 1;
         }
         Ok(move_txids)
     }
 
     async fn collect_withdrawal_utxos(
         &self,
-        mut last_withdrawal_idx: i32,
+        last_withdrawal_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
         let mut utxos = vec![];
+
+        let mut start_idx = match last_withdrawal_idx {
+            Some(idx) => idx + 1,
+            None => 0,
+        };
 
         loop {
             let withdrawal_utxo = self
@@ -325,8 +335,8 @@ impl CitreaClientT for CitreaClient {
             let vout = withdrawal_utxo.outputId.0;
             let vout = u32::from_be_bytes(vout);
             let utxo = OutPoint { txid, vout };
-            utxos.push(((last_withdrawal_idx) as u64, utxo));
-            last_withdrawal_idx += 1;
+            utxos.push((start_idx as u64, utxo));
+            start_idx += 1;
         }
         Ok(utxos)
     }
