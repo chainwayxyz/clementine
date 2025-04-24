@@ -878,6 +878,7 @@ where
         deposit_data: &mut DepositData,
         kickoff_data: KickoffData,
     ) -> Result<bool, BridgeError> {
+        return Ok(true); // TODO: remove this
         let move_txid =
             create_move_to_vault_txhandler(deposit_data, self.config.protocol_paramset())?
                 .get_cached_tx()
@@ -1354,21 +1355,24 @@ where
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 
-        let (l2_height_start, l2_height_end) = self
-            .citrea_client
-            .get_citrea_l2_height_range(block_height.into(), timeout)
-            .await?;
+        if block_height > 200 {
+            // TODO: check for actual lcp start on citrea
+            let (l2_height_start, l2_height_end) = self
+                .citrea_client
+                .get_citrea_l2_height_range(block_height.into(), timeout)
+                .await?;
 
-        tracing::info!("l2_height_end: {:?}", l2_height_end);
-        tracing::info!("l2_height_start: {:?}", l2_height_start);
+            tracing::info!("l2_height_end: {:?}", l2_height_end);
+            tracing::info!("l2_height_start: {:?}", l2_height_start);
 
-        tracing::info!("Collecting deposits and withdrawals");
-        self.update_citrea_withdrawals(&mut dbtx, l2_height_start, l2_height_end, block_height)
-            .await?;
+            tracing::info!("Collecting deposits and withdrawals");
+            self.update_citrea_withdrawals(&mut dbtx, l2_height_start, l2_height_end, block_height)
+                .await?;
 
-        tracing::info!("Getting payout txids");
-        self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
-            .await?;
+            tracing::info!("Getting payout txids");
+            self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
+                .await?;
+        }
 
         self.header_chain_prover
             .save_unproven_block_cache(Some(&mut dbtx), &block_cache)

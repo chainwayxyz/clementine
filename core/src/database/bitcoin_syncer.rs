@@ -129,10 +129,9 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: BlockHash,
     ) -> Result<Option<(u32, bitcoin::Block)>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT (block_height, block_data FROM bitcoin_blocks WHERE block_hash = $1",
-        )
-        .bind(BlockHashDB(block_hash));
+        let query =
+            sqlx::query_as("SELECT height, block_data FROM bitcoin_blocks WHERE block_hash = $1")
+                .bind(BlockHashDB(block_hash));
 
         let block_data: Option<(i32, Vec<u8>)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
