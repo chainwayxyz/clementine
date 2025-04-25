@@ -193,7 +193,7 @@ pub async fn set_initial_block_info_if_not_exists(
 
     if paramset.start_height > current_height {
         tracing::error!(
-            "Bitcoin syncer does not have enough available blocks in chain (Likely a regtest problem). start_height ({}) > current_height ({})",
+            "Bitcoin syncer could not find enough available blocks in chain (Likely a regtest problem). start_height ({}) > current_height ({})",
             paramset.start_height,
             current_height
         );

@@ -64,7 +64,7 @@ fn read_config_from(config_file: PathBuf) -> Result<BridgeConfig, BridgeError> {
 }
 
 /// Gets configuration using CLI arguments, for binaries. If there are any errors, prints
-/// error and exits the program.
+/// error and panics.
 ///
 /// Steps:
 ///
@@ -124,17 +124,17 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
                             tracing::error!(
                                 "Missing environment variable {field} in environment config mode. ({e:?})."
                             );
-                            exit(1);
+                            panic!("Missing environment variable {field} in environment config mode. ({e:?}).");
                         }
                         Some(BridgeError::EnvVarMalformed(e, field)) => {
                             tracing::error!("Malformed environment variable {field} in environment config mode. ({e:?}).");
-                            exit(1);
+                            panic!("Malformed environment variable {field} in environment config mode. ({e:?}).");
                         }
                         _ => {
                             tracing::error!(
                             "Error occurred while reading environment variables for config: {e:?}"
-                        );
-                            exit(1);
+                            );
+                            panic!("Error occurred while reading environment variables for config: {e:?}. ({e:?}).");
                         }
                     }
                 }
@@ -148,14 +148,14 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
                 tracing::error!(
                     "Failed to read configuration file: No configuration file provided."
                 );
-                exit(1);
+                panic!("Failed to read configuration file: No configuration file provided.");
             };
 
             let config = match read_config_from(config_file) {
                 Ok(config) => config,
                 Err(e) => {
                     tracing::error!("Can't read configuration from file: {e}");
-                    exit(1);
+                    panic!("Can't read configuration from file: {e}");
                 }
             };
 

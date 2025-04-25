@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::fs;
 use std::str::FromStr;
-use std::sync::Arc;
 
 pub const BLOCKS_PER_HOUR: u16 = 6;
 
@@ -23,15 +22,24 @@ pub const WINTERNITZ_LOG_D: u32 = 4;
 /// A pre-defined paramset name that can be converted into a
 /// [`ProtocolParamset`] reference. Refers to a defined constant paramset in this module or a defined external source.
 ///
+/// External sources are:
+/// - Environment variables
+/// - Config file (file path determined by environment `PROTOCOL_CONFIG_PATH`, defaults to`protocol_params.toml` if not set)
+///
+/// When external sources are used, the program will panic if the source has a missing value or invalid value. Multiple sources cannot be combined or fallen back to.
+///
 /// See: [`MAINNET_PARAMSET`], [`REGTEST_PARAMSET`], [`TESTNET_PARAMSET`].
 pub enum ProtocolParamsetName {
+    // Pre-defined paramsets
     Mainnet,
     Regtest,
     Testnet4,
     Signet,
-    /// Explicitly read from environment variables and exit with error if not set
+
+    // External sources
+    /// Reads from environment variables and panics on missing/invalid environment variables
     Env,
-    /// Read from external config file and exit with error if not set
+    /// Reads from external config file and panics on missing/invalid config file
     File,
 }
 
@@ -238,30 +246,25 @@ pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
 };
 
 lazy_static! {
-    pub static ref FILE_PARAMSET: Arc<ProtocolParamset> = {
+    pub static ref FILE_PARAMSET: ProtocolParamset = {
         let config_path = std::env::var("PROTOCOL_CONFIG_PATH")
             .unwrap_or_else(|_| "protocol_params.toml".to_string());
 
         match ProtocolParamset::from_toml_file(&config_path) {
-            Ok(params) => Arc::new(params),
+            Ok(params) => params,
             Err(e) => {
-                eprintln!(
-                    "Failed to load protocol params from {}: {}. Using regtest defaults.",
+                panic!(
+                    "Failed to load protocol params from file (using path: {}): {:?}",
                     config_path, e
                 );
-                Arc::new(REGTEST_PARAMSET)
             }
         }
     };
-    pub static ref ENV_PARAMSET: Arc<ProtocolParamset> = {
+    pub static ref ENV_PARAMSET: ProtocolParamset = {
         match ProtocolParamset::from_env() {
-            Ok(params) => Arc::new(params),
+            Ok(params) => params,
             Err(e) => {
-                eprintln!(
-                    "Failed to load protocol params from env: {}. Using regtest defaults.",
-                    e
-                );
-                Arc::new(REGTEST_PARAMSET)
+                panic!("Failed to load protocol params from env: {:?}", e);
             }
         }
     };
