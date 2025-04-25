@@ -31,10 +31,7 @@ pub const WINTERNITZ_LOG_D: u32 = 4;
 /// See: [`MAINNET_PARAMSET`], [`REGTEST_PARAMSET`], [`TESTNET_PARAMSET`].
 pub enum ProtocolParamsetName {
     // Pre-defined paramsets
-    Mainnet,
     Regtest,
-    Testnet4,
-    Signet,
 
     // External sources
     /// Reads from environment variables and panics on missing/invalid environment variables
@@ -48,10 +45,9 @@ impl FromStr for ProtocolParamsetName {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "mainnet" => Ok(ProtocolParamsetName::Mainnet),
             "regtest" => Ok(ProtocolParamsetName::Regtest),
-            "testnet4" => Ok(ProtocolParamsetName::Testnet4),
-            "signet" => Ok(ProtocolParamsetName::Signet),
+            "env" => Ok(ProtocolParamsetName::Env),
+            "file" => Ok(ProtocolParamsetName::File),
             _ => Err(BridgeError::ConfigError(format!(
                 "Unknown paramset name: {}",
                 s
@@ -63,10 +59,7 @@ impl FromStr for ProtocolParamsetName {
 impl Display for ProtocolParamsetName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProtocolParamsetName::Mainnet => write!(f, "mainnet"),
             ProtocolParamsetName::Regtest => write!(f, "regtest"),
-            ProtocolParamsetName::Testnet4 => write!(f, "testnet4"),
-            ProtocolParamsetName::Signet => write!(f, "signet"),
             ProtocolParamsetName::Env => write!(f, "env"),
             ProtocolParamsetName::File => write!(f, "file"),
         }
@@ -76,10 +69,7 @@ impl Display for ProtocolParamsetName {
 impl From<ProtocolParamsetName> for &'static ProtocolParamset {
     fn from(name: ProtocolParamsetName) -> Self {
         match name {
-            ProtocolParamsetName::Mainnet => &MAINNET_PARAMSET,
             ProtocolParamsetName::Regtest => &REGTEST_PARAMSET,
-            ProtocolParamsetName::Testnet4 => &TESTNET4_PARAMSET,
-            ProtocolParamsetName::Signet => &SIGNET_PARAMSET,
             ProtocolParamsetName::Env => &ENV_PARAMSET,
             ProtocolParamsetName::File => &FILE_PARAMSET,
         }
@@ -145,31 +135,6 @@ pub struct ProtocolParamset {
     pub start_height: u32,
 }
 
-pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
-    network: Network::Bitcoin,
-    num_round_txs: 200,
-    num_kickoffs_per_round: 200,
-    num_signed_kickoffs: 5,
-    bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(55_000),
-    operator_challenge_amount: Amount::from_sat(200_000_000),
-    collateral_funding_amount: Amount::from_sat(200_000_000),
-    kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_bytes: 144,
-    winternitz_log_d: WINTERNITZ_LOG_D,
-    user_takes_after: 200,
-    operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
-    operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
-    disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
-    assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
-    operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
-    watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
-    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
-    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
-    finality_depth: 6,
-    start_height: 1,
-};
-
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Regtest,
     num_round_txs: 2,
@@ -192,56 +157,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
     finality_depth: 0,
-    start_height: 201,
-};
-
-pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
-    network: Network::Testnet4,
-    num_round_txs: 200,
-    num_kickoffs_per_round: 200,
-    num_signed_kickoffs: 5,
-    bridge_amount: Amount::from_sat(10_000_000),
-    kickoff_amount: Amount::from_sat(55_000),
-    operator_challenge_amount: Amount::from_sat(200_000_000),
-    collateral_funding_amount: Amount::from_sat(200_000_000),
-    kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_bytes: 144,
-    winternitz_log_d: WINTERNITZ_LOG_D,
-    user_takes_after: 200,
-    operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
-    operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
-    disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
-    assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
-    operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
-    watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
-    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
-    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
-    finality_depth: 60,
-    start_height: 1,
-};
-
-pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
-    network: Network::Signet,
-    num_round_txs: 2,
-    num_kickoffs_per_round: 10,
-    num_signed_kickoffs: 2,
-    bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(55_000),
-    operator_challenge_amount: Amount::from_sat(200_000_000),
-    collateral_funding_amount: Amount::from_sat(200_000_000),
-    kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_bytes: 144,
-    winternitz_log_d: WINTERNITZ_LOG_D,
-    user_takes_after: 200,
-    operator_challenge_timeout_timelock: BLOCKS_PER_DAY,
-    operator_challenge_nack_timelock: BLOCKS_PER_DAY * 3,
-    disprove_timeout_timelock: BLOCKS_PER_DAY * 5,
-    assert_timeout_timelock: BLOCKS_PER_DAY * 4,
-    operator_reimburse_timelock: BLOCKS_PER_HOUR * 2,
-    watchtower_challenge_timeout_timelock: BLOCKS_PER_DAY * 2,
-    time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
-    time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
-    finality_depth: 1,
     start_height: 201,
 };
 
