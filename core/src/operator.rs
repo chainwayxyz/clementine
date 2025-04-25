@@ -981,7 +981,7 @@ where
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        _watchtower_challenges: HashMap<usize, Transaction>,
+        watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
         _latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
@@ -1060,7 +1060,7 @@ where
         let spv = create_spv(
             &mut bitcoin::consensus::serialize(payout_tx).as_slice(),
             &headers_serialized,
-            payout_block,
+            payout_block.clone(),
             payout_block_height,
             payout_tx_index as u32,
         );
@@ -1091,6 +1091,41 @@ where
             .wrap_err(eyre::eyre!(
                 "Failed to deserialize block header circuit output in send_asserts"
             ))?;
+
+        tracing::warn!("Printing proof params -----------------");
+        tracing::warn!(
+            "Payout block: {:?}",
+            bitcoin::consensus::serialize(&payout_block)
+        );
+        tracing::warn!(
+            "Block headers: {:?}",
+            headers
+                .iter()
+                .map(bitcoin::consensus::serialize)
+                .collect::<Vec<_>>()
+        );
+        tracing::warn!("Light client proof: {:?}", light_client_proof);
+        tracing::warn!(
+            "LCP receipt: {:?}",
+            borsh::to_vec(&lcp_receipt).wrap_err("Failed to serialize lcp receipt")?
+        );
+        tracing::warn!("Storage proof: {:?}", storage_proof);
+        tracing::warn!(
+            "Header chain proof receipt {:?}",
+            borsh::to_vec(&current_hcp).wrap_err("Failed to serialize hcp receipt")?
+        );
+        tracing::warn!(
+            "Watchtower challenges (index, transaction): {:?}",
+            watchtower_challenges
+                .iter()
+                .map(|(k, v)| (k, bitcoin::consensus::serialize(v)))
+                .collect::<Vec<_>>()
+        );
+
+        tracing::warn!(
+            "Committed latest blockhash witness: {:?}",
+            _latest_blockhash
+        );
 
         return Ok(());
 
