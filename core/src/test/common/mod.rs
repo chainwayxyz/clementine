@@ -30,7 +30,7 @@ use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness, XOnlyPub
 use bitcoincore_rpc::RpcApi;
 use citrea::get_transaction_params;
 use eyre::Context;
-use secp256k1::rand;
+use secp256k1::rand::{self, Rng};
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
@@ -599,6 +599,98 @@ pub async fn run_replacement_deposit(
         move_txid,
         deposit_blockhash,
     ))
+}
+
+/// Makes a reorg with random number of blocks. It could also be 0 blocks.
+///
+/// # Returns
+///
+/// - [`u32`]: The number of blocks to reorg.
+pub async fn random_reorg(
+    rpc: &ExtendedRpc,
+    finality_depth: Option<u64>,
+) -> Result<u64, BridgeError> {
+    let finality_depth = finality_depth.unwrap_or(6);
+
+    let tip_height = rpc
+        .client
+        .get_block_count()
+        .await
+        .wrap_err("Can't get block tip height")?;
+    let reorg_height = rand::thread_rng().gen_range(0..=finality_depth);
+    tracing::debug!(
+        "Reorging {} blocks at tip height {}",
+        reorg_height,
+        tip_height
+    );
+
+    for i in 0..reorg_height {
+        let block_hash = rpc
+            .client
+            .get_block_hash(tip_height - i)
+            .await
+            .wrap_err("Can't get block hash")?;
+        rpc.client
+            .invalidate_block(&block_hash)
+            .await
+            .wrap_err("Can't invalidate block")?;
+    }
+
+    Ok(reorg_height)
+}
+
+#[tokio::test]
+async fn test_random_reorg() {
+    let mut config = create_test_config_with_thread_name().await;
+    let regtest = create_regtest_rpc(&mut config).await;
+    let rpc = regtest.rpc().clone();
+
+    // Setup initial chain.
+    rpc.mine_blocks(10).await.unwrap();
+    let tip_height = rpc.client.get_block_count().await.unwrap();
+    let tip_hash = rpc.client.get_block_hash(tip_height).await.unwrap();
+
+    // Try to reorg more than 0 blocks.
+    poll_until_condition(
+        || async {
+            let reorg_height = random_reorg(&rpc, None).await.unwrap();
+
+            // No matter what how much blocks we reorg, the difference between
+            // the tip height and the reorg height should be equal to the block
+            // count.
+            assert_eq!(
+                tip_height - reorg_height,
+                rpc.client.get_block_count().await.unwrap()
+            );
+
+            // If 0 block is randomly choosen, try one more time (just to make
+            // this test more complex).
+            if reorg_height == 0 {
+                return Ok(false);
+            }
+
+            // Reorging more than 0 blocks should change the tip.
+            let reorged_tip_height = rpc.client.get_block_count().await.unwrap();
+            assert_ne!(tip_height, reorged_tip_height);
+            assert_ne!(
+                tip_hash,
+                rpc.client.get_block_hash(reorged_tip_height).await.unwrap()
+            );
+
+            // Mine those blocks and see that tip is different.
+            rpc.mine_blocks(reorg_height).await.unwrap();
+            let current_tip_height = rpc.client.get_block_count().await.unwrap();
+            let current_tip_hash = rpc.client.get_block_hash(current_tip_height).await.unwrap();
+            assert_eq!(tip_height, current_tip_height);
+            assert_ne!(tip_hash, current_tip_hash);
+
+            Ok(true)
+        },
+        None,
+        Some(Duration::from_millis(100)), // Just wait a little bit for better randomness.
+    )
+    .await
+    .unwrap();
 }
 
 #[ignore = "Tested everywhere, no need to run again"]
