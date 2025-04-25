@@ -138,15 +138,12 @@ pub fn get_transaction_params(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::extended_rpc::ExtendedRpc;
+    use bitcoincore_rpc::RpcApi;
     use std::str::FromStr;
 
-    use bitcoincore_rpc::RpcApi;
-
-    use crate::extended_rpc::ExtendedRpc;
-
-    use super::*;
-
-    #[ignore]
+    #[ignore = "Manual testing utility"]
     #[tokio::test]
     async fn test_get_transaction_params() {
         let rpc = ExtendedRpc::connect(
