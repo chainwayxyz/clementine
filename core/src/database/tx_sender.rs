@@ -136,6 +136,7 @@ impl Database {
         .await?;
 
         let bg_db = self.clone();
+        // Update debug information in the background to not block core behavior
         tokio::spawn(async move {
             // Get confirmed direct transactions for debugging
             let Ok(confirmed_direct_txs): Result<Vec<(i32, TxidDB)>, _> = sqlx::query_as(&format!(
