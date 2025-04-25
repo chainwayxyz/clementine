@@ -9,9 +9,3 @@ risc0-binfmt = {version = "2.0.0"}
 
 [package.metadata.risc0]
 methods = ["guest"]
-
-[profile.release]
-debug = 0
-lto = true
-opt-level = 3
-codegen-units = 1

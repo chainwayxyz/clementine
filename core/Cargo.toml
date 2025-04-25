@@ -56,7 +56,7 @@ bridge-circuit-host = { path = "../bridge-circuit-host" }
 circuits-lib = { path = "../circuits-lib" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
-
+bonsai-sdk = { workspace = true}
 [dev-dependencies]
 serial_test = { workspace = true }
 bitcoin-script = { workspace = true }

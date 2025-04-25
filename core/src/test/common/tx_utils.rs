@@ -194,9 +194,9 @@ pub async fn send_tx_with_type(
         .unwrap();
 
     if tx_type == TxType::Kickoff {
-        tracing::info!("Raw kickoff tx: {:?}", round_tx.raw_tx.as_slice());
+        tracing::warn!("Raw kickoff tx: {:?}", round_tx.raw_tx.as_slice());
     }
-    
+
     send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type)
         .await
         .context(format!("failed to send {:?} transaction", tx_type))?;

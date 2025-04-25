@@ -20,13 +20,16 @@ use bitvm_prover::{
     MAINNET_HEADER_CHAIN_GUEST_ELF, REGTEST_HEADER_CHAIN_GUEST_ELF, SIGNET_HEADER_CHAIN_GUEST_ELF,
     TESTNET4_HEADER_CHAIN_GUEST_ELF,
 };
+use bonsai_sdk::non_blocking::Client;
 use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use eyre::Context;
 use header_chain::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use lazy_static::lazy_static;
+use risc0_zkvm::serde::to_vec;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
+use std::time::Duration;
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -46,6 +49,8 @@ const SIGNET_WORK_ONLY_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/signet-work-only-guest.bin");
 const REGTEST_WORK_ONLY_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-work-only-guest.bin");
+
+static mut former_uuid: String = String::new();
 
 lazy_static! {
     static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
@@ -207,7 +212,7 @@ impl HeaderChainProver {
         );
 
         let headers: Vec<CircuitBlockHeader> = block_headers.into_iter().map(Into::into).collect();
-        let receipt = self.prove_block_headers(previous_proof, headers)?;
+        let receipt = self.prove_block_headers(previous_proof, headers).await?;
 
         self.db
             .set_block_proof(None, current_block_hash, receipt.clone())
@@ -226,7 +231,7 @@ impl HeaderChainProver {
     /// # Returns
     ///
     /// - [`Receipt`]: Proved block headers' proof receipt.
-    fn prove_block_headers(
+    async fn prove_block_headers(
         &self,
         prev_receipt: Option<Receipt>,
         block_headers: Vec<CircuitBlockHeader>,
@@ -261,21 +266,6 @@ impl HeaderChainProver {
             block_headers,
         };
 
-        let mut env = ExecutorEnv::builder();
-
-        env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
-
-        if let Some(prev_receipt) = prev_receipt {
-            env.add_assumption(prev_receipt);
-        }
-
-        let env = env
-            .build()
-            .map_err(|e| eyre::eyre!(e))
-            .wrap_err("Failed to build environment")?;
-
-        let prover = risc0_zkvm::default_prover();
-
         let elf = match self.network {
             Network::Bitcoin => MAINNET_ELF,
             Network::Testnet => TESTNET4_ELF,
@@ -285,18 +275,83 @@ impl HeaderChainProver {
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
-        let receipt = prover.prove(env, elf).map_err(|e| eyre::eyre!(e))?.receipt;
-        tracing::warn!("Proof receipt generated {:?}", receipt);
-        tracing::debug!(
-            "Proof receipt for header chain circuit input {:?}: {:?}",
-            input,
-            receipt,
-        );
+        // BonsaiSDK client
+        let client = Client::from_env(risc0_zkvm::VERSION).expect("Failed to create Bonsai client");
 
-        Ok(receipt)
+        let image_id = hex::encode(compute_image_id(elf).expect("Failed to compute image id"));
+
+        client
+            .upload_img(&image_id, elf.to_vec())
+            .await
+            .expect("Failed to upload image");
+
+        let input_data = borsh::to_vec(&input).expect("Failed to serialize input");
+        let input_id = client
+            .upload_input(input_data)
+            .await
+            .expect("Failed to upload input");
+
+        let mut assumptions: Vec<String> = vec![];
+
+        if let Some(prev_receipt) = prev_receipt {
+            unsafe {
+                assumptions.push(former_uuid.clone());
+            }
+            println!("Assumption: {:?}", assumptions);
+        }
+
+        tracing::warn!("Adding assumptions");
+
+        let execute_only = false;
+        let session = client
+            .create_session(image_id, input_id, assumptions, execute_only)
+            .await
+            .expect("Failed to create session");
+
+        unsafe {
+            former_uuid = session.uuid.clone();
+        }
+
+        tracing::warn!("Session created: {:?}", session);
+
+        loop {
+            let res = session
+                .status(&client)
+                .await
+                .expect("Failed to get session status");
+            if res.status == "RUNNING" {
+                eprintln!(
+                    "Current status: {} - state: {} - continue polling...",
+                    res.status,
+                    res.state.unwrap_or_default()
+                );
+                std::thread::sleep(Duration::from_secs(15));
+                continue;
+            }
+            if res.status == "SUCCEEDED" {
+                // Download the receipt, containing the output
+                let receipt_url = res
+                    .receipt_url
+                    .expect("API error, missing receipt on completed session");
+
+                let receipt_buf = client
+                    .download(&receipt_url)
+                    .await
+                    .expect("Failed to download receipt");
+                let receipt: Receipt =
+                    bincode::deserialize(&receipt_buf).expect("Failed to deserialize receipt");
+                return Ok(receipt);
+            } else {
+                panic!(
+                    "Workflow exited: {} - | err: {}",
+                    res.status,
+                    res.error_msg.unwrap_or_default()
+                );
+            }
+        }
     }
 
-    pub fn prove_work_only(
+    pub async fn prove_work_only(
         &self,
         hcp_receipt: Receipt,
     ) -> Result<(Receipt, WorkOnlyCircuitOutput), HeaderChainProverError> {
@@ -306,18 +361,7 @@ impl HeaderChainProver {
         let input = WorkOnlyCircuitInput {
             header_chain_circuit_output: block_header_circuit_output,
         };
-        let mut env = ExecutorEnv::builder();
-
-        env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
-
-        env.add_assumption(hcp_receipt);
-
-        let env = env
-            .build()
-            .map_err(|e| eyre::eyre!(e))
-            .wrap_err("Failed to build environment")?;
-
-        let prover = risc0_zkvm::default_prover();
+        let client = Client::from_env(risc0_zkvm::VERSION).expect("Failed to create Bonsai client");
 
         let elf = match self.network {
             Network::Bitcoin => MAINNET_WORK_ONLY_ELF,
@@ -328,11 +372,94 @@ impl HeaderChainProver {
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
-        tracing::warn!("before proving work only");
-        let receipt = prover
-            .prove_with_opts(env, elf, &ProverOpts::groth16())
-            .map_err(|e| eyre::eyre!(e))?
-            .receipt;
+        let image_id = hex::encode(compute_image_id(elf).expect("Failed to compute image id"));
+
+        client
+            .upload_img(&image_id, elf.to_vec())
+            .await
+            .expect("Failed to upload image");
+
+        let input_data = borsh::to_vec(&input).expect("Failed to serialize input");
+        let input_id = client
+            .upload_input(input_data)
+            .await
+            .expect("Failed to upload input");
+
+        let mut assumptions: Vec<String> = vec![];
+
+        unsafe {
+            assumptions.push(former_uuid.clone());
+        }
+        println!("Assumption: {:?}", assumptions);
+
+        let execute_only = false;
+        let session = client
+            .create_session(image_id, input_id, assumptions, execute_only)
+            .await
+            .expect("Failed to create session");
+
+        loop {
+            let res = session
+                .status(&client)
+                .await
+                .expect("Failed to get session status");
+            if res.status == "RUNNING" {
+                eprintln!(
+                    "Current status: {} - state: {} - continue polling...",
+                    res.status,
+                    res.state.unwrap_or_default()
+                );
+                std::thread::sleep(Duration::from_secs(15));
+                continue;
+            }
+            if res.status == "SUCCEEDED" {
+                break;
+            } else {
+                panic!(
+                    "Workflow exited: {} - | err: {}",
+                    res.status,
+                    res.error_msg.unwrap_or_default()
+                );
+            }
+        }
+
+        let snark_session = client
+            .create_snark(session.uuid)
+            .await
+            .expect("Failed to create snark session");
+
+        let receipt: Receipt;
+        
+        loop {
+            let res = snark_session
+                .status(&client)
+                .await
+                .expect("Failed to get session status");
+            match res.status.as_str() {
+                "RUNNING" => {
+                    eprintln!("Current status: {} - continue polling...", res.status,);
+                    std::thread::sleep(Duration::from_secs(15));
+                    continue;
+                }
+                "SUCCEEDED" => {
+                    let receipt_buf = client
+                        .download(&res.output.unwrap())
+                        .await
+                        .expect("Failed to download receipt");
+                    receipt =
+                        bincode::deserialize(&receipt_buf).expect("Failed to deserialize receipt");
+                    break;
+                }
+                _ => {
+                    panic!(
+                        "Workflow exited: {} err: {}",
+                        res.status,
+                        res.error_msg.unwrap_or_default()
+                    );
+                }
+            }
+        }
+
         tracing::warn!("after proving work only");
         tracing::warn!("Work only proof receipt generated {:?}", receipt);
         let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
@@ -647,7 +774,7 @@ mod tests {
             .await
             .unwrap();
 
-        let receipt = prover.prove_block_headers(None, vec![]).unwrap();
+        let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
 
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
         println!("Proof journal output: {:?}", output);
@@ -670,7 +797,7 @@ mod tests {
             .unwrap();
 
         // Prove genesis block and get it's receipt.
-        let receipt = prover.prove_block_headers(None, vec![]).unwrap();
+        let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
 
         let block_headers = mine_and_get_first_n_block_headers(rpc, prover.db.clone(), 3)
             .await
@@ -679,6 +806,7 @@ mod tests {
             .collect::<Vec<_>>();
         let receipt = prover
             .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
+            .await
             .unwrap();
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
 

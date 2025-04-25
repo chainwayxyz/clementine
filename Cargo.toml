@@ -30,6 +30,8 @@ pgmq = "0.30.0"
 serde_with = "3.12.0"
 rand_chacha = "0.3.1"
 
+bonsai-sdk = { version =  "1.4.0" , features = ["non_blocking"] }
+
 # Citrea dependencies
 citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d1ba171" }
 sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "ccdbd5a96" }
@@ -105,6 +107,8 @@ bincode = "1.3.3"
 hex-literal = "0.4.1"
 
 base64 = "0.22.1"
+
+
 
 [patch.crates-io]
 bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "44f9bba" }
