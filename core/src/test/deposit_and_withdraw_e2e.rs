@@ -534,11 +534,7 @@ async fn mock_citrea_run_truthful() {
         .insert_withdrawal_utxo(current_block_height + 1, withdrawal_utxo)
         .await;
     // Mine some blocks so that block syncer counts it as finalzied
-    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
-
-    // rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
-    //     .await
-    //     .unwrap();
+    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
     tracing::info!("Withdrawal tx sent");
 
@@ -583,7 +579,7 @@ async fn mock_citrea_run_truthful() {
         .await
         .unwrap();
 
-    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH + 2).await.unwrap();
+    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
     // Setup tx_sender for sending transactions
     let verifier_0_config = {
@@ -747,11 +743,7 @@ async fn mock_citrea_run_malicious() {
     citrea_client
         .insert_deposit_move_txid(current_block_height + 1, tx.compute_txid())
         .await;
-    rpc.mine_blocks(5).await.unwrap();
-
-    // rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
-    //     .await
-    //     .unwrap();
+    rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
     // Make a withdrawal
     let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
@@ -937,7 +929,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         .insert_deposit_move_txid(current_block_height + 1, tx.compute_txid())
         .await;
 
-    rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
+    rpc.mine_blocks(config.protocol_paramset().finality_depth as u64)
         .await
         .unwrap();
 
@@ -972,7 +964,7 @@ async fn mock_citrea_run_malicious_after_exit() {
         .await;
 
     // Mine some blocks so that block syncer counts it as finalzied
-    rpc.mine_blocks(config.protocol_paramset().finality_depth as u64 + 2)
+    rpc.mine_blocks(config.protocol_paramset().finality_depth as u64)
         .await
         .unwrap();
 

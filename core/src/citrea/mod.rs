@@ -29,8 +29,8 @@ use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
-use risc0_zkvm::{InnerReceipt, Receipt};
 use lazy_static::lazy_static;
+use risc0_zkvm::{InnerReceipt, Receipt};
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
@@ -231,8 +231,9 @@ impl CitreaClientT for CitreaClient {
         l2_height: u64,
         deposit_index: u32,
     ) -> Result<StorageProof, BridgeError> {
+        let hex_l2_str = format!("0x{:x}", l2_height);
         let alloy_client = ClientBuilder::default().http(self.rpc_url.clone());
-        fetch_storage_proof(&l2_height.to_string(), deposit_index, alloy_client)
+        fetch_storage_proof(&hex_l2_str, deposit_index, alloy_client)
             .await
             .map_err(BridgeError::from)
     }
@@ -385,15 +386,17 @@ impl CitreaClientT for CitreaClient {
                 bincode::deserialize(&proof_result.proof).expect("Failed to deserialize");
             let receipt = receipt_from_inner(decoded).expect("Failed to create receipt");
 
-            let l2_height = proof_result.light_client_proof_output.last_l2_height;
+            let l2_height = u64::try_from(proof_result.light_client_proof_output.last_l2_height)
+                .wrap_err("Failed to convert l2 height to u64")?;
+            let hex_l2_str = format!("0x{:x}", l2_height);
 
             Some((
                 LightClientProof {
                     lc_journal: receipt.journal.bytes.clone(),
-                    l2_height: l2_height.to_string(),
+                    l2_height: hex_l2_str,
                 },
                 receipt,
-                u64::try_from(l2_height).wrap_err("Failed to convert l2 height to u64")?,
+                l2_height,
             ))
         } else {
             None
