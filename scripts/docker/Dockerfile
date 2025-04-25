@@ -1,7 +1,7 @@
 # Set up OS
 FROM ubuntu:22.04
 RUN apt update && \
-    apt -y install curl gcc cpp cmake clang llvm && \
+    apt -y install curl gcc cpp cmake clang llvm pkg-config libssl-dev && \
     apt -y autoremove && \
     apt clean && \
     rm -rf /var/lib/apt/lists/*
