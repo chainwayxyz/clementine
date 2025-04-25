@@ -7,13 +7,13 @@ RUN apt update && \
     rm -rf /var/lib/apt/lists/*
 
 # Set up Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.79.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain=1.85.0
 
 # Compile Clementine
 COPY . .
 WORKDIR /clementine
-RUN /root/.cargo/bin/cargo +1.79.0 build --release --bin server
+RUN /root/.cargo/bin/cargo +1.85.0 build --release --bin clementine-core
 
 # Set up Clementine
-ENTRYPOINT [ "/target/release/server" ]
+ENTRYPOINT [ "/target/release/clementine-core" ]
 EXPOSE 17000
