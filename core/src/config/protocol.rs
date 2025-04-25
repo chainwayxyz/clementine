@@ -1,4 +1,5 @@
 use crate::errors::BridgeError;
+use crate::utils::delayed_panic;
 use bitcoin::{Amount, Network};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -168,7 +169,7 @@ lazy_static! {
         match ProtocolParamset::from_toml_file(&config_path) {
             Ok(params) => params,
             Err(e) => {
-                panic!(
+                delayed_panic!(
                     "Failed to load protocol params from file (using path: {}): {:?}",
                     config_path, e
                 );
@@ -179,7 +180,7 @@ lazy_static! {
         match ProtocolParamset::from_env() {
             Ok(params) => params,
             Err(e) => {
-                panic!("Failed to load protocol params from env: {:?}", e);
+                delayed_panic!("Failed to load protocol params from env: {:?}", e);
             }
         }
     };

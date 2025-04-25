@@ -7,6 +7,7 @@ use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::errors::ErrorExt;
 use crate::utils;
+use crate::utils::delayed_panic;
 use clap::Parser;
 use clap::ValueEnum;
 use std::env;
@@ -103,13 +104,46 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
         }
     };
 
-    match std::env::var("READ_FROM_ENV") {
-        Ok(str) => {
-            // Read from environment variables ONLY
-            if str != "1" {
-                tracing::warn!("Unknown value for READ_FROM_ENV: {str}. Expected 1. Using environment variables.");
-            }
+    enum ConfigMode {
+        File,
+        Env,
+    }
 
+    let mode = match std::env::var("READ_FROM_ENV") {
+        Err(_) => ConfigMode::File,
+        Ok(str) if str == "0" || str == "off" => ConfigMode::File,
+        Ok(str) if str == "1" || str == "on" => ConfigMode::Env,
+        Ok(str) => {
+            if str != "1" {
+                tracing::warn!("Unknown value for READ_FROM_ENV: {str}. Expected 1/0/off/on. Using environment variables.");
+            }
+            ConfigMode::Env
+        }
+    };
+
+    match mode {
+        ConfigMode::File => {
+            // Read from configuration file ONLY
+            let config_file = if let Some(config_file) = args.config_file.clone() {
+                config_file
+            } else {
+                tracing::error!(
+                    "Failed to read configuration file: No configuration file provided."
+                );
+                delayed_panic!("Failed to read configuration file: No configuration file provided.");
+            };
+
+            let config = match read_config_from(config_file) {
+                Ok(config) => config,
+                Err(e) => {
+                    tracing::error!("Can't read configuration from file: {e}");
+                    delayed_panic!("Can't read configuration from file: {e}");
+                }
+            };
+
+            (config, args)
+        }
+        ConfigMode::Env => {
             if args.config_file.is_some() {
                 tracing::warn!("Configuration file provided in CLI arguments while READ_FROM_ENV is set to 1. Ignoring configuration file and reading from environment variables.");
             }
@@ -124,42 +158,21 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
                             tracing::error!(
                                 "Missing environment variable {field} in environment config mode. ({e:?})."
                             );
-                            panic!("Missing environment variable {field} in environment config mode. ({e:?}).");
+                            delayed_panic!("Missing environment variable {field} in environment config mode. ({e:?}).");
                         }
                         Some(BridgeError::EnvVarMalformed(e, field)) => {
                             tracing::error!("Malformed environment variable {field} in environment config mode. ({e:?}).");
-                            panic!("Malformed environment variable {field} in environment config mode. ({e:?}).");
+                            delayed_panic!("Malformed environment variable {field} in environment config mode. ({e:?}).");
                         }
                         _ => {
                             tracing::error!(
                             "Error occurred while reading environment variables for config: {e:?}"
                             );
-                            panic!("Error occurred while reading environment variables for config: {e:?}. ({e:?}).");
+                            delayed_panic!("Error occurred while reading environment variables for config: {e:?}. ({e:?}).");
                         }
                     }
                 }
             }
-        }
-        Err(_) => {
-            // Read from configuration file ONLY
-            let config_file = if let Some(config_file) = args.config_file.clone() {
-                config_file
-            } else {
-                tracing::error!(
-                    "Failed to read configuration file: No configuration file provided."
-                );
-                panic!("Failed to read configuration file: No configuration file provided.");
-            };
-
-            let config = match read_config_from(config_file) {
-                Ok(config) => config,
-                Err(e) => {
-                    tracing::error!("Can't read configuration from file: {e}");
-                    panic!("Can't read configuration from file: {e}");
-                }
-            };
-
-            (config, args)
         }
     }
 }
