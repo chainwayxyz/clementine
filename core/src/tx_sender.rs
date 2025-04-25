@@ -150,11 +150,12 @@ impl Task for TxSenderTask {
             return Ok(true);
         }
 
-        tracing::info!("TXSENDER: Getting fee rate");
-        let fee_rate = self.inner.get_fee_rate().await;
-        tracing::info!("TXSENDER: Fee rate: {:?}", fee_rate);
-        let fee_rate = fee_rate.expect("Failed to get fee rate");
-        tracing::info!("TXSENDER: Trying to send unconfirmed txs");
+        // tracing::info!("TXSENDER: Getting fee rate");
+        // let fee_rate = self.inner.get_fee_rate().await;
+        // tracing::info!("TXSENDER: Fee rate: {:?}", fee_rate);
+        // let fee_rate = fee_rate.expect("Failed to get fee rate");
+        let fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+        // tracing::info!("TXSENDER: Trying to send unconfirmed txs");
 
         self.inner
             .try_to_send_unconfirmed_txs(fee_rate, self.current_tip_height)
@@ -255,7 +256,7 @@ impl TxSender {
     /// **only for regtest**.
     ///
     /// TODO: Use more sophisticated fee estimation, like the one in mempool.space
-    async fn get_fee_rate(&self) -> Result<FeeRate> {
+    async fn _get_fee_rate(&self) -> Result<FeeRate> {
         tracing::info!("Getting fee rate");
         let fee_rate = self
             .rpc
@@ -375,22 +376,24 @@ impl TxSender {
 
         let mut tx_handler = builder.finalize();
 
-        let sighash = tx_handler
-            .calculate_pubkey_spend_sighash(1, bitcoin::TapSighashType::Default)
-            .map_err(|e| eyre!(e))?;
-        let signature = self
-            .signer
-            .sign_with_tweak_data(sighash, builder::sighash::TapTweakData::KeyPath(None), None)
-            .map_err(|e| eyre!(e))?;
-        tx_handler
-            .set_p2tr_key_spend_witness(
-                &bitcoin::taproot::Signature {
-                    signature,
-                    sighash_type: bitcoin::TapSighashType::Default,
-                },
-                1,
-            )
-            .map_err(|e| eyre!(e))?;
+        for fee_payer_input in 1..tx_handler.get_cached_tx().input.len() {
+            let sighash = tx_handler
+                .calculate_pubkey_spend_sighash(fee_payer_input, bitcoin::TapSighashType::Default)
+                .map_err(|e| eyre!(e))?;
+            let signature = self
+                .signer
+                .sign_with_tweak_data(sighash, builder::sighash::TapTweakData::KeyPath(None), None)
+                .map_err(|e| eyre!(e))?;
+            tx_handler
+                .set_p2tr_key_spend_witness(
+                    &bitcoin::taproot::Signature {
+                        signature,
+                        sighash_type: bitcoin::TapSighashType::Default,
+                    },
+                    fee_payer_input,
+                )
+                .map_err(|e| eyre!(e))?;
+        }
         let child_tx = tx_handler.get_cached_tx().clone();
         Ok(child_tx)
     }
@@ -1385,7 +1388,7 @@ mod tests {
         assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
 
         // Calculate and send with fee.
-        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        let fee_rate = tx_sender._get_fee_rate().await.unwrap();
         let fee = TxSender::calculate_required_fee(
             will_fail_tx.weight(),
             1,
