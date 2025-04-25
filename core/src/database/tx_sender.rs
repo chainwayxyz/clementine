@@ -109,19 +109,6 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
-        // Get confirmed direct transactions for debugging
-        let confirmed_direct_txs: Vec<(i32, TxidDB)> = sqlx::query_as(&format!(
-            "{}
-            SELECT txs.id, txs.txid
-            FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.txid IN (SELECT txid FROM relevant_txs)
-            AND txs.seen_block_id IS NULL",
-            common_ctes
-        ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
-        .fetch_all(tx.deref_mut())
-        .await?;
-
         // Update tx_sender_try_to_send_txs for CPFP txid confirmation
         sqlx::query(&format!(
             "{}
@@ -133,19 +120,6 @@ impl Database {
         ))
         .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
         .execute(tx.deref_mut())
-        .await?;
-
-        // Get confirmed RBF transactions for debugging
-        let confirmed_rbf_txs: Vec<(i32,)> = sqlx::query_as(&format!(
-            "{}
-            SELECT txs.id
-            FROM tx_sender_try_to_send_txs AS txs
-            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
-            AND txs.seen_block_id IS NULL",
-            common_ctes
-        ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
-        .fetch_all(tx.deref_mut())
         .await?;
 
         // Update tx_sender_try_to_send_txs for RBF txid confirmation
@@ -161,38 +135,66 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
-        // Record debug info for confirmed transactions
-        for (tx_id, txid) in confirmed_direct_txs {
-            // Add debug state change
-            tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: direct confirmation of txid {}",
+        let bg_db = self.clone();
+        tokio::spawn(async move {
+            // Get confirmed direct transactions for debugging
+            let Ok(confirmed_direct_txs): Result<Vec<(i32, TxidDB)>, _> = sqlx::query_as(&format!(
+                "{}
+            SELECT txs.id, txs.txid
+            FROM tx_sender_try_to_send_txs AS txs
+            WHERE txs.txid IN (SELECT txid FROM relevant_txs)
+            AND txs.seen_block_id IS NULL",
+                common_ctes
+            ))
+            .bind(block_id as i32)
+            .fetch_all(&bg_db.connection)
+            .await
+            else {
+                tracing::error!("Failed to update debug info for confirmed txs");
+                return;
+            };
+
+            // Get confirmed RBF transactions for debugging
+            let Ok(confirmed_rbf_txs): Result<Vec<(i32,)>, _> = sqlx::query_as(&format!(
+                "{}
+            SELECT txs.id
+            FROM tx_sender_try_to_send_txs AS txs
+            WHERE txs.id IN (SELECT id FROM confirmed_rbf_ids)
+            AND txs.seen_block_id IS NULL",
+                common_ctes
+            ))
+            .bind(block_id as i32)
+            .fetch_all(&bg_db.connection)
+            .await
+            else {
+                tracing::error!("Failed to update debug info for confirmed txs");
+                return;
+            };
+
+            // Record debug info for confirmed transactions
+            for (tx_id, txid) in confirmed_direct_txs {
+                // Add debug state change
+                tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: direct confirmation of txid {}",
             block_id, txid.0);
 
-            // Update sending state
-            let _ = self
-                .update_tx_debug_sending_state(
-                    u32::try_from(tx_id).wrap_err("Failed to convert tx_id to u32")?,
-                    "confirmed",
-                    true,
-                )
-                .await;
-        }
+                // Update sending state
+                let _ = bg_db
+                    .update_tx_debug_sending_state(tx_id as u32, "confirmed", true)
+                    .await;
+            }
 
-        // Record debug info for confirmed RBF transactions
-        for (tx_id,) in confirmed_rbf_txs {
-            // Add debug state change
-
-            tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: RBF confirmation",
+            // Record debug info for confirmed RBF transactions
+            for (tx_id,) in confirmed_rbf_txs {
+                // Add debug state change
+                tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: RBF confirmation",
             block_id);
 
-            // Update sending state
-            let _ = self
-                .update_tx_debug_sending_state(
-                    u32::try_from(tx_id).wrap_err("Failed to convert tx_id to u32")?,
-                    "confirmed",
-                    true,
-                )
-                .await;
-        }
+                // Update sending state
+                let _ = bg_db
+                    .update_tx_debug_sending_state(tx_id as u32, "confirmed", true)
+                    .await;
+            }
+        });
 
         Ok(())
     }
@@ -202,6 +204,30 @@ impl Database {
         tx: DatabaseTransaction<'_, '_>,
         block_id: u32,
     ) -> Result<(), BridgeError> {
+        // Need to get these before they're unconfirmed below, so that we can update the debug info
+        // Ignore the error here to not affect production behavior.
+        let previously_confirmed_txs = sqlx::query_as::<_, (i32,)>(
+            "SELECT id FROM tx_sender_try_to_send_txs WHERE seen_block_id = $1",
+        )
+        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .fetch_all(tx.deref_mut())
+        .await;
+
+        let bg_db = self.clone();
+        tokio::spawn(async move {
+            let Ok(previously_confirmed_txs) = previously_confirmed_txs else {
+                tracing::error!("Failed to get previously confirmed txs");
+                return;
+            };
+
+            for (tx_id,) in previously_confirmed_txs {
+                tracing::warn!(try_to_send_id=?tx_id, "Transaction unconfirmed in block {}: unconfirming", block_id);
+                let _ = bg_db
+                    .update_tx_debug_sending_state(tx_id as u32, "unconfirmed", false)
+                    .await;
+            }
+        });
+
         // Unconfirm tx_sender_fee_payer_utxos
         sqlx::query(
             r#"
