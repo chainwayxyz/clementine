@@ -130,7 +130,9 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
                 tracing::error!(
                     "Failed to read configuration file: No configuration file provided."
                 );
-                delayed_panic!("Failed to read configuration file: No configuration file provided.");
+                delayed_panic!(
+                    "Failed to read configuration file: No configuration file provided."
+                );
             };
 
             let config = match read_config_from(config_file) {

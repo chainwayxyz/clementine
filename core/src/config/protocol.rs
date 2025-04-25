@@ -171,7 +171,8 @@ lazy_static! {
             Err(e) => {
                 delayed_panic!(
                     "Failed to load protocol params from file (using path: {}): {:?}",
-                    config_path, e
+                    config_path,
+                    e
                 );
             }
         }
