@@ -47,5 +47,7 @@ header-chain = { workspace = true }
 k256 = { workspace = true }
 lazy_static = { workspace = true }
 
+citrea-sov-rollup-interface = { workspace = true }
+
 [features]
 not_patched = []

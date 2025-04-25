@@ -34,6 +34,8 @@ rand_chacha = "0.3.1"
 citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d1ba171" }
 sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "ccdbd5a96" }
 
+citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
+
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde"] }
 bitcoincore-rpc = "0.18.0"
