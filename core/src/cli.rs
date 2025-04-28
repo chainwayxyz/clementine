@@ -3,6 +3,7 @@
 //! This module defines command line interface for binaries. `Clap` is used
 //! for easy generation of help messages and handling arguments.
 
+use crate::config::protocol::ProtocolParamsetName;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::errors::ErrorExt;
@@ -10,6 +11,7 @@ use crate::utils;
 use crate::utils::delayed_panic;
 use clap::Parser;
 use clap::ValueEnum;
+use eyre::Context;
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -33,13 +35,15 @@ pub struct Args {
     pub actor: Actors,
     /// TOML formatted configuration file.
     pub config_file: Option<PathBuf>,
+    /// TOML formatted protocol parameters file.
+    pub protocol_params_file: Option<PathBuf>,
     /// Verbosity level, ranging from 0 (none) to 5 (highest)
     #[arg(short, long, default_value_t = 3)]
     pub verbose: u8,
 }
 
 /// Parse all the command line arguments and generate a `BridgeConfig`.
-fn parse() -> Result<Args, BridgeError> {
+fn parse_args() -> Result<Args, BridgeError> {
     parse_from(env::args())
 }
 
@@ -64,6 +68,37 @@ fn read_config_from(config_file: PathBuf) -> Result<BridgeConfig, BridgeError> {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ConfigSource {
+    File(PathBuf),
+    Env,
+}
+
+pub fn get_config_source(
+    env_name: &'static str,
+    provided_arg: Option<PathBuf>,
+) -> Result<ConfigSource, BridgeError> {
+    Ok(match std::env::var(env_name) {
+        Err(_) => ConfigSource::File(provided_arg.ok_or(BridgeError::ConfigError(
+            "No file path or environment variable provided for config file.".to_string(),
+        ))?),
+        Ok(str) if str == "0" || str == "off" => ConfigSource::File(provided_arg.ok_or(
+            BridgeError::ConfigError("No file path provided for config file.".to_string()),
+        )?),
+        Ok(str) => {
+            if str != "1" || str != "on" {
+                tracing::warn!("Unknown value for {env_name}: {str}. Expected 1/0/off/on. Defaulting to environment variables.");
+            }
+
+            if provided_arg.is_some() {
+                tracing::warn!("File path provided in CLI arguments while {env_name} is set to 1. Ignoring provided file path and reading from environment variables.");
+            }
+
+            ConfigSource::Env
+        }
+    })
+}
+
 /// Gets configuration using CLI arguments, for binaries. If there are any errors, prints
 /// error and panics.
 ///
@@ -81,7 +116,7 @@ fn read_config_from(config_file: PathBuf) -> Result<BridgeConfig, BridgeError> {
 /// - [`BridgeConfig`] from CLI argument
 /// - [`Args`] from CLI options
 pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
-    let args = match parse() {
+    let args = match parse_args() {
         Ok(args) => args,
         Err(e) => {
             eprintln!("{e}");
@@ -104,52 +139,44 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
         }
     };
 
-    enum ConfigMode {
-        File,
-        Env,
-    }
+    let protocol_params_source =
+        get_config_source("READ_PARAMSET_FROM_ENV", args.protocol_params_file.clone())
+            .wrap_err("Failed to determine source for protocol parameters.");
 
-    let mode = match std::env::var("READ_FROM_ENV") {
-        Err(_) => ConfigMode::File,
-        Ok(str) if str == "0" || str == "off" => ConfigMode::File,
-        Ok(str) if str == "1" || str == "on" => ConfigMode::Env,
-        Ok(str) => {
-            if str != "1" {
-                tracing::warn!("Unknown value for READ_FROM_ENV: {str}. Expected 1/0/off/on. Using environment variables.");
-            }
-            ConfigMode::Env
+    let paramset = match protocol_params_source {
+        Err(e) => {
+            tracing::error!("Failed to determine source for protocol parameters: {e:?}");
+            delayed_panic!("Failed to determine source for protocol parameters: {e:?}");
         }
+        Ok(ConfigSource::File(path)) => {
+            // TODO: Temporary solution, make it better
+            std::env::set_var("PROTOCOL_CONFIG_PATH", path.to_str().unwrap_or_default());
+            ProtocolParamsetName::File
+        }
+        Ok(ConfigSource::Env) => ProtocolParamsetName::Env,
     };
 
-    match mode {
-        ConfigMode::File => {
-            // Read from configuration file ONLY
-            let config_file = if let Some(config_file) = args.config_file.clone() {
-                config_file
-            } else {
-                tracing::error!(
-                    "Failed to read configuration file: No configuration file provided."
-                );
-                delayed_panic!(
-                    "Failed to read configuration file: No configuration file provided."
-                );
-            };
+    let config_source = get_config_source("READ_CONFIG_FROM_ENV", args.config_file.clone())
+        .wrap_err("Failed to determine source for configuration.");
 
+    let (mut config, args) = match config_source {
+        Err(e) => {
+            tracing::error!("Failed to determine source for configuration: {e:?}");
+            delayed_panic!("Failed to determine source for configuration: {e:?}");
+        }
+        Ok(ConfigSource::File(config_file)) => {
+            // Read from configuration file ONLY
             let config = match read_config_from(config_file) {
                 Ok(config) => config,
                 Err(e) => {
-                    tracing::error!("Can't read configuration from file: {e}");
-                    delayed_panic!("Can't read configuration from file: {e}");
+                    tracing::error!("Can't read configuration from file: {e:?}");
+                    delayed_panic!("Can't read configuration from file: {e:?}");
                 }
             };
 
             (config, args)
         }
-        ConfigMode::Env => {
-            if args.config_file.is_some() {
-                tracing::warn!("Configuration file provided in CLI arguments while READ_FROM_ENV is set to 1. Ignoring configuration file and reading from environment variables.");
-            }
-
+        Ok(ConfigSource::Env) => {
             match BridgeConfig::from_env() {
                 Ok(config) => (config, args),
                 Err(e) => {
@@ -176,7 +203,11 @@ pub fn get_configuration_from_cli() -> (BridgeConfig, Args) {
                 }
             }
         }
-    }
+    };
+
+    config.protocol_paramset = paramset;
+
+    (config, args)
 }
 
 #[cfg(test)]

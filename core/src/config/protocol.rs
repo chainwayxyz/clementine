@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::fs;
+use std::path::Path;
 use std::str::FromStr;
 
 pub const BLOCKS_PER_HOUR: u16 = 6;
@@ -166,7 +167,7 @@ lazy_static! {
         let config_path = std::env::var("PROTOCOL_CONFIG_PATH")
             .unwrap_or_else(|_| "protocol_params.toml".to_string());
 
-        match ProtocolParamset::from_toml_file(&config_path) {
+        match ProtocolParamset::from_toml_file(Path::new(&config_path)) {
             Ok(params) => params,
             Err(e) => {
                 delayed_panic!(
@@ -188,7 +189,7 @@ lazy_static! {
 }
 
 impl ProtocolParamset {
-    fn from_toml_file(path: &str) -> Result<Self, BridgeError> {
+    fn from_toml_file(path: &Path) -> Result<Self, BridgeError> {
         let contents = fs::read_to_string(path)
             .map_err(|e| BridgeError::Error(format!("Failed to read config file: {}", e)))?;
 
