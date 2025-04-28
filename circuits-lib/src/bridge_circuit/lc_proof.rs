@@ -43,7 +43,13 @@ mod tests {
         let expected_last_block_hash =
             "cdac10c915210c36f5b182eed334c0834a616302f1a393a3bcbfc2303b030000";
 
-        assert_eq!(hex::encode(light_client_circuit_output.l2_state_root), expected_state_root);
-        assert_eq!(hex::encode(light_client_circuit_output.latest_da_state.block_hash), expected_last_block_hash);
+        assert_eq!(
+            hex::encode(light_client_circuit_output.l2_state_root),
+            expected_state_root
+        );
+        assert_eq!(
+            hex::encode(light_client_circuit_output.latest_da_state.block_hash),
+            expected_last_block_hash
+        );
     }
 }
