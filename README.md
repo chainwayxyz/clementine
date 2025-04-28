@@ -36,7 +36,7 @@ be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
 Additionally, Clementine requires protocol parameters, that are either specified
-by a file or from the environment. Uou can specify a separate protocol
+by a file or from the environment. You can specify a separate protocol
 parameters file using the `--protocol-params-file` option. This file contains
 protocol-specific settings that affect transactions in the contract.
 

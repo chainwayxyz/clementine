@@ -4,10 +4,8 @@
 //! for easy generation of help messages and handling arguments.
 
 use crate::config::protocol::ProtocolParamset;
-use crate::config::protocol::ProtocolParamsetName;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use crate::errors::ErrorExt;
 use crate::utils;
 use crate::utils::delayed_panic;
 use clap::Parser;
@@ -16,7 +14,6 @@ use eyre::Context;
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::process::exit;
 use std::str::FromStr;
 use tracing::level_filters::LevelFilter;
 use tracing::Level;
@@ -43,11 +40,6 @@ pub struct Args {
     pub verbose: u8,
 }
 
-/// Parse all the command line arguments and generate a `BridgeConfig`.
-fn parse_args() -> Result<Args, BridgeError> {
-    parse_from(env::args())
-}
-
 /// Parse given iterator. This is good for isolated environments, like tests.
 fn parse_from<I, T>(itr: I) -> Result<Args, BridgeError>
 where
@@ -55,15 +47,6 @@ where
     T: Into<OsString> + Clone,
 {
     match Args::try_parse_from(itr) {
-        Ok(c) => Ok(c),
-        Err(e) => Err(BridgeError::ConfigError(e.to_string())),
-    }
-}
-
-/// Reads configuration file, parses it and generates a `BridgeConfig` from
-/// given cli arguments.
-fn read_config_from(config_file: PathBuf) -> Result<BridgeConfig, BridgeError> {
-    match BridgeConfig::try_parse_file(config_file) {
         Ok(c) => Ok(c),
         Err(e) => Err(BridgeError::ConfigError(e.to_string())),
     }
@@ -159,13 +142,23 @@ pub fn get_config_source(
 /// - [`BridgeConfig`] from CLI argument
 /// - [`Args`] from CLI options
 pub fn get_cli_config() -> (BridgeConfig, Args) {
-    let args = match parse_args() {
-        Ok(args) => args,
+    let args = env::args();
+
+    match get_cli_config_from_args(args) {
+        Ok(config) => config,
         Err(e) => {
-            eprintln!("{e}");
-            exit(1);
+            delayed_panic!("Failed to get CLI config: {e:?}");
         }
-    };
+    }
+}
+
+/// Wrapped function for tests
+fn get_cli_config_from_args<I, T>(itr: I) -> Result<(BridgeConfig, Args), BridgeError>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let args = parse_from(itr).wrap_err("Failed to parse CLI arguments.")?;
 
     let level_filter = match args.verbose {
         0 => None,
@@ -174,88 +167,50 @@ pub fn get_cli_config() -> (BridgeConfig, Args) {
         )),
     };
 
-    match utils::initialize_logger(level_filter) {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("{e}");
-            exit(1);
-        }
-    };
+    utils::initialize_logger(level_filter).wrap_err("Failed to initialize logger.")?;
 
-    let config_source = get_config_source("READ_CONFIG_FROM_ENV", args.config_file.clone())
-        .wrap_err("Failed to determine source for configuration.");
+    let config_source = get_config_source("READ_CONFIG_FROM_ENV", args.config_file.clone());
 
-    let (mut config, args) = match config_source {
-        Err(e) => {
-            delayed_panic!("Failed to determine source for configuration: {e:?}");
-        }
-        Ok(ConfigSource::File(config_file)) => {
-            // Read from configuration file ONLY
-            let config = match BridgeConfig::try_parse_file(config_file) {
-                Ok(config) => config,
-                Err(e) => {
-                    delayed_panic!("Can't read configuration from file: {e:?}");
-                }
-            };
-
-            (config, args)
-        }
-        Ok(ConfigSource::Env) => {
-            match BridgeConfig::from_env() {
-                Ok(config) => (config, args),
-                Err(e) => {
-                    // Handle the root cause
-                    let e = e.into_eyre();
-                    match e.root_cause().downcast_ref::<BridgeError>() {
-                        Some(BridgeError::EnvVarNotSet(e, field)) => {
-                            delayed_panic!("Missing environment variable {field} in environment config mode. ({e:?}).");
-                        }
-                        Some(BridgeError::EnvVarMalformed(e, field)) => {
-                            delayed_panic!("Malformed environment variable {field} in environment config mode. ({e:?}).");
-                        }
-                        _ => {
-                            delayed_panic!("Error occurred while reading environment variables for config: {e:?}. ({e:?}).");
-                        }
-                    }
-                }
+    let mut config =
+        match config_source.wrap_err("Failed to determine source for configuration.")? {
+            ConfigSource::File(config_file) => {
+                // Read from configuration file ONLY
+                BridgeConfig::try_parse_file(config_file)
+                    .wrap_err("Failed to read configuration from file.")?
             }
-        }
-    };
+            ConfigSource::Env => BridgeConfig::from_env()
+                .wrap_err("Failed to read configuration from environment variables.")?,
+        };
 
     let protocol_params_source =
-        get_config_source("READ_PARAMSET_FROM_ENV", args.protocol_params_file.clone());
+        get_config_source("READ_PARAMSET_FROM_ENV", args.protocol_params_file.clone())
+            .wrap_err("Failed to determine source for protocol parameters.")?;
 
     // Leaks memory to get a static reference to the paramset
     // This is needed to reduce copies of the protocol paramset when passing it around.
     // This is fine, since this will only run once in the lifetime of the program.
     let paramset: &'static ProtocolParamset = Box::leak(Box::new(match protocol_params_source {
-        Err(e) => {
-            delayed_panic!("Failed to determine source for protocol parameters: {e:?}");
-        }
-        Ok(ConfigSource::File(path)) => match ProtocolParamset::from_toml_file(path.as_path()) {
-            Ok(paramset) => paramset,
-            Err(e) => {
-                delayed_panic!("Failed to read protocol parameters from file: {e:?}");
-            }
-        },
-        Ok(ConfigSource::Env) => match ProtocolParamset::from_env() {
-            Ok(paramset) => paramset,
-            Err(e) => {
-                delayed_panic!("Failed to read protocol parameters from environment: {e:?}");
-            }
-        },
+        ConfigSource::File(path) => ProtocolParamset::from_toml_file(path.as_path())
+            .wrap_err("Failed to read protocol parameters from file.")?,
+        ConfigSource::Env => ProtocolParamset::from_env()
+            .wrap_err("Failed to read protocol parameters from environment.")?,
     }));
 
     // The default will be REGTEST_PARAMSET and is overridden from the selected source above.
     config.protocol_paramset = paramset;
 
-    (config, args)
+    Ok((config, args))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_from;
+    use super::{get_cli_config_from_args, get_config_source, parse_from, ConfigSource};
+    use crate::cli::Actors;
     use crate::errors::BridgeError;
+    use std::env;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::PathBuf;
 
     /// With help message flag, we should see the help message. Shocking.
     #[test]
@@ -276,5 +231,223 @@ mod tests {
             Err(BridgeError::ConfigError(e)) => println!("{e}"),
             e => panic!("unexpected error {e:#?}"),
         }
+    }
+
+    // Helper function to set and unset environment variables for tests
+    fn with_env_var<F, T>(name: &str, value: Option<&str>, test: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        let prev_value = env::var(name).ok();
+        match value {
+            Some(val) => env::set_var(name, val),
+            None => env::remove_var(name),
+        }
+        let result = test();
+        match prev_value {
+            Some(val) => env::set_var(name, val),
+            None => env::remove_var(name),
+        }
+        result
+    }
+
+    #[test]
+    fn test_get_config_source_env_not_set() {
+        with_env_var("TEST_READ_FROM_ENV", None, || {
+            let path = PathBuf::from("/path/to/config");
+            let result = get_config_source("TEST_READ_FROM_ENV", Some(path.clone()));
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), ConfigSource::File(path));
+
+            // When path is not provided, should return error
+            let result = get_config_source("TEST_READ_FROM_ENV", None);
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), BridgeError::ConfigError(_)));
+        })
+    }
+
+    #[test]
+    fn test_get_config_source_env_set_to_off() {
+        // Test with "0"
+        with_env_var("TEST_READ_FROM_ENV", Some("0"), || {
+            let path = PathBuf::from("/path/to/config");
+            let result = get_config_source("TEST_READ_FROM_ENV", Some(path.clone()));
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), ConfigSource::File(path));
+
+            // When path is not provided, should return error
+            let result = get_config_source("TEST_READ_FROM_ENV", None);
+            assert!(result.is_err());
+        });
+
+        // Test with "off"
+        with_env_var("TEST_READ_FROM_ENV", Some("off"), || {
+            let path = PathBuf::from("/path/to/config");
+            let result = get_config_source("TEST_READ_FROM_ENV", Some(path.clone()));
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), ConfigSource::File(path));
+        })
+    }
+
+    #[test]
+    fn test_get_config_source_env_set_to_on() {
+        // Test with "1"
+        with_env_var("TEST_READ_FROM_ENV", Some("1"), || {
+            let result = get_config_source("TEST_READ_FROM_ENV", None);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), ConfigSource::Env);
+
+            // Even if path is provided, should still return Env
+            let path = PathBuf::from("/path/to/config");
+            let result = get_config_source("TEST_READ_FROM_ENV", Some(path));
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), ConfigSource::Env);
+        });
+
+        // Test with "on"
+        with_env_var("TEST_READ_FROM_ENV", Some("on"), || {
+            let result = get_config_source("TEST_READ_FROM_ENV", None);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), ConfigSource::Env);
+        })
+    }
+
+    #[test]
+    fn test_get_config_source_env_unknown_value() {
+        with_env_var("TEST_READ_FROM_ENV", Some("invalid"), || {
+            let result = get_config_source("TEST_READ_FROM_ENV", None);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), ConfigSource::Env);
+        })
+    }
+
+    // Helper to create a temporary config file
+    fn with_temp_config_file<F, T>(content: &str, test: F) -> T
+    where
+        F: FnOnce(PathBuf) -> T,
+    {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test_config.toml");
+
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+
+        let result = test(file_path);
+        temp_dir.close().unwrap();
+        result
+    }
+
+    // Helper to set up all environment variables needed for config
+    fn setup_config_env_vars() {
+        env::set_var("HOST", "127.0.0.1");
+        env::set_var("PORT", "17000");
+        env::set_var(
+            "SECRET_KEY",
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        env::set_var("OPERATOR_WITHDRAWAL_FEE_SATS", "100000");
+        env::set_var("BITCOIN_RPC_URL", "http://127.0.0.1:18443/wallet/admin");
+        env::set_var("BITCOIN_RPC_USER", "admin");
+        env::set_var("BITCOIN_RPC_PASSWORD", "admin");
+        env::set_var("DB_HOST", "127.0.0.1");
+        env::set_var("DB_PORT", "5432");
+        env::set_var("DB_USER", "clementine");
+        env::set_var("DB_PASSWORD", "clementine");
+        env::set_var("DB_NAME", "clementine");
+        env::set_var("CITREA_RPC_URL", "");
+        env::set_var("CITREA_LIGHT_CLIENT_PROVER_URL", "");
+        env::set_var(
+            "BRIDGE_CONTRACT_ADDRESS",
+            "3100000000000000000000000000000000000002",
+        );
+    }
+
+    // Helper to clean up all environment variables
+    fn cleanup_config_env_vars() {
+        env::remove_var("HOST");
+        env::remove_var("PORT");
+        env::remove_var("SECRET_KEY");
+        env::remove_var("OPERATOR_WITHDRAWAL_FEE_SATS");
+        env::remove_var("BITCOIN_RPC_URL");
+        env::remove_var("BITCOIN_RPC_USER");
+        env::remove_var("BITCOIN_RPC_PASSWORD");
+        env::remove_var("DB_HOST");
+        env::remove_var("DB_PORT");
+        env::remove_var("DB_USER");
+        env::remove_var("DB_PASSWORD");
+        env::remove_var("DB_NAME");
+        env::remove_var("CITREA_RPC_URL");
+        env::remove_var("CITREA_LIGHT_CLIENT_PROVER_URL");
+        env::remove_var("BRIDGE_CONTRACT_ADDRESS");
+    }
+
+    // Basic minimum toml config content
+    const MINIMAL_CONFIG_CONTENT: &str = r#"
+host = "127.0.0.1"
+port = 17000
+secret_key = "1111111111111111111111111111111111111111111111111111111111111111"
+operator_withdrawal_fee_sats = 100000
+bitcoin_rpc_url = "http://127.0.0.1:18443/wallet/admin"
+bitcoin_rpc_user = "admin"
+bitcoin_rpc_password = "admin"
+db_host = "127.0.0.1"
+db_port = 5432
+db_user = "clementine"
+db_password = "clementine"
+db_name = "clementine"
+citrea_rpc_url = ""
+citrea_light_client_prover_url = ""
+bridge_contract_address = "3100000000000000000000000000000000000002"
+"#;
+
+    #[test]
+    fn test_get_cli_config_file_mode() {
+        with_env_var("READ_CONFIG_FROM_ENV", Some("0"), || {
+            with_temp_config_file(MINIMAL_CONFIG_CONTENT, |config_path| {
+                let args = vec![
+                    "clementine-core",
+                    "verifier",
+                    "--config-file",
+                    config_path.to_str().unwrap(),
+                ];
+
+                let result = get_cli_config_from_args(args);
+                assert!(result.is_ok());
+
+                let (config, cli_args) = result.unwrap();
+                assert_eq!(config.host, "127.0.0.1");
+                assert_eq!(config.port, 17000);
+                assert_eq!(cli_args.actor, Actors::Verifier);
+            })
+        })
+    }
+
+    #[test]
+    fn test_get_cli_config_env_mode() {
+        setup_config_env_vars();
+
+        with_env_var("READ_CONFIG_FROM_ENV", Some("1"), || {
+            let args = vec!["clementine-core", "operator"];
+
+            let result = get_cli_config_from_args(args);
+            assert!(result.is_ok());
+
+            let (config, cli_args) = result.unwrap();
+            assert_eq!(config.host, "127.0.0.1");
+            assert_eq!(config.port, 17000);
+            assert_eq!(cli_args.actor, Actors::Operator);
+        });
+
+        cleanup_config_env_vars();
+    }
+
+    #[test]
+    fn test_get_cli_config_file_without_path() {
+        with_env_var("READ_CONFIG_FROM_ENV", Some("0"), || {
+            let args = vec!["clementine-core", "verifier"];
+
+            let result = get_cli_config_from_args(args);
+            assert!(result.is_err());
+        })
     }
 }

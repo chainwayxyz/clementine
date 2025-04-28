@@ -1,8 +1,8 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
-use super::{protocol::ProtocolParamset, BridgeConfig};
+use super::BridgeConfig;
 use crate::errors::BridgeError;
-use bitcoin::{secp256k1::SecretKey, Amount, Network};
+use bitcoin::{secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
 pub(crate) fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
@@ -106,7 +106,8 @@ impl BridgeConfig {
             };
 
         let config = BridgeConfig {
-            protocol_paramset: read_string_from_env("PROTOCOL_PARAMSET")?.parse()?,
+            // Protocol paramset's source is independently defined
+            protocol_paramset: Default::default(),
             host: read_string_from_env("HOST")?,
             port: read_string_from_env_then_parse::<u16>("PORT")?,
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
@@ -140,7 +141,10 @@ impl BridgeConfig {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::{protocol::REGTEST_PARAMSET, BridgeConfig};
+    use crate::config::{
+        protocol::{ProtocolParamset, REGTEST_PARAMSET},
+        BridgeConfig,
+    };
 
     #[test]
     #[ignore = "If other tests are run before, this test will fail"]
@@ -153,10 +157,6 @@ mod tests {
     fn get_config_from_env_vars() {
         let default_config = BridgeConfig::default();
 
-        std::env::set_var(
-            "PROTOCOL_PARAMSET",
-            default_config.protocol_paramset.to_string(),
-        );
         std::env::set_var("HOST", &default_config.host);
         std::env::set_var("PORT", default_config.port.to_string());
         std::env::set_var(
@@ -317,6 +317,6 @@ mod tests {
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
 
-        assert_eq!(super::ProtocolParamset::from_env().unwrap(), default_config);
+        assert_eq!(ProtocolParamset::from_env().unwrap(), default_config);
     }
 }

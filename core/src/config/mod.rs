@@ -13,7 +13,7 @@
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::Amount;
-use protocol::{ProtocolParamset, ProtocolParamsetName};
+use protocol::ProtocolParamset;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};

@@ -1,8 +1,6 @@
 use crate::config::env::read_string_from_env_then_parse;
 use crate::errors::BridgeError;
-use crate::utils::delayed_panic;
 use bitcoin::{Amount, Network};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::fs;
