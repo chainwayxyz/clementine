@@ -427,7 +427,6 @@ impl ClementineBitVMPublicKeys {
         let first_script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
             vec![
                 // TODO: add later?
-                //(self.latest_blockhash_pk.to_vec(), 40),
                 //(self.challenge_sending_watchtowers_pk.to_vec(), 40),
                 (self.bitvm_pks.0[0].to_vec(), 64),
                 (self.bitvm_pks.1[NUM_U256 - 2].to_vec(), 64),

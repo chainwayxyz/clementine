@@ -1044,7 +1044,6 @@ where
                 "Payout txid {:?} not found in block {:?} {:?}",
                 payout_txid, payout_op_xonly_pk, payout_block_hash
             ))?;
-
         let payout_tx = &payout_block.txdata[payout_tx_index];
         tracing::warn!("Calculated payout tx in send_asserts");
         let headers = self

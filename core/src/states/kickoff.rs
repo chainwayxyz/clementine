@@ -273,7 +273,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                     self.matchers.insert(
                         Matcher::BlockHeight(
                             self.kickoff_height
-                                + context.paramset.time_to_send_watchtower_challenge as u32,
+                                + context.paramset.time_to_send_watchtower_challenge as u32
+                                + (secp256k1::rand::random::<u32>() % 11), // TODO: remove this
                         ),
                         KickoffEvent::TimeToSendWatchtowerChallenge,
                     );
