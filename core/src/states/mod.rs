@@ -95,7 +95,7 @@ pub struct StateManager<T: Owner> {
     queue: PGMQueueExt,
     owner: T,
     round_machines: Vec<InitializedStateMachine<round::RoundStateMachine<T>>>,
-    pub kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>, // TODO: remove
+    kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     context: context::StateContext<T>,
     paramset: &'static ProtocolParamset,
     next_block_height: u32,
