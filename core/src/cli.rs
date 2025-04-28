@@ -254,6 +254,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_get_config_source_env_not_set() {
         with_env_var("TEST_READ_FROM_ENV", None, || {
             let path = PathBuf::from("/path/to/config");
@@ -268,6 +269,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_get_config_source_env_set_to_off() {
         // Test with "0"
         with_env_var("TEST_READ_FROM_ENV", Some("0"), || {
@@ -289,6 +291,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_get_config_source_env_set_to_on() {
         // Test with "1"
         with_env_var("TEST_READ_FROM_ENV", Some("1"), || {
@@ -309,6 +312,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_get_config_source_env_unknown_value() {
         with_env_var("TEST_READ_FROM_ENV", Some("invalid"), || {
             let result = get_config_source("TEST_READ_FROM_ENV", None);
@@ -432,6 +436,7 @@ mod tests {
     const MINIMAL_CONFIG_CONTENT: &str = include_str!("../tests/data/test_config.toml");
 
     #[test]
+    #[serial_test::serial]
     fn test_get_cli_config_file_mode() {
         with_env_var("READ_CONFIG_FROM_ENV", Some("0"), || {
             with_temp_config_file(MINIMAL_CONFIG_CONTENT, |config_path| {
@@ -466,6 +471,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_get_cli_config_env_mode() {
         setup_config_env_vars();
         setup_protocol_paramset_env_vars();
@@ -494,6 +500,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_mixed_config_sources() {
         // Set up config from file but protocol paramset from env
         setup_protocol_paramset_env_vars();
@@ -526,6 +533,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_get_cli_config_file_without_path() {
         with_env_var("READ_CONFIG_FROM_ENV", Some("0"), || {
             let args = vec!["clementine-core", "verifier"];
