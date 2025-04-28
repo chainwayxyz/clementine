@@ -32,9 +32,11 @@ pub struct Args {
     /// Actor to run.
     pub actor: Actors,
     /// TOML formatted configuration file.
-    pub config_file: Option<PathBuf>,
+    #[arg(short, long)]
+    pub config: Option<PathBuf>,
     /// TOML formatted protocol parameters file.
-    pub protocol_params_file: Option<PathBuf>,
+    #[arg(short, long)]
+    pub protocol_params: Option<PathBuf>,
     /// Verbosity level, ranging from 0 (none) to 5 (highest)
     #[arg(short, long, default_value_t = 3)]
     pub verbose: u8,
@@ -78,7 +80,7 @@ pub enum ConfigSource {
 ///
 /// ```bash
 /// # Load config from a file and protocol params from a file
-/// READ_CONFIG_FROM_ENV=0 READ_PARAMSET_FROM_ENV=0 clementine-core verifier --config-file /path/to/config.toml --protocol-params-file /path/to/protocol-params.toml
+/// READ_CONFIG_FROM_ENV=0 READ_PARAMSET_FROM_ENV=0 clementine-core verifier --config /path/to/config.toml --protocol-params /path/to/protocol-params.toml
 ///
 /// # or
 /// # define all config variables in the environment
@@ -91,12 +93,12 @@ pub enum ConfigSource {
 /// # source paramset from environment variables but use config from a file
 /// export PARAM_ONE=1
 /// export PARAM_TWO=1
-/// READ_CONFIG_FROM_ENV=0 READ_PARAMSET_FROM_ENV=1 clementine-core verifier --config-file /path/to/config.toml
+/// READ_CONFIG_FROM_ENV=0 READ_PARAMSET_FROM_ENV=1 clementine-core verifier --config /path/to/config.toml
 ///
 /// # WRONG usage (will use environment variables for both config and paramset)
 /// export CONFIG_ONE=1
 /// export PARAM_ONE=1
-/// READ_CONFIG_FROM_ENV=1 READ_PARAMSET_FROM_ENV=1 clementine-core --config-file /path/to/config.toml --protocol-params-file /path/to/protocol-params.toml
+/// READ_CONFIG_FROM_ENV=1 READ_PARAMSET_FROM_ENV=1 clementine-core --config /path/to/config.toml --protocol-params /path/to/protocol-params.toml
 /// ```
 pub fn get_config_source(
     read_from_env_name: &'static str,
@@ -110,7 +112,7 @@ pub fn get_config_source(
             BridgeError::ConfigError("No file path provided for config file.".to_string()),
         )?),
         Ok(str) => {
-            if str != "1" || str != "on" {
+            if str != "1" && str != "on" {
                 tracing::warn!("Unknown value for {read_from_env_name}: {str}. Expected 1/0/off/on. Defaulting to environment variables.");
             }
 
@@ -169,7 +171,7 @@ where
 
     utils::initialize_logger(level_filter).wrap_err("Failed to initialize logger.")?;
 
-    let config_source = get_config_source("READ_CONFIG_FROM_ENV", args.config_file.clone());
+    let config_source = get_config_source("READ_CONFIG_FROM_ENV", args.config.clone());
 
     let mut config =
         match config_source.wrap_err("Failed to determine source for configuration.")? {
@@ -183,7 +185,7 @@ where
         };
 
     let protocol_params_source =
-        get_config_source("READ_PARAMSET_FROM_ENV", args.protocol_params_file.clone())
+        get_config_source("READ_PARAMSET_FROM_ENV", args.protocol_params.clone())
             .wrap_err("Failed to determine source for protocol parameters.")?;
 
     // Leaks memory to get a static reference to the paramset
@@ -256,7 +258,6 @@ mod tests {
         with_env_var("TEST_READ_FROM_ENV", None, || {
             let path = PathBuf::from("/path/to/config");
             let result = get_config_source("TEST_READ_FROM_ENV", Some(path.clone()));
-            assert!(result.is_ok());
             assert_eq!(result.unwrap(), ConfigSource::File(path));
 
             // When path is not provided, should return error
@@ -272,7 +273,6 @@ mod tests {
         with_env_var("TEST_READ_FROM_ENV", Some("0"), || {
             let path = PathBuf::from("/path/to/config");
             let result = get_config_source("TEST_READ_FROM_ENV", Some(path.clone()));
-            assert!(result.is_ok());
             assert_eq!(result.unwrap(), ConfigSource::File(path));
 
             // When path is not provided, should return error
@@ -284,7 +284,6 @@ mod tests {
         with_env_var("TEST_READ_FROM_ENV", Some("off"), || {
             let path = PathBuf::from("/path/to/config");
             let result = get_config_source("TEST_READ_FROM_ENV", Some(path.clone()));
-            assert!(result.is_ok());
             assert_eq!(result.unwrap(), ConfigSource::File(path));
         })
     }
@@ -294,20 +293,17 @@ mod tests {
         // Test with "1"
         with_env_var("TEST_READ_FROM_ENV", Some("1"), || {
             let result = get_config_source("TEST_READ_FROM_ENV", None);
-            assert!(result.is_ok());
             assert_eq!(result.unwrap(), ConfigSource::Env);
 
             // Even if path is provided, should still return Env
             let path = PathBuf::from("/path/to/config");
             let result = get_config_source("TEST_READ_FROM_ENV", Some(path));
-            assert!(result.is_ok());
             assert_eq!(result.unwrap(), ConfigSource::Env);
         });
 
         // Test with "on"
         with_env_var("TEST_READ_FROM_ENV", Some("on"), || {
             let result = get_config_source("TEST_READ_FROM_ENV", None);
-            assert!(result.is_ok());
             assert_eq!(result.unwrap(), ConfigSource::Env);
         })
     }
@@ -316,7 +312,6 @@ mod tests {
     fn test_get_config_source_env_unknown_value() {
         with_env_var("TEST_READ_FROM_ENV", Some("invalid"), || {
             let result = get_config_source("TEST_READ_FROM_ENV", None);
-            assert!(result.is_ok());
             assert_eq!(result.unwrap(), ConfigSource::Env);
         })
     }
@@ -362,6 +357,32 @@ mod tests {
         );
     }
 
+    // Helper to set up all environment variables needed for protocol paramset
+    fn setup_protocol_paramset_env_vars() {
+        env::set_var("NETWORK", "regtest");
+        env::set_var("NUM_ROUND_TXS", "2");
+        env::set_var("NUM_KICKOFFS_PER_ROUND", "10");
+        env::set_var("NUM_SIGNED_KICKOFFS", "2");
+        env::set_var("BRIDGE_AMOUNT", "1000000000");
+        env::set_var("KICKOFF_AMOUNT", "55000");
+        env::set_var("OPERATOR_CHALLENGE_AMOUNT", "200000000");
+        env::set_var("COLLATERAL_FUNDING_AMOUNT", "200000000");
+        env::set_var("KICKOFF_BLOCKHASH_COMMIT_LENGTH", "40");
+        env::set_var("WATCHTOWER_CHALLENGE_BYTES", "144");
+        env::set_var("WINTERNITZ_LOG_D", "4");
+        env::set_var("USER_TAKES_AFTER", "200");
+        env::set_var("OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK", "144");
+        env::set_var("OPERATOR_CHALLENGE_NACK_TIMELOCK", "432");
+        env::set_var("DISPROVE_TIMEOUT_TIMELOCK", "720");
+        env::set_var("ASSERT_TIMEOUT_TIMELOCK", "576");
+        env::set_var("OPERATOR_REIMBURSE_TIMELOCK", "12");
+        env::set_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK", "288");
+        env::set_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE", "216");
+        env::set_var("TIME_TO_DISPROVE", "648");
+        env::set_var("FINALITY_DEPTH", "1");
+        env::set_var("START_HEIGHT", "8148");
+    }
+
     // Helper to clean up all environment variables
     fn cleanup_config_env_vars() {
         env::remove_var("HOST");
@@ -381,43 +402,65 @@ mod tests {
         env::remove_var("BRIDGE_CONTRACT_ADDRESS");
     }
 
+    // Helper to clean up all protocol paramset environment variables
+    fn cleanup_protocol_paramset_env_vars() {
+        env::remove_var("NETWORK");
+        env::remove_var("NUM_ROUND_TXS");
+        env::remove_var("NUM_KICKOFFS_PER_ROUND");
+        env::remove_var("NUM_SIGNED_KICKOFFS");
+        env::remove_var("BRIDGE_AMOUNT");
+        env::remove_var("KICKOFF_AMOUNT");
+        env::remove_var("OPERATOR_CHALLENGE_AMOUNT");
+        env::remove_var("COLLATERAL_FUNDING_AMOUNT");
+        env::remove_var("KICKOFF_BLOCKHASH_COMMIT_LENGTH");
+        env::remove_var("WATCHTOWER_CHALLENGE_BYTES");
+        env::remove_var("WINTERNITZ_LOG_D");
+        env::remove_var("USER_TAKES_AFTER");
+        env::remove_var("OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK");
+        env::remove_var("OPERATOR_CHALLENGE_NACK_TIMELOCK");
+        env::remove_var("DISPROVE_TIMEOUT_TIMELOCK");
+        env::remove_var("ASSERT_TIMEOUT_TIMELOCK");
+        env::remove_var("OPERATOR_REIMBURSE_TIMELOCK");
+        env::remove_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK");
+        env::remove_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE");
+        env::remove_var("TIME_TO_DISPROVE");
+        env::remove_var("FINALITY_DEPTH");
+        env::remove_var("START_HEIGHT");
+    }
+
     // Basic minimum toml config content
-    const MINIMAL_CONFIG_CONTENT: &str = r#"
-host = "127.0.0.1"
-port = 17000
-secret_key = "1111111111111111111111111111111111111111111111111111111111111111"
-operator_withdrawal_fee_sats = 100000
-bitcoin_rpc_url = "http://127.0.0.1:18443/wallet/admin"
-bitcoin_rpc_user = "admin"
-bitcoin_rpc_password = "admin"
-db_host = "127.0.0.1"
-db_port = 5432
-db_user = "clementine"
-db_password = "clementine"
-db_name = "clementine"
-citrea_rpc_url = ""
-citrea_light_client_prover_url = ""
-bridge_contract_address = "3100000000000000000000000000000000000002"
-"#;
+    const MINIMAL_CONFIG_CONTENT: &str = include_str!("../tests/data/test_config.toml");
 
     #[test]
     fn test_get_cli_config_file_mode() {
         with_env_var("READ_CONFIG_FROM_ENV", Some("0"), || {
             with_temp_config_file(MINIMAL_CONFIG_CONTENT, |config_path| {
-                let args = vec![
-                    "clementine-core",
-                    "verifier",
-                    "--config-file",
-                    config_path.to_str().unwrap(),
-                ];
+                // Create a temp protocol paramset file
+                with_temp_config_file(
+                    include_str!("./config/protocol_paramset.toml"),
+                    |protocol_path| {
+                        let args = vec![
+                            "clementine-core",
+                            "verifier",
+                            "--config",
+                            config_path.to_str().unwrap(),
+                            "--protocol-params",
+                            protocol_path.to_str().unwrap(),
+                        ];
 
-                let result = get_cli_config_from_args(args);
-                assert!(result.is_ok());
+                        let result = get_cli_config_from_args(args);
 
-                let (config, cli_args) = result.unwrap();
-                assert_eq!(config.host, "127.0.0.1");
-                assert_eq!(config.port, 17000);
-                assert_eq!(cli_args.actor, Actors::Verifier);
+                        let (config, cli_args) = result.expect("Failed to get CLI config");
+                        assert_eq!(config.host, "127.0.0.1");
+                        assert_eq!(config.port, 17000);
+                        assert_eq!(cli_args.actor, Actors::Verifier);
+
+                        // Assert some protocol paramset values
+                        assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
+                        assert_eq!(config.protocol_paramset.num_round_txs, 2);
+                        assert_eq!(config.protocol_paramset.winternitz_log_d, 4);
+                    },
+                )
             })
         })
     }
@@ -425,20 +468,61 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
     #[test]
     fn test_get_cli_config_env_mode() {
         setup_config_env_vars();
+        setup_protocol_paramset_env_vars();
 
         with_env_var("READ_CONFIG_FROM_ENV", Some("1"), || {
-            let args = vec!["clementine-core", "operator"];
+            with_env_var("READ_PARAMSET_FROM_ENV", Some("1"), || {
+                let args = vec!["clementine-core", "operator"];
 
-            let result = get_cli_config_from_args(args);
-            assert!(result.is_ok());
+                let result = get_cli_config_from_args(args);
 
-            let (config, cli_args) = result.unwrap();
-            assert_eq!(config.host, "127.0.0.1");
-            assert_eq!(config.port, 17000);
-            assert_eq!(cli_args.actor, Actors::Operator);
+                let (config, cli_args) = result.expect("Failed to get CLI config");
+                assert_eq!(config.host, "127.0.0.1");
+                assert_eq!(config.port, 17000);
+                assert_eq!(cli_args.actor, Actors::Operator);
+
+                // Assert some protocol paramset values
+                assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
+                assert_eq!(config.protocol_paramset.num_round_txs, 2);
+                assert_eq!(config.protocol_paramset.winternitz_log_d, 4);
+                assert_eq!(config.protocol_paramset.start_height, 8148); // This should be from the environment variable
+            });
         });
 
         cleanup_config_env_vars();
+        cleanup_protocol_paramset_env_vars();
+    }
+
+    #[test]
+    fn test_mixed_config_sources() {
+        // Set up config from file but protocol paramset from env
+        setup_protocol_paramset_env_vars();
+
+        with_env_var("READ_CONFIG_FROM_ENV", Some("0"), || {
+            with_env_var("READ_PARAMSET_FROM_ENV", Some("1"), || {
+                with_temp_config_file(MINIMAL_CONFIG_CONTENT, |config_path| {
+                    let args = vec![
+                        "clementine-core",
+                        "verifier",
+                        "--config",
+                        config_path.to_str().unwrap(),
+                    ];
+
+                    let result = get_cli_config_from_args(args);
+
+                    let (config, cli_args) = result.expect("Failed to get CLI config");
+                    assert_eq!(config.host, "127.0.0.1");
+                    assert_eq!(config.port, 17000);
+                    assert_eq!(cli_args.actor, Actors::Verifier);
+
+                    // Assert some protocol paramset values from env
+                    assert_eq!(config.protocol_paramset.network.to_string(), "regtest");
+                    assert_eq!(config.protocol_paramset.start_height, 8148); // This should be from the environment variable
+                })
+            })
+        });
+
+        cleanup_protocol_paramset_env_vars();
     }
 
     #[test]
@@ -447,7 +531,7 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
             let args = vec!["clementine-core", "verifier"];
 
             let result = get_cli_config_from_args(args);
-            assert!(result.is_err());
+            result.expect_err("Expected error when config file path is not provided");
         })
     }
 }

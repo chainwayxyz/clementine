@@ -37,7 +37,7 @@ and modify fields to your local configuration.
 
 Additionally, Clementine requires protocol parameters, that are either specified
 by a file or from the environment. You can specify a separate protocol
-parameters file using the `--protocol-params-file` option. This file contains
+parameters file using the `--protocol-params` option. This file contains
 protocol-specific settings that affect transactions in the contract.
 
 #### Environment Variables
@@ -69,24 +69,24 @@ requires. An actor's server can be started using its corresponding argument:
 cargo build --release
 
 # Run binary with configuration file
-./target/release/clementine-core verifier --config-file /path/to/config.toml
-./target/release/clementine-core operator --config-file /path/to/config.toml
-./target/release/clementine-core aggregator --config-file /path/to/config.toml
+./target/release/clementine-core verifier --config /path/to/config.toml
+./target/release/clementine-core operator --config /path/to/config.toml
+./target/release/clementine-core aggregator --config /path/to/config.toml
 
 # Run with both configuration and protocol parameter files
-./target/release/clementine-core verifier --config-file /path/to/config.toml --protocol-params-file /path/to/params.toml
+./target/release/clementine-core verifier --config /path/to/config.toml --protocol-params /path/to/params.toml
 
 # Run with environment variables
 READ_CONFIG_FROM_ENV=1 READ_PARAMSET_FROM_ENV=1 ./target/release/clementine-core verifier
 
 # Mixing configuration sources
-READ_CONFIG_FROM_ENV=0 READ_PARAMSET_FROM_ENV=1 ./target/release/clementine-core verifier --config-file /path/to/config.toml
+READ_CONFIG_FROM_ENV=0 READ_PARAMSET_FROM_ENV=1 ./target/release/clementine-core verifier --config /path/to/config.toml
 ```
 
 A server's log level can be specified with `--verbose` flag:
 
 ```sh
-./target/release/clementine-core operator --config-file /path/to/config.toml --verbose 5 # Logs everything
+./target/release/clementine-core operator --config /path/to/config.toml --verbose 5 # Logs everything
 ```
 
 For more information, use `--help` flag:
