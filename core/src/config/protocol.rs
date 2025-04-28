@@ -1,3 +1,4 @@
+use crate::config::env::read_string_from_env_then_parse;
 use crate::errors::BridgeError;
 use crate::utils::delayed_panic;
 use bitcoin::{Amount, Network};
@@ -22,24 +23,12 @@ pub const WINTERNITZ_LOG_D: u32 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 /// A pre-defined paramset name that can be converted into a
-/// [`ProtocolParamset`] reference. Refers to a defined constant paramset in this module or a defined external source.
+/// [`ProtocolParamset`] reference.
 ///
-/// External sources are:
-/// - Environment variables
-/// - Config file (file path determined by environment `PROTOCOL_CONFIG_PATH`, defaults to`protocol_params.toml` if not set)
-///
-/// When external sources are used, the program will panic if the source has a missing value or invalid value. Multiple sources cannot be combined or fallen back to.
-///
-/// See: [`MAINNET_PARAMSET`], [`REGTEST_PARAMSET`], [`TESTNET_PARAMSET`].
+/// See: [`REGTEST_PARAMSET`]
 pub enum ProtocolParamsetName {
     // Pre-defined paramsets
     Regtest,
-
-    // External sources
-    /// Reads from environment variables and panics on missing/invalid environment variables
-    Env,
-    /// Reads from external config file and panics on missing/invalid config file
-    File,
 }
 
 impl FromStr for ProtocolParamsetName {
@@ -48,8 +37,6 @@ impl FromStr for ProtocolParamsetName {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "regtest" => Ok(ProtocolParamsetName::Regtest),
-            "env" => Ok(ProtocolParamsetName::Env),
-            "file" => Ok(ProtocolParamsetName::File),
             _ => Err(BridgeError::ConfigError(format!(
                 "Unknown paramset name: {}",
                 s
@@ -62,8 +49,6 @@ impl Display for ProtocolParamsetName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ProtocolParamsetName::Regtest => write!(f, "regtest"),
-            ProtocolParamsetName::Env => write!(f, "env"),
-            ProtocolParamsetName::File => write!(f, "file"),
         }
     }
 }
@@ -72,13 +57,11 @@ impl From<ProtocolParamsetName> for &'static ProtocolParamset {
     fn from(name: ProtocolParamsetName) -> Self {
         match name {
             ProtocolParamsetName::Regtest => &REGTEST_PARAMSET,
-            ProtocolParamsetName::Env => &ENV_PARAMSET,
-            ProtocolParamsetName::File => &FILE_PARAMSET,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 /// Protocol parameters that affect the transactions in the contract (which also
 /// change the pre-calculated txids and sighashes).
 ///
@@ -137,6 +120,85 @@ pub struct ProtocolParamset {
     pub start_height: u32,
 }
 
+impl ProtocolParamset {
+    pub fn from_toml_file(path: &Path) -> Result<Self, BridgeError> {
+        let contents = fs::read_to_string(path)
+            .map_err(|e| BridgeError::Error(format!("Failed to read config file: {}", e)))?;
+
+        let paramset: Self = toml::from_str(&contents)
+            .map_err(|e| BridgeError::Error(format!("Failed to parse TOML: {}", e)))?;
+
+        Ok(paramset)
+    }
+    pub fn from_env() -> Result<Self, BridgeError> {
+        let config = ProtocolParamset {
+            network: read_string_from_env_then_parse::<Network>("NETWORK")?,
+            num_round_txs: read_string_from_env_then_parse::<usize>("NUM_ROUND_TXS")?,
+            num_kickoffs_per_round: read_string_from_env_then_parse::<usize>(
+                "NUM_KICKOFFS_PER_ROUND",
+            )?,
+            num_signed_kickoffs: read_string_from_env_then_parse::<usize>("NUM_SIGNED_KICKOFFS")?,
+            bridge_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "BRIDGE_AMOUNT",
+            )?),
+            kickoff_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "KICKOFF_AMOUNT",
+            )?),
+            operator_challenge_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "OPERATOR_CHALLENGE_AMOUNT",
+            )?),
+            collateral_funding_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "COLLATERAL_FUNDING_AMOUNT",
+            )?),
+            kickoff_blockhash_commit_length: read_string_from_env_then_parse::<u32>(
+                "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
+            )?,
+            watchtower_challenge_bytes: read_string_from_env_then_parse::<usize>(
+                "WATCHTOWER_CHALLENGE_BYTES",
+            )?,
+            winternitz_log_d: read_string_from_env_then_parse::<u32>("WINTERNITZ_LOG_D")?,
+            user_takes_after: read_string_from_env_then_parse::<u16>("USER_TAKES_AFTER")?,
+            operator_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK",
+            )?,
+            operator_challenge_nack_timelock: read_string_from_env_then_parse::<u16>(
+                "OPERATOR_CHALLENGE_NACK_TIMELOCK",
+            )?,
+            disprove_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "DISPROVE_TIMEOUT_TIMELOCK",
+            )?,
+            assert_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "ASSERT_TIMEOUT_TIMELOCK",
+            )?,
+            operator_reimburse_timelock: read_string_from_env_then_parse::<u16>(
+                "OPERATOR_REIMBURSE_TIMELOCK",
+            )?,
+            watchtower_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK",
+            )?,
+            time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
+                "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
+            )?,
+            time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
+            finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
+            start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
+        };
+
+        Ok(config)
+    }
+}
+
+impl Default for ProtocolParamset {
+    fn default() -> Self {
+        REGTEST_PARAMSET
+    }
+}
+impl Default for &'static ProtocolParamset {
+    fn default() -> Self {
+        &REGTEST_PARAMSET
+    }
+}
+
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Regtest,
     num_round_txs: 2,
@@ -161,41 +223,3 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     finality_depth: 0,
     start_height: 201,
 };
-
-lazy_static! {
-    pub static ref FILE_PARAMSET: ProtocolParamset = {
-        let config_path = std::env::var("PROTOCOL_CONFIG_PATH")
-            .unwrap_or_else(|_| "protocol_params.toml".to_string());
-
-        match ProtocolParamset::from_toml_file(Path::new(&config_path)) {
-            Ok(params) => params,
-            Err(e) => {
-                delayed_panic!(
-                    "Failed to load protocol params from file (using path: {}): {:?}",
-                    config_path,
-                    e
-                );
-            }
-        }
-    };
-    pub static ref ENV_PARAMSET: ProtocolParamset = {
-        match ProtocolParamset::from_env() {
-            Ok(params) => params,
-            Err(e) => {
-                delayed_panic!("Failed to load protocol params from env: {:?}", e);
-            }
-        }
-    };
-}
-
-impl ProtocolParamset {
-    fn from_toml_file(path: &Path) -> Result<Self, BridgeError> {
-        let contents = fs::read_to_string(path)
-            .map_err(|e| BridgeError::Error(format!("Failed to read config file: {}", e)))?;
-
-        let paramset: Self = toml::from_str(&contents)
-            .map_err(|e| BridgeError::Error(format!("Failed to parse TOML: {}", e)))?;
-
-        Ok(paramset)
-    }
-}
