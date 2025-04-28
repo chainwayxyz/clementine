@@ -30,7 +30,7 @@ use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness, XOnlyPub
 use bitcoincore_rpc::RpcApi;
 use citrea::get_transaction_params;
 use eyre::Context;
-use secp256k1::rand::{self, Rng};
+use secp256k1::rand;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
@@ -599,81 +599,6 @@ pub async fn run_replacement_deposit(
         move_txid,
         deposit_blockhash,
     ))
-}
-
-/// Makes a reorg with random number of blocks between 1 and finality depth.
-///
-/// # Returns
-///
-/// - [`u64`]: The number of blocks invalidated.
-pub async fn random_reorg(
-    rpc: &ExtendedRpc,
-    finality_depth: Option<u64>,
-) -> Result<u64, BridgeError> {
-    let finality_depth = finality_depth.unwrap_or(6);
-
-    let tip_height = rpc
-        .client
-        .get_block_count()
-        .await
-        .wrap_err("Can't get block tip height")?;
-    let reorg_depth = rand::thread_rng().gen_range(1..=finality_depth - 1);
-    tracing::debug!(
-        "Reorging {} blocks at tip height {}",
-        reorg_depth,
-        tip_height
-    );
-
-    for i in 0..reorg_depth {
-        let block_hash = rpc
-            .client
-            .get_block_hash(tip_height - i)
-            .await
-            .wrap_err("Can't get block hash")?;
-        rpc.client
-            .invalidate_block(&block_hash)
-            .await
-            .wrap_err("Can't invalidate block")?;
-    }
-
-    // Make the reorg.
-    let reorg_height = reorg_depth + 1;
-    rpc.mine_blocks(reorg_height).await?;
-    let new_height = rpc
-        .client
-        .get_block_count()
-        .await
-        .wrap_err("Can't get block tip height")?;
-    tracing::debug!(
-        "Mined {} blocks. New tip height: {}",
-        reorg_height,
-        new_height
-    );
-
-    Ok(reorg_depth)
-}
-
-#[tokio::test]
-async fn test_random_reorg() {
-    let mut config = create_test_config_with_thread_name().await;
-    let regtest = create_regtest_rpc(&mut config).await;
-    let rpc = regtest.rpc().clone();
-
-    // Setup initial chain.
-    rpc.mine_blocks(10).await.unwrap();
-    let initial_tip_height = rpc.client.get_block_count().await.unwrap();
-    let initial_tip_hash = rpc.client.get_block_hash(initial_tip_height).await.unwrap();
-
-    let _reorg_depth = random_reorg(&rpc, None).await.unwrap();
-
-    assert_eq!(
-        initial_tip_height + 1,
-        rpc.client.get_block_count().await.unwrap()
-    );
-    assert_ne!(
-        initial_tip_hash,
-        rpc.client.get_block_hash(initial_tip_height).await.unwrap()
-    );
 }
 
 #[ignore = "Tested everywhere, no need to run again"]
