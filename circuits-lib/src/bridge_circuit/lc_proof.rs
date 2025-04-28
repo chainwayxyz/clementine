@@ -21,7 +21,6 @@ pub fn lc_proof_verifier(light_client_proof: LightClientProof) -> LightClientCir
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
     use risc0_zkvm::Receipt;
