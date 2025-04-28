@@ -1147,7 +1147,7 @@ where
         tracing::warn!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
-        let asserts = generate_assertions(
+        let asserts  = generate_assertions(
             g16_proof,
             vec![public_input_scalar],
             &get_ark_verifying_key(),

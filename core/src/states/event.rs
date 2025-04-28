@@ -125,6 +125,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     kickoff_height,
                     deposit_data,
                     payout_blockhash,
+                    self.kickoff_machines.len() as u32,
                 )
                 .uninitialized_state_machine()
                 .init_with_context(&mut self.context)

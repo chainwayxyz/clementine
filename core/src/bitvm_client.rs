@@ -471,7 +471,7 @@ impl ClementineBitVMPublicKeys {
 
     pub fn get_assert_commit_data(asserts: Assertions) -> Vec<Vec<Vec<u8>>> {
         let mut commit_data = Vec::new();
-        // TODO: this is wrong, add clementine specific ones too
+        // TODO: this might be wrong, add clementine specific ones too
         commit_data.push(vec![
             asserts.0[0].to_vec(),
             asserts.1[NUM_U256 - 2].to_vec(),
@@ -529,8 +529,9 @@ impl ClementineBitVMPublicKeys {
     ) -> Vec<WinternitzDerivationPath> {
         if mini_assert_idx == 0 {
             vec![
-                Self::get_latest_blockhash_derivation(deposit_outpoint, paramset),
-                Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset),
+                // TODO: add later?
+                // Self::get_latest_blockhash_derivation(deposit_outpoint, paramset),
+                // Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset),
                 WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset),
                 WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset),
                 WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 13, deposit_outpoint, paramset),

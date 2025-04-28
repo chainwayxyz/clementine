@@ -1038,7 +1038,7 @@ where
             borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
         commit_data.extend_from_slice(&total_work);
 
-        //let commit_data = vec![0u8; 144];
+        let commit_data = vec![0u8; 144];
 
         tracing::warn!("watchtower challenge Commit data: {:?}", commit_data);
 

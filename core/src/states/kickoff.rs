@@ -73,6 +73,7 @@ pub struct KickoffStateMachine<T: Owner> {
     watchtower_challenges: HashMap<usize, Transaction>,
     operator_asserts: HashMap<usize, Witness>,
     operator_challenge_acks: HashMap<usize, Witness>,
+    index: u32, // TODO: delete this field
     phantom: std::marker::PhantomData<T>,
 }
 
@@ -100,6 +101,7 @@ impl<T: Owner> KickoffStateMachine<T> {
         kickoff_height: u32,
         deposit_data: DepositData,
         payout_blockhash: Witness,
+        index: u32,
     ) -> Self {
         Self {
             kickoff_data,
@@ -114,6 +116,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             operator_asserts: HashMap::new(),
             spent_watchtower_utxos: HashSet::new(),
             operator_challenge_acks: HashMap::new(),
+            index,
         }
     }
 }
@@ -273,7 +276,8 @@ impl<T: Owner> KickoffStateMachine<T> {
                     self.matchers.insert(
                         Matcher::BlockHeight(
                             self.kickoff_height
-                                + context.paramset.time_to_send_watchtower_challenge as u32,
+                                + context.paramset.time_to_send_watchtower_challenge as u32
+                                + self.index,
                         ),
                         KickoffEvent::TimeToSendWatchtowerChallenge,
                     );
