@@ -345,8 +345,10 @@ fn verify_watchtower_challenges(
             );
         }
 
+        let pubkey: [u8; 32] = script_pubkey.as_bytes()[2..34].try_into().expect("Cannot fail");
+
         if circuit_input.all_watchtower_pubkeys[watchtower_input.watchtower_idx as usize]
-            != script_pubkey.as_bytes()[2..34]
+            != pubkey
         {
             panic!(
                 "Invalid watchtower public key, watchtower index: {}",
@@ -354,7 +356,7 @@ fn verify_watchtower_challenges(
             );
         }
 
-        let Ok(verifying_key) = VerifyingKey::from_bytes(&script_pubkey.as_bytes()[2..]) else {
+        let Ok(verifying_key) = VerifyingKey::from_bytes(&pubkey) else {
             panic!(
                 "Invalid verifying key, watchtower index: {}",
                 watchtower_input.watchtower_idx
@@ -517,7 +519,7 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
 fn deposit_constant(
     last_output: &TxOut,
     kickoff_txid: &Txid,
-    watchtower_pubkeys: &[Vec<u8>],
+    watchtower_pubkeys: &[[u8;32]],
     move_txid_hex: [u8; 32],
 ) -> [u8; 32] {
     let last_output_script = last_output.script_pubkey.to_bytes();
@@ -573,10 +575,7 @@ mod tests {
     };
     use crate::bridge_circuit::structs::{LightClientProof, StorageProof};
     use bitcoin::{
-        absolute::Height,
-        consensus::{Decodable, Encodable},
-        transaction::Version,
-        ScriptBuf, Transaction, TxIn, Witness,
+        absolute::Height, consensus::{Decodable, Encodable}, transaction::Version, ScriptBuf, Transaction, TxIn, Witness
     };
     use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
     use header_chain::{
@@ -601,9 +600,7 @@ mod tests {
     fn total_work_and_watchtower_flags_setup() -> (BridgeCircuitInput, Txid) {
         let wt_tx_bytes = include_bytes!("../../test_data/wt_raw_tx.bin");
         let kickoff_raw_tx_bytes = include_bytes!("../../test_data/kickoff_raw_tx.bin");
-        let pubkey = "412c00124e48ab8b082a5fa3ee742eb763387ef67adb9f0d5405656ff12ffd50";
-
-        let pubkey = hex::decode(pubkey).unwrap();
+        let pubkey_hex = "412c00124e48ab8b082a5fa3ee742eb763387ef67adb9f0d5405656ff12ffd50";
 
         let mut wt_tx: Transaction =
             Decodable::consensus_decode(&mut Cursor::new(&wt_tx_bytes)).unwrap();
@@ -627,11 +624,13 @@ mod tests {
         let tx_out = Decodable::consensus_decode(&mut Cursor::new(&encoded_tx_out))
             .expect("Failed to decode kickoff tx");
 
-        let mut watchtower_pubkeys = vec![vec![0u8]; 160];
+        let mut watchtower_pubkeys = vec![[0u8; 32]; 160];
 
         let operator_idx: u8 = 50;
 
-        watchtower_pubkeys[operator_idx as usize] = pubkey.clone();
+        let pubkey = hex::decode(pubkey_hex).unwrap();
+
+        watchtower_pubkeys[operator_idx as usize] = pubkey.try_into().expect("Pubkey must be 32 bytes");
 
         let input = BridgeCircuitInput {
             kickoff_tx: CircuitTransaction(kickoff_tx.clone()),
@@ -787,7 +786,7 @@ mod tests {
 
         // Modify the all_watchtower_pubkeys (the array that's actually used in the new code)
         let watch_tower_idx = input.watchtower_inputs[0].watchtower_idx as usize;
-        input.all_watchtower_pubkeys[watch_tower_idx] = vec![0u8; 32];
+        input.all_watchtower_pubkeys[watch_tower_idx] = [0u8; 32];
 
         let (_total_work, _challenge_sending_watchtowers) =
             total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);

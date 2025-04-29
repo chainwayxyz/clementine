@@ -1,6 +1,6 @@
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
-use bitcoin::Network;
+use bitcoin::{Network, Transaction, XOnlyPublicKey};
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof, WatchtowerInput};
 use final_spv::{spv::SPV, transaction::CircuitTransaction};
 use header_chain::header_chain::BlockHeaderCircuitOutput;
@@ -20,8 +20,110 @@ pub struct BridgeCircuitHostParams {
     pub storage_proof: StorageProof,
     pub network: Network,
     pub watchtower_inputs: Vec<WatchtowerInput>,
-    pub all_watchtower_pubkeys: Vec<Vec<u8>>,
+    pub all_watchtower_pubkeys: Vec<XOnlyPublicKey>,
 }
+
+impl BridgeCircuitHostParams {
+    const FIRST_FIVE_OUTPUTS: usize = 5;
+    const NUMBER_OF_ASSERT_TXS: usize = 33;
+    const OP_RETURN_OUTPUT: usize = 1;
+
+    pub fn new(
+        kickoff_tx: Transaction,
+        spv: SPV,
+        block_header_circuit_output: BlockHeaderCircuitOutput,
+        headerchain_receipt: Receipt,
+        light_client_proof: LightClientProof,
+        lcp_receipt: Receipt,
+        storage_proof: StorageProof,
+        network: Network,
+        watchtower_inputs: Vec<WatchtowerInput>,
+        all_watchtower_pubkeys: Vec<XOnlyPublicKey>,
+    ) -> Self {
+        BridgeCircuitHostParams {
+            kickoff_tx: CircuitTransaction::from(kickoff_tx),
+            spv,
+            block_header_circuit_output,
+            headerchain_receipt,
+            light_client_proof,
+            lcp_receipt,
+            storage_proof,
+            network,
+            watchtower_inputs,
+            all_watchtower_pubkeys,
+        }
+    }
+
+    pub fn new_with_wt_tx(
+        kickoff_tx: Transaction,
+        spv: SPV,
+        block_header_circuit_output: BlockHeaderCircuitOutput,
+        headerchain_receipt: Receipt,
+        light_client_proof: LightClientProof,
+        lcp_receipt: Receipt,
+        storage_proof: StorageProof,
+        network: Network,
+        watchtower_contexts: &[WatchtowerContext]
+    ) -> Self {
+
+        let watchtower_inputs = Self::get_wt_inputs(&kickoff_tx, watchtower_contexts);
+
+        let all_watchtower_pubkeys = Self::get_all_pubkeys(&kickoff_tx);
+
+        BridgeCircuitHostParams {
+            kickoff_tx: CircuitTransaction::from(kickoff_tx),
+            spv,
+            block_header_circuit_output,
+            headerchain_receipt,
+            light_client_proof,
+            lcp_receipt,
+            storage_proof,
+            network,
+            watchtower_inputs,
+            all_watchtower_pubkeys,
+        }
+    }
+
+    fn get_wt_inputs(
+        kickoff_tx: &Transaction,
+        watchtower_contexts: &[WatchtowerContext],
+    ) -> Vec<WatchtowerInput> {
+
+        watchtower_contexts.iter().map(|context| {
+            WatchtowerInput::from_txs(kickoff_tx, context.watchtower_tx.clone(), context.previous_txs).expect("Failed to create WatchtowerInput")
+
+        }).collect()
+    }
+
+    fn get_all_pubkeys(kickoff_tx: &Transaction) -> Vec<XOnlyPublicKey> {
+        let start_index = Self::FIRST_FIVE_OUTPUTS + Self::NUMBER_OF_ASSERT_TXS; 
+        let end_index = kickoff_tx.output.len() - Self::OP_RETURN_OUTPUT;
+
+        let mut all_watchtower_pubkeys = Vec::new();
+        
+        // two by two 
+        
+        for i in (start_index..end_index).step_by(2) {
+            let output = &kickoff_tx.output[i];
+
+            let xonly_public_key = XOnlyPublicKey::from_slice(
+                &output.script_pubkey.as_bytes()[2..34],
+            )
+            .expect("Failed to create XOnlyPublicKey");
+
+            all_watchtower_pubkeys.push(xonly_public_key);
+        }
+        all_watchtower_pubkeys
+
+    }
+}
+
+pub struct WatchtowerContext<'a>{
+    pub watchtower_tx: Transaction,
+    pub previous_txs: Option<&'a [Transaction]>,
+}
+
+
 
 #[derive(Debug, Clone, Copy)]
 pub struct SuccinctBridgeCircuitPublicInputs {
