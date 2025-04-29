@@ -13,6 +13,7 @@ pub mod config;
 pub mod docker;
 pub mod structs;
 pub mod utils;
+pub mod mock_zkvm;
 
 const UTXOS_STORAGE_INDEX: [u8; 32] =
     hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000007");

@@ -2,9 +2,11 @@ use std::ops::{Deref, DerefMut};
 
 use bitcoin::{Amount, ScriptBuf, TxOut, Witness};
 use borsh::{BorshDeserialize, BorshSerialize};
-use final_spv::{spv::SPV, transaction::CircuitTransaction};
-use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
+
+use crate::header_chain::header_chain::BlockHeaderCircuitOutput;
+
+use super::{spv::SPV, transaction::CircuitTransaction};
 
 const NUM_OF_WATCHTOWERS: u8 = 160;
 

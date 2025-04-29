@@ -2,8 +2,11 @@ pub mod constants;
 pub mod groth16;
 pub mod groth16_verifier;
 pub mod lc_proof;
+pub mod merkle_tree;
+pub mod spv;
 pub mod storage_proof;
 pub mod structs;
+pub mod transaction;
 
 use crate::common::zkvm::ZkvmGuest;
 use bitcoin::{
@@ -568,20 +571,14 @@ fn sighash(
 #[cfg(test)]
 mod tests {
     use super::{
-        structs::{CircuitTxOut, CircuitWitness, WatchtowerInput},
-        *,
+        merkle_tree::BlockInclusionProof, spv::SPV, structs::{CircuitTxOut, CircuitWitness, WatchtowerInput}, transaction::CircuitTransaction, *
     };
-    use crate::bridge_circuit::structs::{LightClientProof, StorageProof};
+    use crate::{bridge_circuit::structs::{LightClientProof, StorageProof}, header_chain::{header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader}, mmr_native::MMRInclusionProof}};
     use bitcoin::{
         absolute::Height,
         consensus::{Decodable, Encodable},
         transaction::Version,
         ScriptBuf, Transaction, TxIn, Witness,
-    };
-    use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
-    use header_chain::{
-        header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader},
-        mmr_native::MMRInclusionProof,
     };
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;

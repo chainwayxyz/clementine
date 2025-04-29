@@ -11,10 +11,6 @@ use borsh::{self, BorshDeserialize};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
-use final_spv::merkle_tree::BitcoinMerkleTree;
-use final_spv::spv::SPV;
-use final_spv::transaction::CircuitTransaction;
-use header_chain::header_chain::CircuitBlockHeader;
 
 use header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
@@ -346,6 +342,9 @@ mod tests {
 
     // use crate::config::BCHostParameters;
 
+    use crate::mock_zkvm::MockZkvmHost;
+    use header_chain::zkvm::Risc0Guest;
+
     use super::*;
 
     // const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
@@ -355,10 +354,10 @@ mod tests {
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     use bitvm_prover::TESTNET4_HEADER_CHAIN_GUEST_ELF;
-    use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitOutput;
-    use header_chain::header_chain::{
+    use circuits_lib::{bridge_circuit::structs::WorkOnlyCircuitOutput, common::zkvm::ZkvmHost};
+    use header_chain::{header_chain::{
         BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
-    };
+    }, header_chain_circuit};
 
     // ALSO IMPORTANT FOR HEADERCHAIN IMAGE ID BITCOIN_NETWORK SHOULD BE SET TO "testnet4"
     // pub const TESTNET4_WORK_ONLY_IMAGE_ID: [u8; 32] =
@@ -449,6 +448,48 @@ mod tests {
         //     g16_pi_calculated_outside[0..31]
         // );
         // assert!(bridge_circuit_bitvm_inputs.verify_bridge_circuit(ark_groth16_proof));
+    }
+
+    #[test]
+    fn test_header_chain_circuit() {
+        // Download the headers.bin file from https://zerosync.org/chaindata/headers.bin
+        let headers = TESTNET4_HEADERS
+            .chunks(80)
+            .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+            .collect::<Vec<CircuitBlockHeader>>();
+
+        let host = MockZkvmHost::new();
+
+        let input = HeaderChainCircuitInput {
+            method_id: [0; 8],
+            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            block_headers: headers[..4000].to_vec(),
+        };
+        host.write(&input);
+        header_chain_circuit(&host);
+        let proof = host.prove([0; 8].as_ref());
+
+        let output = BlockHeaderCircuitOutput::try_from_slice(&proof.journal).unwrap();
+        let new_host = MockZkvmHost::new();
+
+        let newinput = HeaderChainCircuitInput {
+            method_id: [0; 8],
+            prev_proof: circuits::header_chain::HeaderChainPrevProofType::PrevProof(output),
+            block_headers: headers[4000..8000].to_vec(),
+        };
+        new_host.write(&newinput);
+        new_host.add_assumption(proof);
+
+        header_chain_circuit(&new_host);
+
+        let new_proof = new_host.prove([0; 8].as_ref());
+
+        let new_output = BlockHeaderCircuitOutput::try_from_slice(&new_proof.journal).unwrap();
+
+        assert_eq!(
+            hex::encode(new_output.chain_state.total_work),
+            "00000000000000000000000000000000000000000000000000001f401f401f40"
+        );
     }
 
     #[test]
