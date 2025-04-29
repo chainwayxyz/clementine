@@ -501,7 +501,6 @@ mod tests {
 
     #[test]
     #[ignore = "This test is too slow and only runs in x86_64."]
-
     fn work_only_from_header_chain_test() {
         std::env::set_var("RISC0_DEV_MODE", "1");
         let testnet4_header_chain_method_id_from_elf: [u32; 8] =
