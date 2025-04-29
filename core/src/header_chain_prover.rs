@@ -262,7 +262,8 @@ impl HeaderChainProver {
 
     /// Proves finalized blocks, starting from the latest block with a proof
     /// to the block with given hash.
-    pub async fn prove_till_hash(
+    /// TODO: This is a work in progress. Will be completed in other PR.
+    pub async fn _prove_till_hash(
         &self,
         block_hash: BlockHash,
     ) -> Result<Option<Receipt>, BridgeError> {
