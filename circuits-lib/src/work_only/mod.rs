@@ -29,7 +29,7 @@ const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
         Some(network) if matches!(network.as_bytes(), b"testnet4") => TESTNET4,
         Some(network) if matches!(network.as_bytes(), b"signet") => SIGNET,
         Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST,
-        None => MAINNET,
+        None => TESTNET4,
         _ => panic!("Invalid network type"),
     }
 };

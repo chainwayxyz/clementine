@@ -28,8 +28,8 @@ fn main() {
     }
 
     let network = env::var("BITCOIN_NETWORK").unwrap_or_else(|_| {
-        println!("cargo:warning=BITCOIN_NETWORK not set, defaulting to 'mainnet'");
-        "mainnet".to_string()
+        println!("cargo:warning=BITCOIN_NETWORK not set, defaulting to 'testnet4'");
+        "testnet4".to_string()
     });
 
     let bridge_circuit_mode = env::var("BRIDGE_CIRCUIT_MODE").unwrap_or_else(|_| {

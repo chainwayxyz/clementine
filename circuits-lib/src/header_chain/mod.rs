@@ -24,7 +24,7 @@ pub mod mmr_native;
 
 /// The main entry point of the header chain circuit.
 pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
-    let start = risc0_zkvm::guest::env::cycle_count();
+    // let start = risc0_zkvm::guest::env::cycle_count();
 
     let input: HeaderChainCircuitInput = guest.read_from_host();
     // println!("Detected network: {:?}", NETWORK_TYPE);
@@ -44,8 +44,8 @@ pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
         method_id: input.method_id,
         chain_state,
     });
-    let end = risc0_zkvm::guest::env::cycle_count();
-    println!("Header chain circuit took {:?} cycles", end - start);
+    // let end = risc0_zkvm::guest::env::cycle_count();
+    // println!("Header chain circuit took {:?} cycles", end - start);
 }
 
 /// Network configuration holder for Bitcoin-specific constants
@@ -62,7 +62,7 @@ pub const NETWORK_TYPE: &str = {
         Some(network) if matches!(network.as_bytes(), b"testnet4") => "testnet4",
         Some(network) if matches!(network.as_bytes(), b"signet") => "signet",
         Some(network) if matches!(network.as_bytes(), b"regtest") => "regtest",
-        None => "mainnet",
+        None => "testnet4",
         _ => panic!("Invalid network type"),
     }
 };
@@ -115,7 +115,7 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
                 0, 0, 0, 0, 0, 0,
             ],
         },
-        // Default to mainnet for None
+        // Default to testnet4 for None
         None => NetworkConstants {
             max_bits: 0x1D00FFFF,
             max_target: U256::from_be_hex(

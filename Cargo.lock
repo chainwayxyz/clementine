@@ -3381,6 +3381,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "header-chain-circuit"
+version = "0.1.0"
+dependencies = [
+ "risc0-binfmt",
+ "risc0-build",
+]
+
+[[package]]
 name = "heapless"
 version = "0.7.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"

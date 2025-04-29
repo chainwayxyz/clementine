@@ -5,6 +5,7 @@ members = [
   "circuits-lib",
   "risc0-circuits/bridge-circuit",
   "risc0-circuits/work-only",
+  "risc0-circuits/header-chain",
   "bridge-circuit-host"
   ]
 
