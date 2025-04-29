@@ -11,7 +11,7 @@ pub static WORK_ONLY_IMAGE_ID: [u8; 32] = match option_env!("BITCOIN_NETWORK") {
     Some(network) if matches!(network.as_bytes(), b"testnet4") => TESTNET4,
     Some(network) if matches!(network.as_bytes(), b"signet") => SIGNET,
     Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST,
-    None => TESTNET4,
+    None => MAINNET,
     _ => panic!("Invalid network type"),
 };
 

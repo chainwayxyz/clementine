@@ -353,10 +353,12 @@ mod tests {
     // const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     //     include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
 
+    const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
+        include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
+
     const TESTNET4_WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
-    use bitvm_prover::TESTNET4_HEADER_CHAIN_GUEST_ELF;
     use circuits_lib::{
         bridge_circuit::structs::WorkOnlyCircuitOutput,
         common::zkvm::ZkvmHost,
@@ -459,6 +461,8 @@ mod tests {
 
     #[test]
     fn test_header_chain_circuit() {
+        let value = option_env!("BITCOIN_NETWORK");
+        println!("BITCOIN_NETWORK: {:?}", value);
         let headers = TESTNET4_HEADERS
             .chunks(80)
             .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
@@ -497,6 +501,7 @@ mod tests {
 
     #[test]
     #[ignore = "This test is too slow and only runs in x86_64."]
+
     fn work_only_from_header_chain_test() {
         std::env::set_var("RISC0_DEV_MODE", "1");
         let testnet4_header_chain_method_id_from_elf: [u32; 8] =

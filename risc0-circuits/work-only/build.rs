@@ -28,8 +28,8 @@ fn main() {
     }
 
     let network = env::var("BITCOIN_NETWORK").unwrap_or_else(|_| {
-        println!("cargo:warning=BITCOIN_NETWORK not set, defaulting to 'testnet4'");
-        "testnet4".to_string()
+        println!("cargo:warning=BITCOIN_NETWORK not set, defaulting to 'mainnet'");
+        "mainnet".to_string()
     });
     println!("cargo:warning=Building for Bitcoin network: {}", network);
 
@@ -149,8 +149,8 @@ fn copy_binary_to_elfs_folder(network: String) {
         "signet" => "../elfs/signet-work-only-guest.bin",
         "regtest" => "../elfs/regtest-work-only-guest.bin",
         _ => {
-            println!("cargo:warning=Invalid network specified, defaulting to testnet4");
-            "../elfs/testnet4-work-only-guest.bin"
+            println!("cargo:warning=Invalid network specified, defaulting to mainnet");
+            "../elfs/mainnet-work-only-guest.bin"
         }
     };
 

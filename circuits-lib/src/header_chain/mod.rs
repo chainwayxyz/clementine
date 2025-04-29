@@ -17,7 +17,7 @@ use mmr_guest::MMRGuest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::common::zkvm::ZkvmGuest;
+use crate::common::{get_network, zkvm::ZkvmGuest};
 
 pub mod mmr_guest;
 pub mod mmr_native;
@@ -56,16 +56,7 @@ pub struct NetworkConstants {
     pub max_target_bytes: [u8; 32],
 }
 
-pub const NETWORK_TYPE: &str = {
-    match option_env!("BITCOIN_NETWORK") {
-        Some(network) if matches!(network.as_bytes(), b"mainnet") => "mainnet",
-        Some(network) if matches!(network.as_bytes(), b"testnet4") => "testnet4",
-        Some(network) if matches!(network.as_bytes(), b"signet") => "signet",
-        Some(network) if matches!(network.as_bytes(), b"regtest") => "regtest",
-        None => "testnet4",
-        _ => panic!("Invalid network type"),
-    }
-};
+pub const NETWORK_TYPE: &str = get_network();
 
 // Const evaluation of network type from environment
 const IS_REGTEST: bool = matches!(NETWORK_TYPE.as_bytes(), b"regtest");
@@ -115,7 +106,7 @@ pub const NETWORK_CONSTANTS: NetworkConstants = {
                 0, 0, 0, 0, 0, 0,
             ],
         },
-        // Default to testnet4 for None
+        // Default to mainnet for None
         None => NetworkConstants {
             max_bits: 0x1D00FFFF,
             max_target: U256::from_be_hex(
@@ -224,6 +215,7 @@ impl ChainState {
     }
 
     pub fn apply_blocks(&mut self, block_headers: Vec<CircuitBlockHeader>) {
+        println!("Network type: {:?}", NETWORK_TYPE);
         let mut current_target_bytes = if IS_REGTEST {
             NETWORK_CONSTANTS.max_target.to_be_bytes()
         } else {
