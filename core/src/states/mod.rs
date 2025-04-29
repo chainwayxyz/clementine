@@ -98,7 +98,7 @@ pub struct StateManager<T: Owner> {
     kickoff_machines: Vec<InitializedStateMachine<kickoff::KickoffStateMachine<T>>>,
     context: context::StateContext<T>,
     paramset: &'static ProtocolParamset,
-    last_processed_block_height: u32,
+    next_height_to_process: u32,
 }
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
@@ -130,7 +130,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             round_machines: Vec::new(),
             kickoff_machines: Vec::new(),
             queue,
-            last_processed_block_height: paramset.start_height,
+            next_height_to_process: paramset.start_height,
         };
 
         mgr.load_from_db().await?;
@@ -146,10 +146,13 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Start a transaction
         let mut tx = self.db.begin_transaction().await?;
 
+        // Get the owner type from the context
+        let owner_type = &self.context.owner_type;
+
         // First, check if we have any state saved
         let status = self
             .db
-            .get_last_processed_block_height(Some(&mut tx))
+            .get_next_height_to_process(Some(&mut tx), owner_type)
             .await?;
 
         // If no state is saved, return early
@@ -159,10 +162,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
             return Ok(());
         };
 
-        tracing::info!("Loading state machines from block height {}", block_height);
-
-        // Get the owner type from the context
-        let owner_type = &self.context.owner_type;
+        tracing::warn!("Loading state machines from block height {}", block_height);
 
         // Load kickoff machines
         let kickoff_machines = self
@@ -255,6 +255,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         );
 
         tx.commit().await?;
+        self.next_height_to_process =
+            u32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?;
         Ok(())
     }
     #[cfg(test)]
@@ -301,7 +303,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                     })?;
 
                 // Use the machine's dirty flag to determine if it needs updating
-                Ok((state_json, (kickoff_id), owner_type.clone(), machine.dirty))
+                Ok((state_json, (kickoff_id), machine.dirty))
             })
             .collect();
 
@@ -316,12 +318,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 let operator_xonly_pk = machine.operator_data.xonly_pk;
 
                 // Use the machine's dirty flag to determine if it needs updating
-                Ok((
-                    state_json,
-                    (operator_xonly_pk),
-                    owner_type.clone(),
-                    machine.dirty,
-                ))
+                Ok((state_json, (operator_xonly_pk), machine.dirty))
             })
             .collect();
 
@@ -332,6 +329,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 kickoff_machines?,
                 round_machines?,
                 block_height as i32,
+                owner_type,
             )
             .await?;
 
@@ -355,8 +353,8 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         Ok(())
     }
 
-    pub fn get_last_processed_block_height(&self) -> u32 {
-        self.last_processed_block_height
+    pub fn get_next_height_to_process(&self) -> u32 {
+        self.next_height_to_process
     }
 
     /// Updates the machines using the context and returns machines without
@@ -415,13 +413,16 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         self.round_machines = new_round_machines;
         self.kickoff_machines = new_kickoff_machines;
 
-        for block_height in start_height..self.last_processed_block_height + 1 {
+        for block_height in start_height..self.next_height_to_process {
             let block = self.db.get_full_block(None, block_height).await?;
             if let Some(block) = block {
                 self.update_block_cache(&block, block_height);
                 self.process_block_parallel(block_height).await?;
             } else {
-                return Err(eyre::eyre!("Block at height {} not found", block_height));
+                return Err(eyre::eyre!(
+                    "Block at height {} not found in process_and_add_new_states_from_height",
+                    block_height
+                ));
             }
         }
 
@@ -549,7 +550,7 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
         // Set back the original machines
         self.round_machines = final_round_machines;
         self.kickoff_machines = final_kickoff_machines;
-        self.last_processed_block_height = max(block_height, self.last_processed_block_height);
+        self.next_height_to_process = max(block_height + 1, self.next_height_to_process);
 
         Ok(())
     }

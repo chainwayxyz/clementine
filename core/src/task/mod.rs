@@ -185,6 +185,7 @@ where
                 Ok(output)
             }
             Err(e) => {
+                tracing::error!("Task error, suppressing due to buffer: {e:?}");
                 self.buffer.push(e);
                 if self.buffer.len() >= self.error_overflow_limit {
                     let mut base_error: eyre::Report =
@@ -245,7 +246,15 @@ where
     type Output = T::Output;
 
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        Ok(self.inner.run_once().await.ok().unwrap_or_default())
+        Ok(self
+            .inner
+            .run_once()
+            .await
+            .inspect_err(|e| {
+                tracing::error!("Task error, suppressing due to errors ignored: {e:?}");
+            })
+            .ok()
+            .unwrap_or_default())
     }
 }
 

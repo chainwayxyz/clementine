@@ -8,7 +8,7 @@
 
 use clementine_core::{
     citrea::CitreaClient,
-    cli::{self, get_configuration_from_cli},
+    cli::{self, get_cli_config},
     database::Database,
     servers::{
         create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
@@ -17,7 +17,7 @@ use clementine_core::{
 
 #[tokio::main]
 async fn main() {
-    let (config, args) = get_configuration_from_cli();
+    let (config, args) = get_cli_config();
 
     Database::run_schema_script(&config, args.actor == cli::Actors::Verifier)
         .await
