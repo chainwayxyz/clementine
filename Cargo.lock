@@ -1828,8 +1828,6 @@ dependencies = [
  "borsh",
  "circuits-lib",
  "eyre",
- "final-spv",
- "header-chain",
  "hex",
  "hex-literal",
  "num-bigint 0.4.6",

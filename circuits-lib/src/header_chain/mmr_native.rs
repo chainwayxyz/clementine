@@ -9,6 +9,12 @@ pub struct MMRNative {
     pub nodes: Vec<Vec<[u8; 32]>>,
 }
 
+impl Default for MMRNative {
+    fn default() -> Self {
+        MMRNative::new()
+    }
+}
+
 impl MMRNative {
     /// Creates a new MMR for native usage.
     pub fn new() -> Self {
@@ -55,32 +61,9 @@ impl MMRNative {
         subroots
     }
 
-    /// Returns the root of the MMR.
-    // pub fn get_root(&self) -> [u8; 32] {
-    //     let mut preimage: Vec<u8> = vec![];
-    //     let subroots = self.get_subroots();
-    //     for i in 0..subroots.len() {
-    //         preimage.extend_from_slice(&subroots[i]);
-    //     }
-    //     calculate_sha256(&preimage)
-    // }
-
-    /// Returns the subroot helpers for a given subroot. These are the subroots that are not the provided subroot.
-    // fn get_subroot_helpers(&self, subroot: [u8; 32]) -> Vec<[u8; 32]> {
-    //     let mut subroots: Vec<[u8; 32]> = vec![];
-    //     for level in &self.nodes {
-    //         if level.len() % 2 == 1 {
-    //             if level[level.len() - 1] != subroot {
-    //                 subroots.push(level[level.len() - 1]);
-    //             }
-    //         }
-    //     }
-    //     subroots
-    // }
-
     /// Generates a proof for a given index. Returns the leaf as well.
     pub fn generate_proof(&self, index: u32) -> ([u8; 32], MMRInclusionProof) {
-        if self.nodes[0].len() == 0 {
+        if self.nodes[0].is_empty() {
             panic!("MMR is empty");
         }
         if self.nodes[0].len() <= index as usize {
@@ -99,7 +82,7 @@ impl MMRNative {
                 current_index - 1
             };
             proof.push(self.nodes[current_level][sibling_index as usize]);
-            current_index = current_index / 2;
+            current_index /= 2;
             current_level += 1;
         }
         let (subroot_idx, internal_idx) = self.get_helpers_from_index(index);
@@ -184,7 +167,6 @@ mod tests {
     use crate::header_chain::mmr_guest::MMRGuest;
 
     use super::MMRNative;
-
 
     #[test]
     #[should_panic(expected = "MMR is empty")]

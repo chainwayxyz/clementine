@@ -13,6 +13,12 @@ pub struct MMRGuest {
     pub size: u32,
 }
 
+impl Default for MMRGuest {
+    fn default() -> Self {
+        MMRGuest::new()
+    }
+}
+
 impl MMRGuest {
     /// Creates a new MMR for inside zkVM
     pub fn new() -> Self {

@@ -22,7 +22,7 @@ impl MockZkvmHost {
 impl ZkvmGuest for MockZkvmHost {
     fn read_from_host<T: borsh::BorshDeserialize>(&self) -> T {
         let data = self.data.lock().unwrap();
-        return T::try_from_slice(&data.values).unwrap();
+        T::try_from_slice(&data.values).unwrap()
     }
     fn commit<T: borsh::BorshSerialize>(&self, item: &T) {
         let mut data = self.data.lock().unwrap();

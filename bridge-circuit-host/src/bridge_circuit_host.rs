@@ -9,10 +9,14 @@ use bitcoin::Transaction;
 use bitcoin::{consensus::Decodable, hashes::Hash};
 use borsh::{self, BorshDeserialize};
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
+use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
+use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
 
-use header_chain::mmr_native::MMRNative;
+use circuits_lib::header_chain::mmr_native::MMRNative;
+use circuits_lib::header_chain::CircuitBlockHeader;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
 
@@ -343,7 +347,6 @@ mod tests {
     // use crate::config::BCHostParameters;
 
     use crate::mock_zkvm::MockZkvmHost;
-    use header_chain::zkvm::Risc0Guest;
 
     use super::*;
 
@@ -354,10 +357,14 @@ mod tests {
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
     use bitvm_prover::TESTNET4_HEADER_CHAIN_GUEST_ELF;
-    use circuits_lib::{bridge_circuit::structs::WorkOnlyCircuitOutput, common::zkvm::ZkvmHost};
-    use header_chain::{header_chain::{
-        BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
-    }, header_chain_circuit};
+    use circuits_lib::{
+        bridge_circuit::structs::WorkOnlyCircuitOutput,
+        common::zkvm::ZkvmHost,
+        header_chain::{
+            header_chain_circuit, BlockHeaderCircuitOutput, HeaderChainCircuitInput,
+            HeaderChainPrevProofType,
+        },
+    };
 
     // ALSO IMPORTANT FOR HEADERCHAIN IMAGE ID BITCOIN_NETWORK SHOULD BE SET TO "testnet4"
     // pub const TESTNET4_WORK_ONLY_IMAGE_ID: [u8; 32] =
@@ -474,7 +481,7 @@ mod tests {
 
         let newinput = HeaderChainCircuitInput {
             method_id: [0; 8],
-            prev_proof: circuits::header_chain::HeaderChainPrevProofType::PrevProof(output),
+            prev_proof: HeaderChainPrevProofType::PrevProof(output),
             block_headers: headers[4000..8000].to_vec(),
         };
         new_host.write(&newinput);

@@ -4,7 +4,7 @@ use bitcoin::{Amount, ScriptBuf, TxOut, Witness};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use crate::header_chain::header_chain::BlockHeaderCircuitOutput;
+use crate::header_chain::BlockHeaderCircuitOutput;
 
 use super::{spv::SPV, transaction::CircuitTransaction};
 

@@ -571,9 +571,18 @@ fn sighash(
 #[cfg(test)]
 mod tests {
     use super::{
-        merkle_tree::BlockInclusionProof, spv::SPV, structs::{CircuitTxOut, CircuitWitness, WatchtowerInput}, transaction::CircuitTransaction, *
+        merkle_tree::BlockInclusionProof,
+        spv::SPV,
+        structs::{CircuitTxOut, CircuitWitness, WatchtowerInput},
+        transaction::CircuitTransaction,
+        *,
     };
-    use crate::{bridge_circuit::structs::{LightClientProof, StorageProof}, header_chain::{header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader}, mmr_native::MMRInclusionProof}};
+    use crate::{
+        bridge_circuit::structs::{LightClientProof, StorageProof},
+        header_chain::{
+            mmr_native::MMRInclusionProof, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
+        },
+    };
     use bitcoin::{
         absolute::Height,
         consensus::{Decodable, Encodable},

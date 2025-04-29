@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::header_chain::{header_chain::CircuitBlockHeader, mmr_guest::MMRGuest, mmr_native::MMRInclusionProof};
+use crate::header_chain::{mmr_guest::MMRGuest, mmr_native::MMRInclusionProof, CircuitBlockHeader};
 
 use super::{merkle_tree::BlockInclusionProof, transaction::CircuitTransaction};
 
@@ -43,9 +43,14 @@ mod tests {
     use borsh::BorshDeserialize;
     use hex_literal::hex;
 
-    use crate::{bridge_circuit::{merkle_tree::{verify_merkle_proof, BitcoinMerkleTree, BlockInclusionProof}, spv::SPV, transaction::CircuitTransaction}, header_chain::{header_chain::CircuitBlockHeader, mmr_guest::MMRGuest, mmr_native::MMRNative}};
-
-
+    use crate::{
+        bridge_circuit::{
+            merkle_tree::{verify_merkle_proof, BitcoinMerkleTree, BlockInclusionProof},
+            spv::SPV,
+            transaction::CircuitTransaction,
+        },
+        header_chain::{mmr_guest::MMRGuest, mmr_native::MMRNative, CircuitBlockHeader},
+    };
 
     // Mainnet block headers from 0 to 16
     const MAINNET_BLOCK_HEADERS: [[u8; 80]; 16] = [
@@ -99,7 +104,7 @@ mod tests {
             .iter()
             .map(|tx| {
                 println!("{:?}", tx);
-                CircuitTransaction(bitcoin::consensus::deserialize(*tx).unwrap())
+                CircuitTransaction(bitcoin::consensus::deserialize(tx).unwrap())
             })
             .collect::<Vec<CircuitTransaction>>();
         let mut bitcoin_merkle_proofs: Vec<BlockInclusionProof> = vec![];
