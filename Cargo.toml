@@ -3,8 +3,6 @@ resolver = "2"
 members = [
   "core",
   "circuits-lib",
-  "risc0-circuits/bridge-circuit",
-  "risc0-circuits/work-only",
   "bridge-circuit-host"
   ]
 
