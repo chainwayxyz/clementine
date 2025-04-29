@@ -1,5 +1,4 @@
 //! # Common Utilities for Integration Tests
-use std::time::Duration;
 
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
@@ -32,6 +31,7 @@ use citrea::get_transaction_params;
 use eyre::Context;
 use secp256k1::rand;
 pub use setup_utils::*;
+use std::time::Duration;
 use tonic::transport::Channel;
 use tonic::Request;
 use tx_utils::get_txid_where_utxo_is_spent;
@@ -142,19 +142,21 @@ pub async fn mine_once_after_in_mempool(
     let tx_name = tx_name.unwrap_or("Unnamed tx");
 
     loop {
+        tracing::debug!("Waiting for {} transaction to hit mempool...", tx_name);
+
+        if rpc.client.get_mempool_entry(&txid).await.is_ok() {
+            tracing::debug!("{} transaction to hit the mempool", tx_name);
+            break;
+        };
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
             return Err(BridgeError::Error(format!(
                 "{} did not land onchain within {} seconds",
                 tx_name, timeout
             )));
         }
-
-        if rpc.client.get_mempool_entry(&txid).await.is_ok() {
-            break;
-        };
-
-        tracing::info!("Waiting for {} transaction to hit mempool...", tx_name);
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
     rpc.mine_blocks(1).await?;
@@ -164,19 +166,10 @@ pub async fn mine_once_after_in_mempool(
         .get_raw_transaction_info(&txid, None)
         .await
         .map_err(|e| {
-            BridgeError::Error(format!(
-            "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
-            tx_name,
-            e
-        ))
+            BridgeError::Error(format!("Failed to get raw transaction {}: {}", tx_name, e))
         })?;
 
     if tx.blockhash.is_none() {
-        tracing::error!(
-            "{} did not land onchain after in mempool and mining 1 block",
-            tx_name
-        );
-
         return Err(BridgeError::Error(format!(
             "{} did not land onchain after in mempool and mining 1 block",
             tx_name
