@@ -182,6 +182,9 @@ impl ProtocolParamset {
             time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
+            header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
+                "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            )?,
         };
 
         Ok(config)
