@@ -61,10 +61,11 @@ pub fn prove_bridge_circuit(
     [u8; 31],
     BridgeCircuitBitvmInputs,
 ) {
-
-    let all_watchtower_pubkeys:Vec<[u8; 32]> = bridge_circuit_host_params.all_watchtower_pubkeys.iter().map(|pubkey| {
-        pubkey.serialize()
-    }).collect();
+    let all_watchtower_pubkeys: Vec<[u8; 32]> = bridge_circuit_host_params
+        .all_watchtower_pubkeys
+        .iter()
+        .map(|pubkey| pubkey.serialize())
+        .collect();
 
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         kickoff_tx: bridge_circuit_host_params.kickoff_tx,
@@ -73,7 +74,7 @@ pub fn prove_bridge_circuit(
         payout_spv: bridge_circuit_host_params.spv,
         lcp: bridge_circuit_host_params.light_client_proof,
         sp: bridge_circuit_host_params.storage_proof,
-        all_watchtower_pubkeys
+        all_watchtower_pubkeys,
     };
 
     let header_chain_proof_output_serialized =

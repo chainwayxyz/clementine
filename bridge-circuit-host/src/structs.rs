@@ -28,6 +28,7 @@ impl BridgeCircuitHostParams {
     const NUMBER_OF_ASSERT_TXS: usize = 33;
     const OP_RETURN_OUTPUT: usize = 1;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         kickoff_tx: Transaction,
         spv: SPV,
@@ -54,6 +55,7 @@ impl BridgeCircuitHostParams {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_wt_tx(
         kickoff_tx: Transaction,
         spv: SPV,
@@ -63,9 +65,8 @@ impl BridgeCircuitHostParams {
         lcp_receipt: Receipt,
         storage_proof: StorageProof,
         network: Network,
-        watchtower_contexts: &[WatchtowerContext]
+        watchtower_contexts: &[WatchtowerContext],
     ) -> Self {
-
         let watchtower_inputs = Self::get_wt_inputs(&kickoff_tx, watchtower_contexts);
 
         let all_watchtower_pubkeys = Self::get_all_pubkeys(&kickoff_tx);
@@ -88,42 +89,44 @@ impl BridgeCircuitHostParams {
         kickoff_tx: &Transaction,
         watchtower_contexts: &[WatchtowerContext],
     ) -> Vec<WatchtowerInput> {
-
-        watchtower_contexts.iter().map(|context| {
-            WatchtowerInput::from_txs(kickoff_tx, context.watchtower_tx.clone(), context.previous_txs).expect("Failed to create WatchtowerInput")
-
-        }).collect()
+        watchtower_contexts
+            .iter()
+            .map(|context| {
+                WatchtowerInput::from_txs(
+                    kickoff_tx,
+                    context.watchtower_tx.clone(),
+                    context.previous_txs,
+                )
+                .expect("Failed to create WatchtowerInput")
+            })
+            .collect()
     }
 
     fn get_all_pubkeys(kickoff_tx: &Transaction) -> Vec<XOnlyPublicKey> {
-        let start_index = Self::FIRST_FIVE_OUTPUTS + Self::NUMBER_OF_ASSERT_TXS; 
+        let start_index = Self::FIRST_FIVE_OUTPUTS + Self::NUMBER_OF_ASSERT_TXS;
         let end_index = kickoff_tx.output.len() - Self::OP_RETURN_OUTPUT;
 
         let mut all_watchtower_pubkeys = Vec::new();
-        
-        // two by two 
-        
+
+        // two by two
+
         for i in (start_index..end_index).step_by(2) {
             let output = &kickoff_tx.output[i];
 
-            let xonly_public_key = XOnlyPublicKey::from_slice(
-                &output.script_pubkey.as_bytes()[2..34],
-            )
-            .expect("Failed to create XOnlyPublicKey");
+            let xonly_public_key =
+                XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34])
+                    .expect("Failed to create XOnlyPublicKey");
 
             all_watchtower_pubkeys.push(xonly_public_key);
         }
         all_watchtower_pubkeys
-
     }
 }
 
-pub struct WatchtowerContext<'a>{
+pub struct WatchtowerContext<'a> {
     pub watchtower_tx: Transaction,
     pub previous_txs: Option<&'a [Transaction]>,
 }
-
-
 
 #[derive(Debug, Clone, Copy)]
 pub struct SuccinctBridgeCircuitPublicInputs {

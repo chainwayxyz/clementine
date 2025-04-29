@@ -345,10 +345,11 @@ fn verify_watchtower_challenges(
             );
         }
 
-        let pubkey: [u8; 32] = script_pubkey.as_bytes()[2..34].try_into().expect("Cannot fail");
+        let pubkey: [u8; 32] = script_pubkey.as_bytes()[2..34]
+            .try_into()
+            .expect("Cannot fail");
 
-        if circuit_input.all_watchtower_pubkeys[watchtower_input.watchtower_idx as usize]
-            != pubkey
+        if circuit_input.all_watchtower_pubkeys[watchtower_input.watchtower_idx as usize] != pubkey
         {
             panic!(
                 "Invalid watchtower public key, watchtower index: {}",
@@ -519,7 +520,7 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
 fn deposit_constant(
     last_output: &TxOut,
     kickoff_txid: &Txid,
-    watchtower_pubkeys: &[[u8;32]],
+    watchtower_pubkeys: &[[u8; 32]],
     move_txid_hex: [u8; 32],
 ) -> [u8; 32] {
     let last_output_script = last_output.script_pubkey.to_bytes();
@@ -575,7 +576,10 @@ mod tests {
     };
     use crate::bridge_circuit::structs::{LightClientProof, StorageProof};
     use bitcoin::{
-        absolute::Height, consensus::{Decodable, Encodable}, transaction::Version, ScriptBuf, Transaction, TxIn, Witness
+        absolute::Height,
+        consensus::{Decodable, Encodable},
+        transaction::Version,
+        ScriptBuf, Transaction, TxIn, Witness,
     };
     use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
     use header_chain::{
@@ -630,7 +634,8 @@ mod tests {
 
         let pubkey = hex::decode(pubkey_hex).unwrap();
 
-        watchtower_pubkeys[operator_idx as usize] = pubkey.try_into().expect("Pubkey must be 32 bytes");
+        watchtower_pubkeys[operator_idx as usize] =
+            pubkey.try_into().expect("Pubkey must be 32 bytes");
 
         let input = BridgeCircuitInput {
             kickoff_tx: CircuitTransaction(kickoff_tx.clone()),
