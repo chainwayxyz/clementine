@@ -23,6 +23,18 @@ pub struct BridgeCircuitHostParams {
     pub all_watchtower_pubkeys: Vec<XOnlyPublicKey>,
 }
 
+#[derive(Debug, Clone)]
+pub enum BridgeCircuitHostParamsError {
+    InvalidKickoffTx,
+    InvalidHeaderchainReceipt,
+    InvalidLightClientProof,
+    InvalidLcpReceipt,
+    InvalidStorageProof,
+    InvalidNetwork,
+    InvalidWatchtowerInputs,
+    InvalidPubkey,
+}
+
 impl BridgeCircuitHostParams {
     const FIRST_FIVE_OUTPUTS: usize = 5;
     const NUMBER_OF_ASSERT_TXS: usize = 33;
@@ -59,19 +71,22 @@ impl BridgeCircuitHostParams {
     pub fn new_with_wt_tx(
         kickoff_tx: Transaction,
         spv: SPV,
-        block_header_circuit_output: BlockHeaderCircuitOutput,
         headerchain_receipt: Receipt,
         light_client_proof: LightClientProof,
         lcp_receipt: Receipt,
         storage_proof: StorageProof,
         network: Network,
         watchtower_contexts: &[WatchtowerContext],
-    ) -> Self {
-        let watchtower_inputs = Self::get_wt_inputs(&kickoff_tx, watchtower_contexts);
+    ) -> Result<Self, BridgeCircuitHostParamsError> {
+        let watchtower_inputs = Self::get_wt_inputs(&kickoff_tx, watchtower_contexts)?;
 
-        let all_watchtower_pubkeys = Self::get_all_pubkeys(&kickoff_tx);
+        let block_header_circuit_output: BlockHeaderCircuitOutput = borsh::from_slice(&headerchain_receipt.journal.bytes).map_err(|_| {
+            BridgeCircuitHostParamsError::InvalidHeaderchainReceipt
+        })?;
 
-        BridgeCircuitHostParams {
+        let all_watchtower_pubkeys = Self::get_all_pubkeys(&kickoff_tx)?;
+
+        Ok(BridgeCircuitHostParams {
             kickoff_tx: CircuitTransaction::from(kickoff_tx),
             spv,
             block_header_circuit_output,
@@ -82,13 +97,13 @@ impl BridgeCircuitHostParams {
             network,
             watchtower_inputs,
             all_watchtower_pubkeys,
-        }
+        })
     }
 
     fn get_wt_inputs(
         kickoff_tx: &Transaction,
         watchtower_contexts: &[WatchtowerContext],
-    ) -> Vec<WatchtowerInput> {
+    ) -> Result<Vec<WatchtowerInput>, BridgeCircuitHostParamsError> {
         watchtower_contexts
             .iter()
             .map(|context| {
@@ -97,12 +112,14 @@ impl BridgeCircuitHostParams {
                     context.watchtower_tx.clone(),
                     context.previous_txs,
                 )
-                .expect("Failed to create WatchtowerInput")
+                .map_err(|_| {
+                    BridgeCircuitHostParamsError::InvalidWatchtowerInputs
+                })
             })
             .collect()
     }
 
-    fn get_all_pubkeys(kickoff_tx: &Transaction) -> Vec<XOnlyPublicKey> {
+    fn get_all_pubkeys(kickoff_tx: &Transaction) -> Result<Vec<XOnlyPublicKey>, BridgeCircuitHostParamsError> {
         let start_index = Self::FIRST_FIVE_OUTPUTS + Self::NUMBER_OF_ASSERT_TXS;
         let end_index = kickoff_tx.output.len() - Self::OP_RETURN_OUTPUT;
 
@@ -114,12 +131,14 @@ impl BridgeCircuitHostParams {
             let output = &kickoff_tx.output[i];
 
             let xonly_public_key =
-                XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34])
-                    .expect("Failed to create XOnlyPublicKey");
+                XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34]).map_err(|_| {
+                    BridgeCircuitHostParamsError::InvalidPubkey
+                })?;
+                    
 
             all_watchtower_pubkeys.push(xonly_public_key);
         }
-        all_watchtower_pubkeys
+        Ok(all_watchtower_pubkeys)
     }
 }
 
