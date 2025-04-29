@@ -80,9 +80,9 @@ impl BridgeCircuitHostParams {
     ) -> Result<Self, BridgeCircuitHostParamsError> {
         let watchtower_inputs = Self::get_wt_inputs(&kickoff_tx, watchtower_contexts)?;
 
-        let block_header_circuit_output: BlockHeaderCircuitOutput = borsh::from_slice(&headerchain_receipt.journal.bytes).map_err(|_| {
-            BridgeCircuitHostParamsError::InvalidHeaderchainReceipt
-        })?;
+        let block_header_circuit_output: BlockHeaderCircuitOutput =
+            borsh::from_slice(&headerchain_receipt.journal.bytes)
+                .map_err(|_| BridgeCircuitHostParamsError::InvalidHeaderchainReceipt)?;
 
         let all_watchtower_pubkeys = Self::get_all_pubkeys(&kickoff_tx)?;
 
@@ -112,14 +112,14 @@ impl BridgeCircuitHostParams {
                     context.watchtower_tx.clone(),
                     context.previous_txs,
                 )
-                .map_err(|_| {
-                    BridgeCircuitHostParamsError::InvalidWatchtowerInputs
-                })
+                .map_err(|_| BridgeCircuitHostParamsError::InvalidWatchtowerInputs)
             })
             .collect()
     }
 
-    fn get_all_pubkeys(kickoff_tx: &Transaction) -> Result<Vec<XOnlyPublicKey>, BridgeCircuitHostParamsError> {
+    fn get_all_pubkeys(
+        kickoff_tx: &Transaction,
+    ) -> Result<Vec<XOnlyPublicKey>, BridgeCircuitHostParamsError> {
         let start_index = Self::FIRST_FIVE_OUTPUTS + Self::NUMBER_OF_ASSERT_TXS;
         let end_index = kickoff_tx.output.len() - Self::OP_RETURN_OUTPUT;
 
@@ -131,10 +131,8 @@ impl BridgeCircuitHostParams {
             let output = &kickoff_tx.output[i];
 
             let xonly_public_key =
-                XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34]).map_err(|_| {
-                    BridgeCircuitHostParamsError::InvalidPubkey
-                })?;
-                    
+                XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34])
+                    .map_err(|_| BridgeCircuitHostParamsError::InvalidPubkey)?;
 
             all_watchtower_pubkeys.push(xonly_public_key);
         }
