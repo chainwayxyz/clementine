@@ -1110,8 +1110,8 @@ where
         );
         tracing::warn!("Storage proof: {:?}", storage_proof);
         tracing::warn!(
-            "Header chain proof receipt {:?}",
-            borsh::to_vec(&current_hcp).wrap_err("Failed to serialize hcp receipt")?
+            "Kickoff tx bytes: {:?}",
+            bitcoin::consensus::serialize(&kickoff_tx)
         );
         tracing::warn!(
             "Watchtower challenges (index, transaction): {:?}",
@@ -1124,6 +1124,10 @@ where
         tracing::warn!(
             "Committed latest blockhash witness: {:?}",
             _latest_blockhash
+        );
+        tracing::warn!(
+            "Header chain proof receipt {:?}",
+            borsh::to_vec(&current_hcp).wrap_err("Failed to serialize hcp receipt")?
         );
 
         return Ok(());
@@ -1141,12 +1145,12 @@ where
             watchtower_inputs: todo!(),
         };
 
-        let (g16_proof, g16_output, _public_inputs) =
+        let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, _BRIDGE_CIRCUIT_ELF);
         tracing::warn!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
-        let asserts  = generate_assertions(
+        let asserts = generate_assertions(
             g16_proof,
             vec![public_input_scalar],
             &get_ark_verifying_key(),
@@ -1159,7 +1163,10 @@ where
                     kickoff_data,
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
                 },
-                ClementineBitVMPublicKeys::get_assert_commit_data(asserts),
+                ClementineBitVMPublicKeys::get_assert_commit_data(
+                    asserts,
+                    &public_inputs.challenge_sending_watchtowers,
+                ),
             )
             .await?;
 

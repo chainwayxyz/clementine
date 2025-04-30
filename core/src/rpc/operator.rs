@@ -148,11 +148,14 @@ where
             .operator
             .create_assert_commitment_txs(
                 tx_req_data,
-                ClementineBitVMPublicKeys::get_assert_commit_data((
-                    [[0u8; 32]; NUM_PUBS],
-                    [[0u8; 32]; NUM_U256],
-                    [[0u8; 16]; NUM_HASH],
-                )),
+                ClementineBitVMPublicKeys::get_assert_commit_data(
+                    (
+                        [[0u8; 32]; NUM_PUBS],
+                        [[0u8; 32]; NUM_U256],
+                        [[0u8; 16]; NUM_HASH],
+                    ),
+                    &[0u8; 20],
+                ),
             )
             .await?;
 
