@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use bitcoin::FeeRate;
 use tonic::async_trait;
 
 use crate::errors::ResultExt;
