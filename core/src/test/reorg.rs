@@ -1,4 +1,3 @@
-use super::common::citrea::get_bridge_params;
 use crate::actor::Actor;
 use crate::builder::transaction::{BaseDepositData, DepositInfo, DepositType};
 use crate::citrea::mock::MockCitreaClient;
@@ -14,15 +13,15 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::Txid;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
-use citrea_e2e::config::{BitcoinConfig, SequencerConfig, TestCaseDockerConfig};
+use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
 use citrea_e2e::test_case::TestCaseRunner;
 use citrea_e2e::Result;
 use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
 use tonic::{async_trait, Request};
 
-struct ReorgOnDeposit;
+struct TxSenderReorgBehavior;
 #[async_trait]
-impl TestCase for ReorgOnDeposit {
+impl TestCase for TxSenderReorgBehavior {
     fn bitcoin_config() -> BitcoinConfig {
         BitcoinConfig {
             extra_args: vec![
@@ -47,9 +46,89 @@ impl TestCase for ReorgOnDeposit {
         }
     }
 
-    fn sequencer_config() -> SequencerConfig {
-        SequencerConfig {
-            bridge_initialize_params: get_bridge_params(),
+    async fn run_test(&mut self, f: &mut TestFramework) -> Result<()> {
+        let (da0, da1) = (
+            f.bitcoin_nodes.get(0).unwrap(),
+            f.bitcoin_nodes.get(1).unwrap(),
+        );
+
+        let mut config = create_test_config_with_thread_name().await;
+        const PARAMSET: ProtocolParamset = ProtocolParamset {
+            finality_depth: DEFAULT_FINALITY_DEPTH as u32,
+            ..REGTEST_PARAMSET
+        };
+        config.protocol_paramset = &PARAMSET;
+        citrea::update_config_with_citrea_e2e_values(
+            &mut config,
+            da0,
+            f.sequencer.as_ref().expect("Sequencer is present"),
+            None,
+        );
+
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        // Reorg will happen before the deposit tx.
+        f.bitcoin_nodes.disconnect_nodes().await?;
+
+        let before_reorg_tip_height = rpc.client.get_block_count().await?;
+        let before_reorg_tip_hash = rpc.client.get_block_hash(before_reorg_tip_height).await?;
+
+        // Make the second branch longer and perform a reorg.
+        da1.generate(3).await.unwrap();
+        f.bitcoin_nodes.connect_nodes().await?;
+        f.bitcoin_nodes.wait_for_sync(None).await?;
+
+        // Check that reorg happened.
+        let current_tip_height = rpc.client.get_block_count().await?;
+        assert_eq!(
+            before_reorg_tip_height + 3,
+            current_tip_height,
+            "Re-org did not occur"
+        );
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).await?;
+        assert_ne!(
+            before_reorg_tip_hash, current_tip_hash,
+            "Re-org did not occur"
+        );
+
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn tx_sender_reorg_behavior() -> Result<()> {
+    TestCaseRunner::new(TxSenderReorgBehavior).run().await
+}
+
+struct ReorgOnDeposit;
+#[async_trait]
+impl TestCase for ReorgOnDeposit {
+    fn bitcoin_config() -> BitcoinConfig {
+        BitcoinConfig {
+            extra_args: vec![
+                "-txindex=1",
+                "-fallbackfee=0.000001",
+                "-rpcallowip=0.0.0.0/0",
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn test_config() -> TestCaseConfig {
+        TestCaseConfig {
+            with_sequencer: true,
+            with_batch_prover: false,
+            n_nodes: 2,
+            docker: TestCaseDockerConfig {
+                bitcoin: true,
+                citrea: true,
+            },
             ..Default::default()
         }
     }
