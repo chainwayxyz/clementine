@@ -2,6 +2,7 @@ use ark_bn254::Bn254;
 use ark_ff::PrimeField;
 use bitcoin::{Network, Transaction, XOnlyPublicKey};
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof, WatchtowerInput};
+use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use final_spv::{spv::SPV, transaction::CircuitTransaction};
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
@@ -20,7 +21,7 @@ pub struct BridgeCircuitHostParams {
     pub storage_proof: StorageProof,
     pub network: Network,
     pub watchtower_inputs: Vec<WatchtowerInput>,
-    pub all_watchtower_pubkeys: Vec<XOnlyPublicKey>,
+    pub all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,11 +34,10 @@ pub enum BridgeCircuitHostParamsError {
     InvalidNetwork,
     InvalidWatchtowerInputs,
     InvalidPubkey,
+    InvalidNumberOfKickoffOutputs,
 }
 
 impl BridgeCircuitHostParams {
-    const FIRST_FIVE_OUTPUTS: usize = 5;
-    const NUMBER_OF_ASSERT_TXS: usize = 33;
     const OP_RETURN_OUTPUT: usize = 1;
 
     #[allow(clippy::too_many_arguments)]
@@ -51,7 +51,7 @@ impl BridgeCircuitHostParams {
         storage_proof: StorageProof,
         network: Network,
         watchtower_inputs: Vec<WatchtowerInput>,
-        all_watchtower_pubkeys: Vec<XOnlyPublicKey>,
+        all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
     ) -> Self {
         BridgeCircuitHostParams {
             kickoff_tx: CircuitTransaction::from(kickoff_tx),
@@ -63,7 +63,7 @@ impl BridgeCircuitHostParams {
             storage_proof,
             network,
             watchtower_inputs,
-            all_watchtower_pubkeys,
+            all_tweaked_watchtower_pubkeys,
         }
     }
 
@@ -84,7 +84,7 @@ impl BridgeCircuitHostParams {
             borsh::from_slice(&headerchain_receipt.journal.bytes)
                 .map_err(|_| BridgeCircuitHostParamsError::InvalidHeaderchainReceipt)?;
 
-        let all_watchtower_pubkeys = Self::get_all_pubkeys(&kickoff_tx)?;
+        let all_tweaked_watchtower_pubkeys = Self::get_all_pubkeys(&kickoff_tx)?;
 
         Ok(BridgeCircuitHostParams {
             kickoff_tx: CircuitTransaction::from(kickoff_tx),
@@ -96,7 +96,7 @@ impl BridgeCircuitHostParams {
             storage_proof,
             network,
             watchtower_inputs,
-            all_watchtower_pubkeys,
+            all_tweaked_watchtower_pubkeys,
         })
     }
 
@@ -120,12 +120,14 @@ impl BridgeCircuitHostParams {
     fn get_all_pubkeys(
         kickoff_tx: &Transaction,
     ) -> Result<Vec<XOnlyPublicKey>, BridgeCircuitHostParamsError> {
-        let start_index = Self::FIRST_FIVE_OUTPUTS + Self::NUMBER_OF_ASSERT_TXS;
-        let end_index = kickoff_tx.output.len() - Self::OP_RETURN_OUTPUT;
+        let start_index = FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS;
+        let end_index = kickoff_tx
+            .output
+            .len()
+            .checked_sub(Self::OP_RETURN_OUTPUT)
+            .ok_or(BridgeCircuitHostParamsError::InvalidNumberOfKickoffOutputs)?;
 
-        let mut all_watchtower_pubkeys = Vec::new();
-
-        // two by two
+        let mut all_tweaked_watchtower_pubkeys = Vec::new();
 
         for i in (start_index..end_index).step_by(2) {
             let output = &kickoff_tx.output[i];
@@ -134,9 +136,9 @@ impl BridgeCircuitHostParams {
                 XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34])
                     .map_err(|_| BridgeCircuitHostParamsError::InvalidPubkey)?;
 
-            all_watchtower_pubkeys.push(xonly_public_key);
+            all_tweaked_watchtower_pubkeys.push(xonly_public_key);
         }
-        Ok(all_watchtower_pubkeys)
+        Ok(all_tweaked_watchtower_pubkeys)
     }
 }
 

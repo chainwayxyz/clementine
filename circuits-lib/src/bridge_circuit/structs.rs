@@ -1,12 +1,13 @@
 use std::ops::{Deref, DerefMut};
 
+use crate::common::constants::{
+    FIRST_FIVE_OUTPUTS, MAX_NUMBER_OF_WATCHTOWERS, NUMBER_OF_ASSERT_TXS,
+};
 use bitcoin::{Amount, ScriptBuf, Transaction, TxOut, Witness};
 use borsh::{BorshDeserialize, BorshSerialize};
 use final_spv::{spv::SPV, transaction::CircuitTransaction};
 use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
-
-const NUM_OF_WATCHTOWERS: u8 = 160;
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitInput {
@@ -57,9 +58,6 @@ pub struct WatchtowerInput {
 }
 
 impl WatchtowerInput {
-    const FIRST_FIVE_OUTPUTS: usize = 5;
-    const NUMBER_OF_ASSERT_TXS: usize = 33;
-
     pub fn new(
         watchtower_idx: u8,
         watchtower_challenge_input_idx: u8,
@@ -67,7 +65,7 @@ impl WatchtowerInput {
         watchtower_challenge_tx: Transaction,
         watchtower_challenge_witness: Witness,
     ) -> Result<Self, &'static str> {
-        if watchtower_idx >= NUM_OF_WATCHTOWERS {
+        if watchtower_idx as usize >= MAX_NUMBER_OF_WATCHTOWERS {
             return Err("Watchtower index out of bounds");
         }
 
@@ -90,6 +88,41 @@ impl WatchtowerInput {
         })
     }
 
+    /// Constructs a `WatchtowerInput` instance from the kickoff transaction, the watchtower transaction and
+    /// an optional slice of previous transactions.
+    ///
+    /// # Arguments
+    ///
+    /// - `kickoff_tx`: The kickoff transaction whose output is consumed by an input of the watchtower transaction.
+    /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
+    ///   referencing the `kickoff_tx`.
+    /// * `previous_txs` - An optional slice of transactions, each of which should include
+    ///   at least one output that is later spent as an input in `watchtower_tx`.
+    ///
+    /// # Note
+    ///
+    /// All previous transactions whose outputs are spent by the `watchtower_tx`
+    /// should be supplied in `previous_txs` if they exist.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(WatchtowerInput)` if all required data is successfully extracted and validated.
+    /// Returns `Err(&'static str)` if any error occurs during the process.
+    ///
+    /// # Errors
+    ///
+    /// This function will return errors if:
+    /// - The kickoff transaction is not referenced by any input in the watchtower transaction.
+    /// - The output index underflows when computing the watchtower index.
+    /// - The watchtower index exceeds `MAX_NUMBER_OF_WATCHTOWERS`.
+    /// - A previous transaction required to resolve an input is not provided.
+    /// - An output referenced by an input is missing or out of bounds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - The watchtower index cannot be converted to `u8` (should be unreachable due to earlier bounds check).
+    ///
     pub fn from_txs(
         kickoff_tx: &Transaction,
         watchtower_tx: Transaction,
@@ -102,22 +135,23 @@ impl WatchtowerInput {
             .iter()
             .position(|input| input.previous_output.txid == kickoff_txid)
             .map(|ind| ind as u8)
-            .expect("Kickoff txid not found in watchtower inputs");
+            .ok_or("Kickoff txid not found in watchtower inputs")?;
 
         let output_index = watchtower_tx.input[watchtower_challenge_input_idx as usize]
             .previous_output
             .vout as usize;
 
-        let result = output_index
-            .checked_sub(Self::FIRST_FIVE_OUTPUTS + Self::NUMBER_OF_ASSERT_TXS)
+        let watchtower_index = output_index
+            .checked_sub(FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS)
             .ok_or("Output index underflow")?
             / 2;
 
-        let watchtower_idx = u8::try_from(result).map_err(|_| "Watchtower index too large")?;
-
-        if watchtower_idx >= NUM_OF_WATCHTOWERS {
+        if watchtower_index >= MAX_NUMBER_OF_WATCHTOWERS {
             return Err("Watchtower index out of bounds");
         }
+
+        let watchtower_idx =
+            u8::try_from(watchtower_index).expect("Cannot fail, already checked bounds");
 
         let previous_txs = previous_txs.unwrap_or(&[]);
 
@@ -173,7 +207,7 @@ impl WatchtowerInput {
 pub struct BridgeCircuitInput {
     pub kickoff_tx: CircuitTransaction, // BridgeCircuitTransaction
     // Add all watchtower pubkeys as global input as Vec<[u8; 32]> Which should be shorter than or equal to 160 elements
-    pub all_watchtower_pubkeys: Vec<[u8; 32]>, // Per watchtower [u8; 34] or OP_PUSHNUM_1 OP_PUSHBYTES_32 <TweakedXOnlyPublicKey> which is [u8; 32]
+    pub all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>, // Per watchtower [u8; 34] or OP_PUSHNUM_1 OP_PUSHBYTES_32 <TweakedXOnlyPublicKey> which is [u8; 32]
     pub watchtower_inputs: Vec<WatchtowerInput>,
     pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
@@ -185,7 +219,7 @@ impl BridgeCircuitInput {
     pub fn new(
         kickoff_tx: CircuitTransaction,
         watchtower_inputs: Vec<WatchtowerInput>,
-        all_watchtower_pubkeys: Vec<[u8; 32]>,
+        all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
         lcp: LightClientProof,
@@ -198,7 +232,7 @@ impl BridgeCircuitInput {
             payout_spv,
             lcp,
             sp,
-            all_watchtower_pubkeys,
+            all_tweaked_watchtower_pubkeys,
         })
     }
 }

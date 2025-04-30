@@ -158,7 +158,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let deposit_constant = deposit_constant(
         last_output,
         &kickoff_txid,
-        &input.all_watchtower_pubkeys,
+        &input.all_tweaked_watchtower_pubkeys,
         move_tx_id,
     );
 
@@ -231,7 +231,6 @@ fn convert_to_groth16_and_verify(
 ///
 /// # Parameters
 /// - `circuit_input`: Data structure holding serialized watchtower transactions, UTXOs, input indices, and pubkeys.
-/// - `kickoff_tx`: The corresponding kickoff transaction used to validate the watchtower inputs.
 /// - `kickoff_txid`: The transaction ID of the `kickoff_tx`.
 ///
 /// # Returns
@@ -337,11 +336,13 @@ fn verify_watchtower_challenges(
             );
         };
 
-        if watchtower_input.watchtower_idx as usize >= circuit_input.all_watchtower_pubkeys.len() {
+        if watchtower_input.watchtower_idx as usize
+            >= circuit_input.all_tweaked_watchtower_pubkeys.len()
+        {
             panic!(
                 "Invalid watchtower index, watchtower index: {}, number of watchtowers: {}",
                 watchtower_input.watchtower_idx,
-                circuit_input.all_watchtower_pubkeys.len()
+                circuit_input.all_tweaked_watchtower_pubkeys.len()
             );
         }
 
@@ -349,7 +350,8 @@ fn verify_watchtower_challenges(
             .try_into()
             .expect("Cannot fail");
 
-        if circuit_input.all_watchtower_pubkeys[watchtower_input.watchtower_idx as usize] != pubkey
+        if circuit_input.all_tweaked_watchtower_pubkeys[watchtower_input.watchtower_idx as usize]
+            != pubkey
         {
             panic!(
                 "Invalid watchtower public key, watchtower index: {}",
@@ -669,7 +671,7 @@ mod tests {
             },
             lcp: LightClientProof::default(),
             sp: StorageProof::default(),
-            all_watchtower_pubkeys: watchtower_pubkeys,
+            all_tweaked_watchtower_pubkeys: watchtower_pubkeys,
         };
 
         (input, kickoff_txid)
@@ -789,9 +791,9 @@ mod tests {
     fn test_total_work_and_watchtower_flags_invalid_pubkey() {
         let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
 
-        // Modify the all_watchtower_pubkeys (the array that's actually used in the new code)
+        // Modify the all_tweaked_watchtower_pubkeys (the array that's actually used in the new code)
         let watch_tower_idx = input.watchtower_inputs[0].watchtower_idx as usize;
-        input.all_watchtower_pubkeys[watch_tower_idx] = [0u8; 32];
+        input.all_tweaked_watchtower_pubkeys[watch_tower_idx] = [0u8; 32];
 
         let (_total_work, _challenge_sending_watchtowers) =
             total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
