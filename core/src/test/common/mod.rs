@@ -570,7 +570,7 @@ pub async fn run_replacement_deposit(
         SpendableTxIn::from_scripts(
             bitcoin::OutPoint {
                 txid: some_funding_utxo.txid,
-                vout: 0,
+                vout: some_funding_utxo.vout,
             },
             Amount::from_sat(1000),
             vec![],
