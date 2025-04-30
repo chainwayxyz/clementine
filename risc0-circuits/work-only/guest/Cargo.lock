@@ -1089,8 +1089,6 @@ dependencies = [
  "borsh",
  "crypto-bigint",
  "derive_more 1.0.0",
- "final-spv",
- "header-chain",
  "hex",
  "hex-literal",
  "itertools 0.14.0",
@@ -1100,15 +1098,12 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "once_cell",
- "rand 0.8.5",
  "ripemd",
  "risc0-groth16",
  "risc0-zkvm",
  "serde",
  "serde_json",
  "sha2",
- "sov-rollup-interface",
- "tracing",
 ]
 
 [[package]]
@@ -1623,22 +1618,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "final-spv"
-version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=929c8e0#929c8e00eebd7947c1b225cca262a914db6be731"
-dependencies = [
- "bitcoin",
- "blake3",
- "borsh",
- "crypto-bigint",
- "header-chain",
- "hex-literal",
- "risc0-zkvm",
- "serde",
- "sha2",
-]
-
-[[package]]
 name = "fixed-hash"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1863,19 +1842,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
 dependencies = [
  "hashbrown 0.14.5",
-]
-
-[[package]]
-name = "header-chain"
-version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=929c8e0#929c8e00eebd7947c1b225cca262a914db6be731"
-dependencies = [
- "bitcoin",
- "borsh",
- "crypto-bigint",
- "risc0-zkvm",
- "serde",
- "sha2",
 ]
 
 [[package]]
