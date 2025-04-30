@@ -174,7 +174,7 @@ impl TxSender {
     /// an error, except in Regtest mode where it defaults to 1 sat/vB for testing convenience.
     ///
     /// TODO: Implement more sophisticated fee estimation (e.g., mempool.space API).
-    async fn get_fee_rate(&self) -> Result<FeeRate> {
+    async fn _get_fee_rate(&self) -> Result<FeeRate> {
         tracing::info!("Getting fee rate");
         let fee_rate = self
             .rpc
@@ -697,7 +697,7 @@ mod tests {
         assert!(rpc.client.send_raw_transaction(will_fail_tx).await.is_err());
 
         // Calculate and send with fee.
-        let fee_rate = tx_sender.get_fee_rate().await.unwrap();
+        let fee_rate = tx_sender._get_fee_rate().await.unwrap();
         let fee = TxSender::calculate_required_fee(
             will_fail_tx.weight(),
             1,

@@ -116,7 +116,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 
         let withdrawal_tx_height_block_height = sequencer
             .client
-            .ledger_get_head_soft_confirmation_height()
+            .ledger_get_head_l2_block_height()
             .await
             .unwrap()
             + 1;
@@ -146,10 +146,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
         assert_eq!(withdrawal_count._0, U256::from(1));
 
         let utxos = citrea_client
-            .collect_withdrawal_utxos(
-                withdrawal_tx_height_block_height,
-                withdrawal_tx_height_block_height,
-            )
+            .collect_withdrawal_utxos(None, withdrawal_tx_height_block_height)
             .await
             .unwrap();
         assert_eq!(withdrawal_utxo, utxos[0].1);
@@ -160,10 +157,9 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 
 #[tokio::test]
 async fn citrea_withdraw_and_get_utxo() -> Result<()> {
-    // TODO: temp hack to use the correct docker image
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
+        "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
     );
     TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
 }

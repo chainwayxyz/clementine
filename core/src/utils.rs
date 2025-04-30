@@ -115,3 +115,20 @@ pub fn monitor_task_with_panic<T: Send + 'static, E: Debug + Send + 'static>(
         }
     });
 }
+
+/// Delays the exit of the program for 15 seconds, to allow for logs to be flushed.
+/// Then panics with the given arguments.
+///
+/// # Parameters
+///
+/// - `($($arg:tt)*)`: Arguments to pass to `panic!`, in the same manner as format! and println!
+macro_rules! delayed_panic {
+    ($($arg:tt)*) => {
+        eprintln!($($arg)*);
+        eprintln!("Delaying exit for 15 seconds, to allow for logs to be flushed");
+        std::thread::sleep(std::time::Duration::from_secs(15));
+        panic!($($arg)*);
+    };
+}
+
+pub(crate) use delayed_panic;

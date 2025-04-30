@@ -170,7 +170,7 @@ where
 }
 
 #[async_trait]
-impl<T: Task + Sized> Task for BufferedErrors<T>
+impl<T: Task + Sized+ std::fmt::Debug> Task for BufferedErrors<T>
 where
     T::Output: Default,
 {
@@ -185,7 +185,7 @@ where
                 Ok(output)
             }
             Err(e) => {
-                tracing::error!("Task error, suppressing due to buffer: {e:?}");
+                tracing::error!(task=?self.inner, "Task error, suppressing due to buffer: {e:?}");
                 self.buffer.push(e);
                 if self.buffer.len() >= self.error_overflow_limit {
                     let mut base_error: eyre::Report =
@@ -219,6 +219,7 @@ pub struct Map<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 's
 impl<T: Task + Sized, F: Fn(T::Output) -> T::Output + Send + Sync + 'static> Task for Map<T, F> {
     type Output = T::Output;
 
+    #[track_caller]
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let result = self.inner.run_once().await;
         let output = match result {
@@ -239,7 +240,7 @@ where
 }
 
 #[async_trait]
-impl<T: Task + Sized> Task for IgnoreError<T>
+impl<T: Task + Sized + std::fmt::Debug> Task for IgnoreError<T>
 where
     T::Output: Default,
 {
@@ -251,7 +252,7 @@ where
             .run_once()
             .await
             .inspect_err(|e| {
-                tracing::error!("Task error, suppressing due to errors ignored: {e:?}");
+                tracing::error!(task=?self.inner, "Task error, suppressing due to errors ignored: {e:?}");
             })
             .ok()
             .unwrap_or_default())

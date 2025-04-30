@@ -136,6 +136,7 @@ impl Database {
         .await?;
 
         let bg_db = self.clone();
+        // Update debug information in the background to not block core behavior
         tokio::spawn(async move {
             // Get confirmed direct transactions for debugging
             let Ok(confirmed_direct_txs): Result<Vec<(i32, TxidDB)>, _> = sqlx::query_as(&format!(
@@ -204,12 +205,14 @@ impl Database {
         tx: DatabaseTransaction<'_, '_>,
         block_id: u32,
     ) -> Result<(), BridgeError> {
+        let block_id = i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?;
+
         // Need to get these before they're unconfirmed below, so that we can update the debug info
         // Ignore the error here to not affect production behavior.
         let previously_confirmed_txs = sqlx::query_as::<_, (i32,)>(
             "SELECT id FROM tx_sender_try_to_send_txs WHERE seen_block_id = $1",
         )
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .fetch_all(tx.deref_mut())
         .await;
 
@@ -229,40 +232,63 @@ impl Database {
         });
 
         // Unconfirm tx_sender_fee_payer_utxos
+        // Update tx_sender_activate_try_to_send_txids
         sqlx::query(
-            r#"
-            -- Update tx_sender_activate_try_to_send_txids
-            UPDATE tx_sender_activate_try_to_send_txids AS tap
-            SET seen_block_id = NULL
-            WHERE tap.seen_block_id = $1;
-
-            -- Update tx_sender_activate_try_to_send_outpoints
-            UPDATE tx_sender_activate_try_to_send_outpoints AS tap
-            SET seen_block_id = NULL
-            WHERE tap.seen_block_id = $1;
-
-            -- Update tx_sender_cancel_try_to_send_txids
-            UPDATE tx_sender_cancel_try_to_send_txids AS ctt
-            SET seen_block_id = NULL
-            WHERE ctt.seen_block_id = $1;
-
-            -- Update tx_sender_cancel_try_to_send_outpoints
-            UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
-            SET seen_block_id = NULL
-            WHERE cto.seen_block_id = $1;
-
-            -- Update tx_sender_fee_payer_utxos
-            UPDATE tx_sender_fee_payer_utxos AS fpu
-            SET seen_block_id = NULL
-            WHERE fpu.seen_block_id = $1;
-
-            -- Update tx_sender_try_to_send_txs
-            UPDATE tx_sender_try_to_send_txs AS txs
-            SET seen_block_id = NULL
-            WHERE txs.seen_block_id = $1;
-            "#,
+            "UPDATE tx_sender_activate_try_to_send_txids AS tap
+             SET seen_block_id = NULL
+             WHERE tap.seen_block_id = $1",
         )
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
+
+        // Update tx_sender_activate_try_to_send_outpoints
+        sqlx::query(
+            "UPDATE tx_sender_activate_try_to_send_outpoints AS tap
+             SET seen_block_id = NULL
+             WHERE tap.seen_block_id = $1",
+        )
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
+
+        // Update tx_sender_cancel_try_to_send_txids
+        sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_txids AS ctt
+             SET seen_block_id = NULL
+             WHERE ctt.seen_block_id = $1",
+        )
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
+
+        // Update tx_sender_cancel_try_to_send_outpoints
+        sqlx::query(
+            "UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
+             SET seen_block_id = NULL
+             WHERE cto.seen_block_id = $1",
+        )
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
+
+        // Update tx_sender_fee_payer_utxos
+        sqlx::query(
+            "UPDATE tx_sender_fee_payer_utxos AS fpu
+             SET seen_block_id = NULL
+             WHERE fpu.seen_block_id = $1",
+        )
+        .bind(block_id)
+        .execute(tx.deref_mut())
+        .await?;
+
+        // Update tx_sender_try_to_send_txs
+        sqlx::query(
+            "UPDATE tx_sender_try_to_send_txs AS txs
+             SET seen_block_id = NULL
+             WHERE txs.seen_block_id = $1",
+        )
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
