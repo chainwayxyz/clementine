@@ -457,7 +457,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             )?;
             let assert_timeout_txid = assert_timeout_txhandler.get_txid();
             self.matchers.insert(
-                Matcher::SpentUtxoButNotTimeout(
+                Matcher::SpentUtxoButNotTxid(
                     OutPoint {
                         txid: kickoff_txid,
                         vout: mini_assert_vout,
@@ -508,7 +508,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             );
             // martcher in case watchtower challenge is sent
             self.matchers.insert(
-                Matcher::SpentUtxoButNotTimeout(
+                Matcher::SpentUtxoButNotTxid(
                     OutPoint {
                         txid: kickoff_txid,
                         vout: watchtower_challenge_vout,
@@ -532,7 +532,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             )?;
             let operator_challenge_nack_txid = operator_challenge_nack_txhandler.get_txid();
             self.matchers.insert(
-                Matcher::SpentUtxoButNotTimeout(
+                Matcher::SpentUtxoButNotTxid(
                     OutPoint {
                         txid: kickoff_txid,
                         vout: operator_challenge_ack_vout,
@@ -572,7 +572,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             remove_txhandler_from_map(&mut txhandlers, TransactionType::ChallengeTimeout)?;
         let challenge_timeout_txid = challenge_timeout_txhandler.get_txid();
         self.matchers.insert(
-            Matcher::SpentUtxoButNotTimeout(
+            Matcher::SpentUtxoButNotTxid(
                 OutPoint {
                     txid: kickoff_txid,
                     vout: UtxoVout::Challenge.get_vout(),

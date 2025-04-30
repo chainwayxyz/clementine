@@ -14,6 +14,8 @@ use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
+use eyre::Context;
+use eyre::OptionExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -149,8 +151,12 @@ impl ReimburseDbCache {
                 self.operator_data = Some(
                     self.db
                         .get_operator(None, self.operator_xonly_pk)
-                        .await?
-                        .ok_or(BridgeError::OperatorNotFound(self.operator_xonly_pk))?,
+                        .await
+                        .wrap_err("Failed to get operator data from database")?
+                        .ok_or_eyre(format!(
+                            "Operator not found for xonly_pk {}",
+                            self.operator_xonly_pk
+                        ))?,
                 );
                 Ok(self.operator_data.as_ref().expect("Inserted before"))
             }
@@ -182,7 +188,8 @@ impl ReimburseDbCache {
                 self.kickoff_winternitz_keys = Some(KickoffWinternitzKeys::new(
                     self.db
                         .get_operator_kickoff_winternitz_public_keys(None, self.operator_xonly_pk)
-                        .await?,
+                        .await
+                        .wrap_err("Failed to get kickoff winternitz keys from database")?,
                     self.paramset.num_kickoffs_per_round,
                 ));
                 Ok(self
@@ -219,7 +226,8 @@ impl ReimburseDbCache {
                                 self.operator_xonly_pk,
                                 *deposit_outpoint,
                             )
-                            .await?
+                            .await
+                            .wrap_err("Failed to get challenge ack hashes from database in ReimburseDbCache")?
                             .ok_or(eyre::eyre!(
                                 "Watchtower public hashes not found for operator {0:?} and deposit {1}",
                                 self.operator_xonly_pk,
@@ -692,6 +700,11 @@ pub fn create_round_txhandlers(
 
     let (round_txhandler, ready_to_reimburse_txhandler) = match prev_ready_to_reimburse {
         Some(prev_ready_to_reimburse_txhandler) => {
+            if round_idx == 0 {
+                return Err(
+                    eyre::eyre!("Round 0 cannot be created from prev_ready_to_reimburse").into(),
+                );
+            }
             let round_txhandler = builder::transaction::create_round_txhandler(
                 operator_data.xonly_pk,
                 RoundTxInput::Prevout(

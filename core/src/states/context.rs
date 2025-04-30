@@ -54,6 +54,7 @@ pub enum Duty {
         txid: Txid,
         block_height: u32,
         witness: Witness,
+        challenged_before: bool,
     },
     /// -- Kickoff state duties --
     /// This duty is only sent if a kickoff was challenged.
@@ -98,6 +99,15 @@ pub enum Duty {
     },
 }
 
+/// Result of handling a duty
+#[derive(Debug, Clone)]
+pub enum DutyResult {
+    /// Duty was handled, no return value is necessary
+    Handled,
+    /// Result of checking if a kickoff contains if a challenge was sent because the kickoff was determined as malicious
+    CheckIfKickoff { challenged: bool },
+}
+
 /// Owner trait with async handling and tx handler creation
 #[async_trait]
 pub trait Owner: Send + Sync + Clone {
@@ -109,7 +119,7 @@ pub trait Owner: Send + Sync + Clone {
     const OWNER_TYPE: &'static str;
 
     /// Handle a duty
-    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError>;
+    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError>;
     async fn create_txhandlers(
         &self,
         tx_type: TransactionType,
@@ -160,7 +170,7 @@ impl<T: Owner> StateContext<T> {
         }
     }
 
-    pub async fn dispatch_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+    pub async fn dispatch_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         self.owner.handle_duty(duty).await
     }
 

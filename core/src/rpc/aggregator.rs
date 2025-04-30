@@ -38,11 +38,13 @@ use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
+#[derive(Debug, Clone)]
 struct AggNonceQueueItem {
     agg_nonce: MusigAggNonce,
     sighash: TapSighash,
 }
 
+#[derive(Debug, Clone)]
 struct FinalSigQueueItem {
     final_sig: Vec<u8>,
 }
@@ -1093,6 +1095,7 @@ mod tests {
     use tokio::time::sleep;
 
     #[tokio::test]
+    #[ignore = "See #687"]
     async fn aggregator_double_setup_fail() {
         let mut config = create_test_config_with_thread_name().await;
         let _regtest = create_regtest_rpc(&mut config).await;

@@ -23,6 +23,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::musig2;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
+use crate::states::context::DutyResult;
 use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
@@ -926,19 +927,28 @@ where
         Ok(true)
     }
 
+    /// Checks if the kickoff is malicious and sends the appropriate txs if it is.
+    /// Returns true if the kickoff is malicious.
     pub async fn handle_kickoff<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
         kickoff_witness: Witness,
-        deposit_data: &mut DepositData,
+        mut deposit_data: DepositData,
         kickoff_data: KickoffData,
-    ) -> Result<(), BridgeError> {
+        challenged_before: bool,
+    ) -> Result<bool, BridgeError> {
         let is_malicious = self
-            .is_kickoff_malicious(kickoff_witness, deposit_data, kickoff_data)
+            .is_kickoff_malicious(kickoff_witness, &mut deposit_data, kickoff_data)
             .await?;
         if !is_malicious {
-            return Ok(());
+            return Ok(false);
         }
+
+        tracing::warn!(
+            "Malicious kickoff {:?} for deposit {:?}",
+            kickoff_data,
+            deposit_data
+        );
 
         let transaction_data = TransactionRequestData {
             deposit_outpoint: deposit_data.get_deposit_outpoint(),
@@ -961,10 +971,16 @@ where
             deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
         });
 
-        // self._rpc.client.import_descriptors(vec!["tr("])
-
         // try to send them
         for (tx_type, signed_tx) in &signed_txs {
+            if *tx_type == TransactionType::Challenge && challenged_before {
+                // do not send challenge tx operator was already challenged in the same round
+                tracing::warn!(
+                    "Operator {:?} was already challenged in the same round, skipping challenge tx",
+                    kickoff_data.operator_xonly_pk
+                );
+                continue;
+            }
             match *tx_type {
                 TransactionType::Challenge
                 | TransactionType::AssertTimeout(_)
@@ -986,7 +1002,7 @@ where
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 
     async fn send_watchtower_challenge(
@@ -1222,7 +1238,7 @@ where
 {
     const OWNER_TYPE: &'static str = "verifier";
 
-    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         let verifier_xonly_pk = &self.signer.xonly_public_key;
         match duty {
             Duty::NewReadyToReimburse {
@@ -1236,6 +1252,7 @@ where
                 );
                 self.send_unspent_kickoff_connectors(round_idx, operator_xonly_pk, used_kickoffs)
                     .await?;
+                Ok(DutyResult::Handled)
             }
             Duty::WatchtowerChallenge {
                 kickoff_data,
@@ -1247,18 +1264,9 @@ where
                 );
                 self.send_watchtower_challenge(kickoff_data, deposit_data)
                     .await?;
+                Ok(DutyResult::Handled)
             }
-            Duty::SendOperatorAsserts {
-                kickoff_data,
-                deposit_data,
-                watchtower_challenges,
-                ..
-            } => {
-                tracing::info!(
-                    "Verifier {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
-                    verifier_xonly_pk, kickoff_data, deposit_data, watchtower_challenges.len()
-                );
-            }
+            Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
             Duty::VerifierDisprove {
                 kickoff_data,
                 deposit_data,
@@ -1273,12 +1281,14 @@ where
                     verifier_xonly_pk, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(),
                     payout_blockhash.len(), latest_blockhash.len()
                 );
+                Ok(DutyResult::Handled)
             }
             Duty::SendLatestBlockhash { .. } => {}
             Duty::CheckIfKickoff {
                 txid,
                 block_height,
                 witness,
+                challenged_before,
             } => {
                 tracing::debug!(
                     "Verifier {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
@@ -1290,8 +1300,9 @@ where
                     .db
                     .get_deposit_data_with_kickoff_txid(None, txid)
                     .await?;
-                if let Some((mut deposit_data, kickoff_data)) = db_kickoff_data {
-                    tracing::info!(
+                let mut challenged = false;
+                if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
+                    tracing::debug!(
                         "New kickoff found {:?}, for deposit: {:?}",
                         kickoff_data,
                         deposit_data.get_deposit_outpoint()
@@ -1307,13 +1318,20 @@ where
                         witness.clone(),
                     )
                     .await?;
-                    self.handle_kickoff(&mut dbtx, witness, &mut deposit_data, kickoff_data)
+                    challenged = self
+                        .handle_kickoff(
+                            &mut dbtx,
+                            witness,
+                            deposit_data,
+                            kickoff_data,
+                            challenged_before,
+                        )
                         .await?;
                     dbtx.commit().await?;
                 }
+                Ok(DutyResult::CheckIfKickoff { challenged })
             }
         }
-        Ok(())
     }
 
     async fn create_txhandlers(
