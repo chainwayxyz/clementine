@@ -3,14 +3,17 @@
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::{CheckSig, SpendableScript};
+use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
+use crate::builder::transaction::input::SpendableTxIn;
+use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{
     create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
-    ReplacementDepositData, TxHandler,
+    ReplacementDepositData, TransactionType, TxHandler, TxHandlerBuilder, DEFAULT_SEQUENCE,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
@@ -20,12 +23,18 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::{Deposit, Empty, FeeType, RawSignedTx, SendTxRequest};
-use crate::EVMAddress;
+use crate::rpc::clementine::{
+    Deposit, Empty, FeeType, NormalSignatureKind, RawSignedTx, SendTxRequest,
+};
+use crate::tx_sender::{FeePayingType, TxSender};
+use crate::{builder, EVMAddress};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
-use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{taproot, BlockHash, OutPoint, Transaction, Txid, Witness, XOnlyPublicKey};
+use bitcoin::secp256k1::{Message, PublicKey, SecretKey};
+use bitcoin::transaction::Version;
+use bitcoin::{
+    taproot, Amount, BlockHash, OutPoint, Transaction, TxOut, Txid, Witness, XOnlyPublicKey,
+};
 use bitcoincore_rpc::RpcApi;
 use citrea::get_transaction_params;
 use eyre::Context;
@@ -183,6 +192,94 @@ pub async fn mine_once_after_in_mempool(
         .wrap_err("Failed to get block info")?;
 
     Ok(tx_block_height.height)
+}
+
+pub async fn create_test_tx_sender(
+    rpc: ExtendedRpc,
+) -> (TxSender, ExtendedRpc, Database, Actor, bitcoin::Network) {
+    let sk = SecretKey::new(&mut rand::thread_rng());
+    let network = bitcoin::Network::Regtest;
+    let actor = Actor::new(sk, None, network);
+
+    let config = create_test_config_with_thread_name().await;
+
+    let db = Database::new(&config).await.unwrap();
+
+    let tx_sender = TxSender::new(
+        actor.clone(),
+        rpc.clone(),
+        db.clone(),
+        "tx_sender".into(),
+        network,
+    );
+
+    (tx_sender, rpc, db, actor, network)
+}
+
+pub async fn create_bumpable_tx(
+    rpc: &ExtendedRpc,
+    signer: &Actor,
+    network: bitcoin::Network,
+    fee_paying_type: FeePayingType,
+) -> Result<Transaction, BridgeError> {
+    let (address, spend_info) =
+        builder::address::create_taproot_address(&[], Some(signer.xonly_public_key), network);
+
+    let amount = Amount::from_sat(100000);
+    let outpoint = rpc.send_to_address(&address, amount).await?;
+    rpc.mine_blocks(1).await?;
+
+    let version = match fee_paying_type {
+        FeePayingType::CPFP => Version::non_standard(3),
+        FeePayingType::RBF => Version::TWO,
+    };
+
+    let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+        .with_version(version)
+        .add_input(
+            NormalSignatureKind::OperatorSighashDefault,
+            SpendableTxIn::new(
+                outpoint,
+                TxOut {
+                    value: amount,
+                    script_pubkey: address.script_pubkey(),
+                },
+                vec![],
+                Some(spend_info),
+            ),
+            SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: amount - builder::transaction::anchor_output().value,
+            script_pubkey: address.script_pubkey(), // TODO: This should be the wallet address, not the signer address
+        }))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize();
+
+    let sighash_type = match fee_paying_type {
+        FeePayingType::CPFP => bitcoin::TapSighashType::Default,
+        FeePayingType::RBF => bitcoin::TapSighashType::AllPlusAnyoneCanPay,
+    };
+
+    let sighash = builder.calculate_pubkey_spend_sighash(0, sighash_type)?;
+    let signature = signer.sign_with_tweak_data(
+        sighash,
+        builder::sighash::TapTweakData::KeyPath(None),
+        None,
+    )?;
+    builder.set_p2tr_key_spend_witness(
+        &bitcoin::taproot::Signature {
+            signature,
+            sighash_type,
+        },
+        0,
+    )?;
+
+    let tx = builder.get_cached_tx().clone();
+    Ok(tx)
 }
 
 pub async fn run_multiple_deposits<C: CitreaClientT>(

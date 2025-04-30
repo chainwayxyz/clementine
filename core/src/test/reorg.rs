@@ -1,15 +1,23 @@
+use std::thread::sleep;
+use std::time::Duration;
+
 use crate::actor::Actor;
+use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::builder::transaction::{BaseDepositData, DepositInfo, DepositType};
 use crate::citrea::mock::MockCitreaClient;
 use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
+use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{Deposit, Empty};
+use crate::task::manager::BackgroundTaskManager;
+use crate::task::{IntoTask, TaskExt};
 use crate::test::common::{
-    citrea, create_actors, create_test_config_with_thread_name, get_deposit_address,
-    mine_once_after_in_mempool,
+    citrea, create_actors, create_bumpable_tx, create_test_config_with_thread_name,
+    get_deposit_address, mine_once_after_in_mempool, poll_until_condition, MockOwner,
 };
+use crate::tx_sender::{FeePayingType, TxSender, TxSenderClient};
 use crate::EVMAddress;
-use bitcoin::secp256k1::PublicKey;
+use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::Txid;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
@@ -17,6 +25,7 @@ use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
 use citrea_e2e::test_case::TestCaseRunner;
 use citrea_e2e::Result;
 use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
+use secp256k1::rand;
 use tonic::{async_trait, Request};
 
 struct TxSenderReorgBehavior;
@@ -73,21 +82,84 @@ impl TestCase for TxSenderReorgBehavior {
         .await
         .unwrap();
 
+        let actor = Actor::new(config.secret_key, None, config.protocol_paramset.network);
+        let db = Database::new(&config).await.unwrap();
+
+        let btc_syncer = BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+            .await
+            .unwrap()
+            .into_task()
+            .cancelable_loop();
+        btc_syncer.0.into_bg();
+
+        let tx_sender = TxSender::new(
+            actor.clone(),
+            rpc.clone(),
+            db.clone(),
+            "tx_sender".into(),
+            config.protocol_paramset.network,
+        );
+        let tx_sender_client = tx_sender.client();
+        let tx_sender = tx_sender.into_task().cancelable_loop();
+        tx_sender.0.into_bg();
+
+        let tx = create_bumpable_tx(
+            &rpc,
+            &actor,
+            config.protocol_paramset.network,
+            FeePayingType::CPFP,
+        )
+        .await
+        .unwrap();
+
         // Reorg will happen before the deposit tx.
         f.bitcoin_nodes.disconnect_nodes().await?;
+
+        let mut dbtx = db.begin_transaction().await.unwrap();
+        tx_sender_client
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .unwrap();
+        dbtx.commit().await.unwrap();
+
+        sleep(Duration::from_secs(3));
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3));
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3));
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3));
+        rpc.mine_blocks(1).await.unwrap();
+        loop {
+            let txid = tx.compute_txid();
+            let tx_info = rpc.client.get_raw_transaction_info(&txid, None).await;
+            if tx_info.is_ok() && tx_info.unwrap().blockhash.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
 
         let before_reorg_tip_height = rpc.client.get_block_count().await?;
         let before_reorg_tip_hash = rpc.client.get_block_hash(before_reorg_tip_height).await?;
 
         // Make the second branch longer and perform a reorg.
-        da1.generate(3).await.unwrap();
+        da1.generate(5).await.unwrap();
         f.bitcoin_nodes.connect_nodes().await?;
         f.bitcoin_nodes.wait_for_sync(None).await?;
 
         // Check that reorg happened.
         let current_tip_height = rpc.client.get_block_count().await?;
         assert_eq!(
-            before_reorg_tip_height + 3,
+            before_reorg_tip_height + 1,
             current_tip_height,
             "Re-org did not occur"
         );
