@@ -972,7 +972,7 @@ mod tests {
         dbtx.commit().await?;
 
         // Get the current fee rate and increase it for RBF
-        let current_fee_rate = tx_sender.get_fee_rate().await?;
+        let current_fee_rate = tx_sender._get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender
@@ -1033,7 +1033,7 @@ mod tests {
         dbtx.commit().await?;
 
         // Get the current fee rate and increase it for RBF
-        let current_fee_rate = tx_sender.get_fee_rate().await?;
+        let current_fee_rate = tx_sender._get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender
@@ -1103,7 +1103,7 @@ mod tests {
         dbtx.commit().await?;
 
         // Get the current fee rate and increase it for RBF
-        let current_fee_rate = tx_sender.get_fee_rate().await?;
+        let current_fee_rate = tx_sender._get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender
@@ -1176,7 +1176,7 @@ mod tests {
         dbtx.commit().await?;
 
         // Get the current fee rate and increase it for RBF
-        let current_fee_rate = tx_sender.get_fee_rate().await?;
+        let current_fee_rate = tx_sender._get_fee_rate().await?;
 
         // Test send_rbf_tx
         tx_sender
@@ -1234,7 +1234,7 @@ mod tests {
             .await?;
         dbtx.commit().await?;
 
-        let current_fee_rate = tx_sender.get_fee_rate().await?;
+        let current_fee_rate = tx_sender._get_fee_rate().await?;
 
         // Create initial TX
         tx_sender
