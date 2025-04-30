@@ -1283,7 +1283,7 @@ where
                 );
                 Ok(DutyResult::Handled)
             }
-            Duty::SendLatestBlockhash { .. } => {}
+            Duty::SendLatestBlockhash { .. } => Ok(DutyResult::Handled),
             Duty::CheckIfKickoff {
                 txid,
                 block_height,

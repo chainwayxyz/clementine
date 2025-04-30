@@ -482,10 +482,7 @@ impl<T: Owner> KickoffStateMachine<T> {
             vout: UtxoVout::LatestBlockhash.get_vout(),
         };
         self.matchers.insert(
-            Matcher::SpentUtxoButNotTimeout(
-                latest_blockhash_outpoint,
-                *latest_blockhash_timeout_txid,
-            ),
+            Matcher::SpentUtxoButNotTxid(latest_blockhash_outpoint, *latest_blockhash_timeout_txid),
             KickoffEvent::LatestBlockHashSent {
                 latest_blockhash_outpoint,
             },

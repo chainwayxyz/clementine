@@ -1,6 +1,3 @@
-use bitcoin::{OutPoint, XOnlyPublicKey};
-use eyre::Context;
-
 use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -14,6 +11,7 @@ use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
+use bitcoin::{OutPoint, XOnlyPublicKey};
 use eyre::Context;
 use eyre::OptionExt;
 use std::collections::BTreeMap;

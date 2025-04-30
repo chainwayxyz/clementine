@@ -1095,6 +1095,7 @@ where
                 tracing::warn!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
                 self.send_latest_blockhash(kickoff_data, deposit_data, latest_blockhash)
                     .await?;
+                Ok(DutyResult::Handled)
             }
             Duty::VerifierDisprove { .. } => Ok(DutyResult::Handled),
             Duty::CheckIfKickoff {
