@@ -3,7 +3,7 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
-use super::script::{BaseDepositScript, CheckSig, TimelockScript};
+use super::script::{BaseDepositScript, CheckSig, SpendableScript, TimelockScript};
 use super::script::{ReplacementDepositScript, SpendPath};
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -22,6 +22,7 @@ use crate::rpc::clementine::{
 };
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::PublicKey;
@@ -88,6 +89,8 @@ pub enum TxError {
     MissingSpendInfo,
     #[error("Incorrect watchtower challenge data length")]
     IncorrectWatchtowerChallengeDataLength,
+    #[error("Latest blockhash script must be a single script")]
+    LatestBlockhashScriptNumber,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -272,6 +275,8 @@ pub enum TransactionType {
     YieldKickoffTxid, // This is just to yield kickoff txid from the sighash stream, not used for anything else, sorry
     BaseDeposit,
     ReplacementDeposit,
+    LatestBlockhashTimeout,
+    LatestBlockhash,
 }
 
 // converter from proto type to rust enum
@@ -304,6 +309,8 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::YieldKickoffTxid => Ok(Self::YieldKickoffTxid),
                     Normal::BaseDeposit => Ok(Self::BaseDeposit),
                     Normal::ReplacementDeposit => Ok(Self::ReplacementDeposit),
+                    Normal::LatestBlockhashTimeout => Ok(Self::LatestBlockhashTimeout),
+                    Normal::LatestBlockhash => Ok(Self::LatestBlockhash),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -370,6 +377,12 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::BaseDeposit => NormalTransaction(Normal::BaseDeposit as i32),
                 TransactionType::ReplacementDeposit => {
                     NormalTransaction(Normal::ReplacementDeposit as i32)
+                }
+                TransactionType::LatestBlockhashTimeout => {
+                    NormalTransaction(Normal::LatestBlockhashTimeout as i32)
+                }
+                TransactionType::LatestBlockhash => {
+                    NormalTransaction(Normal::LatestBlockhash as i32)
                 }
                 TransactionType::WatchtowerChallenge(index) => {
                     NumberedTransaction(NumberedTransactionId {
@@ -576,6 +589,41 @@ pub fn create_replacement_deposit_txhandler(
         ))
         .add_output(UnspentTxOut::from_partial(anchor_output()))
         .finalize())
+}
+
+/// Helper function to create a taproot output that combines a script and a root hash
+pub fn create_taproot_output_with_hidden_node(
+    script: Arc<dyn SpendableScript>,
+    root_hash: &[u8; 32],
+    amount: Amount,
+    network: bitcoin::Network,
+) -> UnspentTxOut {
+    use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
+    use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
+
+    let taproot_spend_info = TaprootBuilder::new()
+        .add_leaf(1, script.to_script_buf())
+        .expect("taptree with one node at depth 1 will accept a script node")
+        .add_hidden_node(1, TapNodeHash::from_byte_array(*root_hash))
+        .expect("empty taptree will accept a node at depth 1")
+        .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+        .expect("Taproot with 2 nodes at depth 1 should be valid");
+
+    let address = Address::p2tr(
+        &SECP,
+        *UNSPENDABLE_XONLY_PUBKEY,
+        taproot_spend_info.merkle_root(),
+        network,
+    );
+
+    UnspentTxOut::new(
+        TxOut {
+            value: amount,
+            script_pubkey: address.script_pubkey(),
+        },
+        vec![script.clone()],
+        Some(taproot_spend_info),
+    )
 }
 
 #[cfg(test)]

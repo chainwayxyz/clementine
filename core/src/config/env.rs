@@ -154,6 +154,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn get_config_from_env_vars() {
         let default_config = BridgeConfig::default();
 
@@ -227,6 +228,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn get_protocol_paramset_from_env_vars() {
         let default_config = REGTEST_PARAMSET;
 
@@ -316,6 +318,10 @@ mod tests {
         );
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
+        std::env::set_var(
+            "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
+            default_config.latest_blockhash_timeout_timelock.to_string(),
+        );
         std::env::set_var(
             "HEADER_CHAIN_PROOF_BATCH_SIZE",
             default_config.header_chain_proof_batch_size.to_string(),

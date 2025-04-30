@@ -2,7 +2,7 @@ use statig::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    builder::transaction::{ContractContext, OperatorData, TransactionType},
+    builder::transaction::{input::UtxoVout, ContractContext, OperatorData, TransactionType},
     errors::{BridgeError, TxError},
 };
 use bitcoin::OutPoint;
@@ -336,7 +336,7 @@ impl<T: Owner> RoundStateMachine<T> {
                     );
                     for idx in 0..context.paramset.num_kickoffs_per_round {
                         let outpoint = *round_txhandler
-                            .get_spendable_output(idx + 1)?
+                            .get_spendable_output(UtxoVout::Kickoff(idx))?
                             .get_prev_outpoint();
                         self.matchers.insert(
                             matcher::Matcher::SpentUtxo(outpoint),

@@ -3,6 +3,7 @@ use crate::builder::transaction::KickoffData;
 use crate::config::protocol::ProtocolParamset;
 use crate::database::DatabaseTransaction;
 
+use bitcoin::BlockHash;
 use bitcoin::Transaction;
 use bitcoin::Txid;
 use bitcoin::Witness;
@@ -64,8 +65,8 @@ pub enum Duty {
         deposit_data: DepositData,
     },
     /// This duty is only sent if a kickoff was challenged.
-    /// This duty is sent only after all watchtower challenge utxo's are spent either by challenges or timeouts so that
-    /// it is certain no new watchtower challenges can be sent.
+    /// This duty is sent only after latest blockhash is committed. Latest blockhash is committed after all watchtower challenges are sent
+    /// or timed out so that it is certain no new watchtower challenges can be sent.
     /// The duty denotes that it is time to start sending operator asserts to the corresponding kickoff.
     /// It includes the all watchtower challenges and the payout blockhash so that they can be used in the proof.
     SendOperatorAsserts {
@@ -73,6 +74,7 @@ pub enum Duty {
         deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Transaction>,
         payout_blockhash: Witness,
+        latest_blockhash: Witness,
     },
     /// This duty is only sent if a kickoff was challenged.
     /// This duty is sent after some time (paramset.time_to_disprove number of blocks) passes after a kickoff was sent to chain.
@@ -85,6 +87,15 @@ pub enum Duty {
         operator_asserts: HashMap<usize, Witness>,
         operator_acks: HashMap<usize, Witness>,
         payout_blockhash: Witness,
+        latest_blockhash: Witness,
+    },
+    /// This duty is only sent if a kickoff was challenged.
+    /// This duty is sent after every watchtower challenge is either sent or timed out.
+    /// It denotes to the owner that it is time to send a latest blockhash to the corresponding kickoff to be used in the proof.
+    SendLatestBlockhash {
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        latest_blockhash: BlockHash,
     },
 }
 
