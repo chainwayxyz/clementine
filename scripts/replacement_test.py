@@ -1,3 +1,6 @@
+# Before running this script you need to start the actors (you can use run-test.sh)
+# Bitcoin also needs to be running, example for regtest:
+# bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1 -daemon -maxtxfee=1
 import subprocess
 import json
 import time
