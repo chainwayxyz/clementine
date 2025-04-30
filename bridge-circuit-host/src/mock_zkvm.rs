@@ -30,7 +30,9 @@ impl ZkvmGuest for MockZkvmHost {
         data.journal.extend_from_slice(&value);
     }
 
-    fn verify<T: borsh::BorshSerialize>(&self, _method_id: [u32; 8], _journal: &T) {}
+    fn verify<T: borsh::BorshSerialize>(&self, _method_id: [u32; 8], _journal: &T) {
+        tracing::warn!("This is a mock zkvm host, no real verification is done.");
+    }
 }
 
 impl ZkvmHost for MockZkvmHost {
@@ -40,6 +42,7 @@ impl ZkvmHost for MockZkvmHost {
         data.values.extend_from_slice(&value);
     }
     fn prove(&self, _elf: &[u32]) -> Proof {
+        tracing::warn!("This is a mock zkvm host, no real proof is generated.");
         let data = self.data.lock().unwrap();
         Proof {
             method_id: [42; 8],
@@ -47,5 +50,7 @@ impl ZkvmHost for MockZkvmHost {
         }
     }
 
-    fn add_assumption(&self, _proof: Proof) {}
+    fn add_assumption(&self, _proof: Proof) {
+        tracing::warn!("This is a mock zkvm host, no assumptions are added.");
+    }
 }
