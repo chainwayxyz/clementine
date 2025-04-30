@@ -20,7 +20,7 @@ use crate::{
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
-use eyre::Context;
+use eyre::{eyre, Context};
 use std::str::FromStr;
 
 pub type RootHash = [u8; 32];
@@ -383,9 +383,28 @@ impl Database {
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
 
+        // First check if the entry already exists.
+        let query = sqlx::query_as(
+            "SELECT kickoff_txid, signatures FROM deposit_signatures
+        WHERE deposit_id = $1 AND operator_xonly_pk = $2 AND round_idx = $3 AND kickoff_idx = $4;",
+        )
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
+        .bind(round_idx as i32)
+        .bind(kickoff_idx as i32);
+        let txid_and_signatures: Option<(TxidDB, SignaturesDB)> =
+            execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, fetch_optional)?;
+
+        if let Some((existing_kickoff_txid, _existing_signatures)) = txid_and_signatures {
+            if existing_kickoff_txid.0 == kickoff_txid {
+                return Ok(());
+            } else {
+                return Err(eyre!("Kickoff txid or signatures already set!").into());
+            }
+        }
+
         let query = sqlx::query(
-            "
-            INSERT INTO deposit_signatures (deposit_id, operator_xonly_pk, round_idx, kickoff_idx, kickoff_txid, signatures)
+            "INSERT INTO deposit_signatures (deposit_id, operator_xonly_pk, round_idx, kickoff_idx, kickoff_txid, signatures)
             VALUES ($1, $2, $3, $4, $5, $6);"
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
@@ -393,9 +412,10 @@ impl Database {
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32)
         .bind(TxidDB(kickoff_txid))
-        .bind(SignaturesDB(DepositSignatures{signatures}));
+        .bind(SignaturesDB(DepositSignatures{signatures: signatures.clone()}));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
+
         Ok(())
     }
 
@@ -1002,6 +1022,32 @@ mod tests {
             )
             .await
             .unwrap();
+        // Setting this twice should not cause any issues
+        database
+            .set_deposit_signatures(
+                None,
+                deposit_outpoint,
+                operator_xonly_pk,
+                round_idx,
+                kickoff_idx,
+                Txid::all_zeros(),
+                signatures.signatures.clone(),
+            )
+            .await
+            .unwrap();
+        // But with different kickoff txid and signatures should.
+        assert!(database
+            .set_deposit_signatures(
+                None,
+                deposit_outpoint,
+                operator_xonly_pk,
+                round_idx,
+                kickoff_idx,
+                Txid::from_slice(&[0x1F; 32]).unwrap(),
+                signatures.signatures.clone(),
+            )
+            .await
+            .is_err());
 
         let result = database
             .get_deposit_signatures(

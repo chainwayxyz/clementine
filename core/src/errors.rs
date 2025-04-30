@@ -107,7 +107,7 @@ pub enum BridgeError {
     UnsupportedNetwork,
     #[error("Invalid configuration: {0}")]
     ConfigError(String),
-    #[error("Environment variable {1}: {0}")]
+    #[error("Missing environment variable {1}: {0}")]
     EnvVarNotSet(std::env::VarError, &'static str),
     #[error("Environment variable {0} is malformed: {1}")]
     EnvVarMalformed(&'static str, String),

@@ -32,8 +32,8 @@ pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
     queue: PGMQueueExt,
     /// Queue name for this owner type
     queue_name: String,
-    /// The last height that was processed
-    last_sent_height: u32,
+    /// The next height to process
+    next_height: u32,
     /// Protocol parameters
     paramset: &'static ProtocolParamset,
     /// Owner type marker
@@ -43,7 +43,7 @@ pub struct BlockFetcherTask<T: Owner + std::fmt::Debug + 'static> {
 impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
     /// Creates a new block fetcher task
     pub async fn new(
-        last_processed_block_height: u32,
+        next_height: u32,
         db: Database,
         paramset: &'static ProtocolParamset,
     ) -> Result<Self, BridgeError> {
@@ -53,14 +53,14 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
         tracing::info!(
             "Creating block fetcher task for owner type {} starting from height {}",
             T::OWNER_TYPE,
-            last_processed_block_height
+            next_height
         );
 
         Ok(Self {
             db,
             queue,
             queue_name,
-            last_sent_height: last_processed_block_height,
+            next_height,
             paramset,
             _phantom: std::marker::PhantomData,
         })
@@ -92,31 +92,44 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                     .db
                     .get_block_info_from_id(Some(&mut dbtx), block_id)
                     .await?
-                    .ok_or(BridgeError::Error("Block not found".to_string()))?
+                    .ok_or(BridgeError::Error(
+                        "Block not found in BlockFetcherTask".to_string(),
+                    ))?
                     .1;
-
                 let mut new_tip = false;
 
                 // Update states to catch up to finalized chain
-                while self.last_sent_height < current_tip_height - self.paramset.finality_depth + 1
+                while current_tip_height >= self.paramset.finality_depth
+                    && self.next_height <= current_tip_height - self.paramset.finality_depth
                 {
                     new_tip = true;
 
-                    let next_height = self.last_sent_height + 1;
-
                     let block = self
                         .db
-                        .get_full_block(Some(&mut dbtx), next_height)
+                        .get_full_block(Some(&mut dbtx), self.next_height)
                         .await?
                         .ok_or(BridgeError::Error(format!(
-                            "Block at height {} not found",
-                            next_height
+                            "Block at height {} not found in BlockFetcherTask, current tip height is {}",
+                            self.next_height, current_tip_height
                         )))?;
 
+                    let new_block_id = self
+                        .db
+                        .get_canonical_block_id_from_height(Some(&mut dbtx), self.next_height)
+                        .await?;
+
+                    if new_block_id.is_none() {
+                        tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", self.next_height, current_tip_height);
+                        return Err(BridgeError::Error(format!(
+                            "Block at height {} not found in BlockFetcherTask, current tip height is {}",
+                            self.next_height, current_tip_height
+                        )));
+                    }
+
                     let event = SystemEvent::NewBlock {
-                        block_id,
+                        block_id: new_block_id.expect("it must be some"),
                         block,
-                        height: next_height,
+                        height: self.next_height,
                     };
 
                     self.queue
@@ -129,7 +142,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                             ))
                         })?;
 
-                    self.last_sent_height += 1;
+                    self.next_height += 1;
                 }
 
                 new_tip
@@ -209,13 +222,11 @@ impl<T: Owner + std::fmt::Debug + 'static> IntoTask for StateManager<T> {
 
 impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
     pub async fn block_fetcher_task(&self) -> Result<WithDelay<BlockFetcherTask<T>>, BridgeError> {
-        Ok(BlockFetcherTask::<T>::new(
-            self.last_processed_block_height,
-            self.db.clone(),
-            self.paramset,
+        Ok(
+            BlockFetcherTask::<T>::new(self.next_height_to_process, self.db.clone(), self.paramset)
+                .await?
+                .with_delay(POLL_DELAY),
         )
-        .await?
-        .with_delay(POLL_DELAY))
     }
 }
 
