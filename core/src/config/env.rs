@@ -154,6 +154,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn get_config_from_env_vars() {
         let default_config = BridgeConfig::default();
 
@@ -227,6 +228,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn get_protocol_paramset_from_env_vars() {
         let default_config = REGTEST_PARAMSET;
 
