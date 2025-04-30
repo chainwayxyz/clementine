@@ -103,7 +103,7 @@ impl WatchtowerInput {
     ///
     /// # Note
     ///
-    /// All previous transactions whose outputs are spent by the `watchtower_tx`
+    /// All previous transactions other than kickoff tx whose outputs are spent by the `watchtower_tx`
     /// should be supplied in `previous_txs` if they exist.
     ///
     /// # Returns
