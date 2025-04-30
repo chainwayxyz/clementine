@@ -3,8 +3,6 @@ resolver = "2"
 members = [
   "core",
   "circuits-lib",
-  "risc0-circuits/bridge-circuit",
-  "risc0-circuits/work-only",
   "bridge-circuit-host"
   ]
 
@@ -33,6 +31,8 @@ rand_chacha = "0.3.1"
 # Citrea dependencies
 citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d1ba171" }
 sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "ccdbd5a96" }
+
+citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde"] }

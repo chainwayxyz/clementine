@@ -1,10 +1,15 @@
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
 use bitcoin::{Network, Transaction, XOnlyPublicKey};
-use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof, WatchtowerInput};
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-use final_spv::{spv::SPV, transaction::CircuitTransaction};
-use header_chain::header_chain::BlockHeaderCircuitOutput;
+use circuits_lib::{
+    bridge_circuit::{
+        spv::SPV,
+        structs::{LightClientProof, StorageProof, WatchtowerInput},
+        transaction::CircuitTransaction,
+    },
+    header_chain::BlockHeaderCircuitOutput,
+};
 use risc0_zkvm::Receipt;
 use sha2::{Digest, Sha256};
 

@@ -2,8 +2,11 @@ pub mod constants;
 pub mod groth16;
 pub mod groth16_verifier;
 pub mod lc_proof;
+pub mod merkle_tree;
+pub mod spv;
 pub mod storage_proof;
 pub mod structs;
+pub mod transaction;
 
 use crate::common::zkvm::ZkvmGuest;
 use bitcoin::{
@@ -133,10 +136,11 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     }
 
     // Light client proof verification
-    let state_root = lc_proof_verifier(input.lcp.clone());
+    let light_client_circuit_output = lc_proof_verifier(input.lcp.clone());
 
     // Storage proof verification for deposit tx index and withdrawal outpoint
-    let (user_wd_outpoint_str, move_tx_id) = verify_storage_proofs(&input.sp, state_root);
+    let (user_wd_outpoint_str, move_tx_id) =
+        verify_storage_proofs(&input.sp, light_client_circuit_output.l2_state_root);
 
     let user_wd_outpoint = num_bigint::BigUint::from_str(&user_wd_outpoint_str).unwrap();
 
@@ -573,20 +577,23 @@ fn sighash(
 #[cfg(test)]
 mod tests {
     use super::{
+        merkle_tree::BlockInclusionProof,
+        spv::SPV,
         structs::{CircuitTxOut, CircuitWitness, WatchtowerInput},
+        transaction::CircuitTransaction,
         *,
     };
-    use crate::bridge_circuit::structs::{LightClientProof, StorageProof};
+    use crate::{
+        bridge_circuit::structs::{LightClientProof, StorageProof},
+        header_chain::{
+            mmr_native::MMRInclusionProof, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
+        },
+    };
     use bitcoin::{
         absolute::Height,
         consensus::{Decodable, Encodable},
         transaction::Version,
         ScriptBuf, Transaction, TxIn, Witness,
-    };
-    use final_spv::{merkle_tree::BlockInclusionProof, spv::SPV, transaction::CircuitTransaction};
-    use header_chain::{
-        header_chain::{BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader},
-        mmr_native::MMRInclusionProof,
     };
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;

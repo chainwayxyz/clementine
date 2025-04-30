@@ -6,14 +6,12 @@ edition = "2021"
 [dependencies]
 sha2 = { workspace = true, default-features = false }
 serde = { workspace = true, default-features = false, features = ["derive"] }
-tracing = { workspace = true, default-features = false }
 
 risc0-zkvm = { workspace = true, features = ["std"] }
 risc0-groth16 = { workspace = true }
 
 borsh = { workspace = true, features = ["derive"] }
 bitcoin = { workspace = true, features = ["rand-std", "serde"] }
-rand = { workspace = true, features = ["small_rng"] }
 ripemd = { workspace = true }
 
 ark-bn254 = { workspace = true }
@@ -42,10 +40,10 @@ derive_more = { workspace = true, features = ["display"]}
 crypto-bigint = { workspace = true }
 blake3 = { workspace = true }
 itertools = { workspace = true }
-final-spv = { workspace = true }
-header-chain = { workspace = true }
 k256 = { workspace = true }
 lazy_static = { workspace = true }
+
+citrea-sov-rollup-interface = { workspace = true }
 
 [features]
 not_patched = []
