@@ -12,6 +12,38 @@ use eyre::Context;
 use sqlx::QueryBuilder;
 
 impl Database {
+    /// Returns the last deposit index.
+    /// If no deposits exist, returns None
+    pub async fn get_last_deposit_idx(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32,)>("SELECT COALESCE(MAX(idx), -1) FROM withdrawals");
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        if result.0 == -1 {
+            Ok(None)
+        } else {
+            Ok(Some(result.0 as u32))
+        }
+    }
+
+    /// Returns the last withdrawal index where withdrawal_utxo_txid exists.
+    /// If no withdrawals with UTXOs exist, returns None.
+    pub async fn get_last_withdrawal_idx(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32,)>(
+            "SELECT COALESCE(MAX(idx), -1) FROM withdrawals WHERE withdrawal_utxo_txid IS NOT NULL",
+        );
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        if result.0 == -1 {
+            Ok(None)
+        } else {
+            Ok(Some(result.0 as u32))
+        }
+    }
+
     pub async fn set_move_to_vault_txid_from_citrea_deposit(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -28,6 +60,33 @@ impl Database {
         .bind(TxidDB(*move_to_vault_txid));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
+        Ok(())
+    }
+
+    pub async fn set_replacement_deposit_move_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        old_move_txid: Txid,
+        new_move_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE withdrawals
+             SET move_to_vault_txid = $2
+             WHERE move_to_vault_txid = $1
+             RETURNING idx",
+        )
+        .bind(TxidDB(old_move_txid))
+        .bind(TxidDB(new_move_txid));
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        if result.is_none() {
+            return Err(BridgeError::Error(format!(
+                "No withdrawal found with move_to_vault_txid: {}",
+                old_move_txid
+            )));
+        }
+
         Ok(())
     }
 

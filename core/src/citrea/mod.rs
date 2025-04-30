@@ -1,8 +1,10 @@
 //! # Citrea Related Utilities
 
+use crate::citrea::BRIDGE_CONTRACT::DepositReplaced;
 use crate::errors::BridgeError;
+
 use alloy::{
-    eips::BlockNumberOrTag,
+    eips::{BlockId, BlockNumberOrTag},
     network::EthereumWallet,
     primitives::U256,
     providers::{
@@ -22,14 +24,20 @@ use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
+use lazy_static::lazy_static;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
-use BRIDGE_CONTRACT::{Deposit, Withdrawal};
 
 #[cfg(test)]
 pub mod mock;
 
-pub const CITREA_CHAIN_ID: u64 = 5655;
+lazy_static! {
+    pub static ref CITREA_CHAIN_ID: u64 = std::env::var("CITREA_CHAIN_ID")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(5655);
+}
+
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
 pub const BRIDGE_CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 pub const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
@@ -69,27 +77,27 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     /// - [`OutPoint`]: UTXO for the given withdrawal.
     async fn withdrawal_utxos(&self, withdrawal_index: u64) -> Result<OutPoint, BridgeError>;
 
-    /// Returns deposit move txids with index for a given range of blocks.
+    /// Returns deposit move txids, starting from the last deposit index.
     ///
     /// # Parameters
     ///
-    /// - `from_height`: Start block height (inclusive)
+    /// - `last_deposit_idx`: Last deposit index. None if no deposit
     /// - `to_height`: End block height (inclusive)
     async fn collect_deposit_move_txids(
         &self,
-        from_height: u64,
+        last_deposit_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError>;
 
-    /// Returns withdrawal utxos with index for given range of blocks.
+    /// Returns withdrawal utxos, starting from the last withdrawal index.
     ///
     /// # Parameters
     ///
-    /// - `from_height`: Start block height (inclusive)
+    /// - `last_withdrawal_idx`: Last withdrawal index. None if no withdrawal
     /// - `to_height`: End block height (inclusive)
     async fn collect_withdrawal_utxos(
         &self,
-        from_height: u64,
+        last_withdrawal_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError>;
 
@@ -130,6 +138,25 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         block_height: u64,
         timeout: Duration,
     ) -> Result<(u64, u64), BridgeError>;
+
+    /// Returns the replacement deposit move txids for the given range of blocks.
+    ///
+    /// # Parameters
+    ///
+    /// - `from_height`: Start block height (inclusive)
+    /// - `to_height`: End block height (inclusive)
+    ///
+    /// # Returns
+    ///
+    /// A vector of tuples, each containing:
+    ///
+    /// - [`Txid`]: The original move txid.
+    /// - [`Txid`]: The replacement move txid.
+    async fn get_replacement_deposit_move_txids(
+        &self,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<Vec<(Txid, Txid)>, BridgeError>;
 
     async fn check_nofn_correctness(
         &self,
@@ -177,7 +204,7 @@ impl CitreaClient {
                 .wrap_err("Failed to get logs")?;
             logs.extend(logs_chunk);
 
-            from_height += to_height;
+            from_height = to_height + 1;
         }
 
         Ok(logs)
@@ -196,7 +223,7 @@ impl CitreaClientT for CitreaClient {
             Url::parse(&light_client_prover_url).wrap_err("Can't parse Citrea LCP RPC URL")?;
         let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
 
-        let key = secret_key.with_chain_id(Some(CITREA_CHAIN_ID));
+        let key = secret_key.with_chain_id(Some(*CITREA_CHAIN_ID));
         let wallet_address = key.address();
 
         let provider = ProviderBuilder::new()
@@ -244,74 +271,73 @@ impl CitreaClientT for CitreaClient {
 
     async fn collect_deposit_move_txids(
         &self,
-        from_height: u64,
+        last_deposit_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, Txid)>, BridgeError> {
-        let filter = self.contract.event_filter::<Deposit>().filter;
-        let logs = self
-            .get_logs(filter, from_height, to_height)
-            .await
-            .wrap_err("Failed to get logs")?;
-
         let mut move_txids = vec![];
-        for log in logs {
-            let deposit_raw_data = &log.data().data;
 
-            let deposit_index = Deposit::abi_decode_data(deposit_raw_data, false)
-                .wrap_err("Failed to decode deposit data")?
-                .4;
-            let deposit_index: u64 = deposit_index
-                .try_into()
-                .wrap_err("Failed to convert deposit index to u64")?;
+        let mut start_idx = match last_deposit_idx {
+            Some(idx) => idx + 1,
+            None => 0,
+        };
 
-            let move_txid = Deposit::abi_decode_data(deposit_raw_data, false)
-                .wrap_err("Failed to decode deposit data")?
-                .1;
-            let move_txid = Txid::from_slice(move_txid.as_ref())
+        loop {
+            let deposit_txid = self
+                .contract
+                .depositTxIds(U256::from(start_idx))
+                .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
+                .call()
+                .await;
+            if deposit_txid.is_err() {
+                tracing::info!(
+                    "Deposit txid not found for index, error: {:?}",
+                    deposit_txid
+                );
+                break;
+            }
+            tracing::info!("Deposit txid found for index: {:?}", deposit_txid);
+
+            let deposit_txid = deposit_txid.expect("Failed to get deposit txid");
+            let move_txid = Txid::from_slice(deposit_txid._0.as_ref())
                 .wrap_err("Failed to convert move txid to Txid")?;
-
-            move_txids.push((deposit_index, move_txid));
+            move_txids.push((start_idx as u64, move_txid));
+            start_idx += 1;
         }
-
         Ok(move_txids)
     }
 
     async fn collect_withdrawal_utxos(
         &self,
-        from_height: u64,
+        last_withdrawal_idx: Option<u32>,
         to_height: u64,
     ) -> Result<Vec<(u64, OutPoint)>, BridgeError> {
-        let filter = self.contract.event_filter::<Withdrawal>().filter;
-        let logs = self
-            .get_logs(filter, from_height, to_height)
-            .await
-            .wrap_err("Failed to get logs")?;
-
         let mut utxos = vec![];
-        for log in logs {
-            let withdrawal_raw_data = log.data().clone().data.clone();
 
-            let withdrawal_index = Withdrawal::abi_decode_data(&withdrawal_raw_data, false)
-                .wrap_err("Failed to decode withdrawal data")?
-                .1;
-            let withdrawal_index: u64 = withdrawal_index
-                .try_into()
-                .wrap_err("Failed to convert withdrawal index to u64")?;
+        let mut start_idx = match last_withdrawal_idx {
+            Some(idx) => idx + 1,
+            None => 0,
+        };
 
-            let withdrawal_utxo = Withdrawal::abi_decode_data(withdrawal_raw_data.as_ref(), false)
-                .wrap_err("Failed to decode withdrawal data")?
-                .0;
-
+        loop {
+            let withdrawal_utxo = self
+                .contract
+                .withdrawalUTXOs(U256::from(start_idx))
+                .block(BlockId::Number(BlockNumberOrTag::Number(to_height)))
+                .call()
+                .await;
+            if withdrawal_utxo.is_err() {
+                break;
+            }
+            let withdrawal_utxo = withdrawal_utxo.expect("Failed to get withdrawal UTXO");
             let txid = withdrawal_utxo.txId.0;
             let txid =
                 Txid::from_slice(txid.as_ref()).wrap_err("Failed to convert txid to Txid")?;
-
             let vout = withdrawal_utxo.outputId.0;
             let vout = u32::from_be_bytes(vout);
-
-            utxos.push((withdrawal_index, OutPoint { txid, vout }));
+            let utxo = OutPoint { txid, vout };
+            utxos.push((start_idx as u64, utxo));
+            start_idx += 1;
         }
-
         Ok(utxos)
     }
 
@@ -324,6 +350,11 @@ impl CitreaClientT for CitreaClient {
             .get_light_client_proof_by_l1_height(l1_height)
             .await
             .wrap_err("Failed to get light client proof")?;
+        tracing::debug!(
+            "Light client proof result {}: {:?}",
+            l1_height,
+            proof_result
+        );
 
         let ret = if let Some(proof_result) = proof_result {
             Some((
@@ -376,6 +407,38 @@ impl CitreaClientT for CitreaClient {
         let l2_height_start: u64 = proof_previous.0;
 
         Ok((l2_height_start, l2_height_end))
+    }
+
+    async fn get_replacement_deposit_move_txids(
+        &self,
+        from_height: u64,
+        to_height: u64,
+    ) -> Result<Vec<(Txid, Txid)>, BridgeError> {
+        let mut replacement_move_txids = vec![];
+
+        // get logs
+        let filter = self.contract.event_filter::<DepositReplaced>().filter;
+        let logs = self.get_logs(filter, from_height, to_height).await?;
+
+        for log in logs {
+            let replacement_raw_data = &log.data().data;
+
+            let old_move_txid = DepositReplaced::abi_decode_data(replacement_raw_data, false)
+                .wrap_err("Failed to decode replacement deposit data")?
+                .1;
+            let new_move_txid = DepositReplaced::abi_decode_data(replacement_raw_data, false)
+                .wrap_err("Failed to decode replacement deposit data")?
+                .2;
+
+            let old_move_txid = Txid::from_slice(old_move_txid.as_ref())
+                .wrap_err("Failed to convert old move txid to Txid")?;
+            let new_move_txid = Txid::from_slice(new_move_txid.as_ref())
+                .wrap_err("Failed to convert new move txid to Txid")?;
+
+            replacement_move_txids.push((old_move_txid, new_move_txid));
+        }
+
+        Ok(replacement_move_txids)
     }
 
     /// TODO: This is not the best way to do this, but it's a quick fix for now
@@ -527,10 +590,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "Includes code that won't change much and the test itself is too flaky; Ignoring..."]
     async fn citrea_get_logs_limit_check() -> citrea_e2e::Result<()> {
-        // TODO: temp hack to use the correct docker image
         std::env::set_var(
             "CITREA_DOCKER_IMAGE",
-            "chainwayxyz/citrea-test:60d9fd633b9e62b647039f913c6f7f8c085ad42e",
+            "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
         );
         TestCaseRunner::new(CitreaGetLogsLimitCheck).run().await
     }

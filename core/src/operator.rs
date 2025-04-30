@@ -405,6 +405,15 @@ where
         out_script_pubkey: ScriptBuf,
         out_amount: Amount,
     ) -> Result<Txid, BridgeError> {
+        tracing::info!(
+            "Withdrawing with index: {}, in_signature: {}, in_outpoint: {:?}, out_script_pubkey: {}, out_amount: {}",
+            withdrawal_index,
+            in_signature.to_string(),
+            in_outpoint,
+            out_script_pubkey.to_string(),
+            out_amount
+        );
+
         // Prepare input and output of the payout transaction.
         let input_prevout = self.rpc.get_txout_from_outpoint(&in_outpoint).await?;
         let input_utxo = UTXO {
@@ -464,6 +473,8 @@ where
             in_signature,
             self.config.protocol_paramset().network,
         )?;
+
+        // tracing::info!("Payout txhandler: {:?}", hex::encode(bitcoin::consensus::serialize(&payout_txhandler.get_cached_tx())));
 
         let sighash = payout_txhandler
             .calculate_sighash_txin(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)?;

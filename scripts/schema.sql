@@ -24,7 +24,7 @@ create table if not exists header_chain_proofs (
     block_hash text primary key not null,
     block_header text,
     prev_block_hash text,
-    height int not null,
+    height bigint not null,
     proof bytea
 );
 create table if not exists watchtower_xonly_public_keys (
@@ -236,13 +236,10 @@ CREATE TABLE IF NOT EXISTS state_machines (
 );
 -- Status table to track the last processed block
 CREATE TABLE IF NOT EXISTS state_manager_status (
-    id SERIAL PRIMARY KEY,
-    last_processed_block_height INT NOT NULL,
+    owner_type VARCHAR(100) PRIMARY KEY,
+    next_height_to_process INT NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
--- Insert a default record in the status table
-INSERT INTO state_manager_status (id, last_processed_block_height, updated_at)
-VALUES (1, 0, NOW()) ON CONFLICT (id) DO NOTHING;
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS state_machines_block_height_idx ON state_machines(block_height);
 CREATE INDEX IF NOT EXISTS state_machines_machine_type_idx ON state_machines(machine_type);

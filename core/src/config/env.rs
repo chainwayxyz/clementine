@@ -1,15 +1,15 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
-use super::{protocol::ProtocolParamset, BridgeConfig};
+use super::BridgeConfig;
 use crate::errors::BridgeError;
-use bitcoin::{secp256k1::SecretKey, Amount, Network};
+use bitcoin::{secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
-fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
+pub(crate) fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
     std::env::var(env_var).map_err(|e| BridgeError::EnvVarNotSet(e, env_var))
 }
 
-fn read_string_from_env_then_parse<T: std::str::FromStr>(
+pub(crate) fn read_string_from_env_then_parse<T: std::str::FromStr>(
     env_var: &'static str,
 ) -> Result<T, BridgeError>
 where
@@ -106,7 +106,8 @@ impl BridgeConfig {
             };
 
         let config = BridgeConfig {
-            protocol_paramset: read_string_from_env("PROTOCOL_PARAMSET")?.parse()?,
+            // Protocol paramset's source is independently defined
+            protocol_paramset: Default::default(),
             host: read_string_from_env("HOST")?,
             port: read_string_from_env_then_parse::<u16>("PORT")?,
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
@@ -138,69 +139,12 @@ impl BridgeConfig {
     }
 }
 
-impl ProtocolParamset {
-    pub fn from_env() -> Result<Self, BridgeError> {
-        let config = ProtocolParamset {
-            network: read_string_from_env_then_parse::<Network>("NETWORK")?,
-            num_round_txs: read_string_from_env_then_parse::<usize>("NUM_ROUND_TXS")?,
-            num_kickoffs_per_round: read_string_from_env_then_parse::<usize>(
-                "NUM_KICKOFFS_PER_ROUND",
-            )?,
-            num_signed_kickoffs: read_string_from_env_then_parse::<usize>("NUM_SIGNED_KICKOFFS")?,
-            bridge_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
-                "BRIDGE_AMOUNT",
-            )?),
-            kickoff_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
-                "KICKOFF_AMOUNT",
-            )?),
-            operator_challenge_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
-                "OPERATOR_CHALLENGE_AMOUNT",
-            )?),
-            collateral_funding_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
-                "COLLATERAL_FUNDING_AMOUNT",
-            )?),
-            kickoff_blockhash_commit_length: read_string_from_env_then_parse::<u32>(
-                "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
-            )?,
-            watchtower_challenge_bytes: read_string_from_env_then_parse::<usize>(
-                "WATCHTOWER_CHALLENGE_BYTES",
-            )?,
-            winternitz_log_d: read_string_from_env_then_parse::<u32>("WINTERNITZ_LOG_D")?,
-            user_takes_after: read_string_from_env_then_parse::<u16>("USER_TAKES_AFTER")?,
-            operator_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
-                "OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK",
-            )?,
-            operator_challenge_nack_timelock: read_string_from_env_then_parse::<u16>(
-                "OPERATOR_CHALLENGE_NACK_TIMELOCK",
-            )?,
-            disprove_timeout_timelock: read_string_from_env_then_parse::<u16>(
-                "DISPROVE_TIMEOUT_TIMELOCK",
-            )?,
-            assert_timeout_timelock: read_string_from_env_then_parse::<u16>(
-                "ASSERT_TIMEOUT_TIMELOCK",
-            )?,
-            operator_reimburse_timelock: read_string_from_env_then_parse::<u16>(
-                "OPERATOR_REIMBURSE_TIMELOCK",
-            )?,
-            watchtower_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
-                "WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK",
-            )?,
-            time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
-                "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
-            )?,
-            time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
-            finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
-            start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
-        };
-
-        tracing::debug!("ProtocolParamset from env: {:?}", config);
-        Ok(config)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::config::{protocol::REGTEST_PARAMSET, BridgeConfig};
+    use crate::config::{
+        protocol::{ProtocolParamset, REGTEST_PARAMSET},
+        BridgeConfig,
+    };
 
     #[test]
     #[ignore = "If other tests are run before, this test will fail"]
@@ -213,10 +157,6 @@ mod tests {
     fn get_config_from_env_vars() {
         let default_config = BridgeConfig::default();
 
-        std::env::set_var(
-            "PROTOCOL_PARAMSET",
-            default_config.protocol_paramset.to_string(),
-        );
         std::env::set_var("HOST", &default_config.host);
         std::env::set_var("PORT", default_config.port.to_string());
         std::env::set_var(
@@ -376,7 +316,11 @@ mod tests {
         );
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
+        std::env::set_var(
+            "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            default_config.header_chain_proof_batch_size.to_string(),
+        );
 
-        assert_eq!(super::ProtocolParamset::from_env().unwrap(), default_config);
+        assert_eq!(ProtocolParamset::from_env().unwrap(), default_config);
     }
 }
