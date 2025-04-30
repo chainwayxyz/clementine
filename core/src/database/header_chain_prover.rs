@@ -26,7 +26,7 @@ impl Database {
         block_height: u64,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4);",
+                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4)",
             )
             .bind(BlockHashDB(block_hash)).bind(BlockHeaderDB(block_header)).bind(BlockHashDB(block_header.prev_blockhash)).bind(block_height as i64);
 
@@ -42,7 +42,7 @@ impl Database {
         height: u64,
     ) -> Result<(block::BlockHash, block::Header), BridgeError> {
         let query = sqlx::query_as(
-            "SELECT block_hash, block_header FROM header_chain_proofs WHERE height = $1;",
+            "SELECT block_hash, block_header FROM header_chain_proofs WHERE height = $1",
         )
         .bind(height as i64);
 
@@ -95,7 +95,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<(u64, BlockHash), BridgeError> {
         let query = sqlx::query_as(
-            "SELECT height, block_hash FROM header_chain_proofs ORDER BY height DESC;",
+            "SELECT height, block_hash FROM header_chain_proofs ORDER BY height DESC",
         );
 
         let result: (Option<i32>, Option<BlockHashDB>) =
@@ -117,7 +117,7 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let proof = borsh::to_vec(&proof).wrap_err(BridgeError::BorshError)?;
 
-        let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2;")
+        let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2")
             .bind(proof)
             .bind(BlockHashDB(hash));
 
@@ -132,7 +132,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         hash: block::BlockHash,
     ) -> Result<Option<Receipt>, BridgeError> {
-        let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1;")
+        let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1")
             .bind(BlockHashDB(hash));
 
         let receipt: (Option<Vec<u8>>,) =

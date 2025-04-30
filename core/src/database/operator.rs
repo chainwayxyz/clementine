@@ -40,7 +40,7 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) VALUES ($1, $2, $3)
-                    ON CONFLICT DO NOTHING;",
+                    ON CONFLICT DO NOTHING",
         )
         .bind(XOnlyPublicKeyDB(xonly_pubkey))
         .bind(wallet_address)
@@ -110,7 +110,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         funding_utxo: UTXO,
     ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);").bind(
+        let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1)").bind(
             sqlx::types::Json(UtxoDB {
                 outpoint_db: OutPointDB(funding_utxo.outpoint),
                 txout_db: TxOutDB(funding_utxo.txout),
@@ -128,7 +128,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<UTXO>, BridgeError> {
         let query =
-            sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;");
+            sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1");
 
         let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
@@ -169,7 +169,7 @@ impl Database {
         operator_xonly_pk: XOnlyPublicKey,
         round_idx: usize,
     ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
-        let query = sqlx::query_as::<_, (SignaturesDB,)>("SELECT signatures FROM unspent_kickoff_signatures WHERE xonly_pk = $1 AND round_idx = $2;")
+        let query = sqlx::query_as::<_, (SignaturesDB,)>("SELECT signatures FROM unspent_kickoff_signatures WHERE xonly_pk = $1 AND round_idx = $2")
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(round_idx as i32);
 
@@ -303,8 +303,7 @@ impl Database {
                 ON CONFLICT (deposit_outpoint) DO UPDATE
                 SET deposit_params = EXCLUDED.deposit_params,
                     move_to_vault_txid = EXCLUDED.move_to_vault_txid
-                RETURNING deposit_id;
-            ",
+                RETURNING deposit_id",
         )
         .bind(OutPointDB(deposit_data.get_deposit_outpoint()))
         .bind(DepositParamsDB(deposit_data.into()))
@@ -701,7 +700,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<u32>, BridgeError> {
         let query =
-            sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1;");
+            sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1");
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
         match result {
             Some((round_idx,)) => Ok(Some(
@@ -716,7 +715,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: u32,
     ) -> Result<(), BridgeError> {
-        let query = sqlx::query("UPDATE current_round_index SET round_idx = $1 WHERE id = 1;")
+        let query = sqlx::query("UPDATE current_round_index SET round_idx = $1 WHERE id = 1")
             .bind(i32::try_from(round_idx).wrap_err("Failed to convert round idx to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
