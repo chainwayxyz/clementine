@@ -323,22 +323,19 @@ impl TxSenderClient {
     /// including its state history, fee payer UTXOs, submission errors, and current state.
     ///
     /// # Arguments
-    /// * `tx_id` - The ID of the transaction to debug
+    /// * `id` - The ID of the transaction to debug
     ///
     /// # Returns
     /// A comprehensive debug info structure with all available information about the transaction
-    pub async fn debug_tx(&self, tx_id: u32) -> Result<crate::rpc::clementine::TxDebugInfo> {
+    pub async fn debug_tx(&self, id: u32) -> Result<crate::rpc::clementine::TxDebugInfo> {
         use crate::rpc::clementine::{TxDebugFeePayerUtxo, TxDebugInfo, TxDebugSubmissionError};
 
-        let (tx_metadata, tx, fee_paying_type, seen_block_id, _) = self
-            .db
-            .get_try_to_send_tx(None, tx_id)
-            .await
-            .map_to_eyre()?;
+        let (tx_metadata, tx, fee_paying_type, seen_block_id, _) =
+            self.db.get_try_to_send_tx(None, id).await.map_to_eyre()?;
 
         let submission_errors = self
             .db
-            .get_tx_debug_submission_errors(None, tx_id)
+            .get_tx_debug_submission_errors(None, id)
             .await
             .map_to_eyre()?;
 
@@ -350,11 +347,11 @@ impl TxSenderClient {
             })
             .collect();
 
-        let current_state = self.db.get_tx_debug_info(None, tx_id).await.map_to_eyre()?;
+        let current_state = self.db.get_tx_debug_info(None, id).await.map_to_eyre()?;
 
         let fee_payer_utxos = self
             .db
-            .get_tx_debug_fee_payer_utxos(None, tx_id)
+            .get_tx_debug_fee_payer_utxos(None, id)
             .await
             .map_to_eyre()?;
 
@@ -372,13 +369,13 @@ impl TxSenderClient {
             FeePayingType::CPFP => tx.compute_txid(),
             FeePayingType::RBF => self
                 .db
-                .get_last_rbf_txid(None, tx_id)
+                .get_last_rbf_txid(None, id)
                 .await
                 .map_to_eyre()?
                 .unwrap_or(Txid::all_zeros()),
         };
         let debug_info = TxDebugInfo {
-            tx_id,
+            id,
             is_active: seen_block_id.is_none(),
             current_state: current_state.unwrap_or_else(|| "unknown".to_string()),
             submission_errors,
