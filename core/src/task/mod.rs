@@ -170,7 +170,7 @@ where
 }
 
 #[async_trait]
-impl<T: Task + Sized+ std::fmt::Debug> Task for BufferedErrors<T>
+impl<T: Task + Sized + std::fmt::Debug> Task for BufferedErrors<T>
 where
     T::Output: Default,
 {
