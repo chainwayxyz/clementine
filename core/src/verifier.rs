@@ -20,7 +20,8 @@ use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{self};
+use crate::header_chain_prover::HeaderChainProver;
+use crate::musig2;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
@@ -133,6 +134,7 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) config: BridgeConfig,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub tx_sender: TxSenderClient,
+    pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
 }
 
@@ -171,6 +173,8 @@ where
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
+        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
+
         let verifier = Verifier {
             rpc,
             signer,
@@ -178,6 +182,7 @@ where
             config: config.clone(),
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             tx_sender,
+            header_chain_prover,
             citrea_client,
         };
         Ok(verifier)
@@ -1347,6 +1352,11 @@ where
         tracing::info!("Getting payout txids for block height: {:?}", block_height);
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
+
+        self.header_chain_prover
+            .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
+            .await?;
+        self.header_chain_prover.prove_if_ready().await?;
 
         Ok(())
     }

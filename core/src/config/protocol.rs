@@ -116,6 +116,8 @@ pub struct ProtocolParamset {
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
     pub start_height: u32,
+    /// Batch size of the header chain proofs
+    pub header_chain_proof_batch_size: u32,
 }
 
 impl ProtocolParamset {
@@ -180,6 +182,9 @@ impl ProtocolParamset {
             time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
+            header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
+                "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            )?,
         };
 
         Ok(config)
@@ -218,6 +223,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
-    finality_depth: 0,
+    finality_depth: 1,
     start_height: 201,
+    header_chain_proof_batch_size: 100,
 };

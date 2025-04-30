@@ -316,6 +316,10 @@ mod tests {
         );
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
+        std::env::set_var(
+            "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            default_config.header_chain_proof_batch_size.to_string(),
+        );
 
         assert_eq!(ProtocolParamset::from_env().unwrap(), default_config);
     }
