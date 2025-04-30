@@ -171,23 +171,26 @@ impl TxSender {
 
         let mut tx_handler = builder.finalize();
 
-        let sighash = tx_handler
-            .calculate_pubkey_spend_sighash(1, bitcoin::TapSighashType::Default)
-            .map_err(|e| eyre!(e))?;
-        let signature = self
-            .signer
-            .sign_with_tweak_data(sighash, builder::sighash::TapTweakData::KeyPath(None), None)
-            .map_err(|e| eyre!(e))?;
-        tx_handler
-            .set_p2tr_key_spend_witness(
-                &bitcoin::taproot::Signature {
-                    signature,
-                    sighash_type: bitcoin::TapSighashType::Default,
-                },
-                1,
-            )
-            .map_err(|e| eyre!(e))?;
+        for fee_payer_input in 1..tx_handler.get_cached_tx().input.len() {
+            let sighash = tx_handler
+                .calculate_pubkey_spend_sighash(fee_payer_input, bitcoin::TapSighashType::Default)
+                .map_err(|e| eyre!(e))?;
+            let signature = self
+                .signer
+                .sign_with_tweak_data(sighash, builder::sighash::TapTweakData::KeyPath(None), None)
+                .map_err(|e| eyre!(e))?;
+            tx_handler
+                .set_p2tr_key_spend_witness(
+                    &bitcoin::taproot::Signature {
+                        signature,
+                        sighash_type: bitcoin::TapSighashType::Default,
+                    },
+                    fee_payer_input,
+                )
+                .map_err(|e| eyre!(e))?;
+        }
         let child_tx = tx_handler.get_cached_tx().clone();
+
         Ok(child_tx)
     }
 

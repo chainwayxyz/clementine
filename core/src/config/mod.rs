@@ -13,7 +13,7 @@
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::SecretKey;
 use bitcoin::Amount;
-use protocol::{ProtocolParamset, ProtocolParamsetName};
+use protocol::ProtocolParamset;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
@@ -37,13 +37,13 @@ impl Default for TestParams {
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BridgeConfig {
-    /// Protocol paramset name
-    /// One of:
-    /// - `Mainnet`
-    /// - `Regtest`
-    /// - `Testnet`
-    /// - `Signet`
-    pub protocol_paramset: ProtocolParamsetName,
+    /// Protocol paramset
+    ///
+    /// Sourced from either a file or the environment, is set to REGTEST_PARAMSET in tests
+    ///
+    /// Skipped in deserialization and replaced by either file/environment source. See [`clementine_core::cli::get_cli_config`]
+    #[serde(skip)]
+    pub protocol_paramset: &'static ProtocolParamset,
     /// Host of the operator or the verifier
     pub host: String,
     /// Port of the operator or the verifier
@@ -106,7 +106,7 @@ impl BridgeConfig {
 
     /// Get the protocol paramset defined by the paramset name.
     pub fn protocol_paramset(&self) -> &'static ProtocolParamset {
-        self.protocol_paramset.into()
+        self.protocol_paramset
     }
 
     /// Read contents of a TOML file and generate a `BridgeConfig`.
@@ -140,7 +140,7 @@ impl BridgeConfig {
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
-            protocol_paramset: ProtocolParamsetName::Regtest,
+            protocol_paramset: Default::default(),
             host: "127.0.0.1".to_string(),
             port: 17000,
 

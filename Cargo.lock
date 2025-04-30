@@ -324,9 +324,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-primitives"
-version = "0.8.22"
+version = "0.8.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c66bb6715b7499ea755bde4c96223ae8eb74e05c014ab38b9db602879ffb825"
+checksum = "8c77490fe91a0ce933a1f219029521f20fc28c2c0ca95d53fa4da9c00b8d9d4e"
 dependencies = [
  "alloy-rlp",
  "bytes",
@@ -1923,7 +1923,7 @@ dependencies = [
  "risc0-binfmt",
  "risc0-circuit-recursion",
  "risc0-groth16",
- "risc0-zkp",
+ "risc0-zkp 1.2.5",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -2115,7 +2115,7 @@ dependencies = [
 [[package]]
 name = "citrea-e2e"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=d1ba171#d1ba17118cfafcf579c6ed6b0295f97667f11a62"
+source = "git+https://github.com/chainwayxyz/citrea-e2e?rev=39e75ae22972ed2c3617392a504dac072d992cc4#39e75ae22972ed2c3617392a504dac072d992cc4"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -2126,6 +2126,7 @@ dependencies = [
  "futures",
  "hex",
  "jsonrpsee",
+ "nix",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -2767,6 +2768,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c7a8fb8a9fbf66c1f703fe16184d10ca0ee9d23be5b4436400408ba54a95005"
+
+[[package]]
 name = "ecdsa"
 version = "0.16.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2776,6 +2783,7 @@ dependencies = [
  "digest 0.10.7",
  "elliptic-curve",
  "rfc6979",
+ "serdect",
  "signature",
  "spki",
 ]
@@ -2819,9 +2827,11 @@ dependencies = [
  "ff",
  "generic-array",
  "group",
+ "pem-rfc7468",
  "pkcs8",
  "rand_core 0.6.4",
  "sec1",
+ "serdect",
  "subtle",
  "zeroize",
 ]
@@ -4192,7 +4202,9 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "once_cell",
+ "serdect",
  "sha2",
+ "signature",
 ]
 
 [[package]]
@@ -4510,6 +4522,18 @@ dependencies = [
  "portable-atomic-util",
  "rawpointer",
  "rayon",
+]
+
+[[package]]
+name = "nix"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+dependencies = [
+ "bitflags 2.9.0",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
 ]
 
 [[package]]
@@ -5496,8 +5520,8 @@ dependencies = [
  "anyhow",
  "borsh",
  "elf",
- "risc0-zkp",
- "risc0-zkvm-platform",
+ "risc0-zkp 1.2.5",
+ "risc0-zkvm-platform 1.2.5",
  "serde",
  "tracing",
 ]
@@ -5514,8 +5538,8 @@ dependencies = [
  "docker-generate",
  "hex",
  "risc0-binfmt",
- "risc0-zkp",
- "risc0-zkvm-platform",
+ "risc0-zkp 1.2.5",
+ "risc0-zkvm-platform 1.2.5",
  "serde",
  "serde_json",
  "tempfile",
@@ -5551,9 +5575,9 @@ dependencies = [
  "risc0-binfmt",
  "risc0-circuit-keccak-sys",
  "risc0-circuit-recursion",
- "risc0-core",
+ "risc0-core 1.2.5",
  "risc0-sys",
- "risc0-zkp",
+ "risc0-zkp 1.2.5",
  "tracing",
  "xz2",
 ]
@@ -5568,7 +5592,7 @@ dependencies = [
  "derive_more 1.0.0",
  "glob",
  "risc0-build-kernel",
- "risc0-core",
+ "risc0-core 1.2.5",
  "risc0-sys",
 ]
 
@@ -5588,9 +5612,9 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "risc0-circuit-recursion-sys",
- "risc0-core",
+ "risc0-core 1.2.5",
  "risc0-sys",
- "risc0-zkp",
+ "risc0-zkp 1.2.5",
  "serde",
  "sha2",
  "tracing",
@@ -5605,7 +5629,7 @@ checksum = "202ceb200e1248534e808ffc00e5f302c2fe68d5ade99231d61fbb65b7945214"
 dependencies = [
  "glob",
  "risc0-build-kernel",
- "risc0-core",
+ "risc0-core 1.2.5",
  "risc0-sys",
 ]
 
@@ -5633,10 +5657,10 @@ dependencies = [
  "rayon",
  "risc0-binfmt",
  "risc0-circuit-rv32im-sys",
- "risc0-core",
+ "risc0-core 1.2.5",
  "risc0-sys",
- "risc0-zkp",
- "risc0-zkvm-platform",
+ "risc0-zkp 1.2.5",
+ "risc0-zkvm-platform 1.2.5",
  "serde",
  "sha2",
  "tracing",
@@ -5650,7 +5674,7 @@ checksum = "d161d7a468272e803655856a11d379e5754d347fd01146b079aaaa8b4536c0c6"
 dependencies = [
  "glob",
  "risc0-build-kernel",
- "risc0-core",
+ "risc0-core 1.2.5",
  "risc0-sys",
 ]
 
@@ -5663,6 +5687,17 @@ dependencies = [
  "bytemuck",
  "nvtx",
  "puffin",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "risc0-core"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "317bbf70a8750b64d4fd7a2bdc9d7d5f30d8bb305cae486962c797ef35c8d08e"
+dependencies = [
+ "bytemuck",
+ "bytemuck_derive",
  "rand_core 0.6.4",
 ]
 
@@ -5682,8 +5717,8 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "risc0-binfmt",
- "risc0-core",
- "risc0-zkp",
+ "risc0-core 1.2.5",
+ "risc0-zkp 1.2.5",
  "serde",
  "serde_json",
  "stability",
@@ -5736,11 +5771,36 @@ dependencies = [
  "rand 0.8.5",
  "rand_core 0.6.4",
  "rayon",
- "risc0-core",
+ "risc0-core 1.2.5",
  "risc0-sys",
- "risc0-zkvm-platform",
+ "risc0-zkvm-platform 1.2.5",
  "serde",
  "sha2",
+ "tracing",
+]
+
+[[package]]
+name = "risc0-zkp"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "023ed128cab28e4078330fffb65e9d079b3198958e3de6835f70c7ff285afeb4"
+dependencies = [
+ "anyhow",
+ "blake2",
+ "borsh",
+ "bytemuck",
+ "cfg-if",
+ "digest 0.10.7",
+ "hex",
+ "hex-literal",
+ "metal",
+ "paste",
+ "rand_core 0.6.4",
+ "risc0-core 2.0.0",
+ "risc0-zkvm-platform 2.0.1",
+ "serde",
+ "sha2",
+ "stability",
  "tracing",
 ]
 
@@ -5773,10 +5833,10 @@ dependencies = [
  "risc0-circuit-keccak",
  "risc0-circuit-recursion",
  "risc0-circuit-rv32im",
- "risc0-core",
+ "risc0-core 1.2.5",
  "risc0-groth16",
- "risc0-zkp",
- "risc0-zkvm-platform",
+ "risc0-zkp 1.2.5",
+ "risc0-zkvm-platform 1.2.5",
  "rrs-lib",
  "rustc-demangle",
  "semver 1.0.26",
@@ -5798,6 +5858,16 @@ dependencies = [
  "cfg-if",
  "getrandom 0.2.15",
  "libm",
+ "stability",
+]
+
+[[package]]
+name = "risc0-zkvm-platform"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fed76ab12e5af4c93a3996e0609696cfdd0caebe8746af171ef583fa6e4af134"
+dependencies = [
+ "cfg-if",
  "stability",
 ]
 
@@ -6072,6 +6142,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "0.8.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fbf2ae1b8bc8e02df939598064d22402220cd5bbcca1c76f7d6a310974d5615"
+dependencies = [
+ "dyn-clone",
+ "schemars_derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "0.8.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32e265784ad618884abaea0600a9adf15393368d840e0222d101a072f3f7534d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 2.0.99",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6106,6 +6200,7 @@ dependencies = [
  "der",
  "generic-array",
  "pkcs8",
+ "serdect",
  "subtle",
  "zeroize",
 ]
@@ -6239,6 +6334,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_derive_internals"
+version = "0.29.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.99",
+]
+
+[[package]]
 name = "serde_json"
 version = "1.0.140"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6310,6 +6416,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.99",
+]
+
+[[package]]
+name = "serdect"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a84f14a19e9a014bb9f4512488d9829a68e04ecabffb0f9904cd1ace94598177"
+dependencies = [
+ "base16ct",
+ "serde",
 ]
 
 [[package]]
@@ -6506,9 +6622,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "sov-keys"
+version = "0.7.0-rc.4"
+source = "git+https://github.com/chainwayxyz/citrea.git?rev=b1fbe83fdd60d29#b1fbe83fdd60d291a5c06f890650899ad7029193"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "derive_more 1.0.0",
+ "digest 0.10.7",
+ "hex",
+ "k256",
+ "rand 0.8.5",
+ "schemars",
+ "serde",
+ "sha2",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "sov-rollup-interface"
-version = "0.6.0"
-source = "git+https://github.com/chainwayxyz/citrea.git?rev=ccdbd5a96#ccdbd5a96fae46bfe2d5e85262570cc7fc91eaf0"
+version = "0.7.0-rc.4"
+source = "git+https://github.com/chainwayxyz/citrea.git?rev=b1fbe83fdd60d29#b1fbe83fdd60d291a5c06f890650899ad7029193"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6520,12 +6654,14 @@ dependencies = [
  "futures",
  "hex",
  "jmt 0.11.0 (git+https://github.com/penumbra-zone/jmt.git?rev=550a2f2)",
- "risc0-zkp",
+ "risc0-zkp 2.0.0",
  "serde",
  "sha2",
- "thiserror 1.0.69",
+ "sov-keys",
+ "thiserror 2.0.12",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -7055,9 +7191,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.43.0"
+version = "1.44.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d61fa4ffa3de412bfea335c6ecff681de2b609ba3c77ef3e00e521813a9ed9e"
+checksum = "e6b88822cbe49de4185e3a4cbf8321dd487cf5fe0c5c65695fef6346371e9c48"
 dependencies = [
  "backtrace",
  "bytes",
@@ -7534,6 +7670,18 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "uuid"
+version = "1.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3758f5e68192bb96cc8f9b7e2c2cfdabb435499a28499a42f8f984092adad4b"
+dependencies = [
+ "borsh",
+ "borsh-derive",
+ "getrandom 0.2.15",
+ "serde",
+]
 
 [[package]]
 name = "valuable"

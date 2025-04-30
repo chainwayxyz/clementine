@@ -22,18 +22,42 @@ Bitcoin Core if you haven't already.
 
 ### Preparing a Configuration File or Using Environment Variables to Configure Clementine
 
+Clementine supports two primary configuration methods:
+
+1. **Configuration Files**: Specify main configuration and protocol parameters via TOML files
+2. **Environment Variables**: Configure the application entirely through environment variables
+
+#### Configuration Files
+
 Running the binary as a verifier, aggregator, operator or watchtower requires a
 configuration file. An example configuration file is located at
 [`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
-It is also possible to use environment variables, instead of a configuration
-file. [`.env.example`] file can be taken as a reference for this matter.
+Additionally, Clementine requires protocol parameters, that are either specified
+by a file or from the environment. You can specify a separate protocol
+parameters file using the `--protocol-params` option. This file contains
+protocol-specific settings that affect transactions in the contract.
 
-Please note that configuration file and environment variables can't be mix used.
-If all the environment variables are specified, configuration file will be
-omitted even if it's given.
+#### Environment Variables
+
+It is also possible to use environment variables instead of configuration files.
+The [`.env.example`] file can be taken as a reference for this matter.
+
+#### Configuration Source Selection
+
+Clementine uses the following logic to determine the configuration source:
+
+1. **Main Configuration**:
+   - If `READ_CONFIG_FROM_ENV=1` or `READ_CONFIG_FROM_ENV=on`, configuration is read from environment variables
+   - If `READ_CONFIG_FROM_ENV=0` or `READ_CONFIG_FROM_ENV=off` or not set, configuration is read from the specified config file
+
+2. **Protocol Parameters**:
+   - If `READ_PARAMSET_FROM_ENV=1` or `READ_PARAMSET_FROM_ENV=on`, protocol parameters are read from environment variables
+   - If `READ_PARAMSET_FROM_ENV=0` or `READ_PARAMSET_FROM_ENV=off` or not set, protocol parameters are read from the specified protocol parameters file
+
+You can mix these approaches - for example, reading main configuration from a file but protocol parameters from environment variables.
 
 ### Starting a Server
 
@@ -44,17 +68,25 @@ requires. An actor's server can be started using its corresponding argument:
 # Build the binary
 cargo build --release
 
-# Run binary with a target
-./target/release/clementine-core verifier $CONFIGFILE # Start verifier server
-./target/release/clementine-core operator $CONFIGFILE # Start operator server
-./target/release/clementine-core aggregator $CONFIGFILE # Start aggregator server
-./target/release/clementine-core watchtower $CONFIGFILE # Start watchtower server
+# Run binary with configuration file
+./target/release/clementine-core verifier --config /path/to/config.toml
+./target/release/clementine-core operator --config /path/to/config.toml
+./target/release/clementine-core aggregator --config /path/to/config.toml
+
+# Run with both configuration and protocol parameter files
+./target/release/clementine-core verifier --config /path/to/config.toml --protocol-params /path/to/params.toml
+
+# Run with environment variables
+READ_CONFIG_FROM_ENV=1 READ_PARAMSET_FROM_ENV=1 ./target/release/clementine-core verifier
+
+# Mixing configuration sources
+READ_CONFIG_FROM_ENV=0 READ_PARAMSET_FROM_ENV=1 ./target/release/clementine-core verifier --config /path/to/config.toml
 ```
 
 A server's log level can be specified with `--verbose` flag:
 
 ```sh
-./target/release/clementine-core operator $CONFIGFILE --verbose 5 # Logs everything
+./target/release/clementine-core operator --config /path/to/config.toml --verbose 5 # Logs everything
 ```
 
 For more information, use `--help` flag:
