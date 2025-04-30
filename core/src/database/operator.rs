@@ -154,8 +154,7 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO unspent_kickoff_signatures (xonly_pk, round_idx, signatures) VALUES ($1, $2, $3)
-             ON CONFLICT (xonly_pk, round_idx) DO UPDATE
-             SET signatures = EXCLUDED.signatures;",
+             ON CONFLICT (xonly_pk, round_idx) DO NOTHING;",
         ).bind(XOnlyPublicKeyDB(operator_xonly_pk)).bind(round_idx as i32).bind(SignaturesDB(DepositSignatures{signatures}));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -193,7 +192,8 @@ impl Database {
         let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
-                "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) VALUES ($1, $2);",
+                "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) VALUES ($1, $2)
+                ON CONFLICT DO NOTHING;",
             )
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(wpk);
@@ -727,6 +727,8 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
@@ -738,52 +740,61 @@ mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::key::Keypair;
-    use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+    use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 
-    // #[tokio::test]
-    // async fn save_get_operators() {
-    //     let config = create_test_config_with_thread_name().await;
-    //     let database = Database::new(&config).await.unwrap();
-    //     let mut ops = Vec::new();
-    //     for i in 0..2 {
-    //         let txid_str = format!(
-    //             "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
-    //             i
-    //         );
-    //         let txid = Txid::from_str(&txid_str).unwrap();
-    //         ops.push((
-    //             i,
-    //             config.operators_xonly_pks[i],
-    //             config.operator_wallet_addresses[i].clone(),
-    //             OutPoint { txid, vout: 0 },
-    //         ));
-    //     }
-    //     // add to db
-    //     for x in ops.iter() {
-    //         database
-    //             .set_operator(
-    //                 None,
-    //                 x.0 as i32,
-    //                 x.1,
-    //                 x.2.clone().assume_checked().to_string(),
-    //                 x.3,
-    //             )
-    //             .await
-    //             .unwrap();
-    //     }
-    //     let res = database.get_operators(None).await.unwrap();
-    //     assert_eq!(res.len(), ops.len());
-    //     for i in 0..2 {
-    //         assert_eq!(res[i].0, ops[i].1);
-    //         assert_eq!(res[i].1, ops[i].2.clone().assume_checked());
-    //         assert_eq!(res[i].2, ops[i].3);
-    //     }
+    #[tokio::test]
+    async fn save_get_operators() {
+        let config = create_test_config_with_thread_name().await;
+        let database = Database::new(&config).await.unwrap();
+        let mut ops = Vec::new();
+        let operator_xonly_pks = [generate_random_xonly_pk(), generate_random_xonly_pk()];
+        let reimburse_addrs = [
+            Address::from_str("bc1q6d6cztycxjpm7p882emln0r04fjqt0kqylvku2")
+                .unwrap()
+                .assume_checked(),
+            Address::from_str("bc1qj2mw4uh24qf67kn4nyqfsnta0mmxcutvhkyfp9")
+                .unwrap()
+                .assume_checked(),
+        ];
+        for i in 0..2 {
+            let txid_str = format!(
+                "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
+                i
+            );
+            let txid = Txid::from_str(&txid_str).unwrap();
+            ops.push((
+                operator_xonly_pks[i],
+                reimburse_addrs[i].clone(),
+                OutPoint {
+                    txid,
+                    vout: i as u32,
+                },
+            ));
+        }
+        // add to db
+        for x in ops.iter() {
+            database
+                .set_operator(None, x.0, x.1.to_string(), x.2)
+                .await
+                .unwrap();
+        }
+        let res = database.get_operators(None).await.unwrap();
+        assert_eq!(res.len(), ops.len());
+        for i in 0..2 {
+            assert_eq!(res[i].0, ops[i].0);
+            assert_eq!(res[i].1, ops[i].1);
+            assert_eq!(res[i].2, ops[i].2);
+        }
 
-    //     let res_single = database.get_operator(None, 1).await.unwrap().unwrap();
-    //     assert_eq!(res_single.xonly_pk, ops[1].1);
-    //     assert_eq!(res_single.reimburse_addr, ops[1].2.clone().assume_checked());
-    //     assert_eq!(res_single.collateral_funding_outpoint, ops[1].3);
-    // }
+        let res_single = database
+            .get_operator(None, operator_xonly_pks[1])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(res_single.xonly_pk, ops[1].0);
+        assert_eq!(res_single.reimburse_addr, ops[1].1);
+        assert_eq!(res_single.collateral_funding_outpoint, ops[1].2);
+    }
 
     #[tokio::test]
     async fn test_save_get_public_hashes() {

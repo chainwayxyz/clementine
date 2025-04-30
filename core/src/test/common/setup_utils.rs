@@ -13,6 +13,7 @@ use crate::rpc::get_clients;
 use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
 };
+use crate::states::context::DutyResult;
 use crate::states::{block_cache, Duty, Owner};
 use crate::utils::initialize_logger;
 use crate::{
@@ -593,9 +594,9 @@ impl PartialEq for MockOwner {
 impl Owner for MockOwner {
     const OWNER_TYPE: &'static str = "test_owner";
 
-    async fn handle_duty(&self, duty: Duty) -> Result<(), BridgeError> {
+    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
         self.cached_duties.lock().await.push(duty);
-        Ok(())
+        Ok(DutyResult::Handled)
     }
 
     async fn create_txhandlers(
