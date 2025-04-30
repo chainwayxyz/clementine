@@ -406,7 +406,7 @@ pub struct TxMetadata {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TxDebugInfo {
     #[prost(uint32, tag = "1")]
-    pub tx_id: u32,
+    pub id: u32,
     #[prost(bool, tag = "2")]
     pub is_active: bool,
     #[prost(string, tag = "3")]

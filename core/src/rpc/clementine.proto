@@ -430,7 +430,7 @@ message TxMetadata {
 }
 
 message TxDebugInfo {
-  uint32 tx_id = 1;
+  uint32 id = 1;
   bool is_active = 2;
   string current_state = 3;
   repeated TxDebugSubmissionError submission_errors = 4;
