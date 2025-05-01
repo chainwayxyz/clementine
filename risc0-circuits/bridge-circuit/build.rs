@@ -85,9 +85,8 @@ fn get_guest_options(
     let mut guest_pkg_to_options = HashMap::new();
 
     let opts = if env::var("REPR_GUEST_BUILD").is_ok() {
-        let current_dir = env::current_dir().expect("Failed to get current dir");
-        let current_dir = current_dir.to_str().expect("Failed to convert path to str");
-        let root_dir = format!("{current_dir}/../..");
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let root_dir = format!("{manifest_dir}/../../");
 
         let docker_opts = DockerOptionsBuilder::default()
             .root_dir(root_dir)
@@ -122,7 +121,6 @@ fn get_guest_options(
 fn copy_binary_to_elfs_folder(network: String, bridge_circuit_mode: String) {
     let current_dir = env::current_dir().expect("Failed to get current dir");
     let base_dir = current_dir.join("../..");
-
     let elfs_dir = base_dir.join("risc0-circuits/elfs");
 
     if !elfs_dir.exists() {
@@ -130,7 +128,7 @@ fn copy_binary_to_elfs_folder(network: String, bridge_circuit_mode: String) {
         println!("cargo:warning=Created elfs directory at {:?}", elfs_dir);
     }
 
-    let src_path = base_dir.join("target/riscv-guest/bridge-circuit/bridge-circuit-guest/riscv32im-risc0-zkvm-elf/docker/bridge-circuit-guest.bin");
+    let src_path = current_dir.join("target/riscv-guest/bridge-circuit/bridge-circuit-guest/riscv32im-risc0-zkvm-elf/docker/bridge-circuit-guest.bin");
     if !src_path.exists() {
         println!(
             "cargo:warning=Source binary not found at {:?}, skipping copy",
