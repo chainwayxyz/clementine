@@ -11,6 +11,7 @@ use serde_json::json;
 pub mod bridge_circuit_host;
 pub mod config;
 pub mod docker;
+pub mod mock_zkvm;
 pub mod structs;
 pub mod utils;
 

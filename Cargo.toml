@@ -3,10 +3,8 @@ resolver = "2"
 members = [
   "core",
   "circuits-lib",
-  "risc0-circuits/bridge-circuit",
-  "risc0-circuits/work-only",
-  "bridge-circuit-host",
-] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
+  "bridge-circuit-host"
+  ]
 
 [workspace.dependencies]
 hex = "0.4.3"
@@ -36,6 +34,8 @@ citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "39e75ae
 sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
   "native",
 ] }
+
+citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
 
 # bitcoin
 bitcoin = { version = "0.32.5", features = ["serde"] }

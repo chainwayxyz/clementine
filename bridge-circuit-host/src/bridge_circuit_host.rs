@@ -5,18 +5,17 @@ use crate::structs::{
 use crate::utils::calculate_succinct_output_prefix;
 use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
+use bitcoin::hashes::Hash;
 use bitcoin::Transaction;
-use bitcoin::{consensus::Decodable, hashes::Hash};
-use borsh::{self, BorshDeserialize};
+use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
+use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
+use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
-use final_spv::merkle_tree::BitcoinMerkleTree;
-use final_spv::spv::SPV;
-use final_spv::transaction::CircuitTransaction;
-use header_chain::header_chain::CircuitBlockHeader;
 
-use header_chain::mmr_native::MMRNative;
+use circuits_lib::header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
 
@@ -61,6 +60,12 @@ pub fn prove_bridge_circuit(
     [u8; 31],
     BridgeCircuitBitvmInputs,
 ) {
+    let all_tweaked_watchtower_pubkeys: Vec<[u8; 32]> = bridge_circuit_host_params
+        .all_tweaked_watchtower_pubkeys
+        .iter()
+        .map(|pubkey| pubkey.serialize())
+        .collect();
+
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         kickoff_tx: bridge_circuit_host_params.kickoff_tx,
         watchtower_inputs: bridge_circuit_host_params.watchtower_inputs,
@@ -68,7 +73,7 @@ pub fn prove_bridge_circuit(
         payout_spv: bridge_circuit_host_params.spv,
         lcp: bridge_circuit_host_params.light_client_proof,
         sp: bridge_circuit_host_params.storage_proof,
-        all_watchtower_pubkeys: bridge_circuit_host_params.all_watchtower_pubkeys,
+        all_tweaked_watchtower_pubkeys,
     };
 
     let header_chain_proof_output_serialized =
@@ -198,22 +203,15 @@ pub fn prove_bridge_circuit(
 /// - Generating the Merkle or MMR proof fails.
 ///
 pub fn create_spv(
-    payout_tx: &mut &[u8],
-    headers: &[u8],
+    payout_tx: Transaction,
+    block_hash_bytes: &[[u8; 32]],
     payment_block: bitcoin::Block,
     payment_block_height: u32,
     payment_tx_index: u32,
 ) -> SPV {
-    let payout_tx: Transaction = Transaction::consensus_decode::<&[u8]>(payout_tx).unwrap();
-
-    let headers = headers
-        .chunks(80)
-        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-        .collect::<Vec<CircuitBlockHeader>>();
-
     let mut mmr_native = MMRNative::new();
-    for header in headers {
-        mmr_native.append(header.compute_block_hash());
+    for block_hash in block_hash_bytes {
+        mmr_native.append(*block_hash);
     }
 
     let block_txids: Vec<[u8; 32]> = payment_block
@@ -322,7 +320,7 @@ fn generate_succinct_bridge_circuit_public_inputs(
             .expect("Failed to deserialize deposit storage proof");
 
     let pubkey_concat = input
-        .all_watchtower_pubkeys
+        .all_tweaked_watchtower_pubkeys
         .iter()
         .flat_map(|pubkey| pubkey.to_vec())
         .collect::<Vec<u8>>();
@@ -346,18 +344,27 @@ mod tests {
 
     // use crate::config::BCHostParameters;
 
+    use crate::mock_zkvm::MockZkvmHost;
+
     use super::*;
 
     // const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     //     include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
 
+    const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
+        include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
+
     const TESTNET4_WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
-    use bitvm_prover::TESTNET4_HEADER_CHAIN_GUEST_ELF;
-    use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitOutput;
-    use header_chain::header_chain::{
-        BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
+    use borsh::BorshDeserialize;
+    use circuits_lib::{
+        bridge_circuit::structs::WorkOnlyCircuitOutput,
+        common::zkvm::ZkvmHost,
+        header_chain::{
+            header_chain_circuit, BlockHeaderCircuitOutput, CircuitBlockHeader,
+            HeaderChainCircuitInput, HeaderChainPrevProofType,
+        },
     };
 
     // ALSO IMPORTANT FOR HEADERCHAIN IMAGE ID BITCOIN_NETWORK SHOULD BE SET TO "testnet4"
@@ -449,6 +456,46 @@ mod tests {
         //     g16_pi_calculated_outside[0..31]
         // );
         // assert!(bridge_circuit_bitvm_inputs.verify_bridge_circuit(ark_groth16_proof));
+    }
+
+    #[test]
+    fn test_header_chain_circuit() {
+        let value = option_env!("BITCOIN_NETWORK");
+        println!("BITCOIN_NETWORK: {:?}", value);
+        let headers = TESTNET4_HEADERS
+            .chunks(80)
+            .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+            .collect::<Vec<CircuitBlockHeader>>();
+
+        let host = MockZkvmHost::new();
+
+        let input = HeaderChainCircuitInput {
+            method_id: [0; 8],
+            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            block_headers: headers[..4000].to_vec(),
+        };
+        host.write(&input);
+        header_chain_circuit(&host);
+        let proof = host.prove([0; 8].as_ref());
+
+        let output = BlockHeaderCircuitOutput::try_from_slice(&proof.journal).unwrap();
+        let new_host = MockZkvmHost::new();
+
+        let newinput = HeaderChainCircuitInput {
+            method_id: [0; 8],
+            prev_proof: HeaderChainPrevProofType::PrevProof(output),
+            block_headers: headers[4000..8000].to_vec(),
+        };
+        new_host.write(&newinput);
+        new_host.add_assumption(proof);
+
+        header_chain_circuit(&new_host);
+
+        let new_proof = new_host.prove([0; 8].as_ref());
+
+        let new_output = BlockHeaderCircuitOutput::try_from_slice(&new_proof.journal).unwrap();
+
+        println!("Output: {:?}", new_output);
     }
 
     #[test]
