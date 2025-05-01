@@ -77,9 +77,8 @@ fn get_guest_options(network: String) -> HashMap<&'static str, risc0_build::Gues
     let mut guest_pkg_to_options = HashMap::new();
 
     let opts = if env::var("REPR_GUEST_BUILD").is_ok() {
-        let current_dir = env::current_dir().expect("Failed to get current dir");
-        let current_dir = current_dir.to_str().expect("Failed to convert path to str");
-        let root_dir = format!("{current_dir}/../..");
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let root_dir = format!("{manifest_dir}/../../");
 
         println!(
             "cargo:warning=Using Docker for guest build with root dir: {}",
@@ -121,7 +120,7 @@ fn copy_binary_to_elfs_folder(network: String) {
     }
 
     // Build source path
-    let src_path = base_dir.join("target/riscv-guest/header-chain/header-chain-guest/riscv32im-risc0-zkvm-elf/docker/header-chain-guest.bin");
+    let src_path = current_dir.join("target/riscv-guest/header-chain/header-chain-guest/riscv32im-risc0-zkvm-elf/docker/header-chain-guest.bin");
     if !src_path.exists() {
         println!(
             "cargo:warning=Source binary not found at {:?}, skipping copy",
