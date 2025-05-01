@@ -16,6 +16,7 @@ serde_json = "1.0.128"
 thiserror = "1.0.64"
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.18", features = ["json"] }
+log = "0.4"
 jsonrpsee = { version = "0.24.2", default-features = false }
 async-trait = "0.1.83"
 clap = "4.5.20"
@@ -37,7 +38,7 @@ sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev 
 ] }
 
 # bitcoin
-bitcoin = { version = "0.32.5", features = ["serde"] }
+bitcoin = { version = "0.32.5", features = ["serde", "base64"] }
 bitcoincore-rpc = "0.18.0"
 secp256k1 = { version = "0.30.0", features = [
   "serde",
@@ -77,7 +78,7 @@ itertools = "0.14.0"
 header-chain = { git = "https://github.com/chainwayxyz/BitVM", rev = "a3d7230" }
 bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "a3d7230" }
 final-spv = { git = "https://github.com/chainwayxyz/BitVM", rev = "a3d7230" }
-risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.git", branch = "main" }
+risc0-to-bitvm2-core = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2.git", rev = "9aab91ce5b7a3248a5dc43bf6b02aca91b1d288f" }
 
 ark-groth16 = { version = "0.5.0", default-features = false }
 ark-serialize = "0.5.0"
@@ -111,7 +112,7 @@ hex-literal = "0.4.1"
 base64 = "0.22.1"
 
 [patch.crates-io]
-bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "44f9bba" }
+bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "2e8f9f1" }
 secp256k1 = { git = "https://github.com/jlest01/rust-secp256k1", rev = "1cc7410df436b73d06db3c8ff7cbb29a78916b06" }
 
 [profile.release]

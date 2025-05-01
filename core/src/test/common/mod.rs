@@ -8,7 +8,7 @@ use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{
     create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
-    ReplacementDepositData, TransactionType, TxHandler, TxHandlerBuilder, DEFAULT_SEQUENCE,
+    ReplacementDepositData, TransactionType, TxHandler, TxHandlerBuilder, DEFAULT_SEQUENCE, DEFAULT_SEQUENCE,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
@@ -27,13 +27,16 @@ use crate::rpc::clementine::{
     Deposit, Empty, FeeType, NormalSignatureKind, RawSignedTx, SendTxRequest,
 };
 use crate::tx_sender::{FeePayingType, TxSender};
+use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
 use crate::{builder, EVMAddress};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
-use bitcoin::secp256k1::{Message, PublicKey, SecretKey};
+use bitcoin::secp256k1::Message;
+use bitcoin::secp256k1::PublicKey;
+use bitcoin::XOnlyPublicKey, SecretKey;
 use bitcoin::transaction::Version;
 use bitcoin::{
-    taproot, Amount, BlockHash, OutPoint, Transaction, TxOut, Txid, Witness, XOnlyPublicKey,
+    taproot, Amount, Amount, BlockHash, OutPoint, Transaction, TxOut, Txid, Witness,
 };
 use bitcoincore_rpc::RpcApi;
 use citrea::get_transaction_params;
@@ -614,6 +617,11 @@ pub async fn run_replacement_deposit(
     ),
     BridgeError,
 > {
+    let actor = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    );
     let (
         verifiers,
         operators,
@@ -633,6 +641,47 @@ pub async fn run_replacement_deposit(
     // generate replacement deposit tx
     let new_deposit_tx =
         create_replacement_deposit_txhandler(move_txid, nofn_xonly_pk, config.protocol_paramset())?;
+    let some_funding_utxo = rpc
+        .send_to_address(
+            &create_taproot_address(
+                &[],
+                Some(actor.xonly_public_key),
+                config.protocol_paramset().network,
+            )
+            .0,
+            Amount::from_sat(1000),
+        )
+        .await
+        .expect("Failed to send funding utxo");
+
+    let new_deposit_tx = new_deposit_tx.add_input(
+        NormalSignatureKind::NotStored,
+        SpendableTxIn::from_scripts(
+            bitcoin::OutPoint {
+                txid: some_funding_utxo.txid,
+                vout: some_funding_utxo.vout,
+            },
+            Amount::from_sat(1000),
+            vec![],
+            Some(actor.xonly_public_key),
+            config.protocol_paramset().network,
+        ),
+        SpendPath::KeySpend,
+        DEFAULT_SEQUENCE,
+    );
+    let mut new_deposit_tx = new_deposit_tx.finalize();
+
+    actor
+        .tx_sign_and_fill_sigs(
+            &mut new_deposit_tx,
+            &[TaggedSignature {
+                // provide temp signature that'll be overridden by nofn signing below
+                signature: vec![0; 64],
+                signature_id: Some(NormalSignatureKind::NoSignature.into()),
+            }],
+            None,
+        )
+        .expect("Failed to sign replacement deposit tx");
 
     let replacement_deposit_tx =
         sign_nofn_deposit_tx(&new_deposit_tx, config, verifiers_public_keys.clone());
@@ -640,7 +689,7 @@ pub async fn run_replacement_deposit(
     aggregator
         .internal_send_tx(SendTxRequest {
             raw_tx: Some(RawSignedTx::from(&replacement_deposit_tx)),
-            fee_type: FeeType::Rbf as i32,
+            fee_type: FeeType::Cpfp as i32,
         })
         .await?;
 

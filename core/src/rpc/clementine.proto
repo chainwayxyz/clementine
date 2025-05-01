@@ -40,6 +40,10 @@ enum NormalSignatureKind {
   OperatorChallengeAck1 = 12;
   NotStored = 13;
   YieldKickoffTxid = 14;
+  LatestBlockhashTimeout1 = 15;
+  LatestBlockhashTimeout2 = 16;
+  LatestBlockhashTimeout3 = 17;
+  LatestBlockhash = 18;
 }
 
 // Signatures that are needed multiple times per an operators kickoff.
@@ -154,6 +158,8 @@ enum NormalTransactionId {
     YIELD_KICKOFF_TXID = 15;
     BASE_DEPOSIT = 16;
     REPLACEMENT_DEPOSIT = 17;
+    LATEST_BLOCKHASH_TIMEOUT = 18;
+    LATEST_BLOCKHASH = 19;
 }
 
 enum NumberedTransactionType {
@@ -402,6 +408,48 @@ message VerifierPublicKeys {
   repeated bytes verifier_public_keys = 1;
 }
 
+message TxDebugRequest {
+  uint32 tx_id = 1;
+}
+
+message TxDebugSubmissionError {
+  string error_message = 1;
+  string timestamp = 2;
+}
+
+message TxDebugFeePayerUtxo {
+  bytes txid = 1;
+  uint32 vout = 2;
+  uint64 amount = 3;
+  bool confirmed = 4;
+}
+
+message TxMetadata {
+  // Optional outpoint of the deposit transaction
+  Outpoint deposit_outpoint = 1;
+  // Deposit identification
+  XonlyPublicKey operator_xonly_pk = 2;
+  uint32 round_idx = 4;
+  uint32 kickoff_idx = 5;
+  // Transaction ID
+  GrpcTransactionId tx_type = 6;
+}
+
+message TxDebugInfo {
+  uint32 id = 1;
+  bool is_active = 2;
+  string current_state = 3;
+  repeated TxDebugSubmissionError submission_errors = 4;
+  repeated TxDebugFeePayerUtxo fee_payer_utxos = 5;
+  string created_at = 6;
+  bytes txid = 7;
+  string fee_paying_type = 8;
+  uint32 fee_payer_utxos_count = 9;
+  uint32 fee_payer_utxos_confirmed_count = 10;
+  bytes raw_tx = 11;
+  TxMetadata metadata = 12;
+}
+
 message XOnlyPublicKeys {
   repeated bytes xonly_public_keys = 1;
 }
@@ -447,6 +495,9 @@ service ClementineVerifier {
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
+
+  // Debug a transaction by retrieving its current state and history
+  rpc DebugTx(TxDebugRequest) returns (TxDebugInfo) {}
 }
 
 // Aggregator ------------------------------------------------------------------
