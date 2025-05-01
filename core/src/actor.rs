@@ -23,12 +23,14 @@ use bitcoin::{
 use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 use eyre::OptionExt;
-use sha2::Sha256;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum VerificationError {
+    #[error("Invalid hex")]
     InvalidHex,
+    #[error("Invalid length")]
     InvalidLength,
+    #[error("Invalid signature")]
     InvalidSignature,
 }
 

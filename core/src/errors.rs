@@ -61,12 +61,7 @@
 //! ```
 
 use crate::{
-    builder::transaction::input::SpendableTxInError,
-    extended_rpc::BitcoinRPCError,
-    header_chain_prover::HeaderChainProverError,
-    rpc::{aggregator::AggregatorError, ParserError},
-    states::StateMachineError,
-    tx_sender::SendTxError,
+    actor::VerificationError, builder::transaction::input::SpendableTxInError, extended_rpc::BitcoinRPCError, header_chain_prover::HeaderChainProverError, rpc::{aggregator::AggregatorError, ParserError}, states::StateMachineError, tx_sender::SendTxError
 };
 use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
 use core::fmt::Debug;
@@ -101,6 +96,8 @@ pub enum BridgeError {
     BitcoinRPC(#[from] BitcoinRPCError),
     #[error("State machine error: {0}")]
     StateMachine(#[from] StateMachineError),
+    #[error("RPC authentication error: {0}")]
+    RPCAuthError(#[from] VerificationError),
 
     // Shared error messages
     #[error("Unsupported network")]
