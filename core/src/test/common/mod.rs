@@ -8,7 +8,7 @@ use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{
     create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
-    ReplacementDepositData, TransactionType, TxHandler, TxHandlerBuilder, DEFAULT_SEQUENCE, DEFAULT_SEQUENCE,
+    ReplacementDepositData, TransactionType, TxHandler, TxHandlerBuilder, DEFAULT_SEQUENCE,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
@@ -23,21 +23,19 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::rpc::clementine::TaggedSignature;
 use crate::rpc::clementine::{
     Deposit, Empty, FeeType, NormalSignatureKind, RawSignedTx, SendTxRequest,
 };
 use crate::tx_sender::{FeePayingType, TxSender};
-use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
 use crate::{builder, EVMAddress};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
-use bitcoin::secp256k1::Message;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::XOnlyPublicKey, SecretKey;
+use bitcoin::secp256k1::{Message, SecretKey};
 use bitcoin::transaction::Version;
-use bitcoin::{
-    taproot, Amount, Amount, BlockHash, OutPoint, Transaction, TxOut, Txid, Witness,
-};
+use bitcoin::XOnlyPublicKey;
+use bitcoin::{taproot, Amount, BlockHash, OutPoint, Transaction, TxOut, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 use citrea::get_transaction_params;
 use eyre::Context;
