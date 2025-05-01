@@ -489,6 +489,10 @@ pub enum NormalSignatureKind {
     OperatorChallengeAck1 = 12,
     NotStored = 13,
     YieldKickoffTxid = 14,
+    LatestBlockhashTimeout1 = 15,
+    LatestBlockhashTimeout2 = 16,
+    LatestBlockhashTimeout3 = 17,
+    LatestBlockhash = 18,
 }
 impl NormalSignatureKind {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -512,6 +516,10 @@ impl NormalSignatureKind {
             Self::OperatorChallengeAck1 => "OperatorChallengeAck1",
             Self::NotStored => "NotStored",
             Self::YieldKickoffTxid => "YieldKickoffTxid",
+            Self::LatestBlockhashTimeout1 => "LatestBlockhashTimeout1",
+            Self::LatestBlockhashTimeout2 => "LatestBlockhashTimeout2",
+            Self::LatestBlockhashTimeout3 => "LatestBlockhashTimeout3",
+            Self::LatestBlockhash => "LatestBlockhash",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -532,6 +540,10 @@ impl NormalSignatureKind {
             "OperatorChallengeAck1" => Some(Self::OperatorChallengeAck1),
             "NotStored" => Some(Self::NotStored),
             "YieldKickoffTxid" => Some(Self::YieldKickoffTxid),
+            "LatestBlockhashTimeout1" => Some(Self::LatestBlockhashTimeout1),
+            "LatestBlockhashTimeout2" => Some(Self::LatestBlockhashTimeout2),
+            "LatestBlockhashTimeout3" => Some(Self::LatestBlockhashTimeout3),
+            "LatestBlockhash" => Some(Self::LatestBlockhash),
             _ => None,
         }
     }
@@ -650,6 +662,8 @@ pub enum NormalTransactionId {
     YieldKickoffTxid = 15,
     BaseDeposit = 16,
     ReplacementDeposit = 17,
+    LatestBlockhashTimeout = 18,
+    LatestBlockhash = 19,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -676,6 +690,8 @@ impl NormalTransactionId {
             Self::YieldKickoffTxid => "YIELD_KICKOFF_TXID",
             Self::BaseDeposit => "BASE_DEPOSIT",
             Self::ReplacementDeposit => "REPLACEMENT_DEPOSIT",
+            Self::LatestBlockhashTimeout => "LATEST_BLOCKHASH_TIMEOUT",
+            Self::LatestBlockhash => "LATEST_BLOCKHASH",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -699,6 +715,8 @@ impl NormalTransactionId {
             "YIELD_KICKOFF_TXID" => Some(Self::YieldKickoffTxid),
             "BASE_DEPOSIT" => Some(Self::BaseDeposit),
             "REPLACEMENT_DEPOSIT" => Some(Self::ReplacementDeposit),
+            "LATEST_BLOCKHASH_TIMEOUT" => Some(Self::LatestBlockhashTimeout),
+            "LATEST_BLOCKHASH" => Some(Self::LatestBlockhash),
             _ => None,
         }
     }

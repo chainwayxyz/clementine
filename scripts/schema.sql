@@ -24,7 +24,7 @@ create table if not exists header_chain_proofs (
     block_hash text primary key not null,
     block_header text,
     prev_block_hash text,
-    height int not null,
+    height bigint not null,
     proof bytea
 );
 create table if not exists watchtower_xonly_public_keys (
@@ -74,6 +74,7 @@ create table if not exists bitvm_setups (
     deposit_id int not null,
     assert_tx_addrs bytea [] not null,
     root_hash bytea not null check (length(root_hash) = 32),
+    latest_blockhash_root_hash bytea not null check (length(latest_blockhash_root_hash) = 32),
     --public_input_wots bytea[] not null,
     created_at timestamp not null default now(),
     primary key (xonly_pk, deposit_id)

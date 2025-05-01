@@ -102,8 +102,9 @@ pub struct ProtocolParamset {
     pub disprove_timeout_timelock: u16,
     /// Number of blocks for assert timeout timelock (currently BLOCKS_PER_WEEK * 4)
     pub assert_timeout_timelock: u16,
+    /// Number of blocks for latest blockhash timeout timelock (currently BLOCKS_PER_WEEK * 2.5)
+    pub latest_blockhash_timeout_timelock: u16,
     /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_DAY * 2)
-    ///
     /// Timelocks operator from sending the next Round Tx after the Ready to Reimburse Tx.
     pub operator_reimburse_timelock: u16,
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)
@@ -116,6 +117,8 @@ pub struct ProtocolParamset {
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
     pub start_height: u32,
+    /// Batch size of the header chain proofs
+    pub header_chain_proof_batch_size: u32,
 }
 
 impl ProtocolParamset {
@@ -180,6 +183,12 @@ impl ProtocolParamset {
             time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
+            header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
+                "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            )?,
+            latest_blockhash_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
+            )?,
         };
 
         Ok(config)
@@ -218,6 +227,8 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
-    finality_depth: 0,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
+    finality_depth: 1,
     start_height: 201,
+    header_chain_proof_batch_size: 100,
 };

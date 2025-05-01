@@ -115,6 +115,16 @@ impl ExtendedRpc {
         Ok(raw_transaction)
     }
 
+    pub async fn is_txid_in_chain(&self, txid: &bitcoin::Txid) -> Result<bool> {
+        Ok(self
+            .client
+            .get_raw_transaction_info(txid, None)
+            .await
+            .ok()
+            .and_then(|s| s.blockhash)
+            .is_some())
+    }
+
     /// Checks if a UTXO has the expected address and amount.
     ///
     /// # Arguments

@@ -383,8 +383,10 @@ mod tests {
         env::set_var("WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK", "288");
         env::set_var("TIME_TO_SEND_WATCHTOWER_CHALLENGE", "216");
         env::set_var("TIME_TO_DISPROVE", "648");
+        env::set_var("LATEST_BLOCKHASH_TIMEOUT_TIMELOCK", "360");
         env::set_var("FINALITY_DEPTH", "1");
         env::set_var("START_HEIGHT", "8148");
+        env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
     }
 
     // Helper to clean up all environment variables
@@ -430,6 +432,7 @@ mod tests {
         env::remove_var("TIME_TO_DISPROVE");
         env::remove_var("FINALITY_DEPTH");
         env::remove_var("START_HEIGHT");
+        env::remove_var("HEADER_CHAIN_PROOF_BATCH_SIZE");
     }
 
     // Basic minimum toml config content

@@ -5,11 +5,12 @@ use std::collections::BTreeMap;
 use bitcoin::{OutPoint, Transaction, Txid};
 
 use super::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, RbfSigningInfo, TxMetadata};
+use crate::builder::transaction::input::UtxoVout;
 use crate::errors::ResultExt;
 use crate::rpc;
 use crate::rpc::clementine::XonlyPublicKey;
 use crate::{
-    builder::transaction::{input::get_watchtower_challenge_utxo_vout, TransactionType},
+    builder::transaction::TransactionType,
     config::BridgeConfig,
     database::{Database, DatabaseTransaction},
 };
@@ -222,6 +223,8 @@ impl TxSenderClient {
             | TransactionType::BurnUnusedKickoffConnectors
             | TransactionType::KickoffNotFinalized
             | TransactionType::MiniAssert(_)
+            | TransactionType::LatestBlockhashTimeout
+            | TransactionType::LatestBlockhash
             | TransactionType::WatchtowerChallenge(_) => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
@@ -301,7 +304,7 @@ impl TxSenderClient {
                     &[ActivatedWithOutpoint {
                         outpoint: OutPoint {
                             txid: kickoff_txid,
-                            vout: get_watchtower_challenge_utxo_vout(watchtower_idx) as u32,
+                            vout: UtxoVout::WatchtowerChallenge(watchtower_idx).get_vout(),
                         },
                         relative_block_height: config.protocol_paramset().finality_depth,
                     }],
