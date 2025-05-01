@@ -5,9 +5,9 @@ use crate::structs::{
 use crate::utils::calculate_succinct_output_prefix;
 use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
+use bitcoin::hashes::Hash;
 use bitcoin::Transaction;
-use bitcoin::{consensus::Decodable, hashes::Hash};
-use borsh::{self, BorshDeserialize};
+use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
@@ -16,7 +16,6 @@ use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
 
 use circuits_lib::header_chain::mmr_native::MMRNative;
-use circuits_lib::header_chain::CircuitBlockHeader;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
 
@@ -198,22 +197,15 @@ pub fn prove_bridge_circuit(
 /// - Generating the Merkle or MMR proof fails.
 ///
 pub fn create_spv(
-    payout_tx: &mut &[u8],
-    headers: &[u8],
+    payout_tx: Transaction,
+    block_hash_bytes: &[[u8; 32]],
     payment_block: bitcoin::Block,
     payment_block_height: u32,
     payment_tx_index: u32,
 ) -> SPV {
-    let payout_tx: Transaction = Transaction::consensus_decode::<&[u8]>(payout_tx).unwrap();
-
-    let headers = headers
-        .chunks(80)
-        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-        .collect::<Vec<CircuitBlockHeader>>();
-
     let mut mmr_native = MMRNative::new();
-    for header in headers {
-        mmr_native.append(header.compute_block_hash());
+    for block_hash in block_hash_bytes {
+        mmr_native.append(*block_hash);
     }
 
     let block_txids: Vec<[u8; 32]> = payment_block
