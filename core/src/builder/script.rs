@@ -180,6 +180,44 @@ impl CheckSig {
     }
 }
 
+#[derive(Clone)]
+pub struct Multisig {
+    pubkeys: Vec<XOnlyPublicKey>,
+    threshold: u32,
+}
+
+impl SpendableScript for Multisig {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        unimplemented!()
+    }
+
+    fn to_script_buf(&self) -> ScriptBuf {
+        let mut script_builder = Builder::new()
+            .push_x_only_key(&self.pubkeys[0])
+            .push_opcode(OP_CHECKSIG);
+        for pubkey in self.pubkeys.iter().skip(1) {
+            script_builder = script_builder.push_x_only_key(pubkey);
+            script_builder = script_builder.push_opcode(OP_CHECKSIGADD);
+        }
+        script_builder = script_builder.push_int(self.threshold as i64);
+        script_builder = script_builder.push_opcode(OP_NUMEQUAL);
+        script_builder.into_script()
+    }
+}
+
+impl Multisig {
+    pub fn new(pubkeys: &[XOnlyPublicKey], threshold: u32) -> Self {
+        Self {
+            pubkeys: pubkeys.to_vec(),
+            threshold,
+        }
+    }
+}
+
 /// Struct for scripts that commit to a message using Winternitz keys
 /// Contains the Winternitz PK, CheckSig PK, message length respectively
 /// can contain multiple different Winternitz public keys for different messages
@@ -494,7 +532,8 @@ fn get_script_from_arr<T: SpendableScript>(
 #[cfg(test)]
 mod tests {
     use crate::actor::{Actor, WinternitzDerivationPath};
-    use crate::bitvm_client;
+    use crate::bitvm_client::{self, UNSPENDABLE_XONLY_PUBKEY};
+    use crate::builder::address::create_taproot_address;
     use crate::config::protocol::ProtocolParamsetName;
     use crate::extended_rpc::ExtendedRpc;
     use std::sync::Arc;
@@ -502,9 +541,9 @@ mod tests {
     use super::*;
 
     use bitcoin::hashes::Hash;
-    use bitcoin::secp256k1::PublicKey;
+    use bitcoin::secp256k1::{PublicKey, SecretKey};
     use bitcoincore_rpc::RpcApi;
-    use secp256k1::rand;
+    use secp256k1::rand::{self, Rng};
     // Create some dummy values for testing.
     // Note: These values are not cryptographically secure and are only used for tests.
     fn dummy_xonly() -> XOnlyPublicKey {
@@ -1072,5 +1111,61 @@ mod tests {
         tracing::info!("{:?}", extracted);
         assert_eq!(extracted[0], kickoff_blockhash);
         assert_eq!(extracted[1], assert_commit_data);
+    }
+
+    #[tokio::test]
+    async fn test_multisig_matches_descriptor() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        // select a random number of public keys
+        let num_pks = rand::thread_rng().gen_range(1..=10);
+        let threshold = rand::thread_rng().gen_range(1..=num_pks);
+
+        let mut pks = Vec::new();
+        for _ in 0..num_pks {
+            let secret_key = SecretKey::new(&mut rand::thread_rng());
+            let kp = bitcoin::secp256k1::Keypair::from_secret_key(&*SECP, &secret_key);
+            pks.push(kp.public_key().x_only_public_key().0);
+        }
+
+        let unspendable_xonly_pk_str = (*UNSPENDABLE_XONLY_PUBKEY).to_string();
+        let descriptor = format!(
+            "tr({},multi_a({},{}))",
+            unspendable_xonly_pk_str,
+            threshold,
+            pks.iter()
+                .map(|pk| pk.to_string())
+                .collect::<Vec<String>>()
+                .join(",")
+        );
+
+        let descriptor_info = rpc.client.get_descriptor_info(&descriptor).await.expect("");
+
+        let descriptor = descriptor_info.descriptor;
+
+        let addresses = rpc
+            .client
+            .derive_addresses(&descriptor, None)
+            .await
+            .expect("");
+
+        tracing::info!("{:?}", addresses);
+
+        let multisig_address = addresses[0].clone().assume_checked();
+
+        let multisig = Multisig::new(&pks, threshold);
+
+        let (addr, _) = create_taproot_address(
+            &[multisig.to_script_buf()],
+            None,
+            config.protocol_paramset().network,
+        );
+
+        // println!("addr: {:?}", addr);
+        // println!("multisig_address: {:?}", multisig_address);
+
+        assert_eq!(addr, multisig_address);
     }
 }
