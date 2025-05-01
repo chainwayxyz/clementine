@@ -34,7 +34,7 @@ lazy_static::lazy_static! {
     ///
     /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
     pub static ref UNSPENDABLE_PUBKEY: bitcoin::secp256k1::PublicKey =
-        "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51".parse::<bitcoin::secp256k1::XOnlyPublicKey>().expect("this key is valid").public_key(Parity::Even);
+        "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0".parse::<bitcoin::secp256k1::XOnlyPublicKey>().expect("this key is valid").public_key(Parity::Even);
 }
 
 lazy_static::lazy_static! {
@@ -42,7 +42,7 @@ lazy_static::lazy_static! {
     ///
     /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
     pub static ref UNSPENDABLE_XONLY_PUBKEY: bitcoin::secp256k1::XOnlyPublicKey =
-        XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").expect("this key is valid");
+        XOnlyPublicKey::from_str("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0").expect("this key is valid");
 }
 
 // lazy_static::lazy_static! {
