@@ -1086,55 +1086,49 @@ where
             .get_tip_header_chain_proof()
             .await?;
         tracing::warn!("Got header chain proof in send_asserts");
-        let hcp_output: BlockHeaderCircuitOutput = borsh::from_slice(&current_hcp.journal.bytes)
-            .wrap_err(eyre::eyre!(
-                "Failed to deserialize block header circuit output in send_asserts"
-            ))?;
 
-        tracing::warn!("Printing proof params -----------------");
-        tracing::warn!(
-            "Payout block: {:?}",
-            bitcoin::consensus::serialize(&payout_block)
-        );
-        tracing::warn!(
-            "Block headers: {:?}",
-            headers
-                .iter()
-                .map(bitcoin::consensus::serialize)
-                .collect::<Vec<_>>()
-        );
-        tracing::warn!("Light client proof: {:?}", light_client_proof);
-        tracing::warn!(
-            "LCP receipt: {:?}",
-            borsh::to_vec(&lcp_receipt).wrap_err("Failed to serialize lcp receipt")?
-        );
-        tracing::warn!("Storage proof: {:?}", storage_proof);
-        tracing::warn!(
-            "Kickoff tx bytes: {:?}",
-            bitcoin::consensus::serialize(&kickoff_tx)
-        );
-        tracing::warn!(
-            "Watchtower challenges (index, transaction): {:?}",
-            watchtower_challenges
-                .iter()
-                .map(|(k, v)| (k, bitcoin::consensus::serialize(v)))
-                .collect::<Vec<_>>()
-        );
+        // tracing::warn!("Printing proof params -----------------");
+        // tracing::warn!(
+        //     "Payout block: {:?}",
+        //     bitcoin::consensus::serialize(&payout_block)
+        // );
+        // tracing::warn!(
+        //     "Block headers: {:?}",
+        //     headers
+        //         .iter()
+        //         .map(bitcoin::consensus::serialize)
+        //         .collect::<Vec<_>>()
+        // );
+        // tracing::warn!("Light client proof: {:?}", light_client_proof);
+        // tracing::warn!(
+        //     "LCP receipt: {:?}",
+        //     borsh::to_vec(&lcp_receipt).wrap_err("Failed to serialize lcp receipt")?
+        // );
+        // tracing::warn!("Storage proof: {:?}", storage_proof);
+        // tracing::warn!(
+        //     "Kickoff tx bytes: {:?}",
+        //     bitcoin::consensus::serialize(&kickoff_tx)
+        // );
+        // tracing::warn!(
+        //     "Watchtower challenges (index, transaction): {:?}",
+        //     watchtower_challenges
+        //         .iter()
+        //         .map(|(k, v)| (k, bitcoin::consensus::serialize(v)))
+        //         .collect::<Vec<_>>()
+        // );
 
-        tracing::warn!(
-            "Committed latest blockhash witness: {:?}",
-            _latest_blockhash
-        );
-        tracing::warn!(
-            "Header chain proof receipt {:?}",
-            borsh::to_vec(&current_hcp).wrap_err("Failed to serialize hcp receipt")?
-        );
-
-        return Ok(());
+        // tracing::warn!(
+        //     "Committed latest blockhash witness: {:?}",
+        //     _latest_blockhash
+        // );
+        // tracing::warn!(
+        //     "Header chain proof receipt {:?}",
+        //     borsh::to_vec(&current_hcp).wrap_err("Failed to serialize hcp receipt")?
+        // );
 
         let watchtower_contexts = watchtower_challenges
-            .iter()
-            .map(|(_, tx)| WatchtowerContext {
+            .values()
+            .map(|tx| WatchtowerContext {
                 watchtower_tx: tx.clone(),
                 previous_txs: None, // TODO: change and add previous txs after watchtower tx becomes rbf
             })
