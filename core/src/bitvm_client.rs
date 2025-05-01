@@ -5,7 +5,6 @@ use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
 use ark_bn254::Bn254;
-use bitcoin::key::Parity;
 use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 
