@@ -1,3 +1,5 @@
+//! This module defines a command line interface for the RPC client.
+
 use std::str::FromStr;
 
 use alloy::primitives::{Bytes, FixedBytes, Uint};
