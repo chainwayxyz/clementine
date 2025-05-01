@@ -45,7 +45,7 @@ use bitvm::signatures::winternitz;
 use bridge_circuit_host::bridge_circuit_host::{
     create_spv, prove_bridge_circuit, _BRIDGE_CIRCUIT_ELF,
 };
-use bridge_circuit_host::structs::BridgeCircuitHostParams;
+use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 use bridge_circuit_host::utils::get_ark_verifying_key;
 use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
@@ -1051,14 +1051,14 @@ where
             .get_headers_until_height(None, payout_block_height as u64)
             .await?;
 
-        let headers_serialized: Vec<u8> = headers
+        let blockhashes_serialized: Vec<[u8; 32]> = headers
             .iter()
-            .flat_map(bitcoin::consensus::serialize)
+            .map(|header| header.block_hash().to_byte_array()) // TODO: get blockhash directly from db
             .collect::<Vec<_>>();
         tracing::warn!("Calculated headers in send_asserts");
         let spv = create_spv(
-            &mut bitcoin::consensus::serialize(payout_tx).as_slice(),
-            &headers_serialized,
+            payout_tx.clone(),
+            &blockhashes_serialized,
             payout_block.clone(),
             payout_block_height,
             payout_tx_index as u32,
@@ -1132,18 +1132,30 @@ where
 
         return Ok(());
 
-        let bridge_circuit_host_params = BridgeCircuitHostParams {
-            network: self.config.protocol_paramset().network,
+        let watchtower_contexts = watchtower_challenges
+            .iter()
+            .map(|(_, tx)| WatchtowerContext {
+                watchtower_tx: tx.clone(),
+                previous_txs: None, // TODO: change and add previous txs after watchtower tx becomes rbf
+            })
+            .collect::<Vec<_>>();
+
+        let bridge_circuit_host_params = BridgeCircuitHostParams::new_with_wt_tx(
+            kickoff_tx.clone(),
             spv,
-            block_header_circuit_output: hcp_output,
-            headerchain_receipt: current_hcp,
+            current_hcp,
             light_client_proof,
             lcp_receipt,
             storage_proof,
-            all_watchtower_pubkeys: todo!(),
-            kickoff_tx: todo!(),
-            watchtower_inputs: todo!(),
-        };
+            self.config.protocol_paramset().network,
+            &watchtower_contexts,
+        )
+        .map_err(|e| {
+            eyre::eyre!(
+                "Failed to create bridge circuit host params in send_asserts: {:?}",
+                e
+            )
+        })?;
 
         let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, _BRIDGE_CIRCUIT_ELF);

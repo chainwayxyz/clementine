@@ -225,7 +225,7 @@ impl WatchtowerInputs {
         watchtower_challenge_witnesses: Vec<Vec<u8>>,
     ) -> Result<Self, &'static str> {
         for idx in &watchtower_idxs {
-            if *idx >= NUM_OF_WATCHTOWERS {
+            if *idx >= MAX_NUMBER_OF_WATCHTOWERS as u8 {
                 return Err("watchtower_idx exceeds the number of watchtowers");
             }
         }

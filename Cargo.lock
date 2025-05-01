@@ -335,7 +335,7 @@ dependencies = [
  "derive_more 2.0.1",
  "foldhash",
  "getrandom 0.2.16",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "indexmap 2.9.0",
  "itoa",
  "k256",
@@ -929,7 +929,7 @@ dependencies = [
  "ark-std 0.5.0",
  "educe",
  "fnv",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "itertools 0.13.0",
  "num-bigint 0.4.6",
  "num-integer",
@@ -1093,7 +1093,7 @@ dependencies = [
  "ark-std 0.5.0",
  "educe",
  "fnv",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "rayon",
 ]
 
@@ -1653,6 +1653,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitvm-prover"
+version = "0.1.0"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=929c8e0#929c8e00eebd7947c1b225cca262a914db6be731"
+dependencies = [
+ "blake3",
+ "borsh",
+ "crypto-bigint 0.5.2",
+ "final-spv",
+ "header-chain",
+ "hex-conservative",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "risc0-binfmt",
+ "risc0-circuit-recursion",
+ "risc0-groth16",
+ "risc0-zkp",
+ "risc0-zkvm",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "blake2"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1814,7 +1837,7 @@ dependencies = [
  "risc0-binfmt",
  "risc0-circuit-recursion",
  "risc0-groth16",
- "risc0-zkp 2.0.1",
+ "risc0-zkp",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -1982,7 +2005,7 @@ dependencies = [
  "bitcoin",
  "blake3",
  "borsh",
- "crypto-bigint",
+ "crypto-bigint 0.5.5",
  "derive_more 1.0.0",
  "hex",
  "hex-literal",
@@ -2113,7 +2136,7 @@ dependencies = [
  "serde_with",
  "serial_test",
  "sha2",
- "sov-rollup-interface 0.6.0",
+ "sov-rollup-interface 0.7.0-rc.4",
  "sqlx",
  "statig",
  "tempfile",
@@ -2373,6 +2396,15 @@ name = "crunchy"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43da5946c66ffcc7745f48db692ffbb10a83bfe0afd96235c5c2a4fb23994929"
+
+[[package]]
+name = "crypto-bigint"
+version = "0.5.2"
+source = "git+https://github.com/risc0/RustCrypto-crypto-bigint?tag=v0.5.2-risczero.0#8b30304277cfe553b51a78a0e693f48bbb059eb3"
+dependencies = [
+ "getrandom 0.2.16",
+ "subtle",
+]
 
 [[package]]
 name = "crypto-bigint"
@@ -2795,7 +2827,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5e6043086bf7973472e0c7dff2142ea0b680d30e18d9cc40f267efbf222bd47"
 dependencies = [
  "base16ct",
- "crypto-bigint",
+ "crypto-bigint 0.5.5",
  "digest 0.10.7",
  "ff",
  "generic-array",
@@ -2998,6 +3030,31 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "final-spv"
+version = "0.1.0"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=929c8e0#929c8e00eebd7947c1b225cca262a914db6be731"
+dependencies = [
+ "bitcoin",
+ "blake3",
+ "borsh",
+ "crypto-bigint 0.5.5",
+ "header-chain",
+ "hex-literal",
+ "risc0-zkvm",
+ "serde",
+ "sha2",
+]
+
+[[package]]
+name = "find_cuda_helper"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9f9e65c593dd01ac77daad909ea4ad17f0d6d1776193fc8ea766356177abdad"
+dependencies = [
+ "glob",
 ]
 
 [[package]]
@@ -3363,9 +3420,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.15.2"
+version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
+checksum = "84b26c544d002229e640969970a2e74021aadf6e2f96372b9c58eff97de08eb3"
 dependencies = [
  "allocator-api2",
  "equivalent",
@@ -3388,7 +3445,20 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
+]
+
+[[package]]
+name = "header-chain"
+version = "0.1.0"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=929c8e0#929c8e00eebd7947c1b225cca262a914db6be731"
+dependencies = [
+ "bitcoin",
+ "borsh",
+ "crypto-bigint 0.5.5",
+ "risc0-zkvm",
+ "serde",
+ "sha2",
 ]
 
 [[package]]
@@ -3893,7 +3963,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cea70ddb795996207ad57735b50c5982d8844f38ba9ee5f1aedcfb708a2aa11e"
 dependencies = [
  "equivalent",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "serde",
 ]
 
@@ -4361,7 +4431,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "227748d55f2f0ab4735d87fd623798cb6b664512fe979705f829c9f81c934465"
 dependencies = [
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
 ]
 
 [[package]]
@@ -4885,9 +4955,9 @@ checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.107"
+version = "0.9.108"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8288979acd84749c744a9014b4382d42b8f7b2592847b5afb2ed29e5d16ede07"
+checksum = "e145e1651e858e820e4860f7b9c5e169bc1d8ce1c86043be79fa7b7634821847"
 dependencies = [
  "cc",
  "libc",
@@ -5363,9 +5433,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.11"
+version = "0.5.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "541d0f57c6ec747a90738a52741d3221f7960e8ac2f0ff4b1a63680e033b4ab5"
+checksum = "ee4e529991f949c5e25755532370b8af5d114acae52326361d68d47af64aa842"
 dependencies = [
  "cfg_aliases",
  "libc",
@@ -5661,8 +5731,8 @@ dependencies = [
  "elf",
  "lazy_static",
  "postcard",
- "risc0-zkp 2.0.1",
- "risc0-zkvm-platform 2.0.2",
+ "risc0-zkp",
+ "risc0-zkvm-platform",
  "semver 1.0.26",
  "serde",
  "tracing",
@@ -5682,8 +5752,8 @@ dependencies = [
  "hex",
  "risc0-binfmt",
  "risc0-zkos-v1compat",
- "risc0-zkp 2.0.1",
- "risc0-zkvm-platform 2.0.2",
+ "risc0-zkp",
+ "risc0-zkvm-platform",
  "rzup",
  "semver 1.0.26",
  "serde",
@@ -5724,7 +5794,7 @@ dependencies = [
  "risc0-circuit-recursion",
  "risc0-core",
  "risc0-sys",
- "risc0-zkp 2.0.1",
+ "risc0-zkp",
  "tracing",
  "xz2",
 ]
@@ -5764,7 +5834,7 @@ dependencies = [
  "risc0-circuit-recursion-sys",
  "risc0-core",
  "risc0-sys",
- "risc0-zkp 2.0.1",
+ "risc0-zkp",
  "serde",
  "sha2",
  "tracing",
@@ -5810,7 +5880,7 @@ dependencies = [
  "risc0-circuit-rv32im-sys",
  "risc0-core",
  "risc0-sys",
- "risc0-zkp 2.0.1",
+ "risc0-zkp",
  "serde",
  "smallvec",
  "tracing",
@@ -5861,8 +5931,8 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "risc0-binfmt",
- "risc0-core 2.0.0",
- "risc0-zkp 2.0.1",
+ "risc0-core",
+ "risc0-zkp",
  "serde",
  "serde_json",
  "stability",
@@ -5889,7 +5959,7 @@ source = "git+https://github.com/chainwayxyz/risc0-to-bitvm2.git?branch=ozan%2Fr
 dependencies = [
  "bitcoin",
  "borsh",
- "crypto-bigint",
+ "crypto-bigint 0.5.5",
  "risc0-zkvm",
  "serde",
  "sha2",
@@ -5903,30 +5973,6 @@ checksum = "f76c479b69d1987cb54ac72dcc017197296fdcd6daf78fafc10cbbd3a167a7de"
 dependencies = [
  "include_bytes_aligned",
  "no_std_strings",
-]
-
-[[package]]
-name = "risc0-zkp"
-version = "1.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "373d06becf7bd3a8e46af6f8cb81509aa363cdddb1ec67a588ac69ad9f968127"
-dependencies = [
- "anyhow",
- "blake2",
- "borsh",
- "bytemuck",
- "cfg-if",
- "digest 0.10.7",
- "hex",
- "hex-literal",
- "metal",
- "paste",
- "rand_core 0.6.4",
- "risc0-core 1.2.6",
- "risc0-zkvm-platform 1.2.6",
- "serde",
- "sha2",
- "tracing",
 ]
 
 [[package]]
@@ -5954,7 +6000,7 @@ dependencies = [
  "rayon",
  "risc0-core",
  "risc0-sys",
- "risc0-zkvm-platform 2.0.2",
+ "risc0-zkvm-platform",
  "serde",
  "sha2",
  "stability",
@@ -5994,8 +6040,8 @@ dependencies = [
  "risc0-core",
  "risc0-groth16",
  "risc0-zkos-v1compat",
- "risc0-zkp 2.0.1",
- "risc0-zkvm-platform 2.0.2",
+ "risc0-zkp",
+ "risc0-zkvm-platform",
  "rrs-lib",
  "rustc-demangle",
  "rzup",
@@ -6006,16 +6052,6 @@ dependencies = [
  "tempfile",
  "tracing",
  "typetag",
-]
-
-[[package]]
-name = "risc0-zkvm-platform"
-version = "1.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8187245809fe15d389dcdc1ca09ed5f5a1227b15e2fd48860c808aaf02e6996f"
-dependencies = [
- "cfg-if",
- "stability",
 ]
 
 [[package]]
@@ -6159,9 +6195,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.0.5"
+version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d97817398dd4bb2e6da002002db259209759911da105da92bec29ccb12cf58bf"
+checksum = "c71e83d6afe7ff64890ec6b71d6a69bb8a610ab78ce364b3352876bb4c801266"
 dependencies = [
  "bitflags 2.9.0",
  "errno",
@@ -6544,17 +6580,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_derive_internals"
-version = "0.29.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.100",
-]
-
-[[package]]
 name = "serde_json"
 version = "1.0.140"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6626,16 +6651,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.101",
-]
-
-[[package]]
-name = "serdect"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a84f14a19e9a014bb9f4512488d9829a68e04ecabffb0f9904cd1ace94598177"
-dependencies = [
- "base16ct",
- "serde",
 ]
 
 [[package]]
@@ -6843,6 +6858,24 @@ dependencies = [
 
 [[package]]
 name = "sov-keys"
+version = "0.7.0-rc.4"
+source = "git+https://github.com/chainwayxyz/citrea.git?rev=b1fbe83fdd60d29#b1fbe83fdd60d291a5c06f890650899ad7029193"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "derive_more 1.0.0",
+ "digest 0.10.7",
+ "hex",
+ "k256",
+ "rand 0.8.5",
+ "schemars",
+ "serde",
+ "sha2",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "sov-keys"
 version = "0.7.0"
 source = "git+https://github.com/chainwayxyz/citrea?tag=v0.7.0#7e2d3c4ec25c282ad36b0f4a44ce53f50b6b9931"
 dependencies = [
@@ -6877,7 +6910,7 @@ dependencies = [
  "risc0-zkp",
  "serde",
  "sha2",
- "sov-keys",
+ "sov-keys 0.7.0-rc.4",
  "thiserror 2.0.12",
  "tokio",
  "tracing",
@@ -6896,7 +6929,7 @@ dependencies = [
  "jmt 0.11.0 (git+https://github.com/penumbra-zone/jmt.git?rev=550a2f2)",
  "serde",
  "sha2",
- "sov-keys",
+ "sov-keys 0.7.0",
 ]
 
 [[package]]
@@ -6958,7 +6991,7 @@ dependencies = [
  "futures-intrusive",
  "futures-io",
  "futures-util",
- "hashbrown 0.15.2",
+ "hashbrown 0.15.3",
  "hashlink 0.10.0",
  "indexmap 2.9.0",
  "log",
@@ -7283,9 +7316,9 @@ dependencies = [
 
 [[package]]
 name = "synstructure"
-version = "0.13.1"
+version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8af7666ab7b6390ab78131fb5b0fce11d6b7a6951602017c35fa82800708971"
+checksum = "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7307,7 +7340,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.3.2",
  "once_cell",
- "rustix 1.0.5",
+ "rustix 1.0.7",
  "windows-sys 0.59.0",
 ]
 
@@ -8135,18 +8168,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "0.26.9"
+version = "0.26.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "180d2741b6115c3d906577e6533ad89472d48d96df00270fccb78233073d77f7"
+checksum = "c99403924bc5f23afefc319b8ac67ed0e50669f6e52a413314cccb1fdbc93ba0"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "0.26.9"
+version = "0.26.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29aad86cec885cafd03e8305fd727c418e970a521322c91688414d5b8efba16b"
+checksum = "37493cadf42a2a939ed404698ded7fb378bf301b5011f973361779a3a74f8c93"
 dependencies = [
  "rustls-pki-types",
 ]

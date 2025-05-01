@@ -21,10 +21,10 @@ use bitvm_prover::{
     TESTNET4_HEADER_CHAIN_GUEST_ELF,
 };
 use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
-use eyre::Context;
-use header_chain::header_chain::{
+use circuits_lib::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
+use eyre::Context;
 use lazy_static::lazy_static;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
 use std::{
@@ -523,7 +523,7 @@ mod tests {
     use bitcoin::{block::Header, hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
-    use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
+    use circuits_lib::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use risc0_zkvm::Receipt;
 
     /// Mines `block_num` amount of blocks (if not already mined) and returns
