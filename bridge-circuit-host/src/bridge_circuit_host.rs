@@ -351,12 +351,13 @@ mod tests {
     const TESTNET4_WORK_ONLY_ELF: &[u8] =
         include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
+    use borsh::BorshDeserialize;
     use circuits_lib::{
         bridge_circuit::structs::WorkOnlyCircuitOutput,
         common::zkvm::ZkvmHost,
         header_chain::{
-            header_chain_circuit, BlockHeaderCircuitOutput, HeaderChainCircuitInput,
-            HeaderChainPrevProofType,
+            header_chain_circuit, BlockHeaderCircuitOutput, CircuitBlockHeader,
+            HeaderChainCircuitInput, HeaderChainPrevProofType,
         },
     };
 
