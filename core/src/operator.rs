@@ -1051,11 +1051,14 @@ where
             .get_headers_until_height(None, payout_block_height as u64)
             .await?;
 
+        tracing::warn!(
+            "Got headers in send_asserts, num_headers: {}",
+            headers.len()
+        );
         let blockhashes_serialized: Vec<[u8; 32]> = headers
             .iter()
             .map(|header| header.block_hash().to_byte_array()) // TODO: get blockhash directly from db
             .collect::<Vec<_>>();
-        tracing::warn!("Calculated headers in send_asserts");
         let spv = create_spv(
             payout_tx.clone(),
             &blockhashes_serialized,

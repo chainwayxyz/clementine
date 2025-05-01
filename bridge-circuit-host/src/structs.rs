@@ -43,7 +43,7 @@ pub enum BridgeCircuitHostParamsError {
 }
 
 impl BridgeCircuitHostParams {
-    const OP_RETURN_OUTPUT: usize = 1;
+    const OP_RETURN_OUTPUT_AND_CPFP_ANCHOR: usize = 2;
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -129,7 +129,7 @@ impl BridgeCircuitHostParams {
         let end_index = kickoff_tx
             .output
             .len()
-            .checked_sub(Self::OP_RETURN_OUTPUT)
+            .checked_sub(Self::OP_RETURN_OUTPUT_AND_CPFP_ANCHOR)
             .ok_or(BridgeCircuitHostParamsError::InvalidNumberOfKickoffOutputs)?;
 
         let mut all_tweaked_watchtower_pubkeys = Vec::new();
