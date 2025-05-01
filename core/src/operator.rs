@@ -43,7 +43,7 @@ use bitcoincore_rpc::RpcApi;
 use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
 use bridge_circuit_host::bridge_circuit_host::{
-    create_spv, prove_bridge_circuit, _BRIDGE_CIRCUIT_ELF,
+    create_spv, prove_bridge_circuit, REGTEST_BRIDGE_CIRCUIT_ELF,
 };
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 use bridge_circuit_host::utils::get_ark_verifying_key;
@@ -1152,7 +1152,7 @@ where
         })?;
 
         let (g16_proof, g16_output, public_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, _BRIDGE_CIRCUIT_ELF);
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF); // TODO: change to network specific elf
         tracing::warn!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
