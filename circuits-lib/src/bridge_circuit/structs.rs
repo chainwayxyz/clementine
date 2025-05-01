@@ -1,14 +1,15 @@
 use std::ops::{Deref, DerefMut};
 
-use bitcoin::{Amount, ScriptBuf, TxOut, Witness};
+use crate::common::constants::{
+    FIRST_FIVE_OUTPUTS, MAX_NUMBER_OF_WATCHTOWERS, NUMBER_OF_ASSERT_TXS,
+};
+use bitcoin::{Amount, ScriptBuf, Transaction, TxOut, Witness};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
 use crate::header_chain::BlockHeaderCircuitOutput;
 
 use super::{spv::SPV, transaction::CircuitTransaction};
-
-const NUM_OF_WATCHTOWERS: u8 = 160;
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitInput {
@@ -62,13 +63,138 @@ impl WatchtowerInput {
     pub fn new(
         watchtower_idx: u8,
         watchtower_challenge_input_idx: u8,
-        watchtower_challenge_utxos: Vec<CircuitTxOut>,
-        watchtower_challenge_tx: CircuitTransaction,
-        watchtower_challenge_witness: CircuitWitness,
+        watchtower_challenge_utxos: Vec<TxOut>,
+        watchtower_challenge_tx: Transaction,
+        watchtower_challenge_witness: Witness,
     ) -> Result<Self, &'static str> {
-        if watchtower_idx >= NUM_OF_WATCHTOWERS {
+        if watchtower_idx as usize >= MAX_NUMBER_OF_WATCHTOWERS {
             return Err("Watchtower index out of bounds");
         }
+
+        let watchtower_challenge_tx = CircuitTransaction::from(watchtower_challenge_tx);
+
+        let watchtower_challenge_witness: CircuitWitness =
+            CircuitWitness::from(watchtower_challenge_witness);
+
+        let watchtower_challenge_utxos: Vec<CircuitTxOut> = watchtower_challenge_utxos
+            .into_iter()
+            .map(CircuitTxOut::from)
+            .collect::<Vec<CircuitTxOut>>();
+
+        Ok(Self {
+            watchtower_idx,
+            watchtower_challenge_input_idx,
+            watchtower_challenge_utxos,
+            watchtower_challenge_tx,
+            watchtower_challenge_witness,
+        })
+    }
+
+    /// Constructs a `WatchtowerInput` instance from the kickoff transaction, the watchtower transaction and
+    /// an optional slice of previous transactions.
+    ///
+    /// # Arguments
+    ///
+    /// - `kickoff_tx`: The kickoff transaction whose output is consumed by an input of the watchtower transaction.
+    /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
+    ///   referencing the `kickoff_tx`.
+    /// * `previous_txs` - An optional slice of transactions, each of which should include
+    ///   at least one output that is later spent as an input in `watchtower_tx`.
+    ///
+    /// # Note
+    ///
+    /// All previous transactions other than kickoff tx whose outputs are spent by the `watchtower_tx`
+    /// should be supplied in `previous_txs` if they exist.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(WatchtowerInput)` if all required data is successfully extracted and validated.
+    /// Returns `Err(&'static str)` if any error occurs during the process.
+    ///
+    /// # Errors
+    ///
+    /// This function will return errors if:
+    /// - The kickoff transaction is not referenced by any input in the watchtower transaction.
+    /// - The output index underflows when computing the watchtower index.
+    /// - The watchtower index exceeds `MAX_NUMBER_OF_WATCHTOWERS`.
+    /// - A previous transaction required to resolve an input is not provided.
+    /// - An output referenced by an input is missing or out of bounds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - The watchtower index cannot be converted to `u8` (should be unreachable due to earlier bounds check).
+    ///
+    pub fn from_txs(
+        kickoff_tx: &Transaction,
+        watchtower_tx: Transaction,
+        previous_txs: Option<&[Transaction]>,
+    ) -> Result<Self, &'static str> {
+        let kickoff_txid = kickoff_tx.compute_txid();
+
+        let watchtower_challenge_input_idx = watchtower_tx
+            .input
+            .iter()
+            .position(|input| input.previous_output.txid == kickoff_txid)
+            .map(|ind| ind as u8)
+            .ok_or("Kickoff txid not found in watchtower inputs")?;
+
+        let output_index = watchtower_tx.input[watchtower_challenge_input_idx as usize]
+            .previous_output
+            .vout as usize;
+
+        let watchtower_index = output_index
+            .checked_sub(FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS)
+            .ok_or("Output index underflow")?
+            / 2;
+
+        if watchtower_index >= MAX_NUMBER_OF_WATCHTOWERS {
+            return Err("Watchtower index out of bounds");
+        }
+
+        let watchtower_idx =
+            u8::try_from(watchtower_index).expect("Cannot fail, already checked bounds");
+
+        let previous_txs = previous_txs.unwrap_or(&[]);
+
+        let mut all_previous_txs: Vec<Transaction> = Vec::with_capacity(previous_txs.len() + 1);
+        all_previous_txs.push(kickoff_tx.clone());
+        all_previous_txs.extend_from_slice(previous_txs);
+
+        let watchtower_challenge_utxos: Vec<CircuitTxOut> = watchtower_tx
+            .input
+            .iter()
+            .map(|input| {
+                let txid = input.previous_output.txid;
+                let vout = input.previous_output.vout as usize;
+
+                let tx = all_previous_txs
+                    .iter()
+                    .find(|tx| tx.compute_txid() == txid)
+                    .ok_or("Previous transaction not found")?;
+
+                let tx_out = tx
+                    .output
+                    .get(vout)
+                    .cloned()
+                    .ok_or("Output index out of bounds")?;
+
+                Ok::<CircuitTxOut, &'static str>(CircuitTxOut::from(tx_out))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut watchtower_challenge_tx = CircuitTransaction::from(watchtower_tx);
+
+        let watchtower_challenge_witness = CircuitWitness::from(
+            watchtower_challenge_tx.input[watchtower_challenge_input_idx as usize]
+                .witness
+                .clone(),
+        );
+
+        for input in &mut watchtower_challenge_tx.input {
+            input.witness.clear();
+        }
+
         Ok(Self {
             watchtower_idx,
             watchtower_challenge_input_idx,
@@ -83,7 +209,7 @@ impl WatchtowerInput {
 pub struct BridgeCircuitInput {
     pub kickoff_tx: CircuitTransaction, // BridgeCircuitTransaction
     // Add all watchtower pubkeys as global input as Vec<[u8; 32]> Which should be shorter than or equal to 160 elements
-    pub all_watchtower_pubkeys: Vec<Vec<u8>>, // Per watchtower [u8; 34] or OP_PUSHNUM_1 OP_PUSHBYTES_32 <TweakedXOnlyPublicKey> which is [u8; 32]
+    pub all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>, // Per watchtower [u8; 34] or OP_PUSHNUM_1 OP_PUSHBYTES_32 <TweakedXOnlyPublicKey> which is [u8; 32]
     pub watchtower_inputs: Vec<WatchtowerInput>,
     pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
@@ -95,7 +221,7 @@ impl BridgeCircuitInput {
     pub fn new(
         kickoff_tx: CircuitTransaction,
         watchtower_inputs: Vec<WatchtowerInput>,
-        all_watchtower_pubkeys: Vec<Vec<u8>>,
+        all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
         lcp: LightClientProof,
@@ -108,7 +234,7 @@ impl BridgeCircuitInput {
             payout_spv,
             lcp,
             sp,
-            all_watchtower_pubkeys,
+            all_tweaked_watchtower_pubkeys,
         })
     }
 }

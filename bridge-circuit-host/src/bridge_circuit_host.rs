@@ -61,6 +61,12 @@ pub fn prove_bridge_circuit(
     [u8; 31],
     BridgeCircuitBitvmInputs,
 ) {
+    let all_tweaked_watchtower_pubkeys: Vec<[u8; 32]> = bridge_circuit_host_params
+        .all_tweaked_watchtower_pubkeys
+        .iter()
+        .map(|pubkey| pubkey.serialize())
+        .collect();
+
     let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
         kickoff_tx: bridge_circuit_host_params.kickoff_tx,
         watchtower_inputs: bridge_circuit_host_params.watchtower_inputs,
@@ -68,7 +74,7 @@ pub fn prove_bridge_circuit(
         payout_spv: bridge_circuit_host_params.spv,
         lcp: bridge_circuit_host_params.light_client_proof,
         sp: bridge_circuit_host_params.storage_proof,
-        all_watchtower_pubkeys: bridge_circuit_host_params.all_watchtower_pubkeys,
+        all_tweaked_watchtower_pubkeys,
     };
 
     let header_chain_proof_output_serialized =
@@ -322,7 +328,7 @@ fn generate_succinct_bridge_circuit_public_inputs(
             .expect("Failed to deserialize deposit storage proof");
 
     let pubkey_concat = input
-        .all_watchtower_pubkeys
+        .all_tweaked_watchtower_pubkeys
         .iter()
         .flat_map(|pubkey| pubkey.to_vec())
         .collect::<Vec<u8>>();
