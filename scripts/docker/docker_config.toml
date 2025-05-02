@@ -66,6 +66,9 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
 # Header chain prover's assumption to start with.
 header_chain_proof_path = "../core/tests/data/first_1.bin"
 
+security_council_xonly_pks = ["4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"]
+security_council_threshold = 1
+
 # Testing only fields.
 all_verifiers_secret_keys = [
     "1111111111111111111111111111111111111111111111111111111111111111",

@@ -214,6 +214,21 @@ mod tests {
             "BRIDGE_CONTRACT_ADDRESS",
             &default_config.bridge_contract_address,
         );
+
+        std::env::set_var(
+            "SECURITY_COUNCIL_XONLY_PKS",
+            default_config
+                .security_council_xonly_pks
+                .iter()
+                .map(|pk| pk.to_string())
+                .collect::<Vec<String>>()
+                .join(","),
+        );
+        std::env::set_var(
+            "SECURITY_COUNCIL_THRESHOLD",
+            default_config.security_council_threshold.to_string(),
+        );
+
         if let Some(ref header_chain_proof_path) = default_config.header_chain_proof_path {
             std::env::set_var("HEADER_CHAIN_PROOF_PATH", header_chain_proof_path);
         }
