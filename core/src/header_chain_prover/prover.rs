@@ -7,11 +7,10 @@ use crate::{
     header_chain_prover::{HeaderChainProver, HeaderChainProverError},
 };
 use bitcoin::Network;
+use circuits_lib::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
 use eyre::Context;
 use lazy_static::lazy_static;
-use risc0_to_bitvm2_core::header_chain::{
-    BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
-};
+
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -182,7 +181,7 @@ mod tests {
         BlockHash, CompactTarget, TxMerkleNode,
     };
     use bitcoincore_rpc::RpcApi;
-    use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
+    use circuits_lib::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
 
     async fn mine_and_get_first_n_block_headers(
         rpc: ExtendedRpc,
