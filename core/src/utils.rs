@@ -4,16 +4,6 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
 
-pub fn usize_to_var_len_bytes(x: usize) -> Vec<u8> {
-    let usize_bytes = (usize::BITS / 8) as usize;
-    let bits = x.max(1).ilog2() + 1;
-    let len = bits.div_ceil(8) as usize;
-    let empty = usize_bytes - len;
-    let op_idx_bytes = x.to_be_bytes();
-    let op_idx_bytes = &op_idx_bytes[empty..];
-    op_idx_bytes.to_vec()
-}
-
 /// Initializes `tracing` as the logger.
 ///
 /// # Parameters
