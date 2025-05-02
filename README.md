@@ -30,7 +30,7 @@ Before compiling Clementine:
    rzup install r0vm 1.2.0
    rzup install rust 1.81.0
    ```
-4. If on Linux, install OpenSSH and it's development libraries
+4. If on Linux, install OpenSSH and its development libraries
    ```bash
    # Ubuntu example
    sudo apt install openssh-client openssh-server libssl-dev pkg-config
