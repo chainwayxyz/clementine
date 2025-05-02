@@ -427,25 +427,6 @@ mod tests {
 
         // let num_of_watchtowers: u32 = 1;
 
-        // let bridge_circuit_host_params = BridgeCircuitHostParams {
-        //     winternitz_details: vec![winternitz_details],
-        //     light_client_proof,
-        //     storage_proof,
-        //     headerchain_receipt,
-        //     spv,
-        //     lcp_receipt,
-        //     block_header_circuit_output,
-        //     num_of_watchtowers,
-        // };
-
-        // // Do what a normal bridge circuit guest is supposed to do
-        // (_, _) = total_work_and_watchtower_flags(
-
-        //     &bridge_circuit_host_params.winternitz_details,
-        //     bridge_circuit_host_params.num_of_watchtowers,
-        //     &WORK_ONLY_IMAGE_ID,
-        // );
-
         // let (ark_groth16_proof, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
         //     prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
 

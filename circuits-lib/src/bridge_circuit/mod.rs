@@ -32,19 +32,19 @@ use storage_proof::verify_storage_proofs;
 use structs::{BridgeCircuitInput, WatchTowerChallengeTxCommitment, WatchtowerChallengeSet};
 
 pub const MAINNET: [u32; 8] = [
-    1166334596, 1106198222, 175855799, 2089535826, 3324832148, 4242628887, 3933904588, 158127961,
+    426646517, 1316512588, 3233479944, 2677935890, 3377742954, 1418564357, 2875504754, 4131209012,
 ];
 
 pub const TESTNET4: [u32; 8] = [
-    352907212, 1274806886, 3474991872, 4089459299, 136335035, 1761772518, 3601804316, 40804021,
+    2582434033, 1566807144, 2498896251, 1284725273, 3391116049, 3220078861, 1737719246, 860467663,
 ];
 
 pub const SIGNET: [u32; 8] = [
-    4102655966, 482402221, 3820051864, 2537052902, 3713370924, 3230898830, 3309156187, 1184186142,
+    1540037693, 3209402407, 2732486773, 3233538531, 2523314424, 218760840, 2877821007, 3436381103,
 ];
 
 pub const REGTEST: [u32; 8] = [
-    2758936230, 4133450896, 4048174145, 2120004377, 2153292578, 1396151415, 1754372585, 2813599076,
+    2020578042, 2852913303, 1200246063, 948927463, 4251019535, 2807724189, 4065868154, 3906971603,
 ];
 
 /// The method ID for the header chain circuit.
@@ -61,15 +61,6 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 
 const NUMBER_OF_WATCHTOWERS: usize = 160;
 
-/// TODO: Change this to a feature in the future
-pub const IS_TEST: bool = {
-    match option_env!("BRIDGE_CIRCUIT_MODE") {
-        Some(mode) if matches!(mode.as_bytes(), b"test") => true,
-        Some(mode) if matches!(mode.as_bytes(), b"prod") => false,
-        None => false,
-        _ => panic!("Invalid bridge circuit mode"),
-    }
-};
 /// Executes the bridge circuit in a zkVM environment, verifying multiple cryptographic proofs
 /// related to watchtower work, SPV, and storage proofs.
 ///
@@ -377,10 +368,9 @@ fn verify_watchtower_challenges(
             );
         };
 
-        if IS_TEST
-            || verifying_key
-                .verify_prehash(sighash.as_byte_array(), &signature)
-                .is_ok()
+        if verifying_key
+            .verify_prehash(sighash.as_byte_array(), &signature)
+            .is_ok()
         {
             // TODO: CHECK IF THIS IS CORRECT
             challenge_sending_watchtowers[(watchtower_input.watchtower_idx as usize) / 8] |=
@@ -405,13 +395,8 @@ fn verify_watchtower_challenges(
 ///
 /// # Parameters
 ///
-/// - `kickoff_tx`: The kickoff transaction used as a reference for validating watchtower inputs.
 /// - `kickoff_txid`: The transaction ID of the kickoff transaction.
-/// - `watchtower_idxs`: A list of indices corresponding to each watchtower.
-/// - `watchtower_challenge_txs`: A list of encoded watchtower challenge transactions.
-/// - `watchtower_challenge_utxos`: A list of UTXO sets corresponding to the inputs of the challenge transactions.
-/// - `watchtower_challenge_input_idxs`: A list of input indices pointing to which input in each transaction should be verified.
-/// - `watchtower_pubkeys`: A list of 32-byte x-only public keys expected from each watchtower (used for P2TR signature verification).
+/// - `circuit_input`: The `BridgeCircuitInput` containing all watchtower inputs and related data.
 /// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
 ///
 /// # Returns
@@ -419,10 +404,6 @@ fn verify_watchtower_challenges(
 /// A tuple containing:
 /// - `[u8; 16]`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
 /// - `[u8; 20]`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
-///
-/// # Panics
-///
-/// - Panics if the lengths of any of the provided watchtower lists are mismatched.
 ///
 /// # Notes
 ///
@@ -466,7 +447,10 @@ pub fn total_work_and_watchtower_flags(
             .try_into()
             .expect("Cannot fail");
 
-        let total_work: [u8; 16] = third_output[64..].try_into().expect("Cannot fail");
+        // Borsh deserialization of the final 16 bytes is functionally redundant in this context,
+        // as it does not alter the byte content. It is retained here for consistency and defensive safety.
+        let total_work: [u8; 16] = borsh::from_slice(&third_output[64..]).expect("Cannot fail");
+
         let commitment = WatchTowerChallengeTxCommitment {
             compressed_g16_proof,
             total_work,
@@ -482,13 +466,11 @@ pub fn total_work_and_watchtower_flags(
 
     for commitment in valid_watchtower_challenge_commitments {
         // Grooth16 verification of work only circuit
-        if IS_TEST
-            || convert_to_groth16_and_verify(
-                &commitment.compressed_g16_proof,
-                commitment.total_work,
-                work_only_image_id,
-            )
-        {
+        if convert_to_groth16_and_verify(
+            &commitment.compressed_g16_proof,
+            commitment.total_work,
+            work_only_image_id,
+        ) {
             total_work = commitment.total_work;
             break;
         }
@@ -507,12 +489,14 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
     None
 }
 
-/// Computes a deposit constant hash using transaction output data, Winternitz public keys, and a move transaction ID.
+/// Computes a deposit constant hash using transaction output data, kickoff transaction ID,
+/// tweaked watchtower public keys, and a move transaction ID.
 ///
 /// # Parameters
 ///
 /// - `last_output`: A reference to the last transaction output (`TxOut`).
-/// - `winternitz_details`: A slice of `WinternitzHandler`, containing public keys.
+/// - `kickoff_txid`: A reference to the kickoff transaction ID (`Txid`).
+/// - `watchtower_pubkeys`: A slice of 32-byte arrays representing tweaked watchtower public keys.
 /// - `move_txid_hex`: A 32-byte array representing the move transaction ID.
 ///
 /// # Returns

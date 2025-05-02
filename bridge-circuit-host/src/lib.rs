@@ -37,7 +37,6 @@ const CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 /// * `Ok((LightClientProof, Receipt))` - A tuple containing:
 ///   - `LightClientProof`: The extracted proof with journal bytes and L2 height.
 ///   - `Receipt`: The transaction receipt parsed from the proof.
-/// * `Err(())` - If the function encounters an error at any stage.
 ///
 /// # Panics
 /// This function will panic if:
@@ -110,7 +109,6 @@ pub async fn fetch_light_client_proof(
 /// # Arguments
 /// * `l2_height` - A reference to `String` representing the L2 block height. (e.g. "0x123a")
 /// * `deposit_index` - A `u32` representing the deposit index.
-/// * `move_to_vault_txid` - A 32-byte array representing the transaction ID of the move-to-vault transaction.
 /// * `client` - An instance of `RpcClient` used to make the JSON-RPC request.
 ///
 /// # Returns
