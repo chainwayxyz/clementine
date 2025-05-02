@@ -180,7 +180,6 @@ pub fn verify_schnorr(
 #[derive(Debug, Clone)]
 pub struct Actor {
     pub keypair: Keypair,
-    _secret_key: SecretKey,
     winternitz_secret_key: Option<SecretKey>,
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
@@ -200,7 +199,6 @@ impl Actor {
 
         Actor {
             keypair,
-            _secret_key: keypair.secret_key(),
             winternitz_secret_key,
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
@@ -318,27 +316,22 @@ impl Actor {
         paramset: &'static ProtocolParamset,
     ) -> Result<ClementineBitVMPublicKeys, BridgeError> {
         let mut pks = ClementineBitVMPublicKeys::create_replacable();
-        let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-            40,
-            0,
-            0,
-            deposit_outpoint,
-            paramset,
-        ))?;
+        let pk_vec = self.derive_winternitz_pk(
+            ClementineBitVMPublicKeys::get_latest_blockhash_derivation(deposit_outpoint, paramset),
+        )?;
         pks.latest_blockhash_pk = ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
-        let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
-            40,
-            1,
-            0,
-            deposit_outpoint,
-            paramset,
-        ))?;
+        let pk_vec = self.derive_winternitz_pk(
+            ClementineBitVMPublicKeys::get_challenge_sending_watchtowers_derivation(
+                deposit_outpoint,
+                paramset,
+            ),
+        )?;
         pks.challenge_sending_watchtowers_pk =
             ClementineBitVMPublicKeys::vec_to_array::<44>(&pk_vec);
         for i in 0..pks.bitvm_pks.0.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 64,
-                2,
+                3,
                 i as u32,
                 deposit_outpoint,
                 paramset,
@@ -348,7 +341,7 @@ impl Actor {
         for i in 0..pks.bitvm_pks.1.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 64,
-                3,
+                4,
                 i as u32,
                 deposit_outpoint,
                 paramset,
@@ -358,7 +351,7 @@ impl Actor {
         for i in 0..pks.bitvm_pks.2.len() {
             let pk_vec = self.derive_winternitz_pk(WinternitzDerivationPath::BitvmAssert(
                 32,
-                4,
+                5,
                 i as u32,
                 deposit_outpoint,
                 paramset,
@@ -447,8 +440,7 @@ impl Actor {
                         | Kind::Other(_)
                         | Kind::BaseDepositScript(_)
                         | Kind::ReplacementDepositScript(_)
-                        | Kind::TimelockScript(_)
-                        | Kind::WithdrawalScript(_) => return Ok(None),
+                        | Kind::TimelockScript(_) => return Ok(None),
                     };
 
                     if signed_preimage {
@@ -528,8 +520,7 @@ impl Actor {
                         | Kind::Other(_)
                         | Kind::BaseDepositScript(_)
                         | Kind::ReplacementDepositScript(_)
-                        | Kind::TimelockScript(_)
-                        | Kind::WithdrawalScript(_) => return Ok(None),
+                        | Kind::TimelockScript(_) => return Ok(None),
                     };
 
                     if signed_winternitz {
@@ -645,8 +636,7 @@ impl Actor {
                         },
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)
-                        | Kind::Other(_)
-                        | Kind::WithdrawalScript(_) => return Ok(None),
+                        | Kind::Other(_) => return Ok(None),
                     };
 
                     // Add P2TR elements (control block and script) to the witness
@@ -663,14 +653,20 @@ impl Actor {
                     let sighash = calc_sighash(sighash_type)?;
                     let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
                     let sig = match sig {
-                        Some(sig) => sig,
+                        Some(sig) => taproot::Signature {
+                            signature: sig,
+                            sighash_type,
+                        },
                         None => {
                             if xonly_public_key == self.xonly_public_key {
-                                self.sign_with_tweak(
-                                    sighash,
-                                    spendinfo.merkle_root(),
-                                    tweak_cache.as_deref_mut(),
-                                )?
+                                taproot::Signature {
+                                    signature: self.sign_with_tweak(
+                                        sighash,
+                                        spendinfo.merkle_root(),
+                                        tweak_cache.as_deref_mut(),
+                                    )?,
+                                    sighash_type,
+                                }
                             } else {
                                 return Err(TxError::NotOwnKeyPath.into());
                             }
@@ -708,6 +704,7 @@ mod tests {
     use bitcoin::transaction::Transaction;
 
     use bitcoin::{Amount, Network, OutPoint, Txid};
+    use bitcoincore_rpc::RpcApi;
     use bitvm::{
         execute_script,
         signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz},
@@ -877,30 +874,6 @@ mod tests {
             .expect("Script spend signature verification failed");
     }
 
-    // #[test]
-    // fn verify_cached_tx() {
-    //     let sk = SecretKey::new(&mut rand::thread_rng());
-    //     let network = Network::Regtest;
-    //     let actor = Actor::new(sk, None, network);
-
-    //     let mut txhandler = create_valid_mock_tx_handler(&actor);
-
-    //     // Sign the transaction
-    //     actor
-    //         .sign_taproot_pubkey_spend(&mut txhandler, 0, None)
-    //         .unwrap();
-
-    //     // Add witness to the transaction
-    //     let sig = actor
-    //         .sign_taproot_pubkey_spend(&mut txhandler, 0, None)
-    //         .unwrap();
-    //     txhandler.get_cached_tx().input[0].witness = Witness::p2tr_key_spend(&sig);
-
-    //     // Verify the cached transaction
-    //     let cached_tx = txhandler.get_cached_tx();
-    //     cached_tx.verify().expect("Transaction verification failed");
-    // }
-
     #[test]
     fn actor_new() {
         let sk = SecretKey::new(&mut rand::thread_rng());
@@ -908,7 +881,6 @@ mod tests {
 
         let actor = Actor::new(sk, None, network);
 
-        assert_eq!(sk, actor._secret_key);
         assert_eq!(sk.public_key(&SECP), actor.public_key);
         assert_eq!(sk.x_only_public_key(&SECP).0, actor.xonly_public_key);
     }
@@ -1139,5 +1111,109 @@ mod tests {
         let script = script!({witness} {check_sig_script} {message_checker});
         let ret = execute_script(script);
         assert!(ret.success);
+    }
+
+    #[tokio::test]
+    async fn test_key_spend_signing() {
+        // Setup test node and actor
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let sk = SecretKey::new(&mut thread_rng());
+        let actor = Actor::new(sk, None, Network::Regtest);
+
+        // Create a UTXO controlled by the actor's key spend path
+        let (tap_addr, spend_info) =
+            create_taproot_address(&[], Some(actor.xonly_public_key), Network::Regtest);
+        let prevtxo = bitcoin::TxOut {
+            value: Amount::from_sat(50000), // Use a reasonable amount
+            script_pubkey: tap_addr.script_pubkey(),
+        };
+
+        // Fund the address (required for testmempoolaccept)
+        let outpoint = rpc
+            .send_to_address(&tap_addr, Amount::from_sat(50000))
+            .await
+            .unwrap();
+
+        rpc.mine_blocks(1).await.unwrap(); // Confirm the funding transaction
+
+        // Build a transaction spending the UTXO with TapSighashType::SinglePlusAnyoneCanPay
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+            // Use Challenge which maps to NofnSharedDeposit(TapSighashType::SinglePlusAnyoneCanPay)
+            .add_input(
+                NormalSignatureKind::Challenge,
+                SpendableTxIn::new(outpoint, prevtxo.clone(), vec![], Some(spend_info.clone())),
+                SpendPath::KeySpend,
+                bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            );
+
+        // Add a dummy output
+        builder = builder.add_output(UnspentTxOut::new(
+            bitcoin::TxOut {
+                value: Amount::from_sat(49000), // Account for fee
+                script_pubkey: actor.address.script_pubkey(),
+            },
+            vec![],
+            None,
+        ));
+
+        let mut txhandler = builder.finalize();
+
+        // Actor signs the key spend input using the non-default sighash type
+        actor
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+            .expect("Key spend signature with SighashNone should succeed");
+
+        // Retrieve the signed transaction
+        let tx: &Transaction = txhandler.get_cached_tx();
+
+        // Use testmempoolaccept to verify the transaction is valid by consensus rules
+        let mempool_accept_result = rpc.client.test_mempool_accept(&[tx]).await.unwrap();
+
+        assert!(
+            mempool_accept_result[0].allowed.unwrap(),
+            "Transaction should be allowed in mempool. Rejection reason: {:?}",
+            mempool_accept_result[0].reject_reason.as_ref().unwrap()
+        );
+
+        // Build a transaction spending the UTXO with TapSighashType::Default
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+            // Use Reimburse2 which maps to NofnSharedDeposit(TapSighashType::Default)
+            .add_input(
+                NormalSignatureKind::Reimburse2,
+                SpendableTxIn::new(outpoint, prevtxo.clone(), vec![], Some(spend_info.clone())),
+                SpendPath::KeySpend,
+                bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            );
+
+        // Add a dummy output
+        builder = builder.add_output(UnspentTxOut::new(
+            bitcoin::TxOut {
+                value: Amount::from_sat(39000), // Account for fee
+                script_pubkey: actor.address.script_pubkey(),
+            },
+            vec![],
+            None,
+        ));
+
+        let mut txhandler = builder.finalize();
+
+        // Actor signs the key spend input using the non-default sighash type
+        actor
+            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+            .expect("Key spend signature with SighashDefault should succeed");
+
+        // Retrieve the signed transaction
+        let tx: &Transaction = txhandler.get_cached_tx();
+
+        // Use testmempoolaccept to verify the transaction is valid by consensus rules
+        let mempool_accept_result = rpc.client.test_mempool_accept(&[tx]).await.unwrap();
+
+        assert!(
+            mempool_accept_result[0].allowed.unwrap(),
+            "Transaction should be allowed in mempool. Rejection reason: {:?}",
+            mempool_accept_result[0].reject_reason.as_ref().unwrap()
+        );
     }
 }

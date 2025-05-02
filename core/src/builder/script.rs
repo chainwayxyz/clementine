@@ -10,7 +10,6 @@ use crate::config::protocol::ProtocolParamset;
 use crate::EVMAddress;
 use bitcoin::hashes::{hash160, Hash};
 use bitcoin::opcodes::OP_TRUE;
-use bitcoin::script::PushBytesBuf;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
@@ -22,7 +21,7 @@ use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SpendPath {
     ScriptSpend(usize),
     KeySpend,
@@ -227,13 +226,19 @@ impl WinternitzCommit {
         let mut witness = Witness::new();
         witness.push(signature.serialize());
         for (index, (data, secret_key)) in commit_data.iter().enumerate().rev() {
-            // #[cfg(debug_assertions)]
-            // {
-            //     let pk = winternitz::generate_public_key(&self.get_params(index), secret_key);
-            //     if pk != self.commitments[index].0 {
-            //         tracing::error!("Winternitz public key mismatch");
-            //     }
-            // }
+            #[cfg(debug_assertions)]
+            {
+                let pk = bitvm::signatures::winternitz::generate_public_key(
+                    &self.get_params(index),
+                    secret_key,
+                );
+                if pk != self.commitments[index].0 {
+                    tracing::error!(
+                        "Winternitz public key mismatch len: {}",
+                        self.commitments[index].1
+                    );
+                }
+            }
             bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
                 .sign(&self.get_params(index), secret_key, data)
                 .into_iter()
@@ -434,37 +439,6 @@ impl ReplacementDepositScript {
     }
 }
 
-/// Struct for withdrawal script.
-pub struct WithdrawalScript(usize);
-
-impl SpendableScript for WithdrawalScript {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn kind(&self) -> ScriptKind {
-        ScriptKind::WithdrawalScript(self)
-    }
-
-    fn to_script_buf(&self) -> ScriptBuf {
-        let mut push_bytes = PushBytesBuf::new();
-        push_bytes
-            .extend_from_slice(&crate::utils::usize_to_var_len_bytes(self.0))
-            .expect("Not possible to panic while adding a 4 to 8 bytes of slice");
-
-        Builder::new()
-            .push_opcode(OP_RETURN)
-            .push_slice(push_bytes)
-            .into_script()
-    }
-}
-
-impl WithdrawalScript {
-    pub fn new(index: usize) -> Self {
-        Self(index)
-    }
-}
-
 #[derive(Clone)]
 pub enum ScriptKind<'a> {
     CheckSig(&'a CheckSig),
@@ -473,7 +447,6 @@ pub enum ScriptKind<'a> {
     PreimageRevealScript(&'a PreimageRevealScript),
     BaseDepositScript(&'a BaseDepositScript),
     ReplacementDepositScript(&'a ReplacementDepositScript),
-    WithdrawalScript(&'a WithdrawalScript),
     Other(&'a OtherSpendable),
 }
 

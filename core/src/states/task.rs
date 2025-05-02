@@ -113,8 +113,21 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
                             self.next_height, current_tip_height
                         )))?;
 
+                    let new_block_id = self
+                        .db
+                        .get_canonical_block_id_from_height(Some(&mut dbtx), self.next_height)
+                        .await?;
+
+                    if new_block_id.is_none() {
+                        tracing::error!("Block at height {} not found in BlockFetcherTask, current tip height is {}", self.next_height, current_tip_height);
+                        return Err(BridgeError::Error(format!(
+                            "Block at height {} not found in BlockFetcherTask, current tip height is {}",
+                            self.next_height, current_tip_height
+                        )));
+                    }
+
                     let event = SystemEvent::NewBlock {
-                        block_id,
+                        block_id: new_block_id.expect("it must be some"),
                         block,
                         height: self.next_height,
                     };
@@ -228,7 +241,7 @@ mod tests {
         builder::transaction::{ContractContext, TransactionType, TxHandler},
         config::{protocol::ProtocolParamsetName, BridgeConfig},
         database::DatabaseTransaction,
-        states::{block_cache, Duty},
+        states::{block_cache, context::DutyResult, Duty},
         test::common::create_test_config_with_thread_name,
     };
 
@@ -241,8 +254,8 @@ mod tests {
     impl Owner for MockHandler {
         const OWNER_TYPE: &'static str = "MockHandler";
 
-        async fn handle_duty(&self, _: Duty) -> Result<(), BridgeError> {
-            Ok(())
+        async fn handle_duty(&self, _: Duty) -> Result<DutyResult, BridgeError> {
+            Ok(DutyResult::Handled)
         }
 
         async fn create_txhandlers(

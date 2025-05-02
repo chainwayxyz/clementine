@@ -1,11 +1,12 @@
 use super::input::SpendableTxIn;
+use super::input::UtxoVout;
 use super::op_return_txout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use super::DepositData;
 use super::KickoffData;
 use super::Signed;
 use super::TransactionType;
-use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
+use super::TxError;
 use crate::builder::script::{CheckSig, SpendableScript, TimelockScript};
 use crate::builder::script::{PreimageRevealScript, SpendPath};
 use crate::builder::transaction::output::UnspentTxOut;
@@ -19,10 +20,9 @@ use crate::{builder, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::taproot::TaprootBuilder;
 use bitcoin::transaction::Version;
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{Address, TapNodeHash, TxOut, Txid};
+use bitcoin::{TxOut, Txid};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -41,6 +41,7 @@ pub fn create_kickoff_txhandler(
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
     disprove_root_hash: &[u8; 32],
+    latest_blockhash_script: AssertScripts,
     operator_unlock_hashes: &[[u8; 20]],
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
@@ -50,12 +51,13 @@ pub fn create_kickoff_txhandler(
         TxHandlerBuilder::new(TransactionType::Kickoff).with_version(Version::non_standard(3));
     builder = builder.add_input(
         NormalSignatureKind::OperatorSighashDefault,
-        round_txhandler.get_spendable_output(1 + kickoff_idx)?,
+        round_txhandler.get_spendable_output(UtxoVout::Kickoff(kickoff_idx))?,
         builder::script::SpendPath::ScriptSpend(0),
         DEFAULT_SEQUENCE,
     );
 
     let nofn_script = Arc::new(CheckSig::new(deposit_data.get_nofn_xonly_pk()?));
+    let operator_script = Arc::new(CheckSig::new(operator_xonly_pk));
 
     let operator_1week = Arc::new(TimelockScript::new(
         Some(operator_xonly_pk),
@@ -66,13 +68,13 @@ pub fn create_kickoff_txhandler(
         // goes to challenge tx or no challenge tx
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![nofn_script.clone(), operator_1week],
+            vec![operator_script, operator_1week],
             None,
             paramset.network,
         ))
         // kickoff finalizer connector
         .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT * 20,
+            MIN_TAPROOT_AMOUNT,
             vec![nofn_script.clone()],
             None,
             paramset.network,
@@ -91,29 +93,47 @@ pub fn create_kickoff_txhandler(
         Some(operator_xonly_pk),
         paramset.disprove_timeout_timelock,
     ));
-    let disprove_taproot_spend_info = TaprootBuilder::new()
-        .add_leaf(1, operator_5week.to_script_buf())
-        .expect("taptree with one node at depth 1 will accept a script node")
-        .add_hidden_node(1, TapNodeHash::from_byte_array(*disprove_root_hash))
-        .expect("empty taptree will accept a node at depth 1")
-        .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
-        .expect("Taproot with 2 nodes at depth 1 should be valid for disprove");
 
-    let disprove_address = Address::p2tr(
-        &SECP,
-        *UNSPENDABLE_XONLY_PUBKEY,
-        disprove_taproot_spend_info.merkle_root(),
+    // disprove utxo
+    builder = builder.add_output(super::create_taproot_output_with_hidden_node(
+        operator_5week,
+        disprove_root_hash,
+        MIN_TAPROOT_AMOUNT,
         paramset.network,
-    );
-
-    builder = builder.add_output(UnspentTxOut::new(
-        TxOut {
-            value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: disprove_address.script_pubkey().clone(),
-        },
-        vec![operator_5week],
-        Some(disprove_taproot_spend_info),
     ));
+
+    let nofn_latest_blockhash = Arc::new(TimelockScript::new(
+        Some(deposit_data.get_nofn_xonly_pk()?),
+        paramset.latest_blockhash_timeout_timelock,
+    ));
+
+    match latest_blockhash_script {
+        AssertScripts::AssertScriptTapNodeHash(latest_blockhash_root_hash) => {
+            if latest_blockhash_root_hash.len() != 1 {
+                return Err(TxError::LatestBlockhashScriptNumber.into());
+            }
+            let latest_blockhash_root_hash = latest_blockhash_root_hash[0];
+            // latest blockhash utxo
+            builder = builder.add_output(super::create_taproot_output_with_hidden_node(
+                nofn_latest_blockhash,
+                &latest_blockhash_root_hash,
+                MIN_TAPROOT_AMOUNT,
+                paramset.network,
+            ));
+        }
+        AssertScripts::AssertSpendableScript(latest_blockhash_script) => {
+            if latest_blockhash_script.len() != 1 {
+                return Err(TxError::LatestBlockhashScriptNumber.into());
+            }
+            let latest_blockhash_script = latest_blockhash_script[0].clone();
+            builder = builder.add_output(UnspentTxOut::from_scripts(
+                MIN_TAPROOT_AMOUNT,
+                vec![nofn_latest_blockhash, latest_blockhash_script],
+                None,
+                paramset.network,
+            ));
+        }
+    }
 
     // add nofn_4 week to all assert scripts
     let nofn_4week = Arc::new(TimelockScript::new(
@@ -125,28 +145,11 @@ pub fn create_kickoff_txhandler(
         AssertScripts::AssertScriptTapNodeHash(assert_script_hashes) => {
             for script_hash in assert_script_hashes.iter() {
                 // Add N-of-N in 4 week script to taproot, that connects to assert timeout
-                let assert_spend_info = TaprootBuilder::new()
-                    .add_hidden_node(1, TapNodeHash::from_byte_array(*script_hash))
-                    .expect("taptree with one node at depth 1 will accept a script node")
-                    .add_leaf(1, nofn_4week.to_script_buf())
-                    .expect("empty taptree will accept a node at depth 1")
-                    .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
-                    .expect("Taproot with 2 nodes at depth 1 should be valid for assert");
-
-                let assert_address = Address::p2tr(
-                    &SECP,
-                    *UNSPENDABLE_XONLY_PUBKEY,
-                    assert_spend_info.merkle_root(),
+                builder = builder.add_output(super::create_taproot_output_with_hidden_node(
+                    nofn_4week.clone(),
+                    script_hash,
+                    MIN_TAPROOT_AMOUNT,
                     paramset.network,
-                );
-
-                builder = builder.add_output(UnspentTxOut::new(
-                    TxOut {
-                        value: MIN_TAPROOT_AMOUNT,
-                        script_pubkey: assert_address.script_pubkey(),
-                    },
-                    vec![nofn_4week.clone()],
-                    Some(assert_spend_info),
                 ));
             }
         }
@@ -222,13 +225,13 @@ pub fn create_kickoff_not_finalized_txhandler(
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::KickoffNotFinalized1,
-            kickoff_txhandler.get_spendable_output(1)?,
+            kickoff_txhandler.get_spendable_output(UtxoVout::KickoffFinalizer)?,
             builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
         .add_input(
             NormalSignatureKind::KickoffNotFinalized2,
-            ready_to_reimburse_txhandler.get_spendable_output(0)?,
+            ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
             builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )
@@ -246,33 +249,37 @@ pub fn create_reimburse_txhandler(
     round_txhandler: &TxHandler,
     kickoff_txhandler: &TxHandler,
     kickoff_idx: usize,
-    num_kickoffs_per_round: usize,
+    paramset: &'static ProtocolParamset,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new(TransactionType::Reimburse)
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::Reimburse1,
-            move_txhandler.get_spendable_output(0)?,
+            move_txhandler.get_spendable_output(UtxoVout::DepositInMove)?,
             builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
         .add_input(
             NormalSignatureKind::Reimburse2,
-            kickoff_txhandler.get_spendable_output(2)?,
+            kickoff_txhandler.get_spendable_output(UtxoVout::ReimburseInKickoff)?,
             builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
         .add_input(
             NormalSignatureKind::OperatorSighashDefault,
-            round_txhandler.get_spendable_output(1 + kickoff_idx + num_kickoffs_per_round)?,
+            round_txhandler
+                .get_spendable_output(UtxoVout::ReimburseInRound(kickoff_idx, paramset))?,
             builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         );
 
     Ok(builder
         .add_output(UnspentTxOut::from_partial(TxOut {
-            value: move_txhandler.get_spendable_output(0)?.get_prevout().value,
+            value: move_txhandler
+                .get_spendable_output(UtxoVout::DepositInMove)?
+                .get_prevout()
+                .value,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
         .add_output(UnspentTxOut::from_partial(
@@ -301,7 +308,6 @@ pub fn create_payout_txhandler(
     let op_return_txout = op_return_txout(PushBytesBuf::from(operator_xonly_pk.serialize()));
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
-        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             txin,

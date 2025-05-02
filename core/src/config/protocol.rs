@@ -1,11 +1,11 @@
+use crate::config::env::read_string_from_env_then_parse;
 use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::fs;
+use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
 
 pub const BLOCKS_PER_HOUR: u16 = 6;
 
@@ -21,14 +21,12 @@ pub const WINTERNITZ_LOG_D: u32 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 /// A pre-defined paramset name that can be converted into a
-/// [`ProtocolParamset`] reference. Refers to a defined constant paramset in this module.
+/// [`ProtocolParamset`] reference.
 ///
-/// See: [`MAINNET_PARAMSET`], [`REGTEST_PARAMSET`], [`TESTNET_PARAMSET`].
+/// See: [`REGTEST_PARAMSET`]
 pub enum ProtocolParamsetName {
-    Mainnet,
+    // Pre-defined paramsets
     Regtest,
-    Testnet4,
-    Signet,
 }
 
 impl FromStr for ProtocolParamsetName {
@@ -36,10 +34,7 @@ impl FromStr for ProtocolParamsetName {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "mainnet" => Ok(ProtocolParamsetName::Mainnet),
             "regtest" => Ok(ProtocolParamsetName::Regtest),
-            "testnet4" => Ok(ProtocolParamsetName::Testnet4),
-            "signet" => Ok(ProtocolParamsetName::Signet),
             _ => Err(BridgeError::ConfigError(format!(
                 "Unknown paramset name: {}",
                 s
@@ -51,40 +46,20 @@ impl FromStr for ProtocolParamsetName {
 impl Display for ProtocolParamsetName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProtocolParamsetName::Mainnet => write!(f, "mainnet"),
             ProtocolParamsetName::Regtest => write!(f, "regtest"),
-            ProtocolParamsetName::Testnet4 => write!(f, "testnet4"),
-            ProtocolParamsetName::Signet => write!(f, "signet"),
         }
     }
 }
 
 impl From<ProtocolParamsetName> for &'static ProtocolParamset {
     fn from(name: ProtocolParamsetName) -> Self {
-        let from_env = ProtocolParamset::from_env();
-        if from_env.is_ok() {
-            tracing::info!("Using protocol params from env...");
-            return &ENV_PARAMSET;
-        }
-        tracing::info!("Can't read protocol params from env: {from_env:?}. Trying to read from external config...");
-
-        let from_external_config = std::env::var("PROTOCOL_CONFIG_PATH");
-        if from_external_config.is_ok() {
-            tracing::info!("Using protocol params from external config file...");
-            return &RUNTIME_PARAMSET;
-        }
-        tracing::info!("Can't read protocol params from external config file: {from_external_config:?}. Using config file's value...");
-
         match name {
-            ProtocolParamsetName::Mainnet => &MAINNET_PARAMSET,
             ProtocolParamsetName::Regtest => &REGTEST_PARAMSET,
-            ProtocolParamsetName::Testnet4 => &TESTNET4_PARAMSET,
-            ProtocolParamsetName::Signet => &SIGNET_PARAMSET,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 /// Protocol parameters that affect the transactions in the contract (which also
 /// change the pre-calculated txids and sighashes).
 ///
@@ -127,8 +102,9 @@ pub struct ProtocolParamset {
     pub disprove_timeout_timelock: u16,
     /// Number of blocks for assert timeout timelock (currently BLOCKS_PER_WEEK * 4)
     pub assert_timeout_timelock: u16,
+    /// Number of blocks for latest blockhash timeout timelock (currently BLOCKS_PER_WEEK * 2.5)
+    pub latest_blockhash_timeout_timelock: u16,
     /// Number of blocks for operator reimburse timelock (currently BLOCKS_PER_DAY * 2)
-    ///
     /// Timelocks operator from sending the next Round Tx after the Ready to Reimburse Tx.
     pub operator_reimburse_timelock: u16,
     /// Number of blocks for watchtower challenge timeout timelock (currently BLOCKS_PER_WEEK * 2)
@@ -141,32 +117,94 @@ pub struct ProtocolParamset {
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
     pub start_height: u32,
+    /// Batch size of the header chain proofs
+    pub header_chain_proof_batch_size: u32,
 }
 
-pub const MAINNET_PARAMSET: ProtocolParamset = ProtocolParamset {
-    network: Network::Bitcoin,
-    num_round_txs: 200,
-    num_kickoffs_per_round: 200,
-    num_signed_kickoffs: 5,
-    bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(55_000),
-    operator_challenge_amount: Amount::from_sat(200_000_000),
-    collateral_funding_amount: Amount::from_sat(200_000_000),
-    kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_bytes: 144,
-    winternitz_log_d: WINTERNITZ_LOG_D,
-    user_takes_after: 200,
-    operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
-    operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
-    disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
-    assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
-    operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
-    watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
-    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
-    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
-    finality_depth: 6,
-    start_height: 1,
-};
+impl ProtocolParamset {
+    pub fn from_toml_file(path: &Path) -> Result<Self, BridgeError> {
+        let contents = fs::read_to_string(path)
+            .map_err(|e| BridgeError::Error(format!("Failed to read config file: {}", e)))?;
+
+        let paramset: Self = toml::from_str(&contents)
+            .map_err(|e| BridgeError::Error(format!("Failed to parse TOML: {}", e)))?;
+
+        Ok(paramset)
+    }
+    pub fn from_env() -> Result<Self, BridgeError> {
+        let config = ProtocolParamset {
+            network: read_string_from_env_then_parse::<Network>("NETWORK")?,
+            num_round_txs: read_string_from_env_then_parse::<usize>("NUM_ROUND_TXS")?,
+            num_kickoffs_per_round: read_string_from_env_then_parse::<usize>(
+                "NUM_KICKOFFS_PER_ROUND",
+            )?,
+            num_signed_kickoffs: read_string_from_env_then_parse::<usize>("NUM_SIGNED_KICKOFFS")?,
+            bridge_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "BRIDGE_AMOUNT",
+            )?),
+            kickoff_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "KICKOFF_AMOUNT",
+            )?),
+            operator_challenge_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "OPERATOR_CHALLENGE_AMOUNT",
+            )?),
+            collateral_funding_amount: Amount::from_sat(read_string_from_env_then_parse::<u64>(
+                "COLLATERAL_FUNDING_AMOUNT",
+            )?),
+            kickoff_blockhash_commit_length: read_string_from_env_then_parse::<u32>(
+                "KICKOFF_BLOCKHASH_COMMIT_LENGTH",
+            )?,
+            watchtower_challenge_bytes: read_string_from_env_then_parse::<usize>(
+                "WATCHTOWER_CHALLENGE_BYTES",
+            )?,
+            winternitz_log_d: read_string_from_env_then_parse::<u32>("WINTERNITZ_LOG_D")?,
+            user_takes_after: read_string_from_env_then_parse::<u16>("USER_TAKES_AFTER")?,
+            operator_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "OPERATOR_CHALLENGE_TIMEOUT_TIMELOCK",
+            )?,
+            operator_challenge_nack_timelock: read_string_from_env_then_parse::<u16>(
+                "OPERATOR_CHALLENGE_NACK_TIMELOCK",
+            )?,
+            disprove_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "DISPROVE_TIMEOUT_TIMELOCK",
+            )?,
+            assert_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "ASSERT_TIMEOUT_TIMELOCK",
+            )?,
+            operator_reimburse_timelock: read_string_from_env_then_parse::<u16>(
+                "OPERATOR_REIMBURSE_TIMELOCK",
+            )?,
+            watchtower_challenge_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "WATCHTOWER_CHALLENGE_TIMEOUT_TIMELOCK",
+            )?,
+            time_to_send_watchtower_challenge: read_string_from_env_then_parse::<u16>(
+                "TIME_TO_SEND_WATCHTOWER_CHALLENGE",
+            )?,
+            time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
+            finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
+            start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
+            header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
+                "HEADER_CHAIN_PROOF_BATCH_SIZE",
+            )?,
+            latest_blockhash_timeout_timelock: read_string_from_env_then_parse::<u16>(
+                "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
+            )?,
+        };
+
+        Ok(config)
+    }
+}
+
+impl Default for ProtocolParamset {
+    fn default() -> Self {
+        REGTEST_PARAMSET
+    }
+}
+impl Default for &'static ProtocolParamset {
+    fn default() -> Self {
+        &REGTEST_PARAMSET
+    }
+}
 
 pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     network: Network::Regtest,
@@ -189,98 +227,8 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     watchtower_challenge_timeout_timelock: 4 * BLOCKS_PER_HOUR * 2,
     time_to_send_watchtower_challenge: 4 * BLOCKS_PER_HOUR * 3 / 2,
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
-    finality_depth: 0,
-    start_height: 201,
-};
-
-pub const TESTNET4_PARAMSET: ProtocolParamset = ProtocolParamset {
-    network: Network::Testnet4,
-    num_round_txs: 200,
-    num_kickoffs_per_round: 200,
-    num_signed_kickoffs: 5,
-    bridge_amount: Amount::from_sat(10_000_000),
-    kickoff_amount: Amount::from_sat(55_000),
-    operator_challenge_amount: Amount::from_sat(200_000_000),
-    collateral_funding_amount: Amount::from_sat(200_000_000),
-    kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_bytes: 144,
-    winternitz_log_d: WINTERNITZ_LOG_D,
-    user_takes_after: 200,
-    operator_challenge_timeout_timelock: BLOCKS_PER_WEEK,
-    operator_challenge_nack_timelock: BLOCKS_PER_WEEK * 3,
-    disprove_timeout_timelock: BLOCKS_PER_WEEK * 5,
-    assert_timeout_timelock: BLOCKS_PER_WEEK * 4,
-    operator_reimburse_timelock: BLOCKS_PER_DAY * 2,
-    watchtower_challenge_timeout_timelock: BLOCKS_PER_WEEK * 2,
-    time_to_send_watchtower_challenge: BLOCKS_PER_WEEK * 2 / 4 * 3,
-    time_to_disprove: BLOCKS_PER_WEEK * 7 / 2, // 3.5 weeks
-    finality_depth: 60,
-    start_height: 1,
-};
-
-pub const SIGNET_PARAMSET: ProtocolParamset = ProtocolParamset {
-    network: Network::Signet,
-    num_round_txs: 2,
-    num_kickoffs_per_round: 10,
-    num_signed_kickoffs: 2,
-    bridge_amount: Amount::from_sat(1_000_000_000),
-    kickoff_amount: Amount::from_sat(55_000),
-    operator_challenge_amount: Amount::from_sat(200_000_000),
-    collateral_funding_amount: Amount::from_sat(200_000_000),
-    kickoff_blockhash_commit_length: 40,
-    watchtower_challenge_bytes: 144,
-    winternitz_log_d: WINTERNITZ_LOG_D,
-    user_takes_after: 200,
-    operator_challenge_timeout_timelock: BLOCKS_PER_DAY,
-    operator_challenge_nack_timelock: BLOCKS_PER_DAY * 3,
-    disprove_timeout_timelock: BLOCKS_PER_DAY * 5,
-    assert_timeout_timelock: BLOCKS_PER_DAY * 4,
-    operator_reimburse_timelock: BLOCKS_PER_HOUR * 2,
-    watchtower_challenge_timeout_timelock: BLOCKS_PER_DAY * 2,
-    time_to_send_watchtower_challenge: BLOCKS_PER_DAY * 3 / 2,
-    time_to_disprove: BLOCKS_PER_DAY * 4 + BLOCKS_PER_DAY / 2,
+    latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 1,
     start_height: 201,
+    header_chain_proof_batch_size: 100,
 };
-
-lazy_static! {
-    pub static ref RUNTIME_PARAMSET: Arc<ProtocolParamset> = {
-        let config_path = std::env::var("PROTOCOL_CONFIG_PATH")
-            .unwrap_or_else(|_| "protocol_params.toml".to_string());
-
-        match ProtocolParamset::from_toml_file(&config_path) {
-            Ok(params) => Arc::new(params),
-            Err(e) => {
-                eprintln!(
-                    "Failed to load protocol params from {}: {}. Using regtest defaults.",
-                    config_path, e
-                );
-                Arc::new(REGTEST_PARAMSET)
-            }
-        }
-    };
-    pub static ref ENV_PARAMSET: Arc<ProtocolParamset> = {
-        match ProtocolParamset::from_env() {
-            Ok(params) => Arc::new(params),
-            Err(e) => {
-                eprintln!(
-                    "Failed to load protocol params from env: {}. Using regtest defaults.",
-                    e
-                );
-                Arc::new(REGTEST_PARAMSET)
-            }
-        }
-    };
-}
-
-impl ProtocolParamset {
-    fn from_toml_file(path: &str) -> Result<Self, BridgeError> {
-        let contents = fs::read_to_string(path)
-            .map_err(|e| BridgeError::Error(format!("Failed to read config file: {}", e)))?;
-
-        let paramset: Self = toml::from_str(&contents)
-            .map_err(|e| BridgeError::Error(format!("Failed to parse TOML: {}", e)))?;
-
-        Ok(paramset)
-    }
-}

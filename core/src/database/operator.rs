@@ -20,14 +20,14 @@ use crate::{
 use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
-use eyre::Context;
+use eyre::{eyre, Context};
 use std::str::FromStr;
 
 pub type RootHash = [u8; 32];
 //pub type PublicInputWots = Vec<[u8; 20]>;
 pub type AssertTxHash = Vec<[u8; 32]>;
 
-pub type BitvmSetup = (AssertTxHash, RootHash);
+pub type BitvmSetup = (AssertTxHash, RootHash, RootHash);
 
 impl Database {
     /// TODO: wallet_address should have `Address` type.
@@ -40,7 +40,7 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) VALUES ($1, $2, $3)
-                    ON CONFLICT DO NOTHING;",
+                    ON CONFLICT DO NOTHING",
         )
         .bind(XOnlyPublicKeyDB(xonly_pubkey))
         .bind(wallet_address)
@@ -110,7 +110,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         funding_utxo: UTXO,
     ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);").bind(
+        let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1)").bind(
             sqlx::types::Json(UtxoDB {
                 outpoint_db: OutPointDB(funding_utxo.outpoint),
                 txout_db: TxOutDB(funding_utxo.txout),
@@ -128,7 +128,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<UTXO>, BridgeError> {
         let query =
-            sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;");
+            sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1");
 
         let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
@@ -154,8 +154,7 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO unspent_kickoff_signatures (xonly_pk, round_idx, signatures) VALUES ($1, $2, $3)
-             ON CONFLICT (xonly_pk, round_idx) DO UPDATE
-             SET signatures = EXCLUDED.signatures;",
+             ON CONFLICT (xonly_pk, round_idx) DO NOTHING;",
         ).bind(XOnlyPublicKeyDB(operator_xonly_pk)).bind(round_idx as i32).bind(SignaturesDB(DepositSignatures{signatures}));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -169,7 +168,7 @@ impl Database {
         operator_xonly_pk: XOnlyPublicKey,
         round_idx: usize,
     ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
-        let query = sqlx::query_as::<_, (SignaturesDB,)>("SELECT signatures FROM unspent_kickoff_signatures WHERE xonly_pk = $1 AND round_idx = $2;")
+        let query = sqlx::query_as::<_, (SignaturesDB,)>("SELECT signatures FROM unspent_kickoff_signatures WHERE xonly_pk = $1 AND round_idx = $2")
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(round_idx as i32);
 
@@ -193,7 +192,8 @@ impl Database {
         let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
-                "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) VALUES ($1, $2);",
+                "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) VALUES ($1, $2)
+                ON CONFLICT DO NOTHING;",
             )
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(wpk);
@@ -303,8 +303,7 @@ impl Database {
                 ON CONFLICT (deposit_outpoint) DO UPDATE
                 SET deposit_params = EXCLUDED.deposit_params,
                     move_to_vault_txid = EXCLUDED.move_to_vault_txid
-                RETURNING deposit_id;
-            ",
+                RETURNING deposit_id",
         )
         .bind(OutPointDB(deposit_data.get_deposit_outpoint()))
         .bind(DepositParamsDB(deposit_data.into()))
@@ -383,9 +382,28 @@ impl Database {
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
 
+        // First check if the entry already exists.
+        let query = sqlx::query_as(
+            "SELECT kickoff_txid, signatures FROM deposit_signatures
+        WHERE deposit_id = $1 AND operator_xonly_pk = $2 AND round_idx = $3 AND kickoff_idx = $4;",
+        )
+        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
+        .bind(round_idx as i32)
+        .bind(kickoff_idx as i32);
+        let txid_and_signatures: Option<(TxidDB, SignaturesDB)> =
+            execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, fetch_optional)?;
+
+        if let Some((existing_kickoff_txid, _existing_signatures)) = txid_and_signatures {
+            if existing_kickoff_txid.0 == kickoff_txid {
+                return Ok(());
+            } else {
+                return Err(eyre!("Kickoff txid or signatures already set!").into());
+            }
+        }
+
         let query = sqlx::query(
-            "
-            INSERT INTO deposit_signatures (deposit_id, operator_xonly_pk, round_idx, kickoff_idx, kickoff_txid, signatures)
+            "INSERT INTO deposit_signatures (deposit_id, operator_xonly_pk, round_idx, kickoff_idx, kickoff_txid, signatures)
             VALUES ($1, $2, $3, $4, $5, $6);"
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
@@ -393,9 +411,10 @@ impl Database {
         .bind(round_idx as i32)
         .bind(kickoff_idx as i32)
         .bind(TxidDB(kickoff_txid))
-        .bind(SignaturesDB(DepositSignatures{signatures}));
+        .bind(SignaturesDB(DepositSignatures{signatures: signatures.clone()}));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
+
         Ok(())
     }
 
@@ -489,16 +508,18 @@ impl Database {
         deposit_outpoint: OutPoint,
         assert_tx_addrs: impl AsRef<[[u8; 32]]>,
         root_hash: &[u8; 32],
+        latest_blockhash_root_hash: &[u8; 32],
     ) -> Result<(), BridgeError> {
         let deposit_id = self
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
         let query = sqlx::query(
-            "INSERT INTO bitvm_setups (xonly_pk, deposit_id, assert_tx_addrs, root_hash)
-             VALUES ($1, $2, $3, $4)
+            "INSERT INTO bitvm_setups (xonly_pk, deposit_id, assert_tx_addrs, root_hash, latest_blockhash_root_hash)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (xonly_pk, deposit_id) DO UPDATE
              SET assert_tx_addrs = EXCLUDED.assert_tx_addrs,
-                 root_hash = EXCLUDED.root_hash;",
+                 root_hash = EXCLUDED.root_hash,
+                 latest_blockhash_root_hash = EXCLUDED.latest_blockhash_root_hash;",
         )
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
@@ -509,7 +530,8 @@ impl Database {
                 .map(|addr| addr.as_ref())
                 .collect::<Vec<&[u8]>>(),
         )
-        .bind(root_hash.to_vec());
+        .bind(root_hash.to_vec())
+        .bind(latest_blockhash_root_hash.to_vec());
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -526,8 +548,8 @@ impl Database {
         let deposit_id = self
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
-        let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>)>(
-            "SELECT assert_tx_addrs, root_hash
+        let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>, Vec<u8>)>(
+            "SELECT assert_tx_addrs, root_hash, latest_blockhash_root_hash
              FROM bitvm_setups
              WHERE xonly_pk = $1 AND deposit_id = $2;",
         )
@@ -537,10 +559,14 @@ impl Database {
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
-            Some((assert_tx_addrs, root_hash)) => {
+            Some((assert_tx_addrs, root_hash, latest_blockhash_root_hash)) => {
                 // Convert root_hash Vec<u8> back to [u8; 32]
-                let mut root_hash_array = [0u8; 32];
-                root_hash_array.copy_from_slice(&root_hash);
+                let root_hash_array: [u8; 32] = root_hash
+                    .try_into()
+                    .map_err(|_| eyre::eyre!("root_hash must be 32 bytes"))?;
+                let latest_blockhash_root_hash_array: [u8; 32] = latest_blockhash_root_hash
+                    .try_into()
+                    .map_err(|_| eyre::eyre!("latest_blockhash_root_hash must be 32 bytes"))?;
 
                 let assert_tx_addrs: Vec<[u8; 32]> = assert_tx_addrs
                     .into_iter()
@@ -551,38 +577,11 @@ impl Database {
                     })
                     .collect();
 
-                Ok(Some((assert_tx_addrs, root_hash_array)))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Retrieves BitVM disprove scripts root hash data for a specific operator, sequential collateral tx and kickoff index combination
-    pub async fn get_bitvm_root_hash(
-        &self,
-        mut tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_xonly_pk: XOnlyPublicKey,
-        deposit_outpoint: OutPoint,
-    ) -> Result<Option<RootHash>, BridgeError> {
-        let deposit_id = self
-            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
-            .await?;
-        let query = sqlx::query_as::<_, (Vec<u8>,)>(
-            "SELECT root_hash
-             FROM bitvm_setups
-             WHERE xonly_pk = $1 AND deposit_id = $2;",
-        )
-        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
-        .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
-
-        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
-
-        match result {
-            Some((root_hash,)) => {
-                // Convert root_hash Vec<u8> back to [u8; 32]
-                let mut root_hash_array = [0u8; 32];
-                root_hash_array.copy_from_slice(&root_hash);
-                Ok(Some(root_hash_array))
+                Ok(Some((
+                    assert_tx_addrs,
+                    root_hash_array,
+                    latest_blockhash_root_hash_array,
+                )))
             }
             None => Ok(None),
         }
@@ -681,7 +680,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<u32>, BridgeError> {
         let query =
-            sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1;");
+            sqlx::query_as::<_, (i32,)>("SELECT round_idx FROM current_round_index WHERE id = 1");
         let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
         match result {
             Some((round_idx,)) => Ok(Some(
@@ -696,7 +695,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         round_idx: u32,
     ) -> Result<(), BridgeError> {
-        let query = sqlx::query("UPDATE current_round_index SET round_idx = $1 WHERE id = 1;")
+        let query = sqlx::query("UPDATE current_round_index SET round_idx = $1 WHERE id = 1")
             .bind(i32::try_from(round_idx).wrap_err("Failed to convert round idx to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -707,6 +706,8 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
@@ -718,52 +719,61 @@ mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::key::constants::SCHNORR_SIGNATURE_SIZE;
     use bitcoin::key::Keypair;
-    use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+    use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 
-    // #[tokio::test]
-    // async fn save_get_operators() {
-    //     let config = create_test_config_with_thread_name().await;
-    //     let database = Database::new(&config).await.unwrap();
-    //     let mut ops = Vec::new();
-    //     for i in 0..2 {
-    //         let txid_str = format!(
-    //             "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
-    //             i
-    //         );
-    //         let txid = Txid::from_str(&txid_str).unwrap();
-    //         ops.push((
-    //             i,
-    //             config.operators_xonly_pks[i],
-    //             config.operator_wallet_addresses[i].clone(),
-    //             OutPoint { txid, vout: 0 },
-    //         ));
-    //     }
-    //     // add to db
-    //     for x in ops.iter() {
-    //         database
-    //             .set_operator(
-    //                 None,
-    //                 x.0 as i32,
-    //                 x.1,
-    //                 x.2.clone().assume_checked().to_string(),
-    //                 x.3,
-    //             )
-    //             .await
-    //             .unwrap();
-    //     }
-    //     let res = database.get_operators(None).await.unwrap();
-    //     assert_eq!(res.len(), ops.len());
-    //     for i in 0..2 {
-    //         assert_eq!(res[i].0, ops[i].1);
-    //         assert_eq!(res[i].1, ops[i].2.clone().assume_checked());
-    //         assert_eq!(res[i].2, ops[i].3);
-    //     }
+    #[tokio::test]
+    async fn save_get_operators() {
+        let config = create_test_config_with_thread_name().await;
+        let database = Database::new(&config).await.unwrap();
+        let mut ops = Vec::new();
+        let operator_xonly_pks = [generate_random_xonly_pk(), generate_random_xonly_pk()];
+        let reimburse_addrs = [
+            Address::from_str("bc1q6d6cztycxjpm7p882emln0r04fjqt0kqylvku2")
+                .unwrap()
+                .assume_checked(),
+            Address::from_str("bc1qj2mw4uh24qf67kn4nyqfsnta0mmxcutvhkyfp9")
+                .unwrap()
+                .assume_checked(),
+        ];
+        for i in 0..2 {
+            let txid_str = format!(
+                "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
+                i
+            );
+            let txid = Txid::from_str(&txid_str).unwrap();
+            ops.push((
+                operator_xonly_pks[i],
+                reimburse_addrs[i].clone(),
+                OutPoint {
+                    txid,
+                    vout: i as u32,
+                },
+            ));
+        }
+        // add to db
+        for x in ops.iter() {
+            database
+                .set_operator(None, x.0, x.1.to_string(), x.2)
+                .await
+                .unwrap();
+        }
+        let res = database.get_operators(None).await.unwrap();
+        assert_eq!(res.len(), ops.len());
+        for i in 0..2 {
+            assert_eq!(res[i].0, ops[i].0);
+            assert_eq!(res[i].1, ops[i].1);
+            assert_eq!(res[i].2, ops[i].2);
+        }
 
-    //     let res_single = database.get_operator(None, 1).await.unwrap().unwrap();
-    //     assert_eq!(res_single.xonly_pk, ops[1].1);
-    //     assert_eq!(res_single.reimburse_addr, ops[1].2.clone().assume_checked());
-    //     assert_eq!(res_single.collateral_funding_outpoint, ops[1].3);
-    // }
+        let res_single = database
+            .get_operator(None, operator_xonly_pks[1])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(res_single.xonly_pk, ops[1].0);
+        assert_eq!(res_single.reimburse_addr, ops[1].1);
+        assert_eq!(res_single.collateral_funding_outpoint, ops[1].2);
+    }
 
     #[tokio::test]
     async fn test_save_get_public_hashes() {
@@ -906,6 +916,7 @@ mod tests {
 
         let assert_tx_hashes: Vec<[u8; 32]> = vec![[1u8; 32], [4u8; 32]];
         let root_hash = [42u8; 32];
+        let latest_blockhash_root_hash = [43u8; 32];
         //let public_input_wots = vec![[1u8; 20], [2u8; 20]];
 
         let deposit_outpoint = OutPoint {
@@ -923,6 +934,7 @@ mod tests {
                 deposit_outpoint,
                 &assert_tx_hashes,
                 &root_hash,
+                &latest_blockhash_root_hash,
             )
             .await
             .unwrap();
@@ -936,13 +948,7 @@ mod tests {
 
         assert_eq!(result.0, assert_tx_hashes);
         assert_eq!(result.1, root_hash);
-
-        let hash = database
-            .get_bitvm_root_hash(None, operator_xonly_pk, deposit_outpoint)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(hash, root_hash);
+        assert_eq!(result.2, latest_blockhash_root_hash);
 
         // Test non-existent entry
         let non_existent = database
@@ -1026,6 +1032,32 @@ mod tests {
             )
             .await
             .unwrap();
+        // Setting this twice should not cause any issues
+        database
+            .set_deposit_signatures(
+                None,
+                deposit_outpoint,
+                operator_xonly_pk,
+                round_idx,
+                kickoff_idx,
+                Txid::all_zeros(),
+                signatures.signatures.clone(),
+            )
+            .await
+            .unwrap();
+        // But with different kickoff txid and signatures should.
+        assert!(database
+            .set_deposit_signatures(
+                None,
+                deposit_outpoint,
+                operator_xonly_pk,
+                round_idx,
+                kickoff_idx,
+                Txid::from_slice(&[0x1F; 32]).unwrap(),
+                signatures.signatures.clone(),
+            )
+            .await
+            .is_err());
 
         let result = database
             .get_deposit_signatures(
