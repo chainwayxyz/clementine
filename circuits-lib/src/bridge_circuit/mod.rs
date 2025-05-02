@@ -457,7 +457,10 @@ pub fn total_work_and_watchtower_flags(
             .try_into()
             .expect("Cannot fail");
 
-        let total_work: [u8; 16] = third_output[64..].try_into().expect("Cannot fail");
+        // Borsh deserialization of the final 16 bytes is functionally redundant in this context,
+        // as it does not alter the byte content. It is retained here for consistency and defensive safety.
+        let total_work: [u8; 16] = borsh::from_slice(&third_output[64..]).expect("Cannot fail");
+        
         let commitment = WatchTowerChallengeTxCommitment {
             compressed_g16_proof,
             total_work,
