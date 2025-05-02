@@ -20,15 +20,15 @@ The repository includes:
 Before compiling Clementine:
 
 1. Install Rust: https://rustup.rs/
-2. If on Mac, install XCode
-   ```bash
-   xcode-select --install 
-   ```
-3. Install RiscZero: https://dev.risczero.com/api/zkvm/install
+2. Install RiscZero: https://dev.risczero.com/api/zkvm/install
    ```bash
    # Set versions
    rzup install r0vm 1.2.0
    rzup install rust 1.81.0
+   ```
+3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error)
+   ```bash
+   xcode-select --install 
    ```
 4. If on Linux, install OpenSSH and its development libraries
    ```bash
