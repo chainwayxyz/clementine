@@ -577,7 +577,10 @@ pub fn create_replacement_deposit_txhandler(
                     vout: 0,
                 },
                 paramset.bridge_amount - ANCHOR_AMOUNT,
-                vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
+                vec![
+                    Arc::new(CheckSig::new(nofn_xonly_pk)),
+                    Arc::new(Multisig::new(security_council.clone())),
+                ],
                 None,
                 paramset.network,
             ),

@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
+use crate::builder::script::{CheckSig, Multisig, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::{
     create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
@@ -433,6 +433,7 @@ fn sign_nofn_deposit_tx(
     deposit_tx: &TxHandler,
     config: &BridgeConfig,
     verifiers_public_keys: Vec<PublicKey>,
+    security_council: SecurityCouncil,
 ) -> Transaction {
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
@@ -501,8 +502,9 @@ fn sign_nofn_deposit_tx(
     let mut witness = Witness::from_slice(&[final_taproot_sig.serialize()]);
     // get script of movetx
     let script_buf = CheckSig::new(nofn_xonly_pk).to_script_buf();
+    let multisig_script_buf = Multisig::new(security_council).to_script_buf();
     let (_, spend_info) = create_taproot_address(
-        &[script_buf.clone()],
+        &[script_buf.clone(), multisig_script_buf.clone()],
         None,
         config.protocol_paramset().network,
     );
@@ -548,6 +550,27 @@ pub async fn run_replacement_deposit(
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
 
     tracing::info!("First deposit move txid: {}", move_txid);
+
+    let (addr, _) = create_taproot_address(
+        &[
+            CheckSig::new(nofn_xonly_pk).to_script_buf(),
+            Multisig::new(SecurityCouncil {
+                pks: config.security_council_xonly_pks.clone(),
+                threshold: config.security_council_threshold,
+            })
+            .to_script_buf(),
+        ],
+        None,
+        config.protocol_paramset().network,
+    );
+
+    let move_tx = rpc
+        .client
+        .get_raw_transaction(&move_txid, None)
+        .await
+        .expect("Failed to get move tx");
+
+    assert_eq!(move_tx.output[0].script_pubkey, addr.script_pubkey());
 
     // generate replacement deposit tx
     let new_deposit_tx = create_replacement_deposit_txhandler(
@@ -601,8 +624,15 @@ pub async fn run_replacement_deposit(
         )
         .expect("Failed to sign replacement deposit tx");
 
-    let replacement_deposit_tx =
-        sign_nofn_deposit_tx(&new_deposit_tx, config, verifiers_public_keys.clone());
+    let replacement_deposit_tx = sign_nofn_deposit_tx(
+        &new_deposit_tx,
+        config,
+        verifiers_public_keys.clone(),
+        SecurityCouncil {
+            pks: config.security_council_xonly_pks.clone(),
+            threshold: config.security_council_threshold,
+        },
+    );
 
     aggregator
         .internal_send_tx(SendTxRequest {
