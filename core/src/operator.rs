@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
+use crate::builder::script::extract_winternitz_commits;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
@@ -982,7 +983,7 @@ where
         deposit_data: DepositData,
         watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
-        _latest_blockhash: Witness,
+        latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
         let context = ContractContext::new_context_for_kickoffs(
             kickoff_data,
@@ -1062,6 +1063,20 @@ where
                 move_txid, l2_height, deposit_idx
             ))?;
         tracing::warn!("Got storage proof in send_asserts");
+
+        // get committed latest blockhash
+        let wt_derive_path = ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
+            deposit_data.get_deposit_outpoint(),
+            self.config.protocol_paramset(),
+        );
+        let commits = extract_winternitz_commits(
+            latest_blockhash,
+            &[wt_derive_path],
+            self.config.protocol_paramset(),
+        )?;
+        let latest_blockhash = commits
+            .first()
+            .ok_or_eyre("Failed to get latest blockhash in send_asserts")?;
 
         let (current_hcp, hcp_height) = self
             .header_chain_prover
