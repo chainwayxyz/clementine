@@ -124,10 +124,12 @@ pub fn monitor_task_with_panic<T: Send + 'static, E: Debug + Send + 'static>(
 /// - `($($arg:tt)*)`: Arguments to pass to `panic!`, in the same manner as format! and println!
 macro_rules! delayed_panic {
     ($($arg:tt)*) => {
-        eprintln!($($arg)*);
-        eprintln!("Delaying exit for 15 seconds, to allow for logs to be flushed");
-        std::thread::sleep(std::time::Duration::from_secs(15));
-        panic!($($arg)*);
+        {
+            eprintln!($($arg)*);
+            eprintln!("Delaying exit for 15 seconds, to allow for logs to be flushed");
+            std::thread::sleep(std::time::Duration::from_secs(15));
+            panic!($($arg)*);
+        }
     };
 }
 
