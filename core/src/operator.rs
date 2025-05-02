@@ -1,5 +1,4 @@
 use ark_ff::PrimeField;
-use header_chain::header_chain::BlockHeaderCircuitOutput;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,10 +9,10 @@ use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureIn
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_move_to_vault_txhandler,
-    create_round_nth_txhandler, create_round_txhandlers, create_txhandlers, ContractContext,
-    DepositData, KickoffData, KickoffWinternitzKeys, OperatorData, ReimburseDbCache,
-    TransactionType, TxHandler, TxHandlerCache,
+    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+    create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
+    KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
+    TxHandlerCache,
 };
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
@@ -1046,27 +1045,7 @@ where
             ))?;
         let payout_tx = &payout_block.txdata[payout_tx_index];
         tracing::warn!("Calculated payout tx in send_asserts");
-        let headers = self
-            .db
-            .get_headers_until_height(None, payout_block_height as u64)
-            .await?;
 
-        tracing::warn!(
-            "Got headers in send_asserts, num_headers: {}",
-            headers.len()
-        );
-        let blockhashes_serialized: Vec<[u8; 32]> = headers
-            .iter()
-            .map(|header| header.block_hash().to_byte_array()) // TODO: get blockhash directly from db
-            .collect::<Vec<_>>();
-        let spv = create_spv(
-            payout_tx.clone(),
-            &blockhashes_serialized,
-            payout_block.clone(),
-            payout_block_height,
-            payout_tx_index as u32,
-        );
-        tracing::warn!("Calculated spv in send_asserts");
         let (light_client_proof, lcp_receipt, l2_height) = self
             .citrea_client
             .get_light_client_proof(payout_block_height as u64)
@@ -1084,11 +1063,30 @@ where
             ))?;
         tracing::warn!("Got storage proof in send_asserts");
 
-        let current_hcp = self
+        let (current_hcp, hcp_height) = self
             .header_chain_prover
             .get_tip_header_chain_proof()
             .await?;
         tracing::warn!("Got header chain proof in send_asserts");
+
+        let headers = self.db.get_headers_until_height(None, hcp_height).await?;
+
+        tracing::warn!(
+            "Got headers in send_asserts, num_headers: {}",
+            headers.len()
+        );
+        let blockhashes_serialized: Vec<[u8; 32]> = headers
+            .iter()
+            .map(|header| header.block_hash().to_byte_array()) // TODO: get blockhash directly from db
+            .collect::<Vec<_>>();
+        let spv = create_spv(
+            payout_tx.clone(),
+            &blockhashes_serialized,
+            payout_block.clone(),
+            payout_block_height,
+            payout_tx_index as u32,
+        );
+        tracing::warn!("Calculated spv in send_asserts");
 
         // tracing::warn!("Printing proof params -----------------");
         // tracing::warn!(

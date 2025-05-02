@@ -34,7 +34,6 @@ use bitcoin::secp256k1::Message;
 use bitcoin::OutPoint;
 use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
-use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use eyre::{Context, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
