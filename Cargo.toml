@@ -30,8 +30,10 @@ serde_with = "3.12.0"
 rand_chacha = "0.3.1"
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d1ba171" }
-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "ccdbd5a96" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "39e75ae22972ed2c3617392a504dac072d992cc4" }
+sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
+  "native",
+] }
 
 citrea-sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea", tag = "v0.7.0", package = "sov-rollup-interface" }
 

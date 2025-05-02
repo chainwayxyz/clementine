@@ -478,7 +478,7 @@ mod tests {
     use bitcoin::{block::Header, hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
-    use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
+    use circuits_lib::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use risc0_zkvm::Receipt;
 
     /// Mines `block_num` amount of blocks (if not already mined) and returns
