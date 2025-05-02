@@ -52,7 +52,14 @@ where
 {
     match Args::try_parse_from(itr) {
         Ok(c) => Ok(c),
-        Err(e) if matches!(e.kind(), clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand | clap::error::ErrorKind::DisplayVersion) => {
+        Err(e)
+            if matches!(
+                e.kind(),
+                clap::error::ErrorKind::DisplayHelp
+                    | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                    | clap::error::ErrorKind::DisplayVersion
+            ) =>
+        {
             Err(BridgeError::CLIDisplayAndExit(e.render()))
         }
         Err(e) => Err(BridgeError::ConfigError(e.to_string())),
