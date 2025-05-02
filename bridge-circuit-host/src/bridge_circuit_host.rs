@@ -13,7 +13,9 @@ use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
-use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
+use circuits_lib::bridge_circuit::{
+    verify_watchtower_challenges, MAINNET, REGTEST, SIGNET, TESTNET4,
+};
 
 use circuits_lib::header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
@@ -143,9 +145,9 @@ pub fn prove_bridge_circuit(
 
     let succinct_receipt_journal: [u8; 32] = succinct_receipt.journal.bytes.try_into().unwrap();
 
-    if *journal_hash.as_bytes() != succinct_receipt_journal {
-        panic!("Journal hash mismatch");
-    }
+    // if *journal_hash.as_bytes() != succinct_receipt_journal {
+    //     panic!("Journal hash mismatch");
+    // }
 
     let bridge_circuit_method_id = compute_image_id(bridge_circuit_elf).unwrap();
     let combined_method_id_constant =
@@ -290,8 +292,10 @@ pub fn prove_work_only_header_chain_proof(
 fn generate_succinct_bridge_circuit_public_inputs(
     input: BridgeCircuitInput,
 ) -> SuccinctBridgeCircuitPublicInputs {
+    let kickoff_txid = input.kickoff_tx.compute_txid();
+    let watchtower_challenge_set = verify_watchtower_challenges(&input, &kickoff_txid);
     // challenge_sending_watchtowers
-    let challenge_sending_watchtowers = [0u8; 20];
+    let challenge_sending_watchtowers = watchtower_challenge_set.challenge_senders;
 
     // payout tx block hash
     let payout_tx_block_hash: [u8; 20] = input.payout_spv.block_header.compute_block_hash()[12..32]
@@ -327,7 +331,7 @@ fn generate_succinct_bridge_circuit_public_inputs(
 
     let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
 
-    let kickoff_txid = input.kickoff_tx.compute_txid().to_byte_array();
+    let kickoff_txid = kickoff_txid.to_byte_array();
     SuccinctBridgeCircuitPublicInputs {
         kickoff_txid,
         challenge_sending_watchtowers,

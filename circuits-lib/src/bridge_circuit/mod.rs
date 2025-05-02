@@ -236,7 +236,7 @@ fn convert_to_groth16_and_verify(
 /// # Notes
 /// Invalid or malformed challenge data (e.g., decoding errors, invalid signatures)
 /// will be skipped gracefully without causing the function to panic.
-fn verify_watchtower_challenges(
+pub fn verify_watchtower_challenges(
     circuit_input: &BridgeCircuitInput,
     kickoff_txid: &Txid,
 ) -> WatchtowerChallengeSet {
