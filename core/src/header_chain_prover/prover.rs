@@ -7,7 +7,9 @@ use crate::{
     header_chain_prover::{HeaderChainProver, HeaderChainProverError},
 };
 use bitcoin::Network;
-use circuits_lib::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType};
+use circuits_lib::header_chain::{
+    BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
+};
 use eyre::Context;
 use lazy_static::lazy_static;
 
