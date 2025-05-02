@@ -405,13 +405,8 @@ fn verify_watchtower_challenges(
 ///
 /// # Parameters
 ///
-/// - `kickoff_tx`: The kickoff transaction used as a reference for validating watchtower inputs.
 /// - `kickoff_txid`: The transaction ID of the kickoff transaction.
-/// - `watchtower_idxs`: A list of indices corresponding to each watchtower.
-/// - `watchtower_challenge_txs`: A list of encoded watchtower challenge transactions.
-/// - `watchtower_challenge_utxos`: A list of UTXO sets corresponding to the inputs of the challenge transactions.
-/// - `watchtower_challenge_input_idxs`: A list of input indices pointing to which input in each transaction should be verified.
-/// - `watchtower_pubkeys`: A list of 32-byte x-only public keys expected from each watchtower (used for P2TR signature verification).
+/// - `circuit_input`: The `BridgeCircuitInput` containing all watchtower inputs and related data.
 /// - `work_only_image_id`: A 32-byte identifier used for Groth16 verification against the work-only circuit.
 ///
 /// # Returns
@@ -419,10 +414,6 @@ fn verify_watchtower_challenges(
 /// A tuple containing:
 /// - `[u8; 16]`: The total work from the highest valid watchtower challenge (after successful Groth16 verification).
 /// - `[u8; 20]`: Bitflags representing which watchtowers sent valid challenges (1 bit per watchtower).
-///
-/// # Panics
-///
-/// - Panics if the lengths of any of the provided watchtower lists are mismatched.
 ///
 /// # Notes
 ///
@@ -466,7 +457,10 @@ pub fn total_work_and_watchtower_flags(
             .try_into()
             .expect("Cannot fail");
 
-        let total_work: [u8; 16] = third_output[64..].try_into().expect("Cannot fail");
+        // Borsh deserialization of the final 16 bytes is functionally redundant in this context,
+        // as it does not alter the byte content. It is retained here for consistency and defensive safety.
+        let total_work: [u8; 16] = borsh::from_slice(&third_output[64..]).expect("Cannot fail");
+
         let commitment = WatchTowerChallengeTxCommitment {
             compressed_g16_proof,
             total_work,
@@ -507,12 +501,14 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
     None
 }
 
-/// Computes a deposit constant hash using transaction output data, Winternitz public keys, and a move transaction ID.
+/// Computes a deposit constant hash using transaction output data, kickoff transaction ID,
+/// tweaked watchtower public keys, and a move transaction ID.
 ///
 /// # Parameters
 ///
 /// - `last_output`: A reference to the last transaction output (`TxOut`).
-/// - `winternitz_details`: A slice of `WinternitzHandler`, containing public keys.
+/// - `kickoff_txid`: A reference to the kickoff transaction ID (`Txid`).
+/// - `watchtower_pubkeys`: A slice of 32-byte arrays representing tweaked watchtower public keys.
 /// - `move_txid_hex`: A 32-byte array representing the move transaction ID.
 ///
 /// # Returns
