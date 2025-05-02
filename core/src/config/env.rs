@@ -147,13 +147,6 @@ mod tests {
     };
 
     #[test]
-    #[ignore = "If other tests are run before, this test will fail"]
-    fn fail_if_not_all_env_vars_are_set() {
-        std::env::set_var("PROTOCOL_PARAMSET", "regtest");
-        assert!(super::BridgeConfig::from_env().is_err());
-    }
-
-    #[test]
     #[serial_test::serial]
     fn get_config_from_env_vars() {
         let default_config = BridgeConfig::default();

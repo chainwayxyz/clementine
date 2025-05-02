@@ -26,7 +26,7 @@ impl Database {
         block_height: u64,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4);",
+                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4)",
             )
             .bind(BlockHashDB(block_hash)).bind(BlockHeaderDB(block_header)).bind(BlockHashDB(block_header.prev_blockhash)).bind(block_height as i64);
 
@@ -102,7 +102,7 @@ impl Database {
                 JOIN header_chain_proofs h2 ON h1.prev_block_hash = h2.block_hash
                 WHERE h2.proof IS NOT NULL AND h1.proof IS NULL
                 ORDER BY h1.height DESC
-                LIMIT 1;",
+                LIMIT 1",
         );
 
         let result: Option<(BlockHashDB, BlockHeaderDB, i64, Vec<u8>)> =
@@ -226,7 +226,7 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let proof = borsh::to_vec(&proof).wrap_err(BridgeError::BorshError)?;
 
-        let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2;")
+        let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2")
             .bind(proof)
             .bind(BlockHashDB(hash));
 
@@ -241,7 +241,7 @@ impl Database {
         tx: Option<DatabaseTransaction<'_, '_>>,
         hash: block::BlockHash,
     ) -> Result<Option<Receipt>, BridgeError> {
-        let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1;")
+        let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1")
             .bind(BlockHashDB(hash));
 
         let receipt: (Option<Vec<u8>>,) =

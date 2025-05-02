@@ -1,6 +1,6 @@
 //! # Command Line Interface
 //!
-//! This module defines command line interface for binaries. `Clap` is used
+//! This module defines command line interface for server binaries. `Clap` is used
 //! for easy generation of help messages and handling arguments.
 
 use crate::config::protocol::ProtocolParamset;
