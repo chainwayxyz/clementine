@@ -460,7 +460,7 @@ pub fn total_work_and_watchtower_flags(
         // Borsh deserialization of the final 16 bytes is functionally redundant in this context,
         // as it does not alter the byte content. It is retained here for consistency and defensive safety.
         let total_work: [u8; 16] = borsh::from_slice(&third_output[64..]).expect("Cannot fail");
-        
+
         let commitment = WatchTowerChallengeTxCommitment {
             compressed_g16_proof,
             total_work,
@@ -519,7 +519,6 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
 ///
 /// - If the `script_pubkey` of `last_output` does not start with `OP_RETURN` (`0x6a`).
 /// - If the length of the operator ID (extracted from `script_pubkey`) exceeds 32 bytes.
-
 fn deposit_constant(
     last_output: &TxOut,
     kickoff_txid: &Txid,
