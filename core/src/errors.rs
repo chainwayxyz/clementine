@@ -69,6 +69,7 @@ use crate::{
     tx_sender::SendTxError,
 };
 use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
+use clap::builder::StyledStr;
 use core::fmt::Debug;
 use hex::FromHexError;
 use thiserror::Error;
@@ -136,6 +137,8 @@ pub enum BridgeError {
     AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
     #[error("Error while encoding/decoding EVM type: {0}")]
     AlloySolTypes(#[from] alloy::sol_types::Error),
+    #[error("{0}")]
+    CLIDisplayAndExit(StyledStr),
 
     #[error("Tonic status: {0}")]
     TonicStatus(#[from] tonic::Status),
