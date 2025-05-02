@@ -1,6 +1,5 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::io::Write;
 
 use crate::bitvm_client::{self, ClementineBitVMPublicKeys, SECP};
 use crate::builder::script::SpendPath;
@@ -12,7 +11,7 @@ use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::TaggedSignature;
-use bitcoin::hashes::{hash160, HashEngine};
+use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::taproot::{self, LeafVersion, TaprootSpendInfo};
 use bitcoin::{

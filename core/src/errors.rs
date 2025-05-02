@@ -61,7 +61,13 @@
 //! ```
 
 use crate::{
-    actor::VerificationError, builder::transaction::input::SpendableTxInError, extended_rpc::BitcoinRPCError, header_chain_prover::HeaderChainProverError, rpc::{aggregator::AggregatorError, ParserError}, states::StateMachineError, tx_sender::SendTxError
+    actor::VerificationError,
+    builder::transaction::input::SpendableTxInError,
+    extended_rpc::BitcoinRPCError,
+    header_chain_prover::HeaderChainProverError,
+    rpc::{aggregator::AggregatorError, ParserError},
+    states::StateMachineError,
+    tx_sender::SendTxError,
 };
 use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
 use core::fmt::Debug;
