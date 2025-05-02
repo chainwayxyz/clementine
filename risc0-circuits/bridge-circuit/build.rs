@@ -32,11 +32,6 @@ fn main() {
         "mainnet".to_string()
     });
 
-    let bridge_circuit_mode = env::var("BRIDGE_CIRCUIT_MODE").unwrap_or_else(|_| {
-        println!("cargo:warning=BRIDGE_CIRCUIT_MODE not set, defaulting to 'test'");
-        "test".to_string()
-    });
-
     let is_repr_guest_build = match env::var("REPR_GUEST_BUILD") {
         Ok(value) => match value.as_str() {
             "1" | "true" => {
@@ -67,21 +62,18 @@ fn main() {
     println!("cargo:warning=Building for Bitcoin network: {}", network);
 
     // Use embed_methods_with_options with our custom options
-    let guest_pkg_to_options = get_guest_options(network.clone(), bridge_circuit_mode.clone());
+    let guest_pkg_to_options = get_guest_options(network.clone());
     embed_methods_with_options(guest_pkg_to_options);
 
     if is_repr_guest_build {
-        copy_binary_to_elfs_folder(network, bridge_circuit_mode);
+        copy_binary_to_elfs_folder(network);
         println!("cargo:warning=Copying binary to elfs folder");
     } else {
         println!("cargo:warning=Not copying binary to elfs folder");
     }
 }
 
-fn get_guest_options(
-    network: String,
-    bridge_circuit_mode: String,
-) -> HashMap<&'static str, risc0_build::GuestOptions> {
+fn get_guest_options(network: String) -> HashMap<&'static str, risc0_build::GuestOptions> {
     let mut guest_pkg_to_options = HashMap::new();
 
     let opts = if env::var("REPR_GUEST_BUILD").is_ok() {
@@ -90,13 +82,7 @@ fn get_guest_options(
 
         let docker_opts = DockerOptionsBuilder::default()
             .root_dir(root_dir)
-            .env(vec![
-                ("BITCOIN_NETWORK".to_string(), network.clone()),
-                (
-                    "BRIDGE_CIRCUIT_MODE".to_string(),
-                    bridge_circuit_mode.to_string(),
-                ),
-            ])
+            .env(vec![("BITCOIN_NETWORK".to_string(), network.clone())])
             .build()
             .unwrap();
 
@@ -118,7 +104,7 @@ fn get_guest_options(
     guest_pkg_to_options
 }
 
-fn copy_binary_to_elfs_folder(network: String, bridge_circuit_mode: String) {
+fn copy_binary_to_elfs_folder(network: String) {
     let current_dir = env::current_dir().expect("Failed to get current dir");
     let base_dir = current_dir.join("../..");
     let elfs_dir = base_dir.join("risc0-circuits/elfs");
@@ -137,11 +123,7 @@ fn copy_binary_to_elfs_folder(network: String, bridge_circuit_mode: String) {
         return;
     }
 
-    let dest_filename = if bridge_circuit_mode == "test" {
-        format!("test-{}-bridge-circuit-guest.bin", network.to_lowercase())
-    } else {
-        format!("{}-bridge-circuit-guest.bin", network.to_lowercase())
-    };
+    let dest_filename = format!("{}-bridge-circuit-guest.bin", network.to_lowercase());
 
     let dest_path = elfs_dir.join(&dest_filename);
 
