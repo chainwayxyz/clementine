@@ -555,8 +555,8 @@ pub async fn run_replacement_deposit(
         nofn_xonly_pk,
         config.protocol_paramset(),
         SecurityCouncil {
-            pks: vec![],
-            threshold: 0,
+            pks: config.security_council_xonly_pks.clone(),
+            threshold: config.security_council_threshold,
         },
     )?;
     let some_funding_utxo = rpc
