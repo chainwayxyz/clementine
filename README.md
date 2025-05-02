@@ -19,21 +19,25 @@ The repository includes:
 
 Before compiling Clementine:
 
-1. Install Rust: https://rustup.rs/
-2. Install RiscZero: https://dev.risczero.com/api/zkvm/install
+1. Install Rust: [rustup.rs](https://rustup.rs/)
+2. Install RiscZero: [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
+
    ```bash
-   # Set versions
+   # Overwrite default versions
    rzup install r0vm 1.2.0
    rzup install rust 1.81.0
    ```
-3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error)
+
+3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):
+
    ```bash
    xcode-select --install 
    ```
-4. If on Linux, install OpenSSH and its development libraries
+
+4. If on Ubuntu, install these packages:
+
    ```bash
-   # Ubuntu example
-   sudo apt install openssh-client openssh-server libssl-dev pkg-config
+   sudo apt install build-essential libssl-dev pkg-config
    ```
 
 Before running Clementine:
@@ -41,6 +45,7 @@ Before running Clementine:
 1. Install and configure a Bitcoin node
 2. Install and configure PostgreSQL
 3. Set `RUST_MIN_STACK` to at least 33554432
+
    ```bash
    # In *nix systems:
    export RUST_MIN_STACK=33554432
