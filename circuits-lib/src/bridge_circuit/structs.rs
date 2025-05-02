@@ -239,16 +239,6 @@ impl BridgeCircuitInput {
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
-pub struct BridgeCircuitOutput {
-    pub winternitz_pubkeys_digest: [u8; 20],
-    pub correct_watchtowers: Vec<bool>,
-    pub payout_tx_blockhash: [u8; 32],
-    pub last_blockhash: [u8; 32],
-    pub deposit_txid: [u8; 32],
-    pub operator_id: [u8; 32],
-}
-
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
 pub struct WatchtowerChallengeSet {
     pub challenge_senders: [u8; 20],

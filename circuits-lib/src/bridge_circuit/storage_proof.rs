@@ -24,7 +24,9 @@ const DEPOSIT_STORAGE_INDEX: [u8; 32] =
 ///
 /// # Returns
 ///
+/// A tuple containing:
 /// - A `String` representing the verified UTXO value.
+/// - A `[u8; 32]` array representing the move-to-vault transaction ID.
 ///
 /// # Panics
 ///
