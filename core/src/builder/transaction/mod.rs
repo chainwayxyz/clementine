@@ -485,6 +485,7 @@ pub fn create_move_to_vault_txhandler(
     let nofn_xonly_pk = deposit_data.get_nofn_xonly_pk()?;
     let deposit_outpoint = deposit_data.get_deposit_outpoint();
     let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
+    let security_council_script = Arc::new(Multisig::new(deposit_data.security_council.clone()));
 
     let builder = match &mut deposit_data.deposit.deposit_type {
         DepositType::BaseDeposit(original_deposit_data) => {
@@ -508,9 +509,6 @@ pub fn create_move_to_vault_txhandler(
                 paramset.user_takes_after,
             ));
 
-            let security_council_script =
-                Arc::new(Multisig::new(deposit_data.security_council.clone()));
-
             TxHandlerBuilder::new(TransactionType::MoveToVault)
                 .with_version(Version::non_standard(3))
                 .add_input(
@@ -518,7 +516,7 @@ pub fn create_move_to_vault_txhandler(
                     SpendableTxIn::from_scripts(
                         deposit_outpoint,
                         paramset.bridge_amount,
-                        vec![deposit_script, script_timelock, security_council_script],
+                        vec![deposit_script, script_timelock],
                         None,
                         paramset.network,
                     ),
@@ -531,8 +529,6 @@ pub fn create_move_to_vault_txhandler(
                 nofn_xonly_pk,
                 replacement_deposit_data.old_move_txid,
             ));
-            let security_council_script =
-                Arc::new(Multisig::new(deposit_data.security_council.clone()));
 
             TxHandlerBuilder::new(TransactionType::MoveToVault)
                 .with_version(Version::non_standard(3))
@@ -541,7 +537,7 @@ pub fn create_move_to_vault_txhandler(
                     SpendableTxIn::from_scripts(
                         deposit_outpoint,
                         paramset.bridge_amount,
-                        vec![deposit_script, security_council_script],
+                        vec![deposit_script, security_council_script.clone()],
                         None,
                         paramset.network,
                     ),
@@ -554,7 +550,7 @@ pub fn create_move_to_vault_txhandler(
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
             paramset.bridge_amount - ANCHOR_AMOUNT,
-            vec![nofn_script],
+            vec![nofn_script, security_council_script],
             None,
             paramset.network,
         ))

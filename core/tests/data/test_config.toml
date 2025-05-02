@@ -47,6 +47,11 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
 # Header chain prover's assumption to start with.
 header_chain_proof_path = "../core/tests/data/first_1.bin"
 
+security_council_xonly_pks = ["4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"]
+security_council_threshold = 1
+
+
+
 verifier_endpoints = ["http://127.0.0.1:17001", "http://127.0.0.1:17002", "http://127.0.0.1:17003", "http://127.0.0.1:17004"]
 
 operator_endpoints = ["http://127.0.0.1:17005", "http://127.0.0.1:17006"]

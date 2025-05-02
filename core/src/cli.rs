@@ -387,6 +387,11 @@ mod tests {
         env::set_var("FINALITY_DEPTH", "1");
         env::set_var("START_HEIGHT", "8148");
         env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
+        env::set_var(
+            "SECURITY_COUNCIL_XONLY_PKS",
+            "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+        );
+        env::set_var("SECURITY_COUNCIL_THRESHOLD", "1");
     }
 
     // Helper to clean up all environment variables
