@@ -1,6 +1,3 @@
-use std::thread::sleep;
-use std::time::Duration;
-
 use crate::actor::Actor;
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::builder::transaction::{BaseDepositData, DepositInfo, DepositType};
@@ -9,15 +6,14 @@ use crate::config::protocol::{ProtocolParamset, REGTEST_PARAMSET};
 use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{Deposit, Empty};
-use crate::task::manager::BackgroundTaskManager;
 use crate::task::{IntoTask, TaskExt};
 use crate::test::common::{
     citrea, create_actors, create_bumpable_tx, create_test_config_with_thread_name,
-    get_deposit_address, mine_once_after_in_mempool, poll_until_condition, MockOwner,
+    get_deposit_address, mine_once_after_in_mempool,
 };
-use crate::tx_sender::{FeePayingType, TxSender, TxSenderClient};
+use crate::tx_sender::{FeePayingType, TxSender};
 use crate::EVMAddress;
-use bitcoin::secp256k1::{PublicKey, SecretKey};
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::Txid;
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
@@ -25,7 +21,8 @@ use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
 use citrea_e2e::test_case::TestCaseRunner;
 use citrea_e2e::Result;
 use citrea_e2e::{config::TestCaseConfig, framework::TestFramework, test_case::TestCase};
-use secp256k1::rand;
+use std::thread::sleep;
+use std::time::Duration;
 use tonic::{async_trait, Request};
 
 struct TxSenderReorgBehavior;
@@ -108,6 +105,7 @@ impl TestCase for TxSenderReorgBehavior {
             &actor,
             config.protocol_paramset.network,
             FeePayingType::CPFP,
+            false,
         )
         .await
         .unwrap();
@@ -234,7 +232,7 @@ impl TestCase for ReorgOnDeposit {
         .unwrap();
 
         let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&mut config).await;
+            create_actors::<MockCitreaClient>(&config).await;
 
         let evm_address = EVMAddress([1u8; 20]);
         let actor = Actor::new(

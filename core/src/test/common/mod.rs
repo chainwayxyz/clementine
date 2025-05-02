@@ -1,6 +1,7 @@
 //! # Common Utilities for Integration Tests
 
 use crate::actor::Actor;
+use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
@@ -13,6 +14,7 @@ use crate::builder::transaction::{
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -23,11 +25,13 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::TaggedSignature;
+use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{
     Deposit, Empty, FeeType, NormalSignatureKind, RawSignedTx, SendTxRequest,
 };
-use crate::tx_sender::{FeePayingType, TxSender};
+use crate::rpc::clementine::{NumberedSignatureKind, TaggedSignature};
+use crate::task::{IntoTask, TaskExt};
+use crate::tx_sender::{FeePayingType, TxSender, TxSenderClient};
 use crate::{builder, EVMAddress};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
@@ -42,6 +46,7 @@ use eyre::Context;
 use secp256k1::rand;
 pub use setup_utils::*;
 use std::time::Duration;
+use tokio::sync::oneshot;
 use tonic::transport::Channel;
 use tonic::Request;
 use tx_utils::get_txid_where_utxo_is_spent;
@@ -195,9 +200,16 @@ pub async fn mine_once_after_in_mempool(
     Ok(tx_block_height.height)
 }
 
-pub async fn create_test_tx_sender(
+pub async fn create_tx_sender(
     rpc: ExtendedRpc,
-) -> (TxSender, ExtendedRpc, Database, Actor, bitcoin::Network) {
+) -> (
+    TxSender,
+    BitcoinSyncer,
+    ExtendedRpc,
+    Database,
+    Actor,
+    bitcoin::Network,
+) {
     let sk = SecretKey::new(&mut rand::thread_rng());
     let network = bitcoin::Network::Regtest;
     let actor = Actor::new(sk, None, network);
@@ -214,7 +226,46 @@ pub async fn create_test_tx_sender(
         network,
     );
 
-    (tx_sender, rpc, db, actor, network)
+    (
+        tx_sender,
+        BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+            .await
+            .unwrap(),
+        rpc,
+        db,
+        actor,
+        network,
+    )
+}
+
+pub async fn create_bg_tx_sender(
+    rpc: ExtendedRpc,
+) -> (
+    TxSenderClient,
+    TxSender,
+    Vec<oneshot::Sender<()>>,
+    ExtendedRpc,
+    Database,
+    Actor,
+    bitcoin::Network,
+) {
+    let (tx_sender, syncer, rpc, db, actor, network) = create_tx_sender(rpc).await;
+
+    let sender_task = tx_sender.clone().into_task().cancelable_loop();
+    sender_task.0.into_bg();
+
+    let syncer_task = syncer.into_task().cancelable_loop();
+    syncer_task.0.into_bg();
+
+    (
+        tx_sender.client(),
+        tx_sender,
+        vec![sender_task.1, syncer_task.1],
+        rpc,
+        db,
+        actor,
+        network,
+    )
 }
 
 pub async fn create_bumpable_tx(
@@ -222,6 +273,7 @@ pub async fn create_bumpable_tx(
     signer: &Actor,
     network: bitcoin::Network,
     fee_paying_type: FeePayingType,
+    requires_rbf_signing_info: bool,
 ) -> Result<Transaction, BridgeError> {
     let (address, spend_info) =
         builder::address::create_taproot_address(&[], Some(signer.xonly_public_key), network);
@@ -235,10 +287,18 @@ pub async fn create_bumpable_tx(
         FeePayingType::RBF => Version::TWO,
     };
 
-    let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
+    let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
         .with_version(version)
         .add_input(
-            NormalSignatureKind::OperatorSighashDefault,
+            match fee_paying_type {
+                FeePayingType::CPFP => {
+                    SignatureId::from(NormalSignatureKind::OperatorSighashDefault)
+                }
+                FeePayingType::RBF if !requires_rbf_signing_info => {
+                    NormalSignatureKind::Challenge.into()
+                }
+                FeePayingType::RBF => (NumberedSignatureKind::WatchtowerChallenge, 0i32).into(),
+            },
             SpendableTxIn::new(
                 outpoint,
                 TxOut {
@@ -252,34 +312,19 @@ pub async fn create_bumpable_tx(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
-            value: amount - builder::transaction::anchor_output().value,
-            script_pubkey: address.script_pubkey(), // TODO: This should be the wallet address, not the signer address
+            value: amount - builder::transaction::anchor_output().value - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
+            script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
         }))
         .add_output(UnspentTxOut::from_partial(
             builder::transaction::anchor_output(),
         ))
         .finalize();
 
-    let sighash_type = match fee_paying_type {
-        FeePayingType::CPFP => bitcoin::TapSighashType::Default,
-        FeePayingType::RBF => bitcoin::TapSighashType::AllPlusAnyoneCanPay,
-    };
+    signer
+        .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+        .unwrap();
 
-    let sighash = builder.calculate_pubkey_spend_sighash(0, sighash_type)?;
-    let signature = signer.sign_with_tweak_data(
-        sighash,
-        builder::sighash::TapTweakData::KeyPath(None),
-        None,
-    )?;
-    builder.set_p2tr_key_spend_witness(
-        &bitcoin::taproot::Signature {
-            signature,
-            sighash_type,
-        },
-        0,
-    )?;
-
-    let tx = builder.get_cached_tx().clone();
+    let tx = txhandler.get_cached_tx().clone();
     Ok(tx)
 }
 

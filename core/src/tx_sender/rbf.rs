@@ -816,7 +816,6 @@ impl TxSender {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::*;
     use super::*;
     use crate::actor::Actor;
     use crate::builder::script::SpendPath;
