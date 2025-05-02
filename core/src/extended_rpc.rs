@@ -5,10 +5,6 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::builder;
-use crate::errors::ResultExt;
-use crate::EVMAddress;
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::BlockHash;
@@ -17,7 +13,6 @@ use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::TxOut;
 use bitcoin::Txid;
-use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
@@ -241,64 +236,6 @@ impl ExtendedRpc {
         let txout = tx.output[outpoint.vout as usize].clone();
 
         Ok(txout)
-    }
-
-    /// Verifies that a deposit UTXO meets the required criteria.
-    ///
-    /// # Arguments
-    /// * `nofn_xonly_pk` - The x-only public key of the node
-    /// * `deposit_outpoint` - The outpoint of the deposit transaction
-    /// * `recovery_taproot_address` - The recovery taproot address
-    /// * `evm_address` - The Ethereum address
-    /// * `amount_sats` - The expected amount in satoshis
-    /// * `confirmation_block_count` - The required number of confirmations
-    /// * `network` - The Bitcoin network
-    /// * `user_takes_after` - The number of blocks after which the user can take control
-    ///
-    /// # Returns
-    /// `Ok(())` if the deposit UTXO is valid, or an error if any check fails.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn check_deposit_utxo(
-        &self,
-        nofn_xonly_pk: XOnlyPublicKey,
-        deposit_outpoint: &OutPoint,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-        amount_sats: Amount,
-        confirmation_block_count: u32,
-        network: bitcoin::Network,
-        user_takes_after: u16,
-    ) -> Result<()> {
-        if self.confirmation_blocks(&deposit_outpoint.txid).await? < confirmation_block_count {
-            return Err(eyre::eyre!("Deposit not finalized").into());
-        }
-
-        let (deposit_address, _) = builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            recovery_taproot_address,
-            evm_address,
-            amount_sats,
-            network,
-            user_takes_after,
-        )
-        .map_to_eyre()?;
-
-        if !self
-            .check_utxo_address_and_amount(
-                deposit_outpoint,
-                &deposit_address.script_pubkey(),
-                amount_sats,
-            )
-            .await?
-        {
-            return Err(eyre::eyre!("Invalid deposit UTXO").into());
-        }
-
-        if self.is_utxo_spent(deposit_outpoint).await? {
-            return Err(eyre::eyre!("Deposit UTXO has already spent").into());
-        }
-
-        Ok(())
     }
 
     /// Bumps the fee of a transaction to meet or exceed a target fee rate. Does

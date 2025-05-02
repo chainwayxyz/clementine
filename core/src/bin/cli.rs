@@ -3,10 +3,11 @@
 use std::str::FromStr;
 
 use alloy::primitives::{Bytes, FixedBytes, Uint};
-use bitcoin::{consensus::Encodable, hashes::Hash, Amount, Block, Txid};
+use bitcoin::{consensus::Encodable, hashes::Hash, Block, Txid};
 use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
+    builder::transaction::SecurityCouncil,
     citrea::Bridge::TransactionParams,
     errors::BridgeError,
     extended_rpc,
@@ -133,8 +134,6 @@ enum AggregatorCommands {
         #[arg(long)]
         network: Option<String>,
         #[arg(long)]
-        bridge_amount: Option<u64>,
-        #[arg(long)]
         user_takes_after: Option<u64>,
     },
     /// Get transaction parameters of a move transaction
@@ -154,7 +153,9 @@ enum AggregatorCommands {
         #[arg(long)]
         network: Option<String>,
         #[arg(long)]
-        bridge_amount: Option<u64>,
+        security_council_pks: Option<String>,
+        #[arg(long)]
+        security_council_threshold: Option<u32>,
     },
     /// Process a new withdrawal
     NewWithdrawal {
@@ -355,6 +356,10 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 deposit_outpoint_txid, deposit_outpoint_vout
             );
             let params = clementine_core::rpc::clementine::DepositParams {
+                security_council: Some(clementine::SecurityCouncil {
+                    pks: vec![],
+                    threshold: 0,
+                }),
                 deposit: Some(Deposit {
                     deposit_outpoint: Some(Outpoint {
                         txid: deposit_outpoint_txid.into(),
@@ -528,7 +533,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             evm_address,
             recovery_taproot_address,
             network,
-            bridge_amount,
             user_takes_after,
         } => {
             let response = aggregator
@@ -564,11 +568,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 None => bitcoin::Network::Regtest,
             };
 
-            let bridge_amount = match bridge_amount {
-                Some(amount) => Amount::from_sat(amount),
-                None => Amount::from_sat(1_000_000_000),
-            };
-
             let user_takes_after = match user_takes_after {
                 Some(amount) => amount as u16,
                 None => 200,
@@ -578,7 +577,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 xonly_pk,
                 &recovery_taproot_address,
                 evm_address,
-                bridge_amount,
                 network,
                 user_takes_after,
             )
@@ -719,7 +717,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
         AggregatorCommands::GetReplacementDepositAddress {
             move_txid,
             network,
-            bridge_amount,
+            security_council_pks,
+            security_council_threshold,
         } => {
             let mut move_txid = hex::decode(move_txid).expect("Failed to decode txid");
             move_txid.reverse();
@@ -745,17 +744,23 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 None => bitcoin::Network::Regtest,
             };
 
-            let bridge_amount = match bridge_amount {
-                Some(amount) => Amount::from_sat(amount),
-                None => Amount::from_sat(1_000_000_000),
-            };
-
             let (replacement_deposit_address, _) =
                 clementine_core::builder::address::generate_replacement_deposit_address(
                     move_txid,
                     nofn_xonly_pk,
-                    bridge_amount,
                     network,
+                    SecurityCouncil {
+                        pks: security_council_pks
+                            .unwrap_or_default()
+                            .split(',')
+                            .filter(|s| !s.is_empty())
+                            .map(|pk| {
+                                bitcoin::XOnlyPublicKey::from_str(pk)
+                                    .expect("Failed to parse public key")
+                            })
+                            .collect(),
+                        threshold: security_council_threshold.unwrap_or(0),
+                    },
                 )
                 .expect("Failed to generate replacement deposit address");
 

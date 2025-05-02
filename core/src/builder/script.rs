@@ -16,11 +16,13 @@ use bitcoin::{
     script::Builder,
     ScriptBuf, XOnlyPublicKey,
 };
-use bitcoin::{taproot, Amount, Txid, Witness};
+use bitcoin::{taproot, Txid, Witness};
 use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
 use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
+
+use super::transaction::SecurityCouncil;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SpendPath {
@@ -210,10 +212,10 @@ impl SpendableScript for Multisig {
 }
 
 impl Multisig {
-    pub fn new(pubkeys: &[XOnlyPublicKey], threshold: u32) -> Self {
+    pub fn new(security_council: SecurityCouncil) -> Self {
         Self {
-            pubkeys: pubkeys.to_vec(),
-            threshold,
+            pubkeys: security_council.pks,
+            threshold: security_council.threshold,
         }
     }
 }
@@ -402,7 +404,7 @@ impl PreimageRevealScript {
 
 /// Struct for deposit script that commits Citrea address to be deposited into onchain.
 #[derive(Debug, Clone)]
-pub struct BaseDepositScript(pub(crate) XOnlyPublicKey, EVMAddress, Amount);
+pub struct BaseDepositScript(pub(crate) XOnlyPublicKey, EVMAddress);
 
 impl SpendableScript for BaseDepositScript {
     fn as_any(&self) -> &dyn Any {
@@ -423,7 +425,6 @@ impl SpendableScript for BaseDepositScript {
             .push_opcode(OP_IF)
             .push_slice(citrea)
             .push_slice(self.1 .0)
-            .push_slice(self.2.to_sat().to_be_bytes())
             .push_opcode(OP_ENDIF)
             .into_script()
     }
@@ -434,15 +435,15 @@ impl BaseDepositScript {
         Witness::from_slice(&[signature.serialize()])
     }
 
-    pub fn new(nofn_xonly_pk: XOnlyPublicKey, evm_address: EVMAddress, amount: Amount) -> Self {
-        Self(nofn_xonly_pk, evm_address, amount)
+    pub fn new(nofn_xonly_pk: XOnlyPublicKey, evm_address: EVMAddress) -> Self {
+        Self(nofn_xonly_pk, evm_address)
     }
 }
 
 /// Struct for deposit script that replaces an old move tx with a replacement deposit (to update bridge design on chain)
 /// It commits to the old move txid inside the script.
 #[derive(Debug, Clone)]
-pub struct ReplacementDepositScript(pub(crate) XOnlyPublicKey, Txid, Amount);
+pub struct ReplacementDepositScript(pub(crate) XOnlyPublicKey, Txid);
 
 impl SpendableScript for ReplacementDepositScript {
     fn as_any(&self) -> &dyn Any {
@@ -473,8 +474,8 @@ impl ReplacementDepositScript {
         Witness::from_slice(&[signature.serialize()])
     }
 
-    pub fn new(nofn_xonly_pk: XOnlyPublicKey, old_move_txid: Txid, amount: Amount) -> Self {
-        Self(nofn_xonly_pk, old_move_txid, amount)
+    pub fn new(nofn_xonly_pk: XOnlyPublicKey, old_move_txid: Txid) -> Self {
+        Self(nofn_xonly_pk, old_move_txid)
     }
 }
 
@@ -581,11 +582,7 @@ mod tests {
             )),
             Box::new(TimelockScript::new(Some(dummy_xonly()), 10)),
             Box::new(PreimageRevealScript::new(dummy_xonly(), [0; 20])),
-            Box::new(BaseDepositScript::new(
-                dummy_xonly(),
-                dummy_evm_address(),
-                Amount::from_sat(100),
-            )),
+            Box::new(BaseDepositScript::new(dummy_xonly(), dummy_evm_address())),
         ];
 
         // helper closures that return Option<(usize, &T)> using get_script_from_arr.
@@ -654,18 +651,13 @@ mod tests {
             ),
             (
                 "BaseDepositScript",
-                Arc::new(BaseDepositScript::new(
-                    dummy_xonly(),
-                    dummy_evm_address(),
-                    Amount::from_sat(50),
-                )),
+                Arc::new(BaseDepositScript::new(dummy_xonly(), dummy_evm_address())),
             ),
             (
                 "ReplacementDepositScript",
                 Arc::new(ReplacementDepositScript::new(
                     dummy_xonly(),
                     Txid::all_zeros(),
-                    Amount::from_sat(50),
                 )),
             ),
             ("Other", Arc::new(OtherSpendable::new(dummy_scriptbuf()))),
@@ -973,11 +965,8 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let script: Arc<dyn SpendableScript> = Arc::new(BaseDepositScript::new(
-            xonly_pk,
-            EVMAddress([2; 20]),
-            Amount::from_sat(50),
-        ));
+        let script: Arc<dyn SpendableScript> =
+            Arc::new(BaseDepositScript::new(xonly_pk, EVMAddress([2; 20])));
         let scripts = vec![script];
         let (builder, _) = create_taproot_test_tx(
             &rpc,
@@ -1013,11 +1002,8 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let script: Arc<dyn SpendableScript> = Arc::new(ReplacementDepositScript::new(
-            xonly_pk,
-            Txid::all_zeros(),
-            Amount::from_sat(50),
-        ));
+        let script: Arc<dyn SpendableScript> =
+            Arc::new(ReplacementDepositScript::new(xonly_pk, Txid::all_zeros()));
         let scripts = vec![script];
         let (builder, _) = create_taproot_test_tx(
             &rpc,
@@ -1155,7 +1141,7 @@ mod tests {
 
         let multisig_address = addresses[0].clone().assume_checked();
 
-        let multisig = Multisig::new(&pks, threshold);
+        let multisig = Multisig::new(SecurityCouncil { pks, threshold });
 
         let (addr, _) = create_taproot_address(
             &[multisig.to_script_buf()],

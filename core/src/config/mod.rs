@@ -10,9 +10,10 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
+use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::Amount;
+use bitcoin::{Amount, XOnlyPublicKey};
 use protocol::ProtocolParamset;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -78,6 +79,11 @@ pub struct BridgeConfig {
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
+
+    /// Security council X-only public keys.
+    pub security_council_xonly_pks: Vec<XOnlyPublicKey>,
+    /// Security council threshold.
+    pub security_council_threshold: u32,
 
     /// Verifier endpoints. For the aggregator only
     pub verifier_endpoints: Option<Vec<String>>,
@@ -168,6 +174,9 @@ impl Default for BridgeConfig {
             header_chain_proof_path: Some(
                 PathBuf::from_str("../core/tests/data/first_1.bin").expect("known valid input"),
             ),
+
+            security_council_xonly_pks: vec![*UNSPENDABLE_XONLY_PUBKEY],
+            security_council_threshold: 1,
 
             all_verifiers_secret_keys: Some(vec![
                 SecretKey::from_str(

@@ -5,8 +5,8 @@ use super::clementine::{
 use super::clementine::{AggregatorWithdrawResponse, Deposit, VerifierPublicKeys, WithdrawParams};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
-    create_move_to_vault_txhandler, Actors, DepositData, DepositInfo, Signed, TransactionType,
-    TxHandler,
+    create_move_to_vault_txhandler, Actors, DepositData, DepositInfo, SecurityCouncil, Signed,
+    TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
@@ -809,6 +809,10 @@ impl ClementineAggregator for Aggregator {
                 watchtowers: vec![],
                 operators: self.get_operator_keys(),
             },
+            security_council: SecurityCouncil {
+                pks: self.config.security_council_xonly_pks.clone(),
+                threshold: self.config.security_council_threshold,
+            },
         };
 
         let deposit_params = deposit_data.clone().into();
@@ -1146,7 +1150,6 @@ mod tests {
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.protocol_paramset().bridge_amount,
             config.protocol_paramset().network,
             config.protocol_paramset().user_takes_after,
         )
@@ -1235,7 +1238,6 @@ mod tests {
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.protocol_paramset().bridge_amount,
             config.protocol_paramset().network,
             config.protocol_paramset().user_takes_after,
         )

@@ -4,13 +4,14 @@
 //! addresses.
 
 use super::script::{
-    BaseDepositScript, CheckSig, ReplacementDepositScript, SpendableScript, TimelockScript,
+    BaseDepositScript, CheckSig, Multisig, ReplacementDepositScript, SpendableScript,
+    TimelockScript,
 };
+use super::transaction::SecurityCouncil;
 use crate::bitvm_client::SECP;
 use crate::errors::BridgeError;
 use crate::{bitvm_client, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::Amount;
 use bitcoin::{
     secp256k1::XOnlyPublicKey,
     taproot::{TaprootBuilder, TaprootSpendInfo},
@@ -124,12 +125,10 @@ pub fn generate_deposit_address(
     nofn_xonly_pk: XOnlyPublicKey,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     user_evm_address: EVMAddress,
-    amount: Amount,
     network: bitcoin::Network,
     user_takes_after: u16,
 ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-    let deposit_script =
-        BaseDepositScript::new(nofn_xonly_pk, user_evm_address, amount).to_script_buf();
+    let deposit_script = BaseDepositScript::new(nofn_xonly_pk, user_evm_address).to_script_buf();
 
     let recovery_script_pubkey = recovery_taproot_address
         .clone()
@@ -150,13 +149,16 @@ pub fn generate_deposit_address(
 pub fn generate_replacement_deposit_address(
     old_move_txid: bitcoin::Txid,
     nofn_xonly_pk: XOnlyPublicKey,
-    amount: Amount,
     network: bitcoin::Network,
+    security_council: SecurityCouncil,
 ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
     let deposit_script =
-        ReplacementDepositScript::new(nofn_xonly_pk, old_move_txid, amount).to_script_buf();
+        ReplacementDepositScript::new(nofn_xonly_pk, old_move_txid).to_script_buf();
 
-    let (addr, spend) = create_taproot_address(&[deposit_script], None, network);
+    let security_council_script = Multisig::new(security_council).to_script_buf();
+
+    let (addr, spend) =
+        create_taproot_address(&[deposit_script, security_council_script], None, network);
     Ok((addr, spend))
 }
 
@@ -186,7 +188,7 @@ mod tests {
     use bitcoin::{
         key::{Keypair, TapTweak},
         secp256k1::{PublicKey, SecretKey},
-        Address, AddressType, Amount, ScriptBuf, XOnlyPublicKey,
+        Address, AddressType, ScriptBuf, XOnlyPublicKey,
     };
     use secp256k1::rand;
     use std::str::FromStr;
@@ -293,7 +295,6 @@ mod tests {
             nofn_xonly_pk,
             recovery_taproot_address.as_unchecked(),
             crate::EVMAddress(evm_address),
-            Amount::from_sat(100_000_000),
             bitcoin::Network::Regtest,
             200,
         )

@@ -6,6 +6,7 @@ use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
 use crate::builder::transaction::{
     Actors, BaseDepositData, DepositData, DepositInfo, DepositType, ReplacementDepositData,
+    SecurityCouncil,
 };
 use crate::errors::BridgeError;
 use crate::tx_sender::FeePayingType;
@@ -221,12 +222,13 @@ impl TryFrom<clementine::Deposit> for DepositInfo {
 impl From<DepositData> for DepositParams {
     fn from(value: DepositData) -> Self {
         let actors: clementine::Actors = value.actors.into();
-
+        let security_council: clementine::SecurityCouncil = value.security_council.into();
         let deposit: clementine::Deposit = value.deposit.into();
 
         DepositParams {
             deposit: Some(deposit),
             actors: Some(actors),
+            security_council: Some(security_council),
         }
     }
 }
@@ -244,10 +246,16 @@ impl TryFrom<DepositParams> for DepositData {
             .ok_or(Status::invalid_argument("No actors received"))?
             .try_into()?;
 
+        let security_council: SecurityCouncil = value
+            .security_council
+            .ok_or(Status::invalid_argument("No security council received"))?
+            .try_into()?;
+
         Ok(DepositData {
             nofn_xonly_pk: None,
             deposit,
             actors,
+            security_council,
         })
     }
 }
@@ -367,6 +375,40 @@ impl From<Actors> for clementine::Actors {
             watchtowers: Some(value.watchtowers.into()),
             operators: Some(value.operators.into()),
         }
+    }
+}
+
+impl From<SecurityCouncil> for clementine::SecurityCouncil {
+    fn from(value: SecurityCouncil) -> Self {
+        clementine::SecurityCouncil {
+            pks: value
+                .pks
+                .into_iter()
+                .map(|pk| pk.serialize().to_vec())
+                .collect(),
+            threshold: value.threshold,
+        }
+    }
+}
+
+impl TryFrom<clementine::SecurityCouncil> for SecurityCouncil {
+    type Error = Status;
+
+    fn try_from(value: clementine::SecurityCouncil) -> Result<Self, Self::Error> {
+        let pks = value
+            .pks
+            .into_iter()
+            .map(|pk| {
+                XOnlyPublicKey::from_slice(&pk).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to parse xonly public key: {}", e))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(SecurityCouncil {
+            pks,
+            threshold: value.threshold,
+        })
     }
 }
 

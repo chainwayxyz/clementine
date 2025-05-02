@@ -8,7 +8,7 @@ use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::{
     create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
-    ReplacementDepositData, TxHandler, DEFAULT_SEQUENCE,
+    ReplacementDepositData, SecurityCouncil, TxHandler, DEFAULT_SEQUENCE,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
@@ -550,8 +550,15 @@ pub async fn run_replacement_deposit(
     tracing::info!("First deposit move txid: {}", move_txid);
 
     // generate replacement deposit tx
-    let new_deposit_tx =
-        create_replacement_deposit_txhandler(move_txid, nofn_xonly_pk, config.protocol_paramset())?;
+    let new_deposit_tx = create_replacement_deposit_txhandler(
+        move_txid,
+        nofn_xonly_pk,
+        config.protocol_paramset(),
+        SecurityCouncil {
+            pks: vec![],
+            threshold: 0,
+        },
+    )?;
     let some_funding_utxo = rpc
         .send_to_address(
             &create_taproot_address(

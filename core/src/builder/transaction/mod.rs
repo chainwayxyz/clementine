@@ -3,7 +3,7 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
-use super::script::{BaseDepositScript, CheckSig, SpendableScript, TimelockScript};
+use super::script::{BaseDepositScript, CheckSig, Multisig, SpendableScript, TimelockScript};
 use super::script::{ReplacementDepositScript, SpendPath};
 use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -111,6 +111,7 @@ pub struct DepositData {
     pub nofn_xonly_pk: Option<XOnlyPublicKey>,
     pub deposit: DepositInfo,
     pub actors: Actors,
+    pub security_council: SecurityCouncil,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -199,6 +200,12 @@ pub struct Actors {
     pub watchtowers: Vec<XOnlyPublicKey>,
     /// X-only public keys of operators that will participate in the deposit.
     pub operators: Vec<XOnlyPublicKey>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct SecurityCouncil {
+    pub pks: Vec<XOnlyPublicKey>,
+    pub threshold: u32,
 }
 
 /// Type to uniquely identify a deposit.
@@ -484,7 +491,6 @@ pub fn create_move_to_vault_txhandler(
             let deposit_script = Arc::new(BaseDepositScript::new(
                 nofn_xonly_pk,
                 original_deposit_data.evm_address,
-                paramset.bridge_amount,
             ));
 
             let recovery_script_pubkey = original_deposit_data
@@ -502,6 +508,9 @@ pub fn create_move_to_vault_txhandler(
                 paramset.user_takes_after,
             ));
 
+            let security_council_script =
+                Arc::new(Multisig::new(deposit_data.security_council.clone()));
+
             TxHandlerBuilder::new(TransactionType::MoveToVault)
                 .with_version(Version::non_standard(3))
                 .add_input(
@@ -509,7 +518,7 @@ pub fn create_move_to_vault_txhandler(
                     SpendableTxIn::from_scripts(
                         deposit_outpoint,
                         paramset.bridge_amount,
-                        vec![deposit_script, script_timelock],
+                        vec![deposit_script, script_timelock, security_council_script],
                         None,
                         paramset.network,
                     ),
@@ -521,8 +530,9 @@ pub fn create_move_to_vault_txhandler(
             let deposit_script = Arc::new(ReplacementDepositScript::new(
                 nofn_xonly_pk,
                 replacement_deposit_data.old_move_txid,
-                paramset.bridge_amount,
             ));
+            let security_council_script =
+                Arc::new(Multisig::new(deposit_data.security_council.clone()));
 
             TxHandlerBuilder::new(TransactionType::MoveToVault)
                 .with_version(Version::non_standard(3))
@@ -531,7 +541,7 @@ pub fn create_move_to_vault_txhandler(
                     SpendableTxIn::from_scripts(
                         deposit_outpoint,
                         paramset.bridge_amount,
-                        vec![deposit_script],
+                        vec![deposit_script, security_council_script],
                         None,
                         paramset.network,
                     ),
@@ -559,6 +569,7 @@ pub fn create_replacement_deposit_txhandler(
     old_move_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     paramset: &'static ProtocolParamset,
+    security_council: SecurityCouncil,
 ) -> Result<TxHandlerBuilder, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ReplacementDeposit)
         .with_version(Version::non_standard(3))
@@ -579,11 +590,10 @@ pub fn create_replacement_deposit_txhandler(
         )
         .add_output(UnspentTxOut::from_scripts(
             paramset.bridge_amount,
-            vec![Arc::new(ReplacementDepositScript::new(
-                nofn_xonly_pk,
-                old_move_txid,
-                paramset.bridge_amount,
-            ))],
+            vec![
+                Arc::new(ReplacementDepositScript::new(nofn_xonly_pk, old_move_txid)),
+                Arc::new(Multisig::new(security_council)),
+            ],
             None,
             paramset.network,
         ))
