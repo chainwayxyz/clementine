@@ -32,19 +32,19 @@ use storage_proof::verify_storage_proofs;
 use structs::{BridgeCircuitInput, WatchTowerChallengeTxCommitment, WatchtowerChallengeSet};
 
 pub const MAINNET: [u32; 8] = [
-    1166334596, 1106198222, 175855799, 2089535826, 3324832148, 4242628887, 3933904588, 158127961,
+    426646517, 1316512588, 3233479944, 2677935890, 3377742954, 1418564357, 2875504754, 4131209012,
 ];
 
 pub const TESTNET4: [u32; 8] = [
-    352907212, 1274806886, 3474991872, 4089459299, 136335035, 1761772518, 3601804316, 40804021,
+    2582434033, 1566807144, 2498896251, 1284725273, 3391116049, 3220078861, 1737719246, 860467663,
 ];
 
 pub const SIGNET: [u32; 8] = [
-    4102655966, 482402221, 3820051864, 2537052902, 3713370924, 3230898830, 3309156187, 1184186142,
+    1540037693, 3209402407, 2732486773, 3233538531, 2523314424, 218760840, 2877821007, 3436381103,
 ];
 
 pub const REGTEST: [u32; 8] = [
-    2758936230, 4133450896, 4048174145, 2120004377, 2153292578, 1396151415, 1754372585, 2813599076,
+    2020578042, 2852913303, 1200246063, 948927463, 4251019535, 2807724189, 4065868154, 3906971603,
 ];
 
 /// The method ID for the header chain circuit.
@@ -61,15 +61,6 @@ pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
 
 const NUMBER_OF_WATCHTOWERS: usize = 160;
 
-/// TODO: Change this to a feature in the future
-pub const IS_TEST: bool = {
-    match option_env!("BRIDGE_CIRCUIT_MODE") {
-        Some(mode) if matches!(mode.as_bytes(), b"test") => true,
-        Some(mode) if matches!(mode.as_bytes(), b"prod") => false,
-        None => false,
-        _ => panic!("Invalid bridge circuit mode"),
-    }
-};
 /// Executes the bridge circuit in a zkVM environment, verifying multiple cryptographic proofs
 /// related to watchtower work, SPV, and storage proofs.
 ///
@@ -377,10 +368,9 @@ fn verify_watchtower_challenges(
             );
         };
 
-        if IS_TEST
-            || verifying_key
-                .verify_prehash(sighash.as_byte_array(), &signature)
-                .is_ok()
+        if verifying_key
+            .verify_prehash(sighash.as_byte_array(), &signature)
+            .is_ok()
         {
             // TODO: CHECK IF THIS IS CORRECT
             challenge_sending_watchtowers[(watchtower_input.watchtower_idx as usize) / 8] |=
@@ -482,13 +472,11 @@ pub fn total_work_and_watchtower_flags(
 
     for commitment in valid_watchtower_challenge_commitments {
         // Grooth16 verification of work only circuit
-        if IS_TEST
-            || convert_to_groth16_and_verify(
-                &commitment.compressed_g16_proof,
-                commitment.total_work,
-                work_only_image_id,
-            )
-        {
+        if convert_to_groth16_and_verify(
+            &commitment.compressed_g16_proof,
+            commitment.total_work,
+            work_only_image_id,
+        ) {
             total_work = commitment.total_work;
             break;
         }
