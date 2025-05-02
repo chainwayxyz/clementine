@@ -10,7 +10,6 @@ use crate::config::protocol::ProtocolParamset;
 use crate::EVMAddress;
 use bitcoin::hashes::{hash160, Hash};
 use bitcoin::opcodes::OP_TRUE;
-use bitcoin::script::PushBytesBuf;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
@@ -479,37 +478,6 @@ impl ReplacementDepositScript {
     }
 }
 
-/// Struct for withdrawal script.
-pub struct WithdrawalScript(usize);
-
-impl SpendableScript for WithdrawalScript {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn kind(&self) -> ScriptKind {
-        ScriptKind::WithdrawalScript(self)
-    }
-
-    fn to_script_buf(&self) -> ScriptBuf {
-        let mut push_bytes = PushBytesBuf::new();
-        push_bytes
-            .extend_from_slice(&crate::utils::usize_to_var_len_bytes(self.0))
-            .expect("Not possible to panic while adding a 4 to 8 bytes of slice");
-
-        Builder::new()
-            .push_opcode(OP_RETURN)
-            .push_slice(push_bytes)
-            .into_script()
-    }
-}
-
-impl WithdrawalScript {
-    pub fn new(index: usize) -> Self {
-        Self(index)
-    }
-}
-
 #[derive(Clone)]
 pub enum ScriptKind<'a> {
     CheckSig(&'a CheckSig),
@@ -518,7 +486,6 @@ pub enum ScriptKind<'a> {
     PreimageRevealScript(&'a PreimageRevealScript),
     BaseDepositScript(&'a BaseDepositScript),
     ReplacementDepositScript(&'a ReplacementDepositScript),
-    WithdrawalScript(&'a WithdrawalScript),
     Other(&'a OtherSpendable),
 }
 
