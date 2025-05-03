@@ -9,8 +9,9 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, KickoffData,
-    OperatorData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_emergency_stop_txhandler, create_move_to_vault_txhandler, create_txhandlers,
+    ContractContext, DepositData, KickoffData, OperatorData, ReimburseDbCache, TransactionType,
+    TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
@@ -460,7 +461,7 @@ where
         mut sig_receiver: mpsc::Receiver<Signature>,
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
-    ) -> Result<MusigPartialSignature, BridgeError> {
+    ) -> Result<(MusigPartialSignature, MusigPartialSignature), BridgeError> {
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -685,13 +686,52 @@ where
         };
 
         // sign move tx and save everything to db if everything is correct
-        let partial_sig = musig2::partial_sign(
+        let move_tx_partial_sig = musig2::partial_sign(
             deposit_data.get_verifiers(),
             None,
             movetx_secnonce,
             agg_nonce,
             self.signer.keypair,
             Message::from_digest(move_tx_sighash.to_byte_array()),
+        )?;
+
+        let emergency_stop_txhandler = create_emergency_stop_txhandler(
+            deposit_data,
+            &move_txhandler,
+            self.config.protocol_paramset(),
+        )?;
+
+        let emergency_stop_sighash = emergency_stop_txhandler
+            .calculate_script_spend_sighash_indexed(
+                0,
+                0,
+                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+            )?;
+
+        let agg_nonce = agg_nonce_receiver
+            .recv()
+            .await
+            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
+
+        let emergency_stop_secnonce = {
+            let mut session_map = self.nonces.lock().await;
+            let session = session_map
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            session
+                .nonces
+                .pop()
+                .ok_or_eyre("No emergency stop secnonce in session")?
+        };
+
+        let emergency_stop_partial_sig = musig2::partial_sign(
+            deposit_data.get_verifiers(),
+            None,
+            emergency_stop_secnonce,
+            agg_nonce,
+            self.signer.keypair,
+            Message::from_digest(emergency_stop_sighash.to_byte_array()),
         )?;
 
         // Save signatures to db
@@ -754,7 +794,7 @@ where
         }
         dbtx.commit().await?;
 
-        Ok(partial_sig)
+        Ok((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
     pub async fn set_operator_keys(

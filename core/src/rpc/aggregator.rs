@@ -828,9 +828,9 @@ impl ClementineAggregator for Aggregator {
         let num_required_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
         let (first_responses, nonce_streams) = create_nonce_streams(
             participating_verifiers.clone(),
-            num_required_sigs as u32 + 1,
+            num_required_sigs as u32 + 2,
         )
-        .await?; // ask for +1 for the final movetx signature, but don't send it on deposit_sign stage
+        .await?; // ask for +2 for the final movetx signature + emergency stop signature, but don't send it on deposit_sign stage
 
         let mut partial_sig_streams =
             try_join_all(participating_verifiers.iter().map(|verifier_client| {

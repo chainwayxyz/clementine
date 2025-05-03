@@ -361,7 +361,7 @@ where
             Status::internal(format!("Deposit finalize thread failed to finish: {}", e).as_str())
         })??;
 
-        Ok(Response::new(partial_sig.into()))
+        Ok(Response::new(partial_sig.0.into()))
     }
 
     async fn set_operator_keys(
