@@ -583,7 +583,6 @@ pub fn create_emergency_stop_txhandler(
             None,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
         .finalize();
 
     Ok(builder)

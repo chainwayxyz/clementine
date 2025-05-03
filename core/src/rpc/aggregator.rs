@@ -5,8 +5,8 @@ use super::clementine::{
 use super::clementine::{AggregatorWithdrawResponse, Deposit, VerifierPublicKeys, WithdrawParams};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
-    create_move_to_vault_txhandler, Actors, DepositData, DepositInfo, SecurityCouncil, Signed,
-    TransactionType, TxHandler,
+    create_emergency_stop_txhandler, create_move_to_vault_txhandler, Actors, DepositData,
+    DepositInfo, SecurityCouncil, Signed, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
@@ -69,7 +69,7 @@ async fn nonce_aggregator(
         + Send
         + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
-) -> Result<MusigAggNonce, BridgeError> {
+) -> Result<(MusigAggNonce, MusigAggNonce), BridgeError> {
     let mut total_sigs = 0;
 
     tracing::info!("Starting nonce aggregation");
@@ -123,7 +123,7 @@ async fn nonce_aggregator(
     if total_sigs == 0 {
         tracing::warn!("Sighash stream returned 0 signatures");
     }
-    // Finally, aggregate nonces for the movetx signature
+    // aggregate nonces for the movetx signature
     let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
         s.next()
             .await
@@ -142,9 +142,27 @@ async fn nonce_aggregator(
     tracing::debug!("Received nonces for movetx in nonce_aggregator");
 
     // TODO: consider spawn_blocking here
-    let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+    let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
 
-    Ok(agg_nonce)
+    let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
+        s.next()
+            .await
+            .transpose()? // Return the inner error if it exists
+            .ok_or_else(|| -> eyre::Report {
+                AggregatorError::InputStreamEndedEarlyUnknownSize {
+                    // Return an early end error if the stream is empty
+                    stream_name: "Nonce stream".to_string(),
+                }
+                .into()
+            })
+    }))
+    .await
+    .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
+
+    let emergency_stop_agg_nonce =
+        aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+
+    Ok((move_tx_agg_nonce, emergency_stop_agg_nonce))
 }
 
 /// Reroutes aggregated nonces to the signature aggregator.
@@ -283,7 +301,7 @@ async fn signature_aggregator(
 async fn signature_distributor(
     mut final_sig_receiver: Receiver<FinalSigQueueItem>,
     deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
-    movetx_agg_nonce: impl Future<Output = Result<MusigAggNonce, Status>>,
+    movetx_agg_nonce: impl Future<Output = Result<(MusigAggNonce, MusigAggNonce), Status>>,
 ) -> Result<(), BridgeError> {
     use verifier_deposit_finalize_params::Params;
     let mut sig_count = 0;
@@ -314,7 +332,7 @@ async fn signature_distributor(
         );
     }
 
-    let movetx_agg_nonce = movetx_agg_nonce
+    let (movetx_agg_nonce, emergency_stop_agg_nonce) = movetx_agg_nonce
         .await
         .wrap_err("Failed to get movetx aggregated nonce")?;
 
@@ -333,6 +351,20 @@ async fn signature_distributor(
         })?;
     }
     tracing::debug!("Sent movetx aggregated nonce to verifiers in signature distributor");
+
+    // send emergency stop agg nonce to verifiers
+    for tx in &deposit_finalize_sender {
+        tx.send(VerifierDepositFinalizeParams {
+            params: Some(Params::EmergencyStopAggNonce(
+                emergency_stop_agg_nonce.serialize().to_vec(),
+            )),
+        })
+        .await
+        .wrap_err_with(|| AggregatorError::OutputStreamEndedEarly {
+            stream_name: "Deposit finalize sender (for emergency stop agg nonce)".to_string(),
+        })?;
+    }
+    tracing::debug!("Sent emergency stop aggregated nonce to verifiers in signature distributor");
 
     Ok(())
 }
@@ -581,6 +613,53 @@ impl Aggregator {
 
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
         Ok(move_txhandler.promote()?)
+    }
+
+    async fn verify_and_save_emergency_stop_sigs(
+        &self,
+        emergency_stop_sigs: Vec<Vec<u8>>,
+        emergency_stop_agg_nonce: MusigAggNonce,
+        deposit_params: DepositParams,
+    ) -> Result<(), BridgeError> {
+        let mut deposit_data: crate::builder::transaction::DepositData =
+            deposit_params.try_into()?;
+        let musig_partial_sigs = parser::verifier::parse_partial_sigs(emergency_stop_sigs)?;
+
+        // create move tx and calculate sighash
+        let move_txhandler =
+            create_move_to_vault_txhandler(&mut deposit_data, self.config.protocol_paramset())?;
+
+        let mut emergency_stop_txhandler = create_emergency_stop_txhandler(
+            &mut deposit_data,
+            &move_txhandler,
+            self.config.protocol_paramset(),
+        )?;
+
+        let sighash = emergency_stop_txhandler.calculate_script_spend_sighash_indexed(
+            0,
+            0,
+            bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+        )?;
+
+        let verifiers_public_keys = deposit_data.get_verifiers();
+        let final_sig = crate::musig2::aggregate_partial_signatures(
+            &verifiers_public_keys,
+            None,
+            emergency_stop_agg_nonce,
+            &musig_partial_sigs,
+            Message::from_digest(sighash.to_byte_array()),
+        )
+        .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
+
+        // insert the signature into the tx
+        emergency_stop_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
+
+        let _emergency_stop_tx = emergency_stop_txhandler.get_cached_tx();
+        let _move_to_vault_txid = move_txhandler.get_txid();
+
+        // self.db.save_emergency_stop_sigs(move_to_vault_txid, emergency_stop_tx).await?;
+
+        Ok(())
     }
 
     /// Fetches operator xonly public keys from operators.
@@ -956,7 +1035,9 @@ impl ClementineAggregator for Aggregator {
         // Join the nonce aggregation handle to get the movetx agg nonce.
         let nonce_agg_handle = nonce_agg_handle
             .map_err(|_| Status::internal("panic when aggregating nonces"))
-            .map(|res| -> Result<MusigAggNonce, Status> { res.and_then(|r| r.map_err(Into::into)) })
+            .map(|res| -> Result<(MusigAggNonce, MusigAggNonce), Status> {
+                res.and_then(|r| r.map_err(Into::into))
+            })
             .shared();
 
         // Start the deposit finalization pipe.
@@ -1013,24 +1094,38 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!("Waiting for deposit finalization");
 
         // Collect partial signatures for move transaction
-        let move_tx_partial_sigs =
+        let partial_sigs: Vec<(Vec<u8>, Vec<u8>)> =
             try_join_all(deposit_finalize_futures.iter_mut().map(|fut| async {
-                Ok::<_, Status>(
-                    fut.await
-                        .map_err(|_| Status::internal("panic finishing deposit_finalize"))??
-                        .into_inner()
-                        .partial_sig,
-                )
+                let response = fut
+                    .await
+                    .map_err(|_| Status::internal("panic finishing deposit_finalize"))??
+                    .into_inner();
+                Ok::<_, Status>((
+                    response.move_to_vault_partial_sig,
+                    response.emergency_stop_partial_sig,
+                ))
             }))
             .await
             .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
 
-        tracing::debug!("Received move tx partial sigs: {:?}", move_tx_partial_sigs);
+        let (emergency_stop_sigs, move_to_vault_sigs): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
+            partial_sigs.into_iter().unzip();
+
+        tracing::debug!("Received move tx partial sigs: {:?}", move_to_vault_sigs);
 
         // Create the final move transaction and check the signatures
-        let movetx_agg_nonce = nonce_agg_handle.await?;
+        let (movetx_agg_nonce, emergency_stop_agg_nonce) = nonce_agg_handle.await?;
+
+        // Verify emergency stop signatures
+        self.verify_and_save_emergency_stop_sigs(
+            emergency_stop_sigs,
+            emergency_stop_agg_nonce,
+            deposit_params.clone(),
+        )
+        .await?;
+
         let signed_movetx_handler = self
-            .send_movetx(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
+            .send_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
             .await?;
         let txid = *signed_movetx_handler.get_txid();
 

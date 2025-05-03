@@ -407,7 +407,13 @@ message VerifierDepositFinalizeParams {
     DepositSignSession deposit_sign_first_param = 1;
     bytes schnorr_sig = 2;
     bytes move_tx_agg_nonce = 3;
+    bytes emergency_stop_agg_nonce = 4;
   }
+}
+
+message VerifierDepositFinalizeResponse {
+  bytes move_to_vault_partial_sig = 1;
+  bytes emergency_stop_partial_sig = 2;
 }
 
 message VerifierPublicKeys {
@@ -497,7 +503,7 @@ service ClementineVerifier {
 
   // Verifies every signature and signs move_tx.
   rpc DepositFinalize(stream VerifierDepositFinalizeParams)
-    returns (PartialSig) {}
+    returns (VerifierDepositFinalizeResponse) {}
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}

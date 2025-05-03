@@ -8,6 +8,7 @@ use super::parser::ParserError;
 use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::citrea::CitreaClientT;
 use crate::fetch_next_optional_message_from_stream;
+use crate::rpc::clementine::VerifierDepositFinalizeResponse;
 use crate::rpc::parser::parse_transaction_request;
 use crate::verifier::VerifierServer;
 use crate::{
@@ -232,7 +233,7 @@ where
     async fn deposit_finalize(
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
-    ) -> Result<Response<PartialSig>, Status> {
+    ) -> Result<Response<VerifierDepositFinalizeResponse>, Status> {
         let mut in_stream = req.into_inner();
         tracing::trace!(
             "In verifier {:?} deposit_finalize()",
@@ -361,7 +362,12 @@ where
             Status::internal(format!("Deposit finalize thread failed to finish: {}", e).as_str())
         })??;
 
-        Ok(Response::new(partial_sig.0.into()))
+        let response = VerifierDepositFinalizeResponse {
+            move_to_vault_partial_sig: partial_sig.0.serialize().to_vec(),
+            emergency_stop_partial_sig: partial_sig.1.serialize().to_vec(),
+        };
+
+        Ok(Response::new(response))
     }
 
     async fn set_operator_keys(
