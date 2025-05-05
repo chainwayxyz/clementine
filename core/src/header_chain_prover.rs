@@ -22,6 +22,7 @@ use circuits_lib::header_chain::{
 use eyre::{eyre, Context};
 use lazy_static::lazy_static;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
+use std::u8;
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -29,13 +30,13 @@ use std::{
 use thiserror::Error;
 
 // Prepare prover binaries and calculate their image ids, before anything else.
-const MAINNET_ELF: &[u8; 165388] =
+const MAINNET_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/mainnet-header-chain-guest.bin");
-const TESTNET4_ELF: &[u8; 165484] =
+const TESTNET4_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
-const SIGNET_ELF: &[u8; 165396] =
+const SIGNET_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/signet-header-chain-guest.bin");
-const REGTEST_ELF: &[u8; 158544] =
+const REGTEST_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-header-chain-guest.bin");
 
 lazy_static! {

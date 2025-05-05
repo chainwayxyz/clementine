@@ -8,7 +8,13 @@ pub mod storage_proof;
 pub mod structs;
 pub mod transaction;
 
-use crate::common::zkvm::ZkvmGuest;
+use crate::common::{
+    constants::{
+        MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
+        SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+    },
+    zkvm::ZkvmGuest,
+};
 use bitcoin::{
     hashes::Hash,
     opcodes,
@@ -31,30 +37,16 @@ use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
 use structs::{BridgeCircuitInput, WatchTowerChallengeTxCommitment, WatchtowerChallengeSet};
 
-pub const MAINNET: [u32; 8] = [
-    3391919502, 1103107672, 2723550198, 2000411582, 200115665, 4199960740, 2261616775, 2124077021,
-];
-
-pub const TESTNET4: [u32; 8] = [
-    2269099387, 1136717406, 3975156174, 2252980061, 2369086119, 1940059384, 1754712103, 728194403,
-];
-
-pub const SIGNET: [u32; 8] = [
-    4099138108, 880280695, 2393961442, 5707329, 2616840176, 2823496558, 212284753, 4196435523,
-];
-
-pub const REGTEST: [u32; 8] = [
-    1428393558, 1941289460, 1881197853, 3789393016, 4160690313, 2787037088, 1271831372, 319991889,
-];
-
 /// The method ID for the header chain circuit.
 pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
     match option_env!("BITCOIN_NETWORK") {
-        Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET,
-        Some(network) if matches!(network.as_bytes(), b"testnet4") => TESTNET4,
-        Some(network) if matches!(network.as_bytes(), b"signet") => SIGNET,
-        Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST,
-        None => MAINNET,
+        Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET_HEADER_CHAIN_METHOD_ID,
+        Some(network) if matches!(network.as_bytes(), b"testnet4") => {
+            TESTNET4_HEADER_CHAIN_METHOD_ID
+        }
+        Some(network) if matches!(network.as_bytes(), b"signet") => SIGNET_HEADER_CHAIN_METHOD_ID,
+        Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST_HEADER_CHAIN_METHOD_ID,
+        None => MAINNET_HEADER_CHAIN_METHOD_ID,
         _ => panic!("Invalid network type"),
     }
 };

@@ -2,9 +2,9 @@
 
 ## Description
 This package contains the risc0 guest programs and their entrypoints. You can find the libraries for them in `./circuits-lib` directory.
+`header-chain` is used to prove the block headers and their chaining. It calculates the total work done up to the last input block.
 `work-only` is used by the watchtowers to generate a compact proof of the work that is produced by the bitcoin chain they are following.
 `bridge-circuit` is used by the operators to prove that they have the right to reimburse a withdrawal from the bridge vault.
-The dependency on `header-chain` comes from BitVM repository.
 
 ## Build
 - To build `work-only`, from the root of the directory, use

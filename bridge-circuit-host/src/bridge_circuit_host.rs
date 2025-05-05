@@ -13,8 +13,8 @@ use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
 use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
-use circuits_lib::bridge_circuit::{MAINNET, REGTEST, SIGNET, TESTNET4};
 
+use circuits_lib::common::constants::{MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID};
 use circuits_lib::header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
@@ -96,10 +96,10 @@ pub fn prove_bridge_circuit(
     }
 
     let header_chain_method_id = match bridge_circuit_host_params.network {
-        bitcoin::Network::Bitcoin => MAINNET,
-        bitcoin::Network::Testnet4 => TESTNET4,
-        bitcoin::Network::Signet => SIGNET,
-        bitcoin::Network::Regtest => REGTEST,
+        bitcoin::Network::Bitcoin => MAINNET_HEADER_CHAIN_METHOD_ID,
+        bitcoin::Network::Testnet4 => TESTNET4_HEADER_CHAIN_METHOD_ID,
+        bitcoin::Network::Signet => SIGNET_HEADER_CHAIN_METHOD_ID,
+        bitcoin::Network::Regtest => REGTEST_HEADER_CHAIN_METHOD_ID,
         _ => panic!("Unsupported network"),
     };
 
