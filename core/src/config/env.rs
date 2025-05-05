@@ -1,7 +1,7 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::errors::BridgeError;
+use crate::{builder::transaction::SecurityCouncil, errors::BridgeError};
 use bitcoin::{secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
@@ -105,6 +105,10 @@ impl BridgeConfig {
                 None
             };
 
+        let security_council_string = read_string_from_env("SECURITY_COUNCIL")?;
+
+        let security_council = SecurityCouncil::from_str(&security_council_string)?;
+
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
             protocol_paramset: Default::default(),
@@ -129,6 +133,7 @@ impl BridgeConfig {
             operator_endpoints,
             all_verifiers_secret_keys,
             all_operators_secret_keys,
+            security_council,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
@@ -187,6 +192,12 @@ mod tests {
             "BRIDGE_CONTRACT_ADDRESS",
             &default_config.bridge_contract_address,
         );
+
+        std::env::set_var(
+            "SECURITY_COUNCIL",
+            default_config.security_council.to_string(),
+        );
+
         if let Some(ref header_chain_proof_path) = default_config.header_chain_proof_path {
             std::env::set_var("HEADER_CHAIN_PROOF_PATH", header_chain_proof_path);
         }

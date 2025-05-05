@@ -440,7 +440,8 @@ impl Actor {
                         | Kind::Other(_)
                         | Kind::BaseDepositScript(_)
                         | Kind::ReplacementDepositScript(_)
-                        | Kind::TimelockScript(_) => return Ok(None),
+                        | Kind::TimelockScript(_)
+                        | Kind::ManualSpend(_) => return Ok(None),
                     };
 
                     if signed_preimage {
@@ -520,7 +521,8 @@ impl Actor {
                         | Kind::Other(_)
                         | Kind::BaseDepositScript(_)
                         | Kind::ReplacementDepositScript(_)
-                        | Kind::TimelockScript(_) => return Ok(None),
+                        | Kind::TimelockScript(_)
+                        | Kind::ManualSpend(_) => return Ok(None),
                     };
 
                     if signed_winternitz {
@@ -636,7 +638,8 @@ impl Actor {
                         },
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)
-                        | Kind::Other(_) => return Ok(None),
+                        | Kind::Other(_)
+                        | Kind::ManualSpend(_) => return Ok(None),
                     };
 
                     // Add P2TR elements (control block and script) to the witness

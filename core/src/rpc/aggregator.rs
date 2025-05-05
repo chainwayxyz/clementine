@@ -809,6 +809,7 @@ impl ClementineAggregator for Aggregator {
                 watchtowers: vec![],
                 operators: self.get_operator_keys(),
             },
+            security_council: self.config.security_council.clone(),
         };
 
         let deposit_params = deposit_data.clone().into();
@@ -1146,7 +1147,6 @@ mod tests {
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.protocol_paramset().bridge_amount,
             config.protocol_paramset().network,
             config.protocol_paramset().user_takes_after,
         )
@@ -1235,7 +1235,6 @@ mod tests {
             nofn_xonly_pk,
             signer.address.as_unchecked(),
             evm_address,
-            config.protocol_paramset().bridge_amount,
             config.protocol_paramset().network,
             config.protocol_paramset().user_takes_after,
         )
