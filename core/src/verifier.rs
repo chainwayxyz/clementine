@@ -397,9 +397,9 @@ where
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
 
             assert_eq!(
-                num_required_sigs + 1,
+                num_required_sigs + 2,
                 session.nonces.len(),
-                "Expected nonce count to be num_required_sigs + 1 (movetx)"
+                "Expected nonce count to be num_required_sigs + 2 (movetx & emergency stop)"
             );
 
             while let Some(agg_nonce) = agg_nonce_rx.recv().await {
