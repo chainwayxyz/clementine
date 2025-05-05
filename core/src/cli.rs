@@ -378,6 +378,10 @@ mod tests {
             "BRIDGE_CONTRACT_ADDRESS",
             "3100000000000000000000000000000000000002",
         );
+        env::set_var(
+            "SECURITY_COUNCIL",
+            "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0",
+        );
     }
 
     // Helper to set up all environment variables needed for protocol paramset
@@ -406,11 +410,6 @@ mod tests {
         env::set_var("FINALITY_DEPTH", "1");
         env::set_var("START_HEIGHT", "8148");
         env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
-        env::set_var(
-            "SECURITY_COUNCIL_XONLY_PKS",
-            "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
-        );
-        env::set_var("SECURITY_COUNCIL_THRESHOLD", "1");
     }
 
     // Helper to clean up all environment variables
@@ -430,6 +429,7 @@ mod tests {
         env::remove_var("CITREA_RPC_URL");
         env::remove_var("CITREA_LIGHT_CLIENT_PROVER_URL");
         env::remove_var("BRIDGE_CONTRACT_ADDRESS");
+        env::remove_var("SECURITY_COUNCIL");
     }
 
     // Helper to clean up all protocol paramset environment variables

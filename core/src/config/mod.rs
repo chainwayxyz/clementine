@@ -11,9 +11,10 @@
 //! described in `BridgeConfig` struct.
 
 use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
+use crate::builder::transaction::SecurityCouncil;
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Amount, XOnlyPublicKey};
+use bitcoin::Amount;
 use protocol::ProtocolParamset;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -80,10 +81,8 @@ pub struct BridgeConfig {
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
 
-    /// Security council X-only public keys.
-    pub security_council_xonly_pks: Vec<XOnlyPublicKey>,
-    /// Security council threshold.
-    pub security_council_threshold: u32,
+    /// Security council.
+    pub security_council: SecurityCouncil,
 
     /// Verifier endpoints. For the aggregator only
     pub verifier_endpoints: Option<Vec<String>>,
@@ -175,8 +174,10 @@ impl Default for BridgeConfig {
                 PathBuf::from_str("../core/tests/data/first_1.bin").expect("known valid input"),
             ),
 
-            security_council_xonly_pks: vec![*UNSPENDABLE_XONLY_PUBKEY],
-            security_council_threshold: 1,
+            security_council: SecurityCouncil {
+                pks: vec![*UNSPENDABLE_XONLY_PUBKEY],
+                threshold: 1,
+            },
 
             all_verifiers_secret_keys: Some(vec![
                 SecretKey::from_str(

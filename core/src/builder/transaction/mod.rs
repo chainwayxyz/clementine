@@ -32,6 +32,7 @@ use eyre::Context;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
+use hex;
 
 // Exports to the outside
 pub use crate::builder::transaction::txhandler::*;
@@ -206,6 +207,57 @@ pub struct Actors {
 pub struct SecurityCouncil {
     pub pks: Vec<XOnlyPublicKey>,
     pub threshold: u32,
+}
+
+impl std::str::FromStr for SecurityCouncil {
+    type Err = eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split(':');
+        let threshold_str = parts.next().ok_or_else(|| eyre::eyre!("Missing threshold"))?;
+        let pks_str = parts.next().ok_or_else(|| eyre::eyre!("Missing public keys"))?;
+        
+        if parts.next().is_some() {
+            return Err(eyre::eyre!("Too many parts in security council string"));
+        }
+
+        let threshold = threshold_str.parse::<u32>()
+            .map_err(|e| eyre::eyre!("Invalid threshold: {}", e))?;
+
+        let pks: Result<Vec<XOnlyPublicKey>, _> = pks_str
+            .split(',')
+            .map(|pk_str| {
+                let bytes = hex::decode(pk_str)
+                    .map_err(|e| eyre::eyre!("Invalid hex in public key: {}", e))?;
+                XOnlyPublicKey::from_slice(&bytes)
+                    .map_err(|e| eyre::eyre!("Invalid public key: {}", e))
+            })
+            .collect();
+
+        let pks = pks?;
+
+        if pks.is_empty() {
+            return Err(eyre::eyre!("No public keys provided"));
+        }
+
+        if threshold > pks.len() as u32 {
+            return Err(eyre::eyre!("Threshold cannot be greater than number of public keys"));
+        }
+
+        Ok(SecurityCouncil { pks, threshold })
+    }
+}
+
+impl std::fmt::Display for SecurityCouncil {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:", self.threshold)?;
+        let pks_str = self.pks
+            .iter()
+            .map(|pk| hex::encode(pk.serialize()))
+            .collect::<Vec<_>>()
+            .join(",");
+        write!(f, "{}", pks_str)
+    }
 }
 
 /// Type to uniquely identify a deposit.
@@ -638,59 +690,58 @@ pub fn create_taproot_output_with_hidden_node(
 
 #[cfg(test)]
 mod tests {
-    // #[test]
-    // fn create_watchtower_challenge_page_txhandler() {
-    //     let network = bitcoin::Network::Regtest;
-    //     let secret_key = SecretKey::new(&mut rand::thread_rng());
-    //     let nofn_xonly_pk =
-    //         XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
-    //     let (nofn_musig2_address, _) =
-    //         builder::address::create_musig2_address(nofn_xonly_pk, network);
+    use super::*;
+    use bitcoin::secp256k1::XOnlyPublicKey;
+    use std::str::FromStr;
 
-    //     let kickoff_outpoint = OutPoint {
-    //         txid: Txid::all_zeros(),
-    //         vout: 0x45,
-    //     };
-    //     let kickoff_utxo = UTXO {
-    //         outpoint: kickoff_outpoint,
-    //         txout: TxOut {
-    //             value: Amount::from_int_btc(2),
-    //             script_pubkey: nofn_musig2_address.script_pubkey(),
-    //         },
-    //     };
+    #[test]
+    fn test_security_council_from_str() {
+        // Create some test public keys
+        let pk1 = XOnlyPublicKey::from_slice(&[1; 32]).unwrap();
+        let pk2 = XOnlyPublicKey::from_slice(&[2; 32]).unwrap();
 
-    //     let bridge_amount_sats = Amount::from_sat(0x1F45);
-    //     let num_watchtowers = 3;
+        // Test valid input
+        let input = format!("2:{},{}", hex::encode(pk1.serialize()), hex::encode(pk2.serialize()));
+        let council = SecurityCouncil::from_str(&input).unwrap();
+        assert_eq!(council.threshold, 2);
+        assert_eq!(council.pks.len(), 2);
+        assert_eq!(council.pks[0], pk1);
+        assert_eq!(council.pks[1], pk2);
 
-    //     let wcp_txhandler = super::create_watchtower_challenge_page_txhandler(
-    //         &kickoff_utxo,
-    //         nofn_xonly_pk,
-    //         bridge_amount_sats,
-    //         num_watchtowers,
-    //         network,
-    //     );
-    //     assert_eq!(wcp_txhandler.tx.output.len(), num_watchtowers as usize);
-    // }
+        // Test invalid threshold
+        let input = format!("3:{},{}", hex::encode(pk1.serialize()), hex::encode(pk2.serialize()));
+        assert!(SecurityCouncil::from_str(&input).is_err());
 
-    // #[test]
-    // fn create_challenge_tx() {
-    //     let operator_secret_key = SecretKey::new(&mut rand::thread_rng());
-    //     let operator_xonly_pk =
-    //         XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &operator_secret_key)).0;
+        // Test invalid hex
+        let input = "2:invalid,pk2";
+        assert!(SecurityCouncil::from_str(input).is_err());
 
-    //     let kickoff_outpoint = OutPoint {
-    //         txid: Txid::all_zeros(),
-    //         vout: 0x45,
-    //     };
+        // Test missing parts
+        assert!(SecurityCouncil::from_str("2").is_err());
+        assert!(SecurityCouncil::from_str(":").is_err());
 
-    //     let challenge_tx = super::create_challenge_tx(kickoff_outpoint, operator_xonly_pk);
-    //     assert_eq!(
-    //         challenge_tx.tx_out(0).unwrap().value,
-    //         Amount::from_int_btc(2)
-    //     );
-    //     assert_eq!(
-    //         challenge_tx.tx_out(0).unwrap().script_pubkey,
-    //         ScriptBuf::new_p2tr(&SECP, operator_xonly_pk, None)
-    //     )
-    // }
+        // Test too many parts
+        let input = format!("2:{},{}:extra", hex::encode(pk1.serialize()), hex::encode(pk2.serialize()));
+        assert!(SecurityCouncil::from_str(&input).is_err());
+
+        // Test empty public keys
+        assert!(SecurityCouncil::from_str("2:").is_err());
+    }
+
+    #[test]
+    fn test_security_council_round_trip() {
+        // Create some test public keys
+        let pk1 = XOnlyPublicKey::from_slice(&[1; 32]).unwrap();
+        let pk2 = XOnlyPublicKey::from_slice(&[2; 32]).unwrap();
+
+        let original = SecurityCouncil {
+            pks: vec![pk1, pk2],
+            threshold: 2,
+        };
+
+        let string = original.to_string();
+        let parsed = SecurityCouncil::from_str(&string).unwrap();
+
+        assert_eq!(original, parsed);
+    }
 }
