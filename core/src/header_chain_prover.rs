@@ -16,11 +16,11 @@ use crate::{
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
-use eyre::{eyre, Context};
-use lazy_static::lazy_static;
-use risc0_to_bitvm2_core::header_chain::{
+use circuits_lib::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
+use eyre::{eyre, Context};
+use lazy_static::lazy_static;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
 use std::{
     fs::File,
@@ -29,10 +29,14 @@ use std::{
 use thiserror::Error;
 
 // Prepare prover binaries and calculate their image ids, before anything else.
-const MAINNET_ELF: &[u8; 199812] = include_bytes!("../../scripts/mainnet-header-chain-guest");
-const TESTNET4_ELF: &[u8; 200180] = include_bytes!("../../scripts/testnet4-header-chain-guest");
-const SIGNET_ELF: &[u8; 199828] = include_bytes!("../../scripts/signet-header-chain-guest");
-const REGTEST_ELF: &[u8; 194128] = include_bytes!("../../scripts/regtest-header-chain-guest");
+const MAINNET_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/mainnet-header-chain-guest.bin");
+const TESTNET4_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
+const SIGNET_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/signet-header-chain-guest.bin");
+const REGTEST_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/regtest-header-chain-guest.bin");
+
 lazy_static! {
     static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
         .expect("hardcoded ELF is valid")
@@ -242,11 +246,11 @@ impl HeaderChainProver {
         let prover = risc0_zkvm::default_prover();
 
         let elf = match self.network {
-            Network::Bitcoin => MAINNET_ELF.as_ref(),
-            Network::Testnet => TESTNET4_ELF.as_ref(),
-            Network::Testnet4 => TESTNET4_ELF.as_ref(),
-            Network::Signet => SIGNET_ELF.as_ref(),
-            Network::Regtest => REGTEST_ELF.as_ref(),
+            Network::Bitcoin => MAINNET_ELF,
+            Network::Testnet => TESTNET4_ELF,
+            Network::Testnet4 => TESTNET4_ELF,
+            Network::Signet => SIGNET_ELF,
+            Network::Regtest => REGTEST_ELF,
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
@@ -473,7 +477,7 @@ mod tests {
     use bitcoin::{block::Header, hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
-    use risc0_to_bitvm2_core::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
+    use circuits_lib::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use risc0_zkvm::Receipt;
 
     /// Mines `block_num` amount of blocks (if not already mined) and returns
