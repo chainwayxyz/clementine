@@ -193,7 +193,7 @@ impl SpendableScript for Multisig {
     }
 
     fn kind(&self) -> ScriptKind {
-        unimplemented!()
+        ScriptKind::ManualSpend(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -487,6 +487,7 @@ pub enum ScriptKind<'a> {
     BaseDepositScript(&'a BaseDepositScript),
     ReplacementDepositScript(&'a ReplacementDepositScript),
     Other(&'a OtherSpendable),
+    ManualSpend(&'a Multisig),
 }
 
 #[cfg(test)]
