@@ -155,7 +155,7 @@ pub fn generate_replacement_deposit_address(
     let deposit_script =
         ReplacementDepositScript::new(nofn_xonly_pk, old_move_txid).to_script_buf();
 
-    let security_council_script = Multisig::new(security_council).to_script_buf();
+    let security_council_script = Multisig::from_security_council(security_council).to_script_buf();
 
     let (addr, spend) =
         create_taproot_address(&[deposit_script, security_council_script], None, network);

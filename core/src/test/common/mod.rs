@@ -502,7 +502,7 @@ fn sign_nofn_deposit_tx(
     let mut witness = Witness::from_slice(&[final_taproot_sig.serialize()]);
     // get script of movetx
     let script_buf = CheckSig::new(nofn_xonly_pk).to_script_buf();
-    let multisig_script_buf = Multisig::new(security_council).to_script_buf();
+    let multisig_script_buf = Multisig::from_security_council(security_council).to_script_buf();
     let (_, spend_info) = create_taproot_address(
         &[script_buf.clone(), multisig_script_buf.clone()],
         None,
@@ -554,7 +554,7 @@ pub async fn run_replacement_deposit(
     let (addr, _) = create_taproot_address(
         &[
             CheckSig::new(nofn_xonly_pk).to_script_buf(),
-            Multisig::new(SecurityCouncil {
+            Multisig::from_security_council(SecurityCouncil {
                 pks: config.security_council_xonly_pks.clone(),
                 threshold: config.security_council_threshold,
             })
