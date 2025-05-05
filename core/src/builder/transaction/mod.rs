@@ -203,7 +203,7 @@ pub struct Actors {
     pub operators: Vec<XOnlyPublicKey>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecurityCouncil {
     pub pks: Vec<XOnlyPublicKey>,
     pub threshold: u32,
@@ -252,6 +252,25 @@ impl std::str::FromStr for SecurityCouncil {
         }
 
         Ok(SecurityCouncil { pks, threshold })
+    }
+}
+
+impl serde::Serialize for SecurityCouncil {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SecurityCouncil {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
     }
 }
 

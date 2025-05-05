@@ -7,7 +7,6 @@ use bitcoin::{consensus::Encodable, hashes::Hash, Block, Txid};
 use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
-    builder::transaction::SecurityCouncil,
     citrea::Bridge::TransactionParams,
     errors::BridgeError,
     extended_rpc,
