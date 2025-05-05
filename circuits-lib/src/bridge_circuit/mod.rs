@@ -645,7 +645,7 @@ mod tests {
 
         let mut watchtower_pubkeys = vec![[0u8; 32]; 160];
 
-        let operator_idx: u16 = 50;
+        let operator_idx: u16 = 6;
 
         let pubkey = hex::decode(pubkey_hex).unwrap();
 
@@ -702,7 +702,7 @@ mod tests {
             total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
 
         let expected_challenge_sending_watchtowers =
-            [0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            [64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
         assert_eq!(total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
