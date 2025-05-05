@@ -193,7 +193,7 @@ impl SpendableScript for Multisig {
     }
 
     fn kind(&self) -> ScriptKind {
-        unimplemented!()
+        ScriptKind::ManualSpend(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -211,7 +211,11 @@ impl SpendableScript for Multisig {
 }
 
 impl Multisig {
-    pub fn new(security_council: SecurityCouncil) -> Self {
+    pub fn new(pubkeys: Vec<XOnlyPublicKey>, threshold: u32) -> Self {
+        Self { pubkeys, threshold }
+    }
+
+    pub fn from_security_council(security_council: SecurityCouncil) -> Self {
         Self {
             pubkeys: security_council.pks,
             threshold: security_council.threshold,
@@ -487,6 +491,7 @@ pub enum ScriptKind<'a> {
     BaseDepositScript(&'a BaseDepositScript),
     ReplacementDepositScript(&'a ReplacementDepositScript),
     Other(&'a OtherSpendable),
+    ManualSpend(&'a Multisig),
 }
 
 #[cfg(test)]
@@ -1108,7 +1113,7 @@ mod tests {
 
         let multisig_address = addresses[0].clone().assume_checked();
 
-        let multisig = Multisig::new(SecurityCouncil { pks, threshold });
+        let multisig = Multisig::new(pks, threshold);
 
         let (addr, _) = create_taproot_address(
             &[multisig.to_script_buf()],

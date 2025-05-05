@@ -1,8 +1,8 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::errors::BridgeError;
-use bitcoin::{secp256k1::SecretKey, Amount, XOnlyPublicKey};
+use crate::{builder::transaction::SecurityCouncil, errors::BridgeError};
+use bitcoin::{secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
 pub(crate) fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
@@ -105,30 +105,10 @@ impl BridgeConfig {
                 None
             };
 
-        let security_council_xonly_pks = std::env::var("SECURITY_COUNCIL_XONLY_PKS")
-            .ok()
-            .map(|pks| {
-                pks.split(",")
-                    .map(|pk| {
-                        XOnlyPublicKey::from_str(pk).expect("SECURITY_COUNCIL_XONLY_PKS malformed")
-                    })
-                    .collect()
-            })
-            .ok_or(BridgeError::EnvVarMalformed(
-                "SECURITY_COUNCIL_XONLY_PKS",
-                "SECURITY_COUNCIL_XONLY_PKS".to_string(),
-            ))?;
 
-        let security_council_threshold = std::env::var("SECURITY_COUNCIL_THRESHOLD")
-            .ok()
-            .map(|t| {
-                t.parse::<u32>()
-                    .expect("SECURITY_COUNCIL_THRESHOLD malformed")
-            })
-            .ok_or(BridgeError::EnvVarMalformed(
-                "SECURITY_COUNCIL_THRESHOLD",
-                "SECURITY_COUNCIL_THRESHOLD".to_string(),
-            ))?;
+        let security_council_string = read_string_from_env("SECURITY_COUNCIL")?;
+
+        let security_council = SecurityCouncil::from_str(&security_council_string)?;
 
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
@@ -154,8 +134,7 @@ impl BridgeConfig {
             operator_endpoints,
             all_verifiers_secret_keys,
             all_operators_secret_keys,
-            security_council_xonly_pks,
-            security_council_threshold,
+            security_council,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
@@ -216,17 +195,8 @@ mod tests {
         );
 
         std::env::set_var(
-            "SECURITY_COUNCIL_XONLY_PKS",
-            default_config
-                .security_council_xonly_pks
-                .iter()
-                .map(|pk| pk.to_string())
-                .collect::<Vec<String>>()
-                .join(","),
-        );
-        std::env::set_var(
-            "SECURITY_COUNCIL_THRESHOLD",
-            default_config.security_council_threshold.to_string(),
+            "SECURITY_COUNCIL",
+            default_config.security_council.to_string(),
         );
 
         if let Some(ref header_chain_proof_path) = default_config.header_chain_proof_path {

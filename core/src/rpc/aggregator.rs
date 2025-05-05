@@ -888,10 +888,7 @@ impl ClementineAggregator for Aggregator {
                 watchtowers: vec![],
                 operators: self.get_operator_keys(),
             },
-            security_council: SecurityCouncil {
-                pks: self.config.security_council_xonly_pks.clone(),
-                threshold: self.config.security_council_threshold,
-            },
+            security_council: self.config.security_council.clone(),
         };
 
         let deposit_params = deposit_data.clone().into();

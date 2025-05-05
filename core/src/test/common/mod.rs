@@ -467,7 +467,7 @@ fn sign_nofn_deposit_tx(
     let mut witness = Witness::from_slice(&[final_taproot_sig.serialize()]);
     // get script of movetx
     let script_buf = CheckSig::new(nofn_xonly_pk).to_script_buf();
-    let multisig_script_buf = Multisig::new(security_council).to_script_buf();
+    let multisig_script_buf = Multisig::from_security_council(security_council).to_script_buf();
     let (_, spend_info) = create_taproot_address(
         &[script_buf.clone(), multisig_script_buf.clone()],
         None,
@@ -519,11 +519,7 @@ pub async fn run_replacement_deposit(
     let (addr, _) = create_taproot_address(
         &[
             CheckSig::new(nofn_xonly_pk).to_script_buf(),
-            Multisig::new(SecurityCouncil {
-                pks: config.security_council_xonly_pks.clone(),
-                threshold: config.security_council_threshold,
-            })
-            .to_script_buf(),
+            Multisig::from_security_council(config.security_council.clone()).to_script_buf(),
         ],
         None,
         config.protocol_paramset().network,
@@ -542,10 +538,7 @@ pub async fn run_replacement_deposit(
         move_txid,
         nofn_xonly_pk,
         config.protocol_paramset(),
-        SecurityCouncil {
-            pks: config.security_council_xonly_pks.clone(),
-            threshold: config.security_council_threshold,
-        },
+        config.security_council.clone(),
     )?;
     let some_funding_utxo = rpc
         .send_to_address(
@@ -593,10 +586,7 @@ pub async fn run_replacement_deposit(
         &new_deposit_tx,
         config,
         verifiers_public_keys.clone(),
-        SecurityCouncil {
-            pks: config.security_council_xonly_pks.clone(),
-            threshold: config.security_council_threshold,
-        },
+        config.security_council.clone(),
     );
 
     aggregator
