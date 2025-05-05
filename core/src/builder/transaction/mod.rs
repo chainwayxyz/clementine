@@ -209,7 +209,6 @@ pub struct SecurityCouncil {
     pub threshold: u32,
 }
 
-
 impl std::str::FromStr for SecurityCouncil {
     type Err = eyre::Report;
 

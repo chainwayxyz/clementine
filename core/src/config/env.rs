@@ -105,7 +105,6 @@ impl BridgeConfig {
                 None
             };
 
-
         let security_council_string = read_string_from_env("SECURITY_COUNCIL")?;
 
         let security_council = SecurityCouncil::from_str(&security_council_string)?;
