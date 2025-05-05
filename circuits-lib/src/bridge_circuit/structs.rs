@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use crate::common::constants::{
     FIRST_FIVE_OUTPUTS, MAX_NUMBER_OF_WATCHTOWERS, NUMBER_OF_ASSERT_TXS,
 };
-use bitcoin::{Amount, ScriptBuf, Transaction, TxOut, Witness};
+use bitcoin::{Amount, ScriptBuf, Transaction, TxOut, Txid, Witness};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -95,11 +95,11 @@ impl WatchtowerInput {
     ///
     /// # Arguments
     ///
-    /// - `kickoff_tx`: The kickoff transaction whose output is consumed by an input of the watchtower transaction.
+    /// - `kickoff_tx_id`: The kickoff transaction id whose output is consumed by an input of the watchtower transaction.
     /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
     ///   referencing the `kickoff_tx`.
     /// * `previous_txs` - An optional slice of transactions, each of which should include
-    ///   at least one output that is later spent as an input in `watchtower_tx`.
+    ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs shoul be in the same order as the inputs in the watchtower tx )
     ///
     /// # Note
     ///
@@ -126,11 +126,11 @@ impl WatchtowerInput {
     /// - The watchtower index cannot be converted to `u8` (should be unreachable due to earlier bounds check).
     ///
     pub fn from_txs(
-        kickoff_tx: &Transaction,
+        kickoff_tx_id: Txid,
         watchtower_tx: Transaction,
-        previous_txs: Option<&[Transaction]>,
+        previous_txs: &[Transaction],
     ) -> Result<Self, &'static str> {
-        let kickoff_txid = kickoff_tx.compute_txid();
+        let kickoff_txid = kickoff_tx_id;
 
         let watchtower_challenge_input_idx = watchtower_tx
             .input
@@ -155,12 +155,6 @@ impl WatchtowerInput {
         let watchtower_idx =
             u8::try_from(watchtower_index).expect("Cannot fail, already checked bounds");
 
-        let previous_txs = previous_txs.unwrap_or(&[]);
-
-        let mut all_previous_txs: Vec<Transaction> = Vec::with_capacity(previous_txs.len() + 1);
-        all_previous_txs.push(kickoff_tx.clone());
-        all_previous_txs.extend_from_slice(previous_txs);
-
         let watchtower_challenge_utxos: Vec<CircuitTxOut> = watchtower_tx
             .input
             .iter()
@@ -168,7 +162,7 @@ impl WatchtowerInput {
                 let txid = input.previous_output.txid;
                 let vout = input.previous_output.vout as usize;
 
-                let tx = all_previous_txs
+                let tx = previous_txs
                     .iter()
                     .find(|tx| tx.compute_txid() == txid)
                     .ok_or("Previous transaction not found")?;
