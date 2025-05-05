@@ -7,6 +7,7 @@ use bitcoin::{consensus::Encodable, hashes::Hash, Block, Txid};
 use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
+    builder::transaction::SecurityCouncil,
     citrea::Bridge::TransactionParams,
     errors::BridgeError,
     extended_rpc,
@@ -152,7 +153,7 @@ enum AggregatorCommands {
         #[arg(long)]
         network: Option<String>,
         #[arg(long)]
-        security_council: Option<String>,
+        security_council: Option<SecurityCouncil>,
     },
     /// Process a new withdrawal
     NewWithdrawal {
@@ -740,16 +741,12 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 None => bitcoin::Network::Regtest,
             };
 
-            let security_council = security_council
-                .map(|s| s.parse().expect("Failed to parse security council"))
-                .expect("Failed to parse security council");
-
             let (replacement_deposit_address, _) =
                 clementine_core::builder::address::generate_replacement_deposit_address(
                     move_txid,
                     nofn_xonly_pk,
                     network,
-                    security_council,
+                    security_council.expect("Security council is required"),
                 )
                 .expect("Failed to generate replacement deposit address");
 
