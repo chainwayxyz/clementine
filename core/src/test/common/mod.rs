@@ -157,14 +157,17 @@ pub async fn mine_once_after_in_mempool(
     let tx_name = tx_name.unwrap_or("Unnamed tx");
 
     loop {
-        tracing::debug!("Waiting for {} transaction to hit mempool...", tx_name);
+        let mempool_result = rpc.client.get_mempool_entry(&txid).await;
+        tracing::debug!("Waiting for {} transaction to hit mempool...", tx_name,);
 
-        if rpc.client.get_mempool_entry(&txid).await.is_ok() {
-            tracing::debug!("{} transaction to hit the mempool", tx_name);
+        if mempool_result.is_ok() {
+            tracing::debug!(
+                "{} transaction to hit the mempool: {:?}",
+                tx_name,
+                mempool_result.unwrap()
+            );
             break;
         };
-
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
             return Err(BridgeError::Error(format!(
@@ -172,6 +175,7 @@ pub async fn mine_once_after_in_mempool(
                 tx_name, timeout
             )));
         }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
     rpc.mine_blocks(1).await?;
@@ -183,12 +187,10 @@ pub async fn mine_once_after_in_mempool(
         .map_err(|e| {
             BridgeError::Error(format!("Failed to get raw transaction {}: {}", tx_name, e))
         })?;
+    tracing::debug!("{} raw transaction: {:?}", tx_name, tx);
 
     if tx.blockhash.is_none() {
-        return Err(BridgeError::Error(format!(
-            "{} did not land onchain after in mempool and mining 1 block",
-            tx_name
-        )));
+        return Err(BridgeError::Error(format!("{} did not get mined", tx_name)));
     }
 
     let tx_block_height = rpc
