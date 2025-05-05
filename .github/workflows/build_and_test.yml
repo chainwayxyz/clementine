@@ -140,7 +140,7 @@ jobs:
     name: Coverage checks with Codecov
     runs-on: ubicloud-standard-30
     needs: debug_build_test
-    if: github.event.pull_request.draft == false && github.ref != 'refs/heads/main'
+    if: github.event.pull_request.draft == false
 
     services:
       postgres:
