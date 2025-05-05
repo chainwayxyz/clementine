@@ -301,7 +301,7 @@ async fn signature_aggregator(
 async fn signature_distributor(
     mut final_sig_receiver: Receiver<FinalSigQueueItem>,
     deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
-    movetx_agg_nonce: impl Future<Output = Result<(MusigAggNonce, MusigAggNonce), Status>>,
+    agg_nonce: impl Future<Output = Result<(MusigAggNonce, MusigAggNonce), Status>>,
 ) -> Result<(), BridgeError> {
     use verifier_deposit_finalize_params::Params;
     let mut sig_count = 0;
@@ -332,11 +332,11 @@ async fn signature_distributor(
         );
     }
 
-    let (movetx_agg_nonce, emergency_stop_agg_nonce) = movetx_agg_nonce
+    let (movetx_agg_nonce, emergency_stop_agg_nonce) = agg_nonce
         .await
-        .wrap_err("Failed to get movetx aggregated nonce")?;
+        .wrap_err("Failed to get aggregated nonce for movetx and emergency stop")?;
 
-    tracing::debug!("Got movetx aggregated nonce in signature distributor");
+    tracing::info!("Got aggregated nonce for movetx and emergency stop in signature distributor");
 
     // Send the movetx agg nonce to the verifiers.
     for tx in &deposit_finalize_sender {
@@ -350,7 +350,7 @@ async fn signature_distributor(
             stream_name: "Deposit finalize sender (for movetx agg nonce)".to_string(),
         })?;
     }
-    tracing::debug!("Sent movetx aggregated nonce to verifiers in signature distributor");
+    tracing::info!("Sent movetx aggregated nonce to verifiers in signature distributor");
 
     // send emergency stop agg nonce to verifiers
     for tx in &deposit_finalize_sender {
@@ -364,7 +364,7 @@ async fn signature_distributor(
             stream_name: "Deposit finalize sender (for emergency stop agg nonce)".to_string(),
         })?;
     }
-    tracing::debug!("Sent emergency stop aggregated nonce to verifiers in signature distributor");
+    tracing::info!("Sent emergency stop aggregated nonce to verifiers in signature distributor");
 
     Ok(())
 }

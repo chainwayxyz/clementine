@@ -576,6 +576,8 @@ where
             .into());
         }
 
+        tracing::info!("Verifier{} Finished verifying final signatures of NofN", self.signer.xonly_public_key.to_string());
+
         // ------ OPERATOR SIGNATURES VERIFICATION ------
 
         let num_required_total_op_sigs = num_required_op_sigs * deposit_data.get_num_operators();
@@ -656,6 +658,7 @@ where
             .into());
         }
 
+        tracing::info!("Verifier{} Finished verifying final signatures of operators", self.signer.xonly_public_key.to_string());
         // ----- MOVE TX SIGNING
 
         // Generate partial signature for move transaction
@@ -695,6 +698,8 @@ where
             Message::from_digest(move_tx_sighash.to_byte_array()),
         )?;
 
+        tracing::info!("Verifier{} Finished signing move tx", self.signer.xonly_public_key.to_string());
+
         let emergency_stop_txhandler = create_emergency_stop_txhandler(
             deposit_data,
             &move_txhandler,
@@ -733,6 +738,8 @@ where
             self.signer.keypair,
             Message::from_digest(emergency_stop_sighash.to_byte_array()),
         )?;
+
+        tracing::info!("Verifier{} Finished signing emergency stop tx", self.signer.xonly_public_key.to_string());
 
         // Save signatures to db
         let mut dbtx = self.db.begin_transaction().await?;
