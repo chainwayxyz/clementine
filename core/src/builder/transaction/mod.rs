@@ -29,10 +29,10 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 use eyre::Context;
+use hex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
-use hex;
 
 // Exports to the outside
 pub use crate::builder::transaction::txhandler::*;
@@ -214,14 +214,19 @@ impl std::str::FromStr for SecurityCouncil {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut parts = s.split(':');
-        let threshold_str = parts.next().ok_or_else(|| eyre::eyre!("Missing threshold"))?;
-        let pks_str = parts.next().ok_or_else(|| eyre::eyre!("Missing public keys"))?;
-        
+        let threshold_str = parts
+            .next()
+            .ok_or_else(|| eyre::eyre!("Missing threshold"))?;
+        let pks_str = parts
+            .next()
+            .ok_or_else(|| eyre::eyre!("Missing public keys"))?;
+
         if parts.next().is_some() {
             return Err(eyre::eyre!("Too many parts in security council string"));
         }
 
-        let threshold = threshold_str.parse::<u32>()
+        let threshold = threshold_str
+            .parse::<u32>()
             .map_err(|e| eyre::eyre!("Invalid threshold: {}", e))?;
 
         let pks: Result<Vec<XOnlyPublicKey>, _> = pks_str
@@ -241,7 +246,9 @@ impl std::str::FromStr for SecurityCouncil {
         }
 
         if threshold > pks.len() as u32 {
-            return Err(eyre::eyre!("Threshold cannot be greater than number of public keys"));
+            return Err(eyre::eyre!(
+                "Threshold cannot be greater than number of public keys"
+            ));
         }
 
         Ok(SecurityCouncil { pks, threshold })
@@ -251,7 +258,8 @@ impl std::str::FromStr for SecurityCouncil {
 impl std::fmt::Display for SecurityCouncil {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:", self.threshold)?;
-        let pks_str = self.pks
+        let pks_str = self
+            .pks
             .iter()
             .map(|pk| hex::encode(pk.serialize()))
             .collect::<Vec<_>>()
@@ -701,7 +709,11 @@ mod tests {
         let pk2 = XOnlyPublicKey::from_slice(&[2; 32]).unwrap();
 
         // Test valid input
-        let input = format!("2:{},{}", hex::encode(pk1.serialize()), hex::encode(pk2.serialize()));
+        let input = format!(
+            "2:{},{}",
+            hex::encode(pk1.serialize()),
+            hex::encode(pk2.serialize())
+        );
         let council = SecurityCouncil::from_str(&input).unwrap();
         assert_eq!(council.threshold, 2);
         assert_eq!(council.pks.len(), 2);
@@ -709,7 +721,11 @@ mod tests {
         assert_eq!(council.pks[1], pk2);
 
         // Test invalid threshold
-        let input = format!("3:{},{}", hex::encode(pk1.serialize()), hex::encode(pk2.serialize()));
+        let input = format!(
+            "3:{},{}",
+            hex::encode(pk1.serialize()),
+            hex::encode(pk2.serialize())
+        );
         assert!(SecurityCouncil::from_str(&input).is_err());
 
         // Test invalid hex
@@ -721,7 +737,11 @@ mod tests {
         assert!(SecurityCouncil::from_str(":").is_err());
 
         // Test too many parts
-        let input = format!("2:{},{}:extra", hex::encode(pk1.serialize()), hex::encode(pk2.serialize()));
+        let input = format!(
+            "2:{},{}:extra",
+            hex::encode(pk1.serialize()),
+            hex::encode(pk2.serialize())
+        );
         assert!(SecurityCouncil::from_str(&input).is_err());
 
         // Test empty public keys

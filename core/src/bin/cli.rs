@@ -153,9 +153,7 @@ enum AggregatorCommands {
         #[arg(long)]
         network: Option<String>,
         #[arg(long)]
-        security_council_pks: Option<String>,
-        #[arg(long)]
-        security_council_threshold: Option<u32>,
+        security_council: Option<String>,
     },
     /// Process a new withdrawal
     NewWithdrawal {
@@ -717,8 +715,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
         AggregatorCommands::GetReplacementDepositAddress {
             move_txid,
             network,
-            security_council_pks,
-            security_council_threshold,
+            security_council,
         } => {
             let mut move_txid = hex::decode(move_txid).expect("Failed to decode txid");
             move_txid.reverse();
@@ -744,23 +741,16 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 None => bitcoin::Network::Regtest,
             };
 
+            let security_council = security_council
+                .map(|s| s.parse().expect("Failed to parse security council"))
+                .expect("Failed to parse security council");
+
             let (replacement_deposit_address, _) =
                 clementine_core::builder::address::generate_replacement_deposit_address(
                     move_txid,
                     nofn_xonly_pk,
                     network,
-                    SecurityCouncil {
-                        pks: security_council_pks
-                            .unwrap_or_default()
-                            .split(',')
-                            .filter(|s| !s.is_empty())
-                            .map(|pk| {
-                                bitcoin::XOnlyPublicKey::from_str(pk)
-                                    .expect("Failed to parse public key")
-                            })
-                            .collect(),
-                        threshold: security_council_threshold.unwrap_or(0),
-                    },
+                    security_council,
                 )
                 .expect("Failed to generate replacement deposit address");
 
