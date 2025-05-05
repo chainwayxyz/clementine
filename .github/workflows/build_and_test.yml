@@ -135,3 +135,43 @@ jobs:
 
     - name: Run tests
       run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
+
+  coverage:
+    needs:
+      - release_build_test
+      - debug_build_test
+      - bridge_circuit_release_build_test
+    runs-on: ubicloud-standard-30
+    if: github.event.pull_request.draft == false
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run coverage
+        run: cargo llvm-cov --locked --lcov --output-path lcov.info
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: true # optional (default = false)
+          files: ./lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
