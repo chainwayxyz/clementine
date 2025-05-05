@@ -307,10 +307,21 @@ where
                 )
             }
 
-            let agg_nonce =
-                parser::verifier::parse_deposit_finalize_param_agg_nonce(&mut in_stream).await?;
+            let move_tx_agg_nonce =
+                parser::verifier::parse_deposit_finalize_param_move_tx_agg_nonce(&mut in_stream)
+                    .await?;
             agg_nonce_tx
-                .send(agg_nonce)
+                .send(move_tx_agg_nonce)
+                .await
+                .map_err(error::output_stream_ended_prematurely)?;
+
+            let emergency_stop_agg_nonce =
+                parser::verifier::parse_deposit_finalize_param_emergency_stop_agg_nonce(
+                    &mut in_stream,
+                )
+                .await?;
+            agg_nonce_tx
+                .send(emergency_stop_agg_nonce)
                 .await
                 .map_err(error::output_stream_ended_prematurely)?;
 
