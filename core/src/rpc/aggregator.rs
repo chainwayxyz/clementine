@@ -355,10 +355,6 @@ async fn signature_distributor(
 
     // send emergency stop agg nonce to verifiers
     for tx in &deposit_finalize_sender {
-        tracing::info!(
-            "Aggregator is sending: Emergency stop agg nonce: {:?}",
-            hex::encode(emergency_stop_agg_nonce.serialize().to_vec())
-        );
         tx.send(VerifierDepositFinalizeParams {
             params: Some(Params::EmergencyStopAggNonce(
                 emergency_stop_agg_nonce.serialize().to_vec(),
@@ -665,10 +661,12 @@ impl Aggregator {
         // insert the signature into the tx
         emergency_stop_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
 
-        let _emergency_stop_tx = emergency_stop_txhandler.get_cached_tx();
-        let _move_to_vault_txid = move_txhandler.get_txid();
+        let emergency_stop_tx = emergency_stop_txhandler.get_cached_tx();
+        let move_to_vault_txid = move_txhandler.get_txid();
 
-        // self.db.save_emergency_stop_sigs(move_to_vault_txid, emergency_stop_tx).await?;
+        self.db
+            .set_signed_emergency_stop_tx(None, move_to_vault_txid, emergency_stop_tx)
+            .await?;
 
         Ok(())
     }
