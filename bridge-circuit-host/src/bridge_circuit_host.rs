@@ -74,6 +74,7 @@ pub fn prove_bridge_circuit(
         bridge_circuit_host_params.spv,
         bridge_circuit_host_params.light_client_proof,
         bridge_circuit_host_params.storage_proof,
+        bridge_circuit_host_params.watchtower_challenge_connector_start_idx,
     );
 
     let header_chain_proof_output_serialized =
