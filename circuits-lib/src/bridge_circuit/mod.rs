@@ -580,8 +580,7 @@ fn deposit_constant(
 
     let vout_concat = watchtower_challenge_prev_vouts
         .iter()
-        .map(|vout| vout.to_be_bytes())
-        .flatten()
+        .flat_map(|vout| vout.to_be_bytes())
         .collect::<Vec<u8>>();
 
     let vout_digest: [u8; 32] = Sha256::digest(&vout_concat).into();
