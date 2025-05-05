@@ -836,6 +836,7 @@ mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
     use bitcoin::TxOut;
+    use bitcoincore_rpc::json::GetRawTransactionResult;
     use std::result::Result;
     use std::time::Duration;
 
@@ -1344,7 +1345,10 @@ mod tests {
                     .get_raw_transaction_info(&tx.compute_txid(), None)
                     .await;
 
-                Ok(tx_result.is_ok() && tx_result.unwrap().confirmations.unwrap() > 0)
+                Ok(matches!(tx_result, Ok(GetRawTransactionResult {
+                    confirmations: Some(confirmations),
+                    ..
+                }) if confirmations > 0))
             },
             Some(Duration::from_secs(30)),
             Some(Duration::from_millis(100)),
