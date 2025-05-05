@@ -484,7 +484,7 @@ mod tests {
     }
 
     fn dummy_pubkey() -> PublicKey {
-        *bitvm_client::UNSPENDABLE_PUBKEY
+        bitvm_client::UNSPENDABLE_XONLY_PUBKEY.public_key(bitcoin::secp256k1::Parity::Even)
     }
 
     fn dummy_params() -> Parameters {
