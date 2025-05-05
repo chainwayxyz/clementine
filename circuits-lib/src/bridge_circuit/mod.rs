@@ -179,7 +179,9 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
         let vout = tx_input.previous_output.vout as usize;
 
-        let vout: u8 = vout.try_into().expect("Assumed vout is always less than 256");
+        let vout: u8 = vout
+            .try_into()
+            .expect("Assumed vout is always less than 256");
 
         watchtower_vouts.push(vout);
     }
