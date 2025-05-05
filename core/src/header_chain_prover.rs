@@ -22,7 +22,6 @@ use circuits_lib::header_chain::{
 use eyre::{eyre, Context};
 use lazy_static::lazy_static;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
-use std::u8;
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -34,8 +33,7 @@ const MAINNET_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/mainnet-header-chain-guest.bin");
 const TESTNET4_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
-const SIGNET_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/signet-header-chain-guest.bin");
+const SIGNET_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/signet-header-chain-guest.bin");
 const REGTEST_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-header-chain-guest.bin");
 
@@ -248,11 +246,11 @@ impl HeaderChainProver {
         let prover = risc0_zkvm::default_prover();
 
         let elf = match self.network {
-            Network::Bitcoin => MAINNET_ELF.as_ref(),
-            Network::Testnet => TESTNET4_ELF.as_ref(),
-            Network::Testnet4 => TESTNET4_ELF.as_ref(),
-            Network::Signet => SIGNET_ELF.as_ref(),
-            Network::Regtest => REGTEST_ELF.as_ref(),
+            Network::Bitcoin => MAINNET_ELF,
+            Network::Testnet => TESTNET4_ELF,
+            Network::Testnet4 => TESTNET4_ELF,
+            Network::Signet => SIGNET_ELF,
+            Network::Regtest => REGTEST_ELF,
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
