@@ -30,6 +30,7 @@ use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 use eyre::Context;
 use hex;
+use input::UtxoVout;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
@@ -564,7 +565,6 @@ pub fn create_move_to_vault_txhandler(
     let nofn_xonly_pk = deposit_data.get_nofn_xonly_pk()?;
     let deposit_outpoint = deposit_data.get_deposit_outpoint();
     let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
-
     let security_council_script = Arc::new(Multisig::from_security_council(
         deposit_data.security_council.clone(),
     ));
@@ -660,7 +660,7 @@ pub fn create_emergency_stop_txhandler(
         )
         .add_output(UnspentTxOut::from_scripts(
             paramset.bridge_amount - ANCHOR_AMOUNT,
-            vec![Arc::new(Multisig::new(security_council))],
+            vec![Arc::new(Multisig::from_security_council(security_council))],
             None,
             paramset.network,
         ))

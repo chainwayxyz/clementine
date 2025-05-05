@@ -14,7 +14,7 @@ use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
 use crate::builder::transaction::SecurityCouncil;
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::{Amount, XOnlyPublicKey};
+use bitcoin::Amount;
 use protocol::ProtocolParamset;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
