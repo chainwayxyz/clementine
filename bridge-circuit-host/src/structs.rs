@@ -1,6 +1,6 @@
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
-use bitcoin::{Network, Transaction, XOnlyPublicKey};
+use bitcoin::{Network, Transaction, Txid, XOnlyPublicKey};
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use circuits_lib::{
     bridge_circuit::{
@@ -83,7 +83,8 @@ impl BridgeCircuitHostParams {
         network: Network,
         watchtower_contexts: &[WatchtowerContext],
     ) -> Result<Self, BridgeCircuitHostParamsError> {
-        let watchtower_inputs = Self::get_wt_inputs(&kickoff_tx, watchtower_contexts)?;
+        let watchtower_inputs =
+            Self::get_wt_inputs(kickoff_tx.compute_txid(), watchtower_contexts)?;
 
         let block_header_circuit_output: BlockHeaderCircuitOutput =
             borsh::from_slice(&headerchain_receipt.journal.bytes)
@@ -106,14 +107,14 @@ impl BridgeCircuitHostParams {
     }
 
     fn get_wt_inputs(
-        kickoff_tx: &Transaction,
+        kickoff_tx_id: Txid,
         watchtower_contexts: &[WatchtowerContext],
     ) -> Result<Vec<WatchtowerInput>, BridgeCircuitHostParamsError> {
         watchtower_contexts
             .iter()
             .map(|context| {
                 WatchtowerInput::from_txs(
-                    kickoff_tx,
+                    kickoff_tx_id,
                     context.watchtower_tx.clone(),
                     context.previous_txs,
                 )
@@ -149,7 +150,7 @@ impl BridgeCircuitHostParams {
 
 pub struct WatchtowerContext<'a> {
     pub watchtower_tx: Transaction,
-    pub previous_txs: Option<&'a [Transaction]>,
+    pub previous_txs: &'a [Transaction],
 }
 
 #[derive(Debug, Clone, Copy)]
