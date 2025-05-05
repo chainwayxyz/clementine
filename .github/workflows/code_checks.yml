@@ -51,43 +51,6 @@ jobs:
           version: "latest"
           args: "--workspace --all-features --all-targets"
 
-  coverage:
-    name: Check code coverage percentage
-    runs-on: ubicloud-standard-16
-    if: false
-
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-          POSTGRES_INITDB_ARGS: "-c shared_buffers=8GB -c max_connections=1000"
-
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-      - uses: ./.github/actions/build-prerequisites
-      - uses: ./.github/actions/test-prerequisites
-
-      - name: Install Rust
-        run: rustup update stable
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Generate code coverage and print that to a JSON file
-        run: cargo llvm-cov --json --output-path lcov.json --ignore-filename-regex core/src/rpc/clementine.rs # TODO: Remove ignore and test auto generated code too
-      - name: Check coverage
-        run: scripts/check_json_code_coverage.py lcov.json
-
   todo:
     name: Check for TODO statements
     runs-on: ubuntu-latest
