@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use crate::common::constants::{
     FIRST_FIVE_OUTPUTS, MAX_NUMBER_OF_WATCHTOWERS, NUMBER_OF_ASSERT_TXS,
 };
-use bitcoin::{Amount, ScriptBuf, Transaction, TxOut, Txid, Witness};
+use bitcoin::{hashes::Hash, Amount, ScriptBuf, Transaction, TxOut, Txid, Witness};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -201,7 +201,7 @@ impl WatchtowerInput {
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BridgeCircuitInput {
-    pub kickoff_tx: CircuitTransaction, // BridgeCircuitTransaction
+    pub kickoff_tx_id: CircuitTxid, // BridgeCircuitTransaction
     // Add all watchtower pubkeys as global input as Vec<[u8; 32]> Which should be shorter than or equal to 160 elements
     pub all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>, // Per watchtower [u8; 34] or OP_PUSHNUM_1 OP_PUSHBYTES_32 <TweakedXOnlyPublicKey> which is [u8; 32]
     pub watchtower_inputs: Vec<WatchtowerInput>,
@@ -213,23 +213,23 @@ pub struct BridgeCircuitInput {
 
 impl BridgeCircuitInput {
     pub fn new(
-        kickoff_tx: CircuitTransaction,
+        kickoff_tx_id: Txid,
         watchtower_inputs: Vec<WatchtowerInput>,
         all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
         lcp: LightClientProof,
         sp: StorageProof,
-    ) -> Result<Self, &'static str> {
-        Ok(Self {
-            kickoff_tx,
+    ) -> Self {
+        Self {
+            kickoff_tx_id: CircuitTxid::from(kickoff_tx_id),
             watchtower_inputs,
             hcp,
             payout_spv,
             lcp,
             sp,
             all_tweaked_watchtower_pubkeys,
-        })
+        }
     }
 }
 
@@ -348,5 +348,64 @@ impl DerefMut for CircuitWitness {
 impl From<Witness> for CircuitWitness {
     fn from(witness: Witness) -> Self {
         Self(witness)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
+pub struct CircuitTxid(pub Txid);
+
+impl CircuitTxid {
+    pub fn from(tx_id: Txid) -> Self {
+        Self(tx_id)
+    }
+
+    pub fn inner(&self) -> &Txid {
+        &self.0
+    }
+}
+
+impl BorshSerialize for CircuitTxid {
+    #[inline]
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        BorshSerialize::serialize(&self.0.as_byte_array(), writer)?;
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for CircuitTxid {
+    #[inline]
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let tx_data: [u8; 32] =
+            Vec::<u8>::deserialize_reader(reader)?
+                .try_into()
+                .map_err(|_| {
+                    borsh::io::Error::new(
+                        borsh::io::ErrorKind::InvalidData,
+                        "Failed to convert Vec<u8> to [u8; 32]",
+                    )
+                })?;
+
+        let tx_id = Txid::from_byte_array(tx_data);
+
+        Ok(Self(tx_id))
+    }
+}
+
+impl Deref for CircuitTxid {
+    type Target = Txid;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CircuitTxid {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<Txid> for CircuitTxid {
+    fn from(tx_id: Txid) -> Self {
+        Self(tx_id)
     }
 }

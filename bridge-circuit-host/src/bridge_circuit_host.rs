@@ -66,15 +66,15 @@ pub fn prove_bridge_circuit(
         .map(|pubkey| pubkey.serialize())
         .collect();
 
-    let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
-        kickoff_tx: bridge_circuit_host_params.kickoff_tx,
-        watchtower_inputs: bridge_circuit_host_params.watchtower_inputs,
-        hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
-        payout_spv: bridge_circuit_host_params.spv,
-        lcp: bridge_circuit_host_params.light_client_proof,
-        sp: bridge_circuit_host_params.storage_proof,
+    let bridge_circuit_input = BridgeCircuitInput::new(
+        bridge_circuit_host_params.kickoff_tx_id,
+        bridge_circuit_host_params.watchtower_inputs,
         all_tweaked_watchtower_pubkeys,
-    };
+        bridge_circuit_host_params.block_header_circuit_output,
+        bridge_circuit_host_params.spv,
+        bridge_circuit_host_params.light_client_proof,
+        bridge_circuit_host_params.storage_proof,
+    );
 
     let header_chain_proof_output_serialized =
         borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
@@ -327,7 +327,7 @@ fn generate_succinct_bridge_circuit_public_inputs(
 
     let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
 
-    let kickoff_txid = input.kickoff_tx.compute_txid().to_byte_array();
+    let kickoff_txid = input.kickoff_tx_id.to_byte_array();
     SuccinctBridgeCircuitPublicInputs {
         kickoff_txid,
         challenge_sending_watchtowers,

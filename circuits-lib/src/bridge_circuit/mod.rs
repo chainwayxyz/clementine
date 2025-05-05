@@ -14,7 +14,7 @@ use bitcoin::{
     opcodes,
     script::Instruction,
     sighash::{Prevouts, SighashCache, TaprootError},
-    Script, TapSighash, TapSighashType, Transaction, TxOut, Txid,
+    Script, TapSighash, TapSighashType, Transaction, TxIn, TxOut, Txid,
 };
 
 use core::panic;
@@ -101,7 +101,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);
 
-    let kickoff_txid = input.kickoff_tx.compute_txid(); // TODO: Maybe use `txid` instead of `compute_txid`
+    let kickoff_txid = input.kickoff_tx_id; // TODO: Maybe use `txid` instead of `compute_txid`
 
     let (max_total_work, challenge_sending_watchtowers) =
         total_work_and_watchtower_flags(&kickoff_txid, &input, &work_only_image_id);
@@ -150,9 +150,44 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
     let last_output = input.payout_spv.transaction.output.last().unwrap();
 
+    let mut watchtower_vouts = Vec::with_capacity(input.watchtower_inputs.len());
+
+    for watchtower_input in input.watchtower_inputs.iter() {
+        // Checked in `verify_watchtower_challenges` so this is actually redundant
+        if watchtower_input.watchtower_challenge_input_idx as usize
+            >= watchtower_input.watchtower_challenge_tx.input.len()
+        {
+            panic!(
+                "Invalid watchtower challenge input index, watchtower index: {}",
+                watchtower_input.watchtower_idx
+            );
+        }
+
+        let tx_input: &TxIn = &watchtower_input.watchtower_challenge_tx.input
+            [watchtower_input.watchtower_challenge_input_idx as usize];
+
+        // This one also checked in `verify_watchtower_challenges`, but let's keep it here for safety
+        if tx_input.previous_output.txid != *kickoff_txid {
+            panic!(
+                "Invalid input: expected input to reference an output from the kickoff transaction (txid: {}), but got txid: {}, vout: {}, watchtower index: {}",
+                kickoff_txid.0,
+                tx_input.previous_output.txid,
+                tx_input.previous_output.vout,
+                watchtower_input.watchtower_idx
+            );
+        };
+
+        let vout = tx_input.previous_output.vout as usize;
+
+        let vout: u8 = vout.try_into().expect("Assumed vout is always less than 256");
+
+        watchtower_vouts.push(vout);
+    }
+
     let deposit_constant = deposit_constant(
         last_output,
         &kickoff_txid,
+        &watchtower_vouts,
         &input.all_tweaked_watchtower_pubkeys,
         move_tx_id,
     );
@@ -256,14 +291,16 @@ fn verify_watchtower_challenges(
 
         let prevouts = Prevouts::All(&inner_txouts);
 
-        if watchtower_input.watchtower_challenge_tx.input.len()
-            <= watchtower_input.watchtower_challenge_input_idx as usize
-        {
+        let watchtower_input_idx = watchtower_input.watchtower_challenge_input_idx as usize;
+
+        if watchtower_input.watchtower_challenge_tx.input.len() <= watchtower_input_idx {
             panic!(
                 "Invalid watchtower challenge input index, watchtower index: {}",
                 watchtower_input.watchtower_idx
             );
         }
+
+        let input = watchtower_input.watchtower_challenge_tx.input[watchtower_input_idx].clone();
 
         let (sighash_type, sig_bytes): (TapSighashType, [u8; 64]) = {
             let signature = watchtower_input.watchtower_challenge_witness.0.to_vec()[0].clone();
@@ -295,7 +332,7 @@ fn verify_watchtower_challenges(
         let Ok(sighash) = sighash(
             &watchtower_input.watchtower_challenge_tx,
             &prevouts,
-            watchtower_input.watchtower_challenge_input_idx as usize,
+            watchtower_input_idx,
             sighash_type,
         ) else {
             panic!(
@@ -304,13 +341,7 @@ fn verify_watchtower_challenges(
             );
         };
 
-        let input = watchtower_input.watchtower_challenge_tx.input
-            [watchtower_input.watchtower_challenge_input_idx as usize]
-            .clone();
-
-        if input.previous_output.txid != *kickoff_txid
-            || circuit_input.kickoff_tx.output.len() <= input.previous_output.vout as usize
-        {
+        if input.previous_output.txid != *kickoff_txid {
             panic!(
                 "Invalid input: expected input to reference an output from the kickoff transaction (txid: {}), but got txid: {}, vout: {}, watchtower index: {}",
                 kickoff_txid,
@@ -320,7 +351,14 @@ fn verify_watchtower_challenges(
             );
         };
 
-        let output = circuit_input.kickoff_tx.output[input.previous_output.vout as usize].clone();
+        if watchtower_input_idx >= inner_txouts.len() {
+            panic!(
+                "Invalid watchtower challenge input index, watchtower index: {}",
+                watchtower_input.watchtower_idx
+            );
+        }
+
+        let output = inner_txouts[watchtower_input_idx].clone();
 
         let script_pubkey = output.script_pubkey.clone();
 
@@ -510,6 +548,7 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
 fn deposit_constant(
     last_output: &TxOut,
     kickoff_txid: &Txid,
+    watchtower_challenge_prev_vouts: &[u8],
     watchtower_pubkeys: &[[u8; 32]],
     move_txid_hex: [u8; 32],
 ) -> [u8; 32] {
@@ -537,10 +576,19 @@ fn deposit_constant(
         .flat_map(|pubkey| pubkey.to_vec())
         .collect::<Vec<u8>>();
 
+    let vout_concat = watchtower_challenge_prev_vouts
+        .iter()
+        .map(|vout| vout.to_be_bytes())
+        .flatten()
+        .collect::<Vec<u8>>();
+
+    let vout_digest: [u8; 32] = Sha256::digest(&vout_concat).into();
     let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
+
     let pre_deposit_constant = [
         kickoff_txid.to_byte_array(),
         move_txid_hex,
+        vout_digest,
         watchtower_pubkeys_digest,
         operator_id,
     ]
@@ -563,7 +611,7 @@ mod tests {
     use super::{
         merkle_tree::BlockInclusionProof,
         spv::SPV,
-        structs::{CircuitTxOut, CircuitWitness, WatchtowerInput},
+        structs::{CircuitTxOut, CircuitTxid, CircuitWitness, WatchtowerInput},
         transaction::CircuitTransaction,
         *,
     };
@@ -631,7 +679,7 @@ mod tests {
             pubkey.try_into().expect("Pubkey must be 32 bytes");
 
         let input = BridgeCircuitInput {
-            kickoff_tx: CircuitTransaction(kickoff_tx.clone()),
+            kickoff_tx_id: CircuitTxid::from(kickoff_tx.compute_txid()),
             watchtower_inputs: vec![WatchtowerInput {
                 watchtower_idx: operator_idx,
                 watchtower_challenge_witness: CircuitWitness(witness),

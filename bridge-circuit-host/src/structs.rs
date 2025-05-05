@@ -6,7 +6,6 @@ use circuits_lib::{
     bridge_circuit::{
         spv::SPV,
         structs::{LightClientProof, StorageProof, WatchtowerInput},
-        transaction::CircuitTransaction,
     },
     header_chain::BlockHeaderCircuitOutput,
 };
@@ -17,7 +16,7 @@ use crate::utils::get_ark_verifying_key;
 
 #[derive(Debug, Clone)]
 pub struct BridgeCircuitHostParams {
-    pub kickoff_tx: CircuitTransaction,
+    pub kickoff_tx_id: Txid,
     pub spv: SPV,
     pub block_header_circuit_output: BlockHeaderCircuitOutput,
     pub headerchain_receipt: Receipt,
@@ -47,7 +46,7 @@ impl BridgeCircuitHostParams {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        kickoff_tx: Transaction,
+        kickoff_tx_id: Txid,
         spv: SPV,
         block_header_circuit_output: BlockHeaderCircuitOutput,
         headerchain_receipt: Receipt,
@@ -59,7 +58,7 @@ impl BridgeCircuitHostParams {
         all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
     ) -> Self {
         BridgeCircuitHostParams {
-            kickoff_tx: CircuitTransaction::from(kickoff_tx),
+            kickoff_tx_id,
             spv,
             block_header_circuit_output,
             headerchain_receipt,
@@ -93,7 +92,7 @@ impl BridgeCircuitHostParams {
         let all_tweaked_watchtower_pubkeys = Self::get_all_pubkeys(&kickoff_tx)?;
 
         Ok(BridgeCircuitHostParams {
-            kickoff_tx: CircuitTransaction::from(kickoff_tx),
+            kickoff_tx_id: kickoff_tx.compute_txid(),
             spv,
             block_header_circuit_output,
             headerchain_receipt,
