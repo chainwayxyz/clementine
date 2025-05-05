@@ -440,12 +440,12 @@ where
                 }
             }
 
-            let last_nonce = session
-                .nonces
-                .pop()
-                .ok_or(eyre::eyre!("No last nonce available"))?;
-            session.nonces.clear();
-            session.nonces.push(last_nonce);
+            assert_eq!(
+                session.nonces.len(),
+                2,
+                "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}",
+                session.nonces.len()
+            );
 
             Ok::<(), BridgeError>(())
         });
@@ -581,6 +581,20 @@ where
             self.signer.xonly_public_key.to_string()
         );
 
+        let move_tx_agg_nonce = agg_nonce_receiver
+            .recv()
+            .await
+            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
+
+        let emergency_stop_agg_nonce = agg_nonce_receiver
+            .recv()
+            .await
+            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
+
+        tracing::info!(
+            "Verifier{} Received move tx and emergency stop aggregated nonces",
+            self.signer.xonly_public_key.to_string()
+        );
         // ------ OPERATOR SIGNATURES VERIFICATION ------
 
         let num_required_total_op_sigs = num_required_op_sigs * deposit_data.get_num_operators();
@@ -677,11 +691,6 @@ where
             bitcoin::TapSighashType::Default,
         )?;
 
-        let agg_nonce = agg_nonce_receiver
-            .recv()
-            .await
-            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
-
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
             let session = session_map
@@ -694,12 +703,24 @@ where
                 .ok_or_eyre("No move tx secnonce in session")?
         };
 
+        let emergency_stop_secnonce = {
+            let mut session_map = self.nonces.lock().await;
+            let session = session_map
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            session
+                .nonces
+                .pop()
+                .ok_or_eyre("No emergency stop secnonce in session")?
+        };
+
         // sign move tx and save everything to db if everything is correct
         let move_tx_partial_sig = musig2::partial_sign(
             deposit_data.get_verifiers(),
             None,
             movetx_secnonce,
-            agg_nonce,
+            move_tx_agg_nonce,
             self.signer.keypair,
             Message::from_digest(move_tx_sighash.to_byte_array()),
         )?;
@@ -722,28 +743,11 @@ where
                 bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
             )?;
 
-        let agg_nonce = agg_nonce_receiver
-            .recv()
-            .await
-            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
-
-        let emergency_stop_secnonce = {
-            let mut session_map = self.nonces.lock().await;
-            let session = session_map
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
-            session
-                .nonces
-                .pop()
-                .ok_or_eyre("No emergency stop secnonce in session")?
-        };
-
         let emergency_stop_partial_sig = musig2::partial_sign(
             deposit_data.get_verifiers(),
             None,
             emergency_stop_secnonce,
-            agg_nonce,
+            emergency_stop_agg_nonce,
             self.signer.keypair,
             Message::from_digest(emergency_stop_sighash.to_byte_array()),
         )?;

@@ -6,7 +6,7 @@ use super::clementine::{AggregatorWithdrawResponse, Deposit, VerifierPublicKeys,
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler, Actors, DepositData,
-    DepositInfo, SecurityCouncil, Signed, TransactionType, TxHandler,
+    DepositInfo, Signed, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
@@ -298,6 +298,7 @@ async fn signature_aggregator(
 }
 
 /// Reroutes aggregated signatures to the caller.
+/// Also sends 2 aggregated nonces to the verifiers.
 async fn signature_distributor(
     mut final_sig_receiver: Receiver<FinalSigQueueItem>,
     deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
@@ -354,6 +355,10 @@ async fn signature_distributor(
 
     // send emergency stop agg nonce to verifiers
     for tx in &deposit_finalize_sender {
+        tracing::info!(
+            "Aggregator is sending: Emergency stop agg nonce: {:?}",
+            hex::encode(emergency_stop_agg_nonce.serialize().to_vec())
+        );
         tx.send(VerifierDepositFinalizeParams {
             params: Some(Params::EmergencyStopAggNonce(
                 emergency_stop_agg_nonce.serialize().to_vec(),
@@ -642,6 +647,7 @@ impl Aggregator {
         )?;
 
         let verifiers_public_keys = deposit_data.get_verifiers();
+
         let final_sig = crate::musig2::aggregate_partial_signatures(
             &verifiers_public_keys,
             None,
@@ -649,7 +655,12 @@ impl Aggregator {
             &musig_partial_sigs,
             Message::from_digest(sighash.to_byte_array()),
         )
-        .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
+        .map_err(|x| {
+            BridgeError::Error(format!(
+                "Aggregating Emergency Stop signatures failed {}",
+                x
+            ))
+        })?;
 
         // insert the signature into the tx
         emergency_stop_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
@@ -1105,7 +1116,7 @@ impl ClementineAggregator for Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
 
-        let (emergency_stop_sigs, move_to_vault_sigs): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
+        let (move_to_vault_sigs, emergency_stop_sigs): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
             partial_sigs.into_iter().unzip();
 
         tracing::debug!("Received move tx partial sigs: {:?}", move_to_vault_sigs);
