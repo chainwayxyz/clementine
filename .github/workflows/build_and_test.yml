@@ -137,11 +137,9 @@ jobs:
       run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
 
   coverage:
-    needs:
-      - release_build_test
-      - debug_build_test
-      - bridge_circuit_release_build_test
+    name: Coverage checks with Codecov
     runs-on: ubicloud-standard-30
+    needs: debug_build_test
     if: github.event.pull_request.draft == false
 
     services:
