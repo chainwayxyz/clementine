@@ -24,6 +24,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 lazy_static::lazy_static! {
+    /// Global secp context.
+    pub static ref SECP: bitcoin::secp256k1::Secp256k1<bitcoin::secp256k1::All> = bitcoin::secp256k1::Secp256k1::new();
+}
+
+lazy_static::lazy_static! {
     /// This is an unspendable pubkey.
     ///
     /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
