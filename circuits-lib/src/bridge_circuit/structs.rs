@@ -1,9 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::common::constants::{
-    FIRST_FIVE_OUTPUTS, MAX_NUMBER_OF_WATCHTOWERS, NUMBER_OF_ASSERT_TXS,
-};
-use bitcoin::{Amount, ScriptBuf, Transaction, TxOut, Txid, Witness};
+use crate::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
+use bitcoin::{hashes::Hash, Amount, ScriptBuf, Transaction, TxOut, Txid, Witness};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -52,8 +50,8 @@ pub struct StorageProof {
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WatchtowerInput {
-    pub watchtower_idx: u8,                            // Which watchtower this is
-    pub watchtower_challenge_input_idx: u8, // Which input index this challenge connector txout goes to
+    pub watchtower_idx: u16,                           // Which watchtower this is
+    pub watchtower_challenge_input_idx: u16, // Which input index this challenge connector txout goes to
     pub watchtower_challenge_utxos: Vec<CircuitTxOut>, // BridgeCircuitUTXO TxOut serialized and all the prevouts for watchtower challenge tx, Vec<TxOut>
     pub watchtower_challenge_tx: CircuitTransaction, // BridgeCircuitTransaction challenge tx itself for each watchtower
     pub watchtower_challenge_witness: CircuitWitness, // Witness
@@ -61,8 +59,8 @@ pub struct WatchtowerInput {
 
 impl WatchtowerInput {
     pub fn new(
-        watchtower_idx: u8,
-        watchtower_challenge_input_idx: u8,
+        watchtower_idx: u16,
+        watchtower_challenge_input_idx: u16,
         watchtower_challenge_utxos: Vec<TxOut>,
         watchtower_challenge_tx: Transaction,
         watchtower_challenge_witness: Witness,
@@ -129,14 +127,13 @@ impl WatchtowerInput {
         kickoff_tx_id: Txid,
         watchtower_tx: Transaction,
         previous_txs: &[Transaction],
+        watchtower_challenge_connector_start_idx: u16,
     ) -> Result<Self, &'static str> {
-        let kickoff_txid = kickoff_tx_id;
-
         let watchtower_challenge_input_idx = watchtower_tx
             .input
             .iter()
-            .position(|input| input.previous_output.txid == kickoff_txid)
-            .map(|ind| ind as u8)
+            .position(|input| input.previous_output.txid == kickoff_tx_id)
+            .map(|ind| ind as u16)
             .ok_or("Kickoff txid not found in watchtower inputs")?;
 
         let output_index = watchtower_tx.input[watchtower_challenge_input_idx as usize]
@@ -144,7 +141,7 @@ impl WatchtowerInput {
             .vout as usize;
 
         let watchtower_index = output_index
-            .checked_sub(FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS)
+            .checked_sub(watchtower_challenge_connector_start_idx as usize)
             .ok_or("Output index underflow")?
             / 2;
 
@@ -153,7 +150,7 @@ impl WatchtowerInput {
         }
 
         let watchtower_idx =
-            u8::try_from(watchtower_index).expect("Cannot fail, already checked bounds");
+            u16::try_from(watchtower_index).expect("Cannot fail, already checked bounds");
 
         let watchtower_challenge_utxos: Vec<CircuitTxOut> = watchtower_tx
             .input
@@ -201,7 +198,7 @@ impl WatchtowerInput {
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BridgeCircuitInput {
-    pub kickoff_tx: CircuitTransaction, // BridgeCircuitTransaction
+    pub kickoff_tx_id: CircuitTxid, // BridgeCircuitTransaction
     // Add all watchtower pubkeys as global input as Vec<[u8; 32]> Which should be shorter than or equal to 160 elements
     pub all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>, // Per watchtower [u8; 34] or OP_PUSHNUM_1 OP_PUSHBYTES_32 <TweakedXOnlyPublicKey> which is [u8; 32]
     pub watchtower_inputs: Vec<WatchtowerInput>,
@@ -209,27 +206,31 @@ pub struct BridgeCircuitInput {
     pub payout_spv: SPV,
     pub lcp: LightClientProof,
     pub sp: StorageProof,
+    pub watchtower_challenge_connector_start_idx: u16,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl BridgeCircuitInput {
     pub fn new(
-        kickoff_tx: CircuitTransaction,
+        kickoff_tx_id: Txid,
         watchtower_inputs: Vec<WatchtowerInput>,
         all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
         lcp: LightClientProof,
         sp: StorageProof,
-    ) -> Result<Self, &'static str> {
-        Ok(Self {
-            kickoff_tx,
+        watchtower_challenge_connector_start_idx: u16,
+    ) -> Self {
+        Self {
+            kickoff_tx_id: CircuitTxid::from(kickoff_tx_id),
             watchtower_inputs,
             hcp,
             payout_spv,
             lcp,
             sp,
             all_tweaked_watchtower_pubkeys,
-        })
+            watchtower_challenge_connector_start_idx,
+        }
     }
 }
 
@@ -348,5 +349,64 @@ impl DerefMut for CircuitWitness {
 impl From<Witness> for CircuitWitness {
     fn from(witness: Witness) -> Self {
         Self(witness)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
+pub struct CircuitTxid(pub Txid);
+
+impl CircuitTxid {
+    pub fn from(tx_id: Txid) -> Self {
+        Self(tx_id)
+    }
+
+    pub fn inner(&self) -> &Txid {
+        &self.0
+    }
+}
+
+impl BorshSerialize for CircuitTxid {
+    #[inline]
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        BorshSerialize::serialize(&self.0.as_byte_array(), writer)?;
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for CircuitTxid {
+    #[inline]
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let tx_data: [u8; 32] =
+            Vec::<u8>::deserialize_reader(reader)?
+                .try_into()
+                .map_err(|_| {
+                    borsh::io::Error::new(
+                        borsh::io::ErrorKind::InvalidData,
+                        "Failed to convert Vec<u8> to [u8; 32]",
+                    )
+                })?;
+
+        let tx_id = Txid::from_byte_array(tx_data);
+
+        Ok(Self(tx_id))
+    }
+}
+
+impl Deref for CircuitTxid {
+    type Target = Txid;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CircuitTxid {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<Txid> for CircuitTxid {
+    fn from(tx_id: Txid) -> Self {
+        Self(tx_id)
     }
 }
