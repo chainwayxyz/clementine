@@ -193,8 +193,6 @@ pub async fn fetch_storage_proof(
 
     let response: EIP1186AccountProofResponse = serde_json::from_value(response).unwrap();
 
-    println!("Response: {:?}", response);
-
     let serialized_utxo = serde_json::to_string(&response.storage_proof[0]).unwrap();
 
     let serialized_vout = serde_json::to_string(&response.storage_proof[1]).unwrap();
