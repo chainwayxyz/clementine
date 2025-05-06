@@ -109,6 +109,7 @@ impl TestCase for TxSenderReorgBehavior {
         )
         .await
         .unwrap();
+        let txid = tx.compute_txid();
 
         // Reorg will happen before the deposit tx.
         f.bitcoin_nodes.disconnect_nodes().await?;
@@ -130,6 +131,7 @@ impl TestCase for TxSenderReorgBehavior {
             .unwrap();
         dbtx.commit().await.unwrap();
 
+        // TODO: Don't do this.
         sleep(Duration::from_secs(3));
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3));
@@ -138,13 +140,18 @@ impl TestCase for TxSenderReorgBehavior {
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3));
         rpc.mine_blocks(1).await.unwrap();
+
+        let start = std::time::Instant::now();
         loop {
-            let txid = tx.compute_txid();
             let tx_info = rpc.client.get_raw_transaction_info(&txid, None).await;
             if tx_info.is_ok() && tx_info.unwrap().blockhash.is_some() {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+            if start.elapsed() > Duration::from_secs(10) {
+                panic!("Timeout waiting for tx to be mined");
+            }
         }
 
         let before_reorg_tip_height = rpc.client.get_block_count().await?;
@@ -168,12 +175,36 @@ impl TestCase for TxSenderReorgBehavior {
             "Re-org did not occur"
         );
 
+        assert!(rpc
+            .client
+            .get_raw_transaction_info(&txid, None)
+            .await
+            .unwrap()
+            .blockhash
+            .is_none());
+
+        // Transaction should be included in the next block.
+        rpc.mine_blocks(1).await.unwrap();
+        let current_tip_hash = rpc
+            .client
+            .get_block_hash(rpc.client.get_block_count().await?)
+            .await?;
+        assert_eq!(
+            rpc.client
+                .get_raw_transaction_info(&txid, None)
+                .await
+                .unwrap()
+                .blockhash
+                .unwrap(),
+            current_tip_hash
+        );
+
         Ok(())
     }
 }
 
 #[tokio::test]
-async fn tx_sender_reorg_behavior() -> Result<()> {
+async fn reorg_on_cpfp_tx() -> Result<()> {
     TestCaseRunner::new(TxSenderReorgBehavior).run().await
 }
 
@@ -319,14 +350,20 @@ impl TestCase for ReorgOnDeposit {
             .unwrap()
             .blockhash
             .is_none());
-
-        // Wait till tx_sender can send the fee_payer_tx to the mempool and then mine it
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        rpc.mine_blocks(1).await.unwrap();
-
-        mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None)
+        let raw_tx = rpc
+            .client
+            .get_raw_transaction(&move_txid, None)
             .await
             .unwrap();
+        rpc.client.send_raw_transaction(&raw_tx).await.unwrap();
+
+        // Wait till tx_sender can send the fee_payer_tx to the mempool and then mine it
+        // tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        rpc.mine_blocks(1).await.unwrap();
+
+        // mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None)
+        //     .await
+        //     .unwrap();
         assert!(rpc
             .client
             .get_raw_transaction_info(&move_txid, None)
