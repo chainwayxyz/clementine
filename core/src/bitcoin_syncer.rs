@@ -218,7 +218,7 @@ pub async fn set_initial_block_info_if_not_exists(
     Ok(())
 }
 
-/// Fetches the next block from Bitcoin, if it exists. Will also fetch previous
+/// Fetches the next block from Bitcoin, if exists. Will also fetch previous
 /// blocks if the parent is missing, up to 100 blocks.
 ///
 /// # Parameters
@@ -227,8 +227,9 @@ pub async fn set_initial_block_info_if_not_exists(
 ///
 /// # Returns
 ///
-/// `Ok(Some(new_blocks))` if new blocks are found or `Ok(None)` if no new block is available.
-async fn fetch_new_blocks(
+/// - [`None`] - If no new block is available.
+/// - [`Vec<BlockInfo>`] - If new blocks are found.
+async fn fetch_next_block(
     db: &Database,
     rpc: &ExtendedRpc,
     current_height: u32,
@@ -240,9 +241,12 @@ async fn fetch_new_blocks(
         Ok(hash) => hash,
         Err(_) => return Ok(None),
     };
-    tracing::debug!("New block hash: {:?}, height {}", block_hash, next_height);
+    tracing::debug!(
+        "Fetching block with hash of {:?} and height of {}...",
+        block_hash,
+        next_height
+    );
 
-    // Fetch its header.
     let mut block_header = rpc
         .client
         .get_block_header(&block_hash)
@@ -261,12 +265,15 @@ async fn fetch_new_blocks(
         .is_none()
     {
         let prev_block_hash = block_header.prev_blockhash;
+
         block_header = rpc
             .client
             .get_block_header(&prev_block_hash)
             .await
             .wrap_err("Failed to get block header")?;
+
         let new_height = new_blocks.last().expect("new_blocks is empty").height - 1;
+
         new_blocks.push(BlockInfo {
             hash: prev_block_hash,
             _header: block_header,
@@ -275,8 +282,8 @@ async fn fetch_new_blocks(
 
         if new_blocks.len() >= 100 {
             return Err(eyre::eyre!(
-                "Blockgazer can't synchronize database with active blockchain; Too deep {}",
-                new_height as u64
+                "Bitcoin syncer can't synchronize database with active blockchain: Too deep to continue (last saved block was at height {})",
+                new_height
             )
             .into());
         }
@@ -289,6 +296,7 @@ async fn fetch_new_blocks(
 }
 
 /// Marks blocks above the common ancestor as non-canonical and emits reorg events.
+#[tracing::instrument(skip(db, dbtx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 async fn handle_reorg_events(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
@@ -297,6 +305,9 @@ async fn handle_reorg_events(
     let reorg_blocks = db
         .set_non_canonical_block_hashes(Some(dbtx), common_ancestor_height)
         .await?;
+    if !reorg_blocks.is_empty() {
+        tracing::debug!("Reorg occured! Block ids: {:?}", reorg_blocks);
+    }
 
     for reorg_block_id in reorg_blocks {
         db.add_event(Some(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_block_id))
@@ -391,56 +402,42 @@ impl IntoTask for BitcoinSyncer {
 impl Task for BitcoinSyncerTask {
     type Output = bool;
 
+    #[tracing::instrument(skip(self))]
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
-        tracing::debug!("BitcoinSyncer: Fetching new blocks");
-
-        // Try to fetch new blocks (if any) from the RPC.
-        let maybe_new_blocks = fetch_new_blocks(&self.db, &self.rpc, self.current_height).await?;
-
-        tracing::debug!(
-            "BitcoinSyncer: Maybe new blocks: {:?} {}",
-            maybe_new_blocks.is_some(),
-            self.current_height,
-        );
-
-        // If there are no new blocks, return false to indicate no work was done
-        let new_blocks = match maybe_new_blocks {
+        let new_blocks = match fetch_next_block(&self.db, &self.rpc, self.current_height).await? {
             Some(blocks) if !blocks.is_empty() => {
-                tracing::debug!("BitcoinSyncer: New blocks: {:?}", blocks.len());
+                tracing::debug!(
+                    "{} new blocks found after current height {}",
+                    blocks.len(),
+                    self.current_height
+                );
+
                 blocks
             }
             _ => {
+                tracing::debug!(
+                    "No new blocks found after current height: {}",
+                    self.current_height
+                );
+
                 return Ok(false);
             }
         };
 
-        tracing::debug!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
-
         // The common ancestor is the block preceding the first new block.
+        // Please note that this won't always be the `self.current_height`.
+        // Because `fetch_next_block` can fetch older blocks, if db is missing
+        // them.
         let common_ancestor_height = new_blocks[0].height - 1;
-        tracing::debug!(
-            "BitcoinSyncer: Common ancestor height: {:?}",
-            common_ancestor_height
-        );
+        tracing::debug!("Common ancestor height: {:?}", common_ancestor_height);
+
         let mut dbtx = self.db.begin_transaction().await?;
-
-        // Mark reorg blocks (if any) as non-canonical.
         handle_reorg_events(&self.db, &mut dbtx, common_ancestor_height).await?;
-        tracing::debug!("BitcoinSyncer: Marked reorg blocks as non-canonical");
-
-        // Process and insert the new blocks.
-        tracing::debug!("BitcoinSyncer: Processing new blocks");
-        tracing::debug!("BitcoinSyncer: New blocks: {:?}", new_blocks.len());
         process_new_blocks(&self.db, &self.rpc, &mut dbtx, &new_blocks).await?;
-
         dbtx.commit().await?;
 
-        // Update the current height to the tip of the new chain.
-        tracing::debug!("BitcoinSyncer: Updating current height");
         self.current_height = new_blocks.last().expect("new_blocks is not empty").height;
-        tracing::debug!("BitcoinSyncer: Current height: {:?}", self.current_height);
 
-        // Return true to indicate work was done
         Ok(true)
     }
 }
@@ -449,7 +446,6 @@ impl Task for BitcoinSyncerTask {
 mod tests {
     use crate::bitcoin_syncer::BitcoinSyncer;
     use crate::builder::transaction::DEFAULT_SEQUENCE;
-
     use crate::task::{IntoTask, TaskExt};
     use crate::{database::Database, test::common::*};
     use bitcoin::absolute::Height;
@@ -639,12 +635,12 @@ mod tests {
             .unwrap();
         dbtx.commit().await.unwrap();
 
-        let new_blocks = super::fetch_new_blocks(&db, &rpc, height).await.unwrap();
+        let new_blocks = super::fetch_next_block(&db, &rpc, height).await.unwrap();
         assert!(new_blocks.is_none());
 
         let new_block_hashes = rpc.mine_blocks(1).await.unwrap();
         let new_height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
-        let new_blocks = super::fetch_new_blocks(&db, &rpc, height)
+        let new_blocks = super::fetch_next_block(&db, &rpc, height)
             .await
             .unwrap()
             .unwrap();
@@ -677,7 +673,7 @@ mod tests {
             .unwrap();
         dbtx.commit().await.unwrap();
 
-        let new_blocks = super::fetch_new_blocks(&db, &rpc, height).await.unwrap();
+        let new_blocks = super::fetch_next_block(&db, &rpc, height).await.unwrap();
         assert!(new_blocks.is_none());
 
         // Mine new blocks without saving them.
@@ -685,7 +681,7 @@ mod tests {
         let new_block_hashes = rpc.mine_blocks(mine_count as u64).await.unwrap();
         let new_height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
 
-        let new_blocks = super::fetch_new_blocks(&db, &rpc, new_height - 1)
+        let new_blocks = super::fetch_next_block(&db, &rpc, new_height - 1)
             .await
             .unwrap()
             .unwrap();
@@ -700,7 +696,7 @@ mod tests {
         rpc.mine_blocks(mine_count as u64).await.unwrap();
         let new_height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
 
-        assert!(super::fetch_new_blocks(&db, &rpc, new_height - 1)
+        assert!(super::fetch_next_block(&db, &rpc, new_height - 1)
             .await
             .is_err());
     }
