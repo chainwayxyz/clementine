@@ -125,7 +125,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let light_client_circuit_output = lc_proof_verifier(input.lcp.clone());
 
     // Storage proof verification for deposit tx index and withdrawal outpoint
-    let (user_wd_outpoint_str, move_tx_id) =
+    let (user_wd_outpoint_str, vout, move_tx_id) =
         verify_storage_proofs(&input.sp, light_client_circuit_output.l2_state_root);
 
     let user_wd_outpoint = num_bigint::BigUint::from_str(&user_wd_outpoint_str).unwrap();
@@ -141,6 +141,11 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     assert_eq!(
         user_wd_txid, input.payout_spv.transaction.input[0].previous_output.txid,
         "Invalid withdrawal transaction ID"
+    );
+
+    assert_eq!(
+        vout, input.payout_spv.transaction.input[0].previous_output.vout,
+        "Invalid withdrawal transaction output index"
     );
 
     let last_output = input.payout_spv.transaction.output.last().unwrap();

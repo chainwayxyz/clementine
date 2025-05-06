@@ -222,7 +222,7 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
     let last_output = input.payout_spv.transaction.output.last().unwrap();
 
     let deposit_storage_proof: EIP1186StorageProof =
-        serde_json::from_str(&input.sp.storage_proof_deposit_idx)
+        serde_json::from_str(&input.sp.storage_proof_deposit_txid)
             .expect("Failed to deserialize deposit storage proof");
 
     deposit_constant(

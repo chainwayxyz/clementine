@@ -161,6 +161,12 @@ pub async fn fetch_storage_proof(
     let storage_key_wd_utxo_hex = hex::encode(storage_key_wd_utxo.to_be_bytes::<32>());
     let storage_key_wd_utxo_hex = format!("0x{}", storage_key_wd_utxo_hex);
 
+    // Storage key address calculation Vout
+    let storage_key_vout: alloy_primitives::Uint<256, 4> =
+        storage_address_wd_utxo + U256::from(tx_index + 1);
+    let storage_key_vout_hex = hex::encode(storage_key_vout.to_be_bytes::<32>());
+    let storage_key_vout_hex = format!("0x{}", storage_key_vout_hex);
+
     // Storage key address calculation Deposit
     let storage_address_deposit_bytes = keccak256(DEPOSIT_STORAGE_INDEX);
     let storage_address_deposit: U256 = U256::from_be_bytes(
@@ -175,7 +181,11 @@ pub async fn fetch_storage_proof(
 
     let request = json!([
         CONTRACT_ADDRESS,
-        [storage_key_wd_utxo_hex, storage_key_deposit_hex],
+        [
+            storage_key_wd_utxo_hex,
+            storage_key_vout_hex,
+            storage_key_deposit_hex
+        ],
         l2_height
     ]);
 
@@ -183,13 +193,18 @@ pub async fn fetch_storage_proof(
 
     let response: EIP1186AccountProofResponse = serde_json::from_value(response).unwrap();
 
+    println!("Response: {:?}", response);
+
     let serialized_utxo = serde_json::to_string(&response.storage_proof[0]).unwrap();
 
-    let serialized_deposit = serde_json::to_string(&response.storage_proof[1]).unwrap();
+    let serialized_vout = serde_json::to_string(&response.storage_proof[1]).unwrap();
+
+    let serialized_deposit = serde_json::to_string(&response.storage_proof[2]).unwrap();
 
     StorageProof {
         storage_proof_utxo: serialized_utxo,
-        storage_proof_deposit_idx: serialized_deposit,
+        storage_proof_vout: serialized_vout,
+        storage_proof_deposit_txid: serialized_deposit,
         index: ind,
     }
 }
