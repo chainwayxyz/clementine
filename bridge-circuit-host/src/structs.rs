@@ -6,7 +6,10 @@ use circuits_lib::{
     bridge_circuit::{
         deposit_constant, journal_hash,
         spv::SPV,
-        structs::{BridgeCircuitInput, LightClientProof, StorageProof, WatchtowerInput},
+        structs::{
+            BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
+            LightClientProof, PayoutTxBlockhash, StorageProof, WatchtowerInput,
+        },
         verify_watchtower_challenges,
     },
     header_chain::BlockHeaderCircuitOutput,
@@ -171,19 +174,19 @@ pub struct WatchtowerContext<'a> {
 #[derive(Debug, Clone)]
 pub struct SuccinctBridgeCircuitPublicInputs {
     pub bridge_circuit_input: BridgeCircuitInput,
-    pub challenge_sending_watchtowers: [u8; 20],
-    pub deposit_constant: [u8; 32],
-    pub payout_tx_block_hash: [u8; 20],
-    pub latest_block_hash: [u8; 20],
+    pub challenge_sending_watchtowers: ChallengeSendingWatchtowers,
+    pub deposit_constant: DepositConstant,
+    pub payout_tx_block_hash: PayoutTxBlockhash,
+    pub latest_block_hash: LatestBlockhash,
 }
 
 impl SuccinctBridgeCircuitPublicInputs {
     pub fn new(bridge_circuit_input: BridgeCircuitInput) -> Self {
-        let latest_blockhash: [u8; 20] = bridge_circuit_input.hcp.chain_state.best_block_hash
-            [12..32]
-            .try_into()
-            .unwrap();
-        let payout_tx_block_hash: [u8; 20] = bridge_circuit_input
+        let latest_block_hash: LatestBlockhash =
+            bridge_circuit_input.hcp.chain_state.best_block_hash[12..32]
+                .try_into()
+                .unwrap();
+        let payout_tx_block_hash: PayoutTxBlockhash = bridge_circuit_input
             .payout_spv
             .block_header
             .compute_block_hash()[12..32]
@@ -195,27 +198,26 @@ impl SuccinctBridgeCircuitPublicInputs {
 
         Self {
             bridge_circuit_input,
-            challenge_sending_watchtowers: watchtower_challenge_set.challenge_senders,
+            challenge_sending_watchtowers: ChallengeSendingWatchtowers(
+                watchtower_challenge_set.challenge_senders,
+            ),
             deposit_constant,
             payout_tx_block_hash,
-            latest_block_hash: latest_blockhash,
+            latest_block_hash,
         }
     }
 
     pub fn host_journal_hash(&self) -> blake3::Hash {
-        let watchtower_challenge_set = verify_watchtower_challenges(&self.bridge_circuit_input);
-        let challenge_sending_watchtowers = watchtower_challenge_set.challenge_senders;
-
         journal_hash(
             self.payout_tx_block_hash,
             self.latest_block_hash,
-            challenge_sending_watchtowers,
+            self.challenge_sending_watchtowers,
             self.deposit_constant,
         )
     }
 }
 
-fn host_deposit_constant(input: &BridgeCircuitInput) -> [u8; 32] {
+fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
     // operator_id
     let last_output = input.payout_spv.transaction.output.last().unwrap();
 
@@ -232,6 +234,7 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> [u8; 32] {
     )
 }
 
+// Convert to unit type all fields of the struct
 #[derive(Debug, Clone, Copy)]
 pub struct BridgeCircuitBitvmInputs {
     pub payout_tx_block_hash: [u8; 20],

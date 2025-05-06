@@ -9,6 +9,66 @@ use crate::header_chain::BlockHeaderCircuitOutput;
 
 use super::{spv::SPV, transaction::CircuitTransaction};
 
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct DepositConstant(pub [u8; 32]);
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ChallengeSendingWatchtowers(pub [u8; 20]);
+
+impl PartialEq<[u8; 20]> for ChallengeSendingWatchtowers {
+    fn eq(&self, other: &[u8; 20]) -> bool {
+        self.0 == *other
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct PayoutTxBlockhash(pub [u8; 20]);
+
+impl TryFrom<&[u8]> for PayoutTxBlockhash {
+    type Error = &'static str;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let arr: [u8; 20] = value
+            .try_into()
+            .map_err(|_| "Expected 20 bytes for PayoutTxBlockhash")?;
+        Ok(PayoutTxBlockhash(arr))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct LatestBlockhash(pub [u8; 20]);
+
+impl TryFrom<&[u8]> for LatestBlockhash {
+    type Error = &'static str;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let arr: [u8; 20] = value
+            .try_into()
+            .map_err(|_| "Expected 20 bytes for LatestBlockhash")?;
+        Ok(LatestBlockhash(arr))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct TotalWork(pub [u8; 16]);
+
+impl PartialEq<[u8; 16]> for TotalWork {
+    fn eq(&self, other: &[u8; 16]) -> bool {
+        self.0 == *other
+    }
+}
+
+impl TryFrom<&[u8]> for TotalWork {
+    type Error = &'static str;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let arr: [u8; 16] = value
+            .try_into()
+            .map_err(|_| "Expected 16 bytes for TotalWork")?;
+        Ok(TotalWork(arr))
+    }
+}
+
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitInput {
     pub header_chain_circuit_output: BlockHeaderCircuitOutput,

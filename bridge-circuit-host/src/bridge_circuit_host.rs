@@ -166,10 +166,10 @@ pub fn prove_bridge_circuit(
         ark_groth16_proof,
         g16_output,
         BridgeCircuitBitvmInputs {
-            payout_tx_block_hash: public_inputs.payout_tx_block_hash,
-            latest_block_hash: public_inputs.latest_block_hash,
-            challenge_sending_watchtowers: public_inputs.challenge_sending_watchtowers,
-            deposit_constant: public_inputs.deposit_constant,
+            payout_tx_block_hash: public_inputs.payout_tx_block_hash.0,
+            latest_block_hash: public_inputs.latest_block_hash.0,
+            challenge_sending_watchtowers: public_inputs.challenge_sending_watchtowers.0,
+            deposit_constant: public_inputs.deposit_constant.0,
             combined_method_id: combined_method_id_constant,
         },
     )

@@ -35,7 +35,10 @@ use sha2::{Digest, Sha256};
 use signature::hazmat::PrehashVerifier;
 use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
-use structs::{BridgeCircuitInput, WatchTowerChallengeTxCommitment, WatchtowerChallengeSet};
+use structs::{
+    BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
+    PayoutTxBlockhash, TotalWork, WatchTowerChallengeTxCommitment, WatchtowerChallengeSet,
+};
 
 /// The method ID for the header chain circuit.
 pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
@@ -99,7 +102,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         total_work_and_watchtower_flags(&input, &work_only_image_id);
 
     // Why is that 32 bytes in the first place?
-    let total_work: [u8; 16] = input.hcp.chain_state.total_work[16..32]
+    let total_work: TotalWork = input.hcp.chain_state.total_work[16..32]
         .try_into()
         .expect("Cannot fail");
 
@@ -150,16 +153,17 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         move_tx_id,
     );
 
-    let latest_blockhash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32]
+    let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
         .try_into()
         .unwrap();
-    let payout_tx_blockhash: [u8; 20] = input.payout_spv.block_header.compute_block_hash()[12..32]
+    let payout_tx_blockhash: PayoutTxBlockhash = input.payout_spv.block_header.compute_block_hash()
+        [12..32]
         .try_into()
         .unwrap();
 
     let journal_hash = journal_hash(
-        latest_blockhash,
         payout_tx_blockhash,
+        latest_blockhash,
         challenge_sending_watchtowers,
         deposit_constant,
     );
@@ -416,7 +420,7 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
 pub fn total_work_and_watchtower_flags(
     circuit_input: &BridgeCircuitInput,
     work_only_image_id: &[u8; 32],
-) -> ([u8; 16], [u8; 20]) {
+) -> (TotalWork, ChallengeSendingWatchtowers) {
     let watchtower_challenge_set = verify_watchtower_challenges(circuit_input);
 
     let mut valid_watchtower_challenge_commitments: Vec<WatchTowerChallengeTxCommitment> = vec![];
@@ -476,7 +480,10 @@ pub fn total_work_and_watchtower_flags(
         }
     }
 
-    (total_work, watchtower_challenge_set.challenge_senders)
+    (
+        TotalWork(total_work),
+        ChallengeSendingWatchtowers(watchtower_challenge_set.challenge_senders),
+    )
 }
 
 fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
@@ -513,7 +520,7 @@ pub fn deposit_constant(
     watchtower_challenge_connector_start_idx: u16,
     watchtower_pubkeys: &[[u8; 32]],
     move_txid_hex: [u8; 32],
-) -> [u8; 32] {
+) -> DepositConstant {
     let last_output_script = last_output.script_pubkey.to_bytes();
 
     // OP_RETURN check
@@ -549,26 +556,26 @@ pub fn deposit_constant(
     ]
     .concat();
 
-    Sha256::digest(&pre_deposit_constant).into()
+    DepositConstant(Sha256::digest(&pre_deposit_constant).into())
 }
 
 pub fn journal_hash(
-    payout_tx_blockhash: [u8; 20],
-    latest_blockhash: [u8; 20],
-    challenge_sending_watchtowers: [u8; 20],
-    deposit_constant: [u8; 32],
+    payout_tx_blockhash: PayoutTxBlockhash,
+    latest_blockhash: LatestBlockhash,
+    challenge_sending_watchtowers: ChallengeSendingWatchtowers,
+    deposit_constant: DepositConstant,
 ) -> blake3::Hash {
     let concatenated_data = [
-        payout_tx_blockhash,
-        latest_blockhash,
-        challenge_sending_watchtowers,
+        payout_tx_blockhash.0,
+        latest_blockhash.0,
+        challenge_sending_watchtowers.0,
     ]
     .concat();
 
     let binding = blake3::hash(&concatenated_data);
     let hash_bytes = binding.as_bytes();
 
-    let concat_journal = [deposit_constant, *hash_bytes].concat();
+    let concat_journal = [deposit_constant.0, *hash_bytes].concat();
 
     blake3::hash(&concat_journal)
 }
