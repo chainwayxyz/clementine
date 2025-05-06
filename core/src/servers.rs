@@ -15,6 +15,11 @@ use eyre::Context;
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
+use tonic::transport::{Certificate, Identity, ServerTlsConfig};
+
+// Add this to ensure certificates exist in tests
+#[cfg(test)]
+use crate::test::common::ensure_test_certificates;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
 
@@ -66,7 +71,43 @@ where
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
-    let server_builder = tonic::transport::Server::builder().add_service(service);
+    // Ensure certificates exist in test mode
+    #[cfg(test)]
+    {
+        ensure_test_certificates().map_err(|e| {
+            BridgeError::ConfigError(format!("Failed to ensure test certificates: {}", e))
+        })?;
+    }
+
+    // Load TLS certificates
+    let cert = tokio::fs::read("certs/server/server.pem")
+        .await
+        .map_err(|e| {
+            BridgeError::ConfigError(format!("Failed to read server certificate: {}", e))
+        })?;
+
+    let key = tokio::fs::read("certs/server/server.key")
+        .await
+        .map_err(|e| BridgeError::ConfigError(format!("Failed to read server key: {}", e)))?;
+
+    let server_identity = Identity::from_pem(cert, key);
+
+    // Load CA certificate for client verification
+    let client_ca_cert = tokio::fs::read("certs/ca/ca.pem")
+        .await
+        .map_err(|e| BridgeError::ConfigError(format!("Failed to read CA certificate: {}", e)))?;
+
+    let client_ca = Certificate::from_pem(client_ca_cert);
+
+    // Build TLS configuration
+    let tls_config = ServerTlsConfig::new()
+        .identity(server_identity)
+        .client_ca_root(client_ca);
+
+    let server_builder = tonic::transport::Server::builder()
+        .tls_config(tls_config)
+        .map_err(|e| BridgeError::ConfigError(format!("Failed to configure TLS: {:?}", e)))?
+        .add_service(service);
 
     match addr {
         ServerAddr::Tcp(socket_addr) => {

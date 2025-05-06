@@ -1,9 +1,14 @@
 use crate::errors::BridgeError;
 use clementine::*;
+use eyre::Context;
 use hyper_util::rt::TokioIo;
 use std::path::PathBuf;
 use tagged_signature::SignatureId;
-use tonic::transport::{Channel, Uri};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri};
+
+// Add this to ensure certificates exist in tests
+#[cfg(test)]
+use crate::test::common::ensure_test_certificates;
 
 #[allow(clippy::all)]
 #[rustfmt::skip]
@@ -51,6 +56,14 @@ pub async fn get_clients<CLIENT, F>(
 where
     F: FnOnce(Channel) -> CLIENT + Copy,
 {
+    // Ensure certificates exist in test mode
+    #[cfg(test)]
+    {
+        ensure_test_certificates().map_err(|e| {
+            BridgeError::ConfigError(format!("Failed to ensure test certificates: {}", e))
+        })?;
+    }
+
     futures::future::try_join_all(
         endpoints
             .into_iter()
@@ -94,12 +107,47 @@ where
                         ))
                     })?;
 
-                    Channel::builder(uri).connect().await.map_err(|e| {
-                        BridgeError::ConfigError(format!(
-                            "Failed to connect to endpoint {}: {}",
-                            endpoint, e
-                        ))
-                    })?
+                    // Load client certificate and key
+                    let client_cert =
+                        tokio::fs::read("certs/client/client.pem")
+                            .await
+                            .map_err(|e| {
+                                BridgeError::ConfigError(format!(
+                                    "Failed to read client certificate: {}",
+                                    e
+                                ))
+                            })?;
+
+                    let client_key =
+                        tokio::fs::read("certs/client/client.key")
+                            .await
+                            .map_err(|e| {
+                                BridgeError::ConfigError(format!(
+                                    "Failed to read client key: {}",
+                                    e
+                                ))
+                            })?;
+
+                    let client_identity = Identity::from_pem(client_cert, client_key);
+
+                    // Load CA certificate
+                    let ca_cert = tokio::fs::read("certs/ca/ca.pem").await.map_err(|e| {
+                        BridgeError::ConfigError(format!("Failed to read CA certificate: {}", e))
+                    })?;
+
+                    let ca_certificate = Certificate::from_pem(ca_cert);
+
+                    // Configure TLS
+                    let tls_config = ClientTlsConfig::new()
+                        .ca_certificate(ca_certificate)
+                        .identity(client_identity);
+
+                    Channel::builder(uri)
+                        .tls_config(tls_config)
+                        .wrap_err("Failed to configure TLS")?
+                        .connect()
+                        .await
+                        .wrap_err("Failed to connect to endpoint")?
                 };
 
                 Ok(connect(channel))

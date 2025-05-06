@@ -59,6 +59,41 @@ Clementine uses the following logic to determine the configuration source:
 
 You can mix these approaches - for example, reading main configuration from a file but protocol parameters from environment variables.
 
+### Mutual TLS (mTLS) Configuration
+
+Clementine uses mutual TLS (mTLS) to secure gRPC communications between components:
+
+- All gRPC server components (Verifier, Operator, Aggregator)
+- gRPC client connections
+
+#### Certificate Setup
+
+Before running the servers, you need to generate certificates. A script is provided for this purpose:
+
+```bash
+# Run from the project root
+./scripts/generate_certs.sh
+```
+
+This will create certificates in the following structure:
+```
+certs/
+├── ca/
+│   ├── ca.key     # CA private key
+│   └── ca.pem     # CA certificate
+├── server/
+│   ├── ca.pem     # Copy of CA certificate (for convenience)
+│   ├── server.key # Server private key
+│   └── server.pem # Server certificate
+└── client/
+    ├── ca.pem     # Copy of CA certificate (for convenience)
+    ├── client.key # Client private key
+    └── client.pem # Client certificate
+```
+
+> [!NOTE]
+> For production use, you should use certificates signed by a trusted CA rather than self-signed ones.
+
 ### Starting a Server
 
 Clementine is designed to be run multiple times for every actor that an entity
@@ -123,6 +158,14 @@ For more information, use `--help` flag:
    cargo install cargo-risczero
    ```
 
+3. **TLS Certificates**
+
+   Tests that use gRPC connections require TLS certificates. These are automatically generated during test runs, but you can also generate them manually:
+
+   ```bash
+   ./scripts/generate_certs.sh
+   ```
+
 #### [Optional] Docker
 
 A docker image is provided in
@@ -167,6 +210,15 @@ To run all tests:
 ```sh
 cargo test
 ```
+
+## Security Considerations
+
+### TLS Certificates
+
+- Keep private keys (*.key) secure and don't commit them to version control
+- In production, use properly signed certificates from a trusted CA
+- Rotate certificates regularly
+- Consider using distinct client certificates for different clients/services
 
 ## License
 

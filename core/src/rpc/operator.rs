@@ -218,6 +218,12 @@ where
         &self,
         request: Request<FinalizedPayoutParams>,
     ) -> Result<Response<clementine::Txid>, Status> {
+        if !cfg!(test) {
+            return Err(Status::permission_denied(
+                "This method is only available in tests",
+            ));
+        }
+
         let payout_blockhash: [u8; 32] = request
             .get_ref()
             .payout_blockhash
