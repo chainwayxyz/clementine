@@ -105,6 +105,13 @@ impl BridgeConfig {
                 None
             };
 
+        // TLS certificate and key paths
+        let server_cert_path = std::env::var("SERVER_CERT_PATH").ok().map(PathBuf::from);
+        let server_key_path = std::env::var("SERVER_KEY_PATH").ok().map(PathBuf::from);
+        let ca_cert_path = std::env::var("CA_CERT_PATH").ok().map(PathBuf::from);
+        let client_cert_path = std::env::var("CLIENT_CERT_PATH").ok().map(PathBuf::from);
+        let client_key_path = std::env::var("CLIENT_KEY_PATH").ok().map(PathBuf::from);
+
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
             protocol_paramset: Default::default(),
@@ -129,6 +136,12 @@ impl BridgeConfig {
             operator_endpoints,
             all_verifiers_secret_keys,
             all_operators_secret_keys,
+
+            server_cert_path,
+            server_key_path,
+            ca_cert_path,
+            client_cert_path,
+            client_key_path,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),

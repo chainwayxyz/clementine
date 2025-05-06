@@ -12,6 +12,7 @@ use crate::verifier::VerifierServer;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
 use eyre::Context;
+use std::path::PathBuf;
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
@@ -55,6 +56,7 @@ pub async fn create_grpc_server<S>(
     addr: ServerAddr,
     service: S,
     server_name: &str,
+    config: &BridgeConfig,
 ) -> Result<(ServerAddr, oneshot::Sender<()>), BridgeError>
 where
     S: tower::Service<
@@ -79,23 +81,47 @@ where
         })?;
     }
 
-    // Load TLS certificates
-    let cert = tokio::fs::read("certs/server/server.pem")
-        .await
-        .map_err(|e| {
-            BridgeError::ConfigError(format!("Failed to read server certificate: {}", e))
-        })?;
+    // Get certificate paths from config or use defaults
+    let server_cert_path = config
+        .server_cert_path
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("certs/server/server.pem"));
+    let server_key_path = config
+        .server_key_path
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("certs/server/server.key"));
+    let ca_cert_path = config
+        .ca_cert_path
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("certs/ca/ca.pem"));
 
-    let key = tokio::fs::read("certs/server/server.key")
-        .await
-        .map_err(|e| BridgeError::ConfigError(format!("Failed to read server key: {}", e)))?;
+    // Load TLS certificates
+    let cert = tokio::fs::read(&server_cert_path).await.map_err(|e| {
+        BridgeError::ConfigError(format!(
+            "Failed to read server certificate from {}: {}",
+            server_cert_path.display(),
+            e
+        ))
+    })?;
+
+    let key = tokio::fs::read(&server_key_path).await.map_err(|e| {
+        BridgeError::ConfigError(format!(
+            "Failed to read server key from {}: {}",
+            server_key_path.display(),
+            e
+        ))
+    })?;
 
     let server_identity = Identity::from_pem(cert, key);
 
     // Load CA certificate for client verification
-    let client_ca_cert = tokio::fs::read("certs/ca/ca.pem")
-        .await
-        .map_err(|e| BridgeError::ConfigError(format!("Failed to read CA certificate: {}", e)))?;
+    let client_ca_cert = tokio::fs::read(&ca_cert_path).await.map_err(|e| {
+        BridgeError::ConfigError(format!(
+            "Failed to read CA certificate from {}: {}",
+            ca_cert_path.display(),
+            e
+        ))
+    })?;
 
     let client_ca = Certificate::from_pem(client_ca_cert);
 
@@ -190,10 +216,11 @@ pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
-    let verifier = VerifierServer::<C>::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config.clone()).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
-    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Verifier").await?;
+    let (server_addr, shutdown_tx) =
+        create_grpc_server(addr.into(), svc, "Verifier", &config).await?;
 
     match server_addr {
         ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),
@@ -212,10 +239,11 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
-    let operator = OperatorServer::<C>::new(config).await?;
+    let operator = OperatorServer::<C>::new(config.clone()).await?;
 
     let svc = ClementineOperatorServer::new(operator);
-    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Operator").await?;
+    let (server_addr, shutdown_tx) =
+        create_grpc_server(addr.into(), svc, "Operator", &config).await?;
     tracing::info!("Operator gRPC server created");
 
     match server_addr {
@@ -230,10 +258,11 @@ pub async fn create_aggregator_grpc_server(
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
-    let aggregator = Aggregator::new(config).await?;
+    let aggregator = Aggregator::new(config.clone()).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
 
-    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Aggregator").await?;
+    let (server_addr, shutdown_tx) =
+        create_grpc_server(addr.into(), svc, "Aggregator", &config).await?;
 
     match server_addr {
         ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),
@@ -255,11 +284,11 @@ pub async fn create_verifier_unix_server<C: CitreaClientT>(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let verifier = VerifierServer::<C>::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config.clone()).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) =
-        create_grpc_server(socket_path.into(), svc, "Verifier").await?;
+        create_grpc_server(socket_path.into(), svc, "Verifier", &config).await?;
 
     match server_addr {
         ServerAddr::Unix(path) => Ok((path, shutdown_tx)),
@@ -290,11 +319,11 @@ pub async fn create_operator_unix_server<C: CitreaClientT>(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let operator = OperatorServer::<C>::new(config).await?;
+    let operator = OperatorServer::<C>::new(config.clone()).await?;
     let svc = ClementineOperatorServer::new(operator);
 
     let (server_addr, shutdown_tx) =
-        create_grpc_server(socket_path.into(), svc, "Operator").await?;
+        create_grpc_server(socket_path.into(), svc, "Operator", &config).await?;
 
     match server_addr {
         ServerAddr::Unix(path) => Ok((path, shutdown_tx)),
@@ -317,11 +346,11 @@ pub async fn create_aggregator_unix_server(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
-    let aggregator = Aggregator::new(config).await?;
+    let aggregator = Aggregator::new(config.clone()).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
 
     let (server_addr, shutdown_tx) =
-        create_grpc_server(socket_path.into(), svc, "Aggregator").await?;
+        create_grpc_server(socket_path.into(), svc, "Aggregator", &config).await?;
 
     match server_addr {
         ServerAddr::Unix(path) => Ok((path, shutdown_tx)),

@@ -107,6 +107,7 @@ async fn test_mtls_connection() -> Result<(), Box<dyn std::error::Error>> {
         crate::rpc::get_clients::<ClementineOperatorClient<tonic::transport::Channel>, _>(
             vec![endpoint],
             ClementineOperatorClient::new,
+            &config,
         )
         .await?;
 

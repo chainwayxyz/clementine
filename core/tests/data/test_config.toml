@@ -47,9 +47,21 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
 # Header chain prover's assumption to start with.
 header_chain_proof_path = "../core/tests/data/first_1.bin"
 
-verifier_endpoints = ["http://127.0.0.1:17001", "http://127.0.0.1:17002", "http://127.0.0.1:17003", "http://127.0.0.1:17004"]
+verifier_endpoints = [
+    "http://127.0.0.1:17001",
+    "http://127.0.0.1:17002",
+    "http://127.0.0.1:17003",
+    "http://127.0.0.1:17004",
+]
 
 operator_endpoints = ["http://127.0.0.1:17005", "http://127.0.0.1:17006"]
+
+# TLS certificate and key paths
+server_cert_path = "certs/server/server.pem"
+server_key_path = "certs/server/server.key"
+ca_cert_path = "certs/ca/ca.pem"
+client_cert_path = "certs/client/client.pem"
+client_key_path = "certs/client/client.key"
 
 # # Testing only fields.
 # all_verifiers_secret_keys = [

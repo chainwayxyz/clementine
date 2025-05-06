@@ -1,5 +1,6 @@
 //! This module defines a command line interface for the RPC client.
 
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use alloy::primitives::{Bytes, FixedBytes, Uint};
@@ -8,6 +9,7 @@ use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
     citrea::Bridge::TransactionParams,
+    config::BridgeConfig,
     errors::BridgeError,
     extended_rpc,
     rpc::clementine::{
@@ -337,13 +339,25 @@ fn get_block_merkle_proof(
     Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
 }
 
+// Create a minimal config with default TLS paths
+fn create_minimal_config() -> BridgeConfig {
+    BridgeConfig {
+        server_cert_path: Some(PathBuf::from("certs/server/server.pem")),
+        server_key_path: Some(PathBuf::from("certs/server/server.key")),
+        ca_cert_path: Some(PathBuf::from("certs/ca/ca.pem")),
+        client_cert_path: Some(PathBuf::from("certs/client/client.pem")),
+        client_key_path: Some(PathBuf::from("certs/client/client.key")),
+        ..Default::default()
+    }
+}
+
 async fn handle_operator_call(url: String, command: OperatorCommands) {
-    let mut operator = clementine_core::rpc::get_clients(vec![url], |channel| {
-        ClementineOperatorClient::new(channel)
-    })
-    .await
-    .expect("Exists")[0]
-        .clone();
+    let config = create_minimal_config();
+    let mut operator =
+        clementine_core::rpc::get_clients(vec![url], ClementineOperatorClient::new, &config)
+            .await
+            .expect("Exists")[0]
+            .clone();
 
     match command {
         OperatorCommands::GetDepositKeys {
@@ -420,12 +434,12 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
 
 async fn handle_verifier_call(url: String, command: VerifierCommands) {
     println!("Connecting to verifier at {}", url);
-    let mut verifier = clementine_core::rpc::get_clients(vec![url], |channel| {
-        ClementineVerifierClient::new(channel)
-    })
-    .await
-    .expect("Exists")[0]
-        .clone();
+    let config = create_minimal_config();
+    let mut verifier =
+        clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config)
+            .await
+            .expect("Exists")[0]
+            .clone();
 
     match command {
         VerifierCommands::GetParams => {
@@ -448,12 +462,12 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
 
 async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
     println!("Connecting to aggregator at {}", url);
-    let mut aggregator = clementine_core::rpc::get_clients(vec![url], |channel| {
-        ClementineAggregatorClient::new(channel)
-    })
-    .await
-    .expect("Exists")[0]
-        .clone();
+    let config = create_minimal_config();
+    let mut aggregator =
+        clementine_core::rpc::get_clients(vec![url], ClementineAggregatorClient::new, &config)
+            .await
+            .expect("Exists")[0]
+            .clone();
 
     match command {
         AggregatorCommands::Setup => {

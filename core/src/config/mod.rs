@@ -84,6 +84,17 @@ pub struct BridgeConfig {
     /// Operator endpoint. For the aggregator only
     pub operator_endpoints: Option<Vec<String>>,
 
+    /// Path to the server certificate file.
+    pub server_cert_path: Option<PathBuf>,
+    /// Path to the server key file.
+    pub server_key_path: Option<PathBuf>,
+    /// Path to the CA certificate file.
+    pub ca_cert_path: Option<PathBuf>,
+    /// Path to the client certificate file.
+    pub client_cert_path: Option<PathBuf>,
+    /// Path to the client key file.
+    pub client_key_path: Option<PathBuf>,
+
     // /// Directory containing unix sockets
     // pub socket_path: String,
     /// All Secret keys. Just for testing purposes.
@@ -207,6 +218,12 @@ impl Default for BridgeConfig {
             // socket_path: "/".to_string(),
             verifier_endpoints: None,
             operator_endpoints: None,
+
+            server_cert_path: Some(PathBuf::from("certs/server/server.pem")),
+            server_key_path: Some(PathBuf::from("certs/server/server.key")),
+            ca_cert_path: Some(PathBuf::from("certs/ca/ca.pem")),
+            client_cert_path: Some(PathBuf::from("certs/client/client.pem")),
+            client_key_path: Some(PathBuf::from("certs/client/client.key")),
 
             #[cfg(test)]
             test_params: TestParams::default(),

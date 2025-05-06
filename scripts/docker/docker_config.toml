@@ -66,6 +66,13 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
 # Header chain prover's assumption to start with.
 header_chain_proof_path = "../core/tests/data/first_1.bin"
 
+# TLS certificate and key paths
+server_cert_path = "certs/server/server.pem"
+server_key_path = "certs/server/server.key"
+ca_cert_path = "certs/ca/ca.pem"
+client_cert_path = "certs/client/client.pem"
+client_key_path = "certs/client/client.key"
+
 # Testing only fields.
 all_verifiers_secret_keys = [
     "1111111111111111111111111111111111111111111111111111111111111111",
