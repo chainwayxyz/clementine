@@ -224,7 +224,7 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> [u8; 32] {
             .expect("Failed to deserialize deposit storage proof");
 
     deposit_constant(
-        &last_output,
+        last_output,
         &input.kickoff_tx_id,
         input.watchtower_challenge_connector_start_idx,
         &input.all_tweaked_watchtower_pubkeys,
