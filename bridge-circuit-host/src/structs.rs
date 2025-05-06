@@ -1,15 +1,17 @@
+use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
 use bitcoin::{Network, Transaction, Txid, XOnlyPublicKey};
 use circuits_lib::{
     bridge_circuit::{
+        deposit_constant, journal_hash,
         spv::SPV,
-        structs::{LightClientProof, StorageProof, WatchtowerInput},
+        structs::{BridgeCircuitInput, LightClientProof, StorageProof, WatchtowerInput},
+        verify_watchtower_challenges,
     },
     header_chain::BlockHeaderCircuitOutput,
 };
 use risc0_zkvm::Receipt;
-use sha2::{Digest, Sha256};
 
 use crate::utils::get_ark_verifying_key;
 
@@ -166,55 +168,68 @@ pub struct WatchtowerContext<'a> {
     pub previous_txs: &'a [Transaction],
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SuccinctBridgeCircuitPublicInputs {
-    pub kickoff_txid: [u8; 32],
+    pub bridge_circuit_input: BridgeCircuitInput,
+    pub challenge_sending_watchtowers: [u8; 20],
+    pub deposit_constant: [u8; 32],
     pub payout_tx_block_hash: [u8; 20],
     pub latest_block_hash: [u8; 20],
-    pub challenge_sending_watchtowers: [u8; 20],
-    pub move_to_vault_txid: [u8; 32],
-    pub watchtower_pubkeys_digest: [u8; 32],
-    pub operator_id: [u8; 32],
 }
 
 impl SuccinctBridgeCircuitPublicInputs {
-    pub fn journal_hash(self) -> blake3::Hash {
-        let pre_deposit_constant = [
-            self.kickoff_txid,
-            self.move_to_vault_txid,
-            self.watchtower_pubkeys_digest,
-            self.operator_id,
-        ]
-        .concat();
+    pub fn new(bridge_circuit_input: BridgeCircuitInput) -> Self {
+        let latest_blockhash: [u8; 20] = bridge_circuit_input.hcp.chain_state.best_block_hash
+            [12..32]
+            .try_into()
+            .unwrap();
+        let payout_tx_block_hash: [u8; 20] = bridge_circuit_input
+            .payout_spv
+            .block_header
+            .compute_block_hash()[12..32]
+            .try_into()
+            .unwrap();
 
-        let deposit_constant: [u8; 32] = Sha256::digest(&pre_deposit_constant).into();
+        let deposit_constant = host_deposit_constant(&bridge_circuit_input);
+        let watchtower_challenge_set = verify_watchtower_challenges(&bridge_circuit_input);
 
-        let concatenated_data = [
+        Self {
+            bridge_circuit_input,
+            challenge_sending_watchtowers: watchtower_challenge_set.challenge_senders,
+            deposit_constant,
+            payout_tx_block_hash,
+            latest_block_hash: latest_blockhash,
+        }
+    }
+
+    pub fn host_journal_hash(&self) -> blake3::Hash {
+        let watchtower_challenge_set = verify_watchtower_challenges(&self.bridge_circuit_input);
+        let challenge_sending_watchtowers = watchtower_challenge_set.challenge_senders;
+
+        journal_hash(
             self.payout_tx_block_hash,
             self.latest_block_hash,
-            self.challenge_sending_watchtowers,
-        ]
-        .concat();
-
-        let binding = blake3::hash(&concatenated_data);
-        let hash_bytes = binding.as_bytes();
-
-        let concat_journal = [deposit_constant, *hash_bytes].concat();
-
-        blake3::hash(&concat_journal)
+            challenge_sending_watchtowers,
+            self.deposit_constant,
+        )
     }
+}
 
-    pub fn deposit_constant(self) -> [u8; 32] {
-        let pre_deposit_constant = [
-            self.kickoff_txid,
-            self.move_to_vault_txid,
-            self.watchtower_pubkeys_digest,
-            self.operator_id,
-        ]
-        .concat();
+fn host_deposit_constant(input: &BridgeCircuitInput) -> [u8; 32] {
+    // operator_id
+    let last_output = input.payout_spv.transaction.output.last().unwrap();
 
-        Sha256::digest(&pre_deposit_constant).into()
-    }
+    let deposit_storage_proof: EIP1186StorageProof =
+        serde_json::from_str(&input.sp.storage_proof_deposit_idx)
+            .expect("Failed to deserialize deposit storage proof");
+
+    deposit_constant(
+        &last_output,
+        &input.kickoff_tx_id,
+        input.watchtower_challenge_connector_start_idx,
+        &input.all_tweaked_watchtower_pubkeys,
+        deposit_storage_proof.value.to_le_bytes(),
+    )
 }
 
 #[derive(Debug, Clone, Copy)]

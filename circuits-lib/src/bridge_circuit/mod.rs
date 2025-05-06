@@ -96,7 +96,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let kickoff_txid = input.kickoff_tx_id; // TODO: Maybe use `txid` instead of `compute_txid`
 
     let (max_total_work, challenge_sending_watchtowers) =
-        total_work_and_watchtower_flags(&kickoff_txid, &input, &work_only_image_id);
+        total_work_and_watchtower_flags(&input, &work_only_image_id);
 
     // Why is that 32 bytes in the first place?
     let total_work: [u8; 16] = input.hcp.chain_state.total_work[16..32]
@@ -112,7 +112,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     }
 
     // MMR WILL BE FETCHED FROM LC PROOF WHEN IT IS READY - THIS IS JUST FOR PROOF OF CONCEPT
-    let mmr = input.hcp.chain_state.block_hashes_mmr;
+    let mmr = input.hcp.chain_state.block_hashes_mmr.clone();
 
     if !input.payout_spv.verify(mmr) {
         panic!("Invalid SPV proof");
@@ -157,18 +157,12 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .try_into()
         .unwrap();
 
-    let concatenated_data = [
-        payout_tx_blockhash,
+    let journal_hash = journal_hash(
         latest_blockhash,
+        payout_tx_blockhash,
         challenge_sending_watchtowers,
-    ]
-    .concat();
-
-    let binding = blake3::hash(&concatenated_data);
-    let hash_bytes = binding.as_bytes();
-
-    let concat_journal = [deposit_constant, *hash_bytes].concat();
-    let journal_hash = blake3::hash(&concat_journal);
+        deposit_constant,
+    );
 
     guest.commit(journal_hash.as_bytes());
 }
@@ -229,10 +223,7 @@ fn convert_to_groth16_and_verify(
 /// # Notes
 /// Invalid or malformed challenge data (e.g., decoding errors, invalid signatures)
 /// will be skipped gracefully without causing the function to panic.
-fn verify_watchtower_challenges(
-    circuit_input: &BridgeCircuitInput,
-    kickoff_txid: &Txid,
-) -> WatchtowerChallengeSet {
+pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> WatchtowerChallengeSet {
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
     let mut watchtower_challenges_outputs: Vec<[TxOut; 3]> = vec![];
 
@@ -299,10 +290,10 @@ fn verify_watchtower_challenges(
             );
         };
 
-        if input.previous_output.txid != *kickoff_txid {
+        if input.previous_output.txid != *circuit_input.kickoff_tx_id {
             panic!(
                 "Invalid input: expected input to reference an output from the kickoff transaction (txid: {}), but got txid: {}, vout: {}, watchtower index: {}",
-                kickoff_txid,
+                *circuit_input.kickoff_tx_id,
                 input.previous_output.txid,
                 input.previous_output.vout,
                 watchtower_input.watchtower_idx
@@ -423,11 +414,10 @@ fn verify_watchtower_challenges(
 ///     - Third must be an OP_RETURN containing the rest of the proof and the total work value.
 /// - The function sorts valid commitments by total work and verifies the highest one using a Groth16 verifier.
 pub fn total_work_and_watchtower_flags(
-    kickoff_txid: &Txid,
     circuit_input: &BridgeCircuitInput,
     work_only_image_id: &[u8; 32],
 ) -> ([u8; 16], [u8; 20]) {
-    let watchtower_challenge_set = verify_watchtower_challenges(circuit_input, kickoff_txid);
+    let watchtower_challenge_set = verify_watchtower_challenges(circuit_input);
 
     let mut valid_watchtower_challenge_commitments: Vec<WatchTowerChallengeTxCommitment> = vec![];
 
@@ -517,7 +507,7 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
 ///
 /// - If the `script_pubkey` of `last_output` does not start with `OP_RETURN` (`0x6a`).
 /// - If the length of the operator ID (extracted from `script_pubkey`) exceeds 32 bytes.
-fn deposit_constant(
+pub fn deposit_constant(
     last_output: &TxOut,
     kickoff_txid: &Txid,
     watchtower_challenge_connector_start_idx: u16,
@@ -551,7 +541,7 @@ fn deposit_constant(
     let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
 
     let pre_deposit_constant = [
-        &kickoff_txid.to_byte_array(),
+        &kickoff_txid.as_byte_array()[..],
         &move_txid_hex,
         &watchtower_pubkeys_digest,
         &operator_id,
@@ -560,6 +550,27 @@ fn deposit_constant(
     .concat();
 
     Sha256::digest(&pre_deposit_constant).into()
+}
+
+pub fn journal_hash(
+    payout_tx_blockhash: [u8; 20],
+    latest_blockhash: [u8; 20],
+    challenge_sending_watchtowers: [u8; 20],
+    deposit_constant: [u8; 32],
+) -> blake3::Hash {
+    let concatenated_data = [
+        payout_tx_blockhash,
+        latest_blockhash,
+        challenge_sending_watchtowers,
+    ]
+    .concat();
+
+    let binding = blake3::hash(&concatenated_data);
+    let hash_bytes = binding.as_bytes();
+
+    let concat_journal = [deposit_constant, *hash_bytes].concat();
+
+    blake3::hash(&concat_journal)
 }
 
 fn sighash(
@@ -688,10 +699,10 @@ mod tests {
 
     #[test]
     fn test_total_work_and_watchtower_flags() {
-        let (input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (input, _) = total_work_and_watchtower_flags_setup();
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
 
         let expected_challenge_sending_watchtowers =
             [64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -705,7 +716,7 @@ mod tests {
 
     #[test]
     fn test_total_work_and_watchtower_flags_incorrect_witness() {
-        let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (mut input, _) = total_work_and_watchtower_flags_setup();
 
         let mut old_witness = input.watchtower_inputs[0]
             .watchtower_challenge_witness
@@ -720,7 +731,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(new_witness);
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
 
         assert_eq!(total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
@@ -751,7 +762,7 @@ mod tests {
         });
 
         let (total_work, challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
 
         assert_eq!(total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
@@ -763,7 +774,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid watchtower challenge input index")]
     fn test_total_work_and_watchtower_flags_tx_in_incorrect_format() {
-        let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (mut input, _) = total_work_and_watchtower_flags_setup();
 
         // Create invalid transaction with no inputs
         input.watchtower_inputs[0].watchtower_challenge_tx = CircuitTransaction(Transaction {
@@ -777,13 +788,13 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 0;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
     #[should_panic(expected = "Invalid witness length")]
     fn test_total_work_and_watchtower_flags_utxo_in_invalid_format() {
-        let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (mut input, _) = total_work_and_watchtower_flags_setup();
 
         // Create a witness with more than one item, which would be invalid
         let mut invalid_witness = Witness::new();
@@ -792,50 +803,50 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
     #[should_panic(expected = "Invalid watchtower public key")]
     fn test_total_work_and_watchtower_flags_invalid_pubkey() {
-        let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (mut input, _) = total_work_and_watchtower_flags_setup();
 
         // Modify the all_tweaked_watchtower_pubkeys (the array that's actually used in the new code)
         let watch_tower_idx = input.watchtower_inputs[0].watchtower_idx as usize;
         input.all_tweaked_watchtower_pubkeys[watch_tower_idx] = [0u8; 32];
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
     #[should_panic(expected = "Invalid watchtower challenge input index")]
     fn test_total_work_and_watchtower_flags_invalid_wt_index() {
-        let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (mut input, _) = total_work_and_watchtower_flags_setup();
 
         // Set an invalid index that's out of bounds
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 160;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
     #[should_panic(expected = "Invalid watchtower challenge input index")]
     fn test_total_work_and_watchtower_flags_invalid_wt_input_index() {
-        let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (mut input, _) = total_work_and_watchtower_flags_setup();
 
         // Set an input index that's beyond the transaction's inputs
         input.watchtower_inputs[0].watchtower_challenge_input_idx = 10;
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
     #[should_panic(expected = "Invalid witness length, expected 64 or 65 bytes")]
     fn test_total_work_and_watchtower_flags_invalid_witness() {
-        let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (mut input, _) = total_work_and_watchtower_flags_setup();
 
         // Create an invalid witness with 65 bytes but all zeros (signature validation will fail)
         let mut invalid_witness = Witness::new();
@@ -843,13 +854,13 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
     #[should_panic(expected = "Invalid signature")]
     fn test_total_work_and_watchtower_flags_invalid_witness_2() {
-        let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (mut input, _) = total_work_and_watchtower_flags_setup();
 
         // Create an invalid witness with 64 bytes but all zeros (signature validation will fail)
         let mut invalid_witness = Witness::new();
@@ -857,13 +868,13 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
     #[should_panic(expected = "Invalid witness length, expected 64 or 65 bytes")]
     fn test_total_work_and_watchtower_flags_invalid_witness_length() {
-        let (mut input, kickoff_txid) = total_work_and_watchtower_flags_setup();
+        let (mut input, _) = total_work_and_watchtower_flags_setup();
 
         // Create an invalid witness with incorrect length
         let mut invalid_witness = Witness::new();
@@ -871,7 +882,7 @@ mod tests {
         input.watchtower_inputs[0].watchtower_challenge_witness = CircuitWitness(invalid_witness);
 
         let (_total_work, _challenge_sending_watchtowers) =
-            total_work_and_watchtower_flags(&kickoff_txid, &input, &WORK_ONLY_IMAGE_ID);
+            total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
     }
 
     #[test]
