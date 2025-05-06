@@ -78,6 +78,15 @@ pub struct DepositParams {
     pub deposit: ::core::option::Option<Deposit>,
     #[prost(message, optional, tag = "2")]
     pub actors: ::core::option::Option<Actors>,
+    #[prost(message, optional, tag = "3")]
+    pub security_council: ::core::option::Option<SecurityCouncil>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SecurityCouncil {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub pks: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(uint32, tag = "2")]
+    pub threshold: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Deposit {

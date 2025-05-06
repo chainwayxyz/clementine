@@ -99,6 +99,12 @@ message WinternitzPubkey {
 message DepositParams {
   Deposit deposit = 1;
   Actors actors = 2;
+  SecurityCouncil security_council = 3;
+}
+
+message SecurityCouncil {
+  repeated bytes pks = 1;
+  uint32 threshold = 2;
 }
 
 message Deposit {

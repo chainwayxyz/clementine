@@ -497,7 +497,6 @@ pub fn get_deposit_address(
         nofn_xonly_pk,
         signer.address.as_unchecked(),
         evm_address,
-        config.protocol_paramset().bridge_amount,
         config.protocol_paramset().network,
         config.protocol_paramset().user_takes_after,
     )

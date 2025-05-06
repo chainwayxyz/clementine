@@ -54,6 +54,9 @@ verifier_endpoints = [
     "http://127.0.0.1:17004",
 ]
 
+security_council = "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
+
+
 operator_endpoints = ["http://127.0.0.1:17005", "http://127.0.0.1:17006"]
 
 # TLS certificate and key paths

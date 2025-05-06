@@ -17,10 +17,41 @@ The repository includes:
 
 ### Setup
 
-Clementine requires a Bitcoin node up and running. Please install and configure
-Bitcoin Core if you haven't already.
+Before compiling Clementine:
 
-### Preparing a Configuration File or Using Environment Variables to Configure Clementine
+1. Install Rust: [rustup.rs](https://rustup.rs/)
+2. Install RiscZero: [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
+
+   ```bash
+   # Overwrite default versions
+   rzup install r0vm 1.2.0
+   rzup install rust 1.81.0
+   ```
+
+3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):
+
+   ```bash
+   xcode-select --install 
+   ```
+
+4. If on Ubuntu, install these packages:
+
+   ```bash
+   sudo apt install build-essential libssl-dev pkg-config
+   ```
+
+Before running Clementine:
+
+1. Install and configure a Bitcoin node (at least v28.0)
+2. Install and configure PostgreSQL
+3. Set `RUST_MIN_STACK` to at least 33554432
+
+   ```bash
+   # In *nix systems:
+   export RUST_MIN_STACK=33554432
+   ```
+
+### Configure Clementine
 
 Clementine supports two primary configuration methods:
 
@@ -222,7 +253,7 @@ cargo test
 
 ## License
 
-**(C) 2024 Chainway Limited** `clementine` was developed by Chainway Limited.
+**(C) 2025 Chainway Limited** `clementine` was developed by Chainway Limited.
 While we plan to adopt an open source license, we have not yet selected one. As
 such, all rights are reserved for the time being. Please reach out to us if you
 have thoughts on licensing.

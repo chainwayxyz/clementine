@@ -1,14 +1,30 @@
 use crate::{
     bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput},
-    common::zkvm::ZkvmGuest,
+    common::{
+        constants::{
+            MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID,
+            SIGNET_HEADER_CHAIN_METHOD_ID, TESTNET4_HEADER_CHAIN_METHOD_ID,
+        },
+        zkvm::ZkvmGuest,
+    },
 };
 
 use crypto_bigint::{Encoding, U128, U256};
 use risc0_zkvm::guest::env;
 
-pub const HEADER_CHAIN_METHOD_ID: [u32; 8] = [
-    2421631365, 3264974484, 821027839, 1335612179, 1295879179, 713845602, 1229060261, 258954137,
-];
+/// The method ID for the header chain circuit.
+const HEADER_CHAIN_METHOD_ID: [u32; 8] = {
+    match option_env!("BITCOIN_NETWORK") {
+        Some(network) if matches!(network.as_bytes(), b"mainnet") => MAINNET_HEADER_CHAIN_METHOD_ID,
+        Some(network) if matches!(network.as_bytes(), b"testnet4") => {
+            TESTNET4_HEADER_CHAIN_METHOD_ID
+        }
+        Some(network) if matches!(network.as_bytes(), b"signet") => SIGNET_HEADER_CHAIN_METHOD_ID,
+        Some(network) if matches!(network.as_bytes(), b"regtest") => REGTEST_HEADER_CHAIN_METHOD_ID,
+        None => MAINNET_HEADER_CHAIN_METHOD_ID,
+        _ => panic!("Invalid network type"),
+    }
+};
 
 /// Executes the "work-only" zkVM circuit, verifying the total work value
 /// and committing it as a structured output.
@@ -44,15 +60,63 @@ pub fn work_only_circuit(guest: &impl ZkvmGuest) {
     .unwrap();
     let total_work_u256: U256 =
         U256::from_be_bytes(input.header_chain_circuit_output.chain_state.total_work);
-    let (_, chain_state_total_work_u128): (U128, U128) = total_work_u256.into();
-    let mut words: [u32; 4] = chain_state_total_work_u128
-        .to_le_bytes()
+    let words = work_conversion(total_work_u256);
+    // Due to the nature of borsh serialization, this will use little endian bytes in the items it serializes/deserializes
+    guest.commit(&WorkOnlyCircuitOutput { work_u128: words });
+}
+
+/// Converts a `U256` work value into an array of four `u32` words. This conversion will use big endian words and big endian bytes
+/// inside the words.
+fn work_conversion(work: U256) -> [u32; 4] {
+    let (_, work): (U128, U128) = work.into();
+    let words: [u32; 4] = work
+        .to_be_bytes()
         .chunks_exact(4)
-        .map(|chunk| u32::from_le_bytes(chunk.try_into().unwrap()))
+        .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
         .collect::<Vec<u32>>()
         .try_into()
         .unwrap();
+    words
+}
 
-    words.reverse();
-    guest.commit(&WorkOnlyCircuitOutput { work_u128: words });
+#[cfg(test)]
+mod tests {
+    use crypto_bigint::{Encoding, U256};
+
+    use crate::work_only::work_conversion;
+    #[test]
+    fn test_work_conversion_one() {
+        let u128_one_words = work_conversion(U256::ONE);
+        assert_eq!(u128_one_words, [0, 0, 0, 1]);
+        let u128_one_borsh =
+            borsh::to_vec(&u128_one_words).expect("Serialization to vec is infallible");
+        assert_eq!(u128_one_borsh.len(), 16);
+        assert_eq!(
+            u128_one_borsh,
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+        );
+        let u128_one = borsh::from_slice::<[u32; 4]>(&u128_one_borsh)
+            .expect("Deserialization from slice is infallible");
+        assert_eq!(u128_one, u128_one_words);
+    }
+
+    #[test]
+    fn test_work_conversion_real() {
+        let work_bytes = U256::from_be_bytes([
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+            1, 0, 1,
+        ]);
+        let work_words = work_conversion(work_bytes);
+        assert_eq!(work_words, [0, 0, 1, 65537]);
+        let u128_one_borsh =
+            borsh::to_vec(&work_words).expect("Serialization to vec is infallible");
+        assert_eq!(u128_one_borsh.len(), 16);
+        assert_eq!(
+            u128_one_borsh,
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0]
+        );
+        let u128_one = borsh::from_slice::<[u32; 4]>(&u128_one_borsh)
+            .expect("Deserialization from slice is infallible");
+        assert_eq!(u128_one, work_words);
+    }
 }

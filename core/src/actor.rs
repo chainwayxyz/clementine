@@ -190,7 +190,6 @@ pub fn verify_schnorr(
 #[derive(Debug, Clone)]
 pub struct Actor {
     pub keypair: Keypair,
-    _secret_key: SecretKey,
     winternitz_secret_key: Option<SecretKey>,
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
@@ -210,7 +209,6 @@ impl Actor {
 
         Actor {
             keypair,
-            _secret_key: keypair.secret_key(),
             winternitz_secret_key,
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
@@ -453,7 +451,7 @@ impl Actor {
                         | Kind::BaseDepositScript(_)
                         | Kind::ReplacementDepositScript(_)
                         | Kind::TimelockScript(_)
-                        | Kind::WithdrawalScript(_) => return Ok(None),
+                        | Kind::ManualSpend(_) => return Ok(None),
                     };
 
                     if signed_preimage {
@@ -534,7 +532,7 @@ impl Actor {
                         | Kind::BaseDepositScript(_)
                         | Kind::ReplacementDepositScript(_)
                         | Kind::TimelockScript(_)
-                        | Kind::WithdrawalScript(_) => return Ok(None),
+                        | Kind::ManualSpend(_) => return Ok(None),
                     };
 
                     if signed_winternitz {
@@ -651,7 +649,7 @@ impl Actor {
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)
                         | Kind::Other(_)
-                        | Kind::WithdrawalScript(_) => return Ok(None),
+                        | Kind::ManualSpend(_) => return Ok(None),
                     };
 
                     // Add P2TR elements (control block and script) to the witness
@@ -933,30 +931,6 @@ mod tests {
             .expect("Script spend signature verification failed");
     }
 
-    // #[test]
-    // fn verify_cached_tx() {
-    //     let sk = SecretKey::new(&mut rand::thread_rng());
-    //     let network = Network::Regtest;
-    //     let actor = Actor::new(sk, None, network);
-
-    //     let mut txhandler = create_valid_mock_tx_handler(&actor);
-
-    //     // Sign the transaction
-    //     actor
-    //         .sign_taproot_pubkey_spend(&mut txhandler, 0, None)
-    //         .unwrap();
-
-    //     // Add witness to the transaction
-    //     let sig = actor
-    //         .sign_taproot_pubkey_spend(&mut txhandler, 0, None)
-    //         .unwrap();
-    //     txhandler.get_cached_tx().input[0].witness = Witness::p2tr_key_spend(&sig);
-
-    //     // Verify the cached transaction
-    //     let cached_tx = txhandler.get_cached_tx();
-    //     cached_tx.verify().expect("Transaction verification failed");
-    // }
-
     #[test]
     fn actor_new() {
         let sk = SecretKey::new(&mut rand::thread_rng());
@@ -964,7 +938,6 @@ mod tests {
 
         let actor = Actor::new(sk, None, network);
 
-        assert_eq!(sk, actor._secret_key);
         assert_eq!(sk.public_key(&SECP), actor.public_key);
         assert_eq!(sk.x_only_public_key(&SECP).0, actor.xonly_public_key);
     }

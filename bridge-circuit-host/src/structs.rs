@@ -1,11 +1,13 @@
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
-use circuits_lib::bridge_circuit::{
-    structs::{LightClientProof, StorageProof},
-    winternitz::WinternitzHandler,
+use bitcoin::{Network, Transaction, Txid, XOnlyPublicKey};
+use circuits_lib::{
+    bridge_circuit::{
+        spv::SPV,
+        structs::{LightClientProof, StorageProof, WatchtowerInput},
+    },
+    header_chain::BlockHeaderCircuitOutput,
 };
-use final_spv::spv::SPV;
-use header_chain::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
 use sha2::{Digest, Sha256};
 
@@ -13,31 +15,174 @@ use crate::utils::get_ark_verifying_key;
 
 #[derive(Debug, Clone)]
 pub struct BridgeCircuitHostParams {
-    pub winternitz_details: Vec<WinternitzHandler>,
+    pub kickoff_tx_id: Txid,
     pub spv: SPV,
     pub block_header_circuit_output: BlockHeaderCircuitOutput,
     pub headerchain_receipt: Receipt,
     pub light_client_proof: LightClientProof,
     pub lcp_receipt: Receipt,
     pub storage_proof: StorageProof,
-    pub num_of_watchtowers: u32,
+    pub network: Network,
+    pub watchtower_inputs: Vec<WatchtowerInput>,
+    pub all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
+    pub watchtower_challenge_connector_start_idx: u16,
+}
+
+#[derive(Debug, Clone)]
+pub enum BridgeCircuitHostParamsError {
+    InvalidKickoffTx,
+    InvalidHeaderchainReceipt,
+    InvalidLightClientProof,
+    InvalidLcpReceipt,
+    InvalidStorageProof,
+    InvalidNetwork,
+    InvalidWatchtowerInputs,
+    InvalidPubkey,
+    InvalidNumberOfKickoffOutputs,
+}
+
+impl BridgeCircuitHostParams {
+    const OP_RETURN_OUTPUT: usize = 1;
+    const ANCHOR_OUTPUT: usize = 1;
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        kickoff_tx_id: Txid,
+        spv: SPV,
+        block_header_circuit_output: BlockHeaderCircuitOutput,
+        headerchain_receipt: Receipt,
+        light_client_proof: LightClientProof,
+        lcp_receipt: Receipt,
+        storage_proof: StorageProof,
+        network: Network,
+        watchtower_inputs: Vec<WatchtowerInput>,
+        all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
+        watchtower_challenge_connector_start_idx: u16,
+    ) -> Self {
+        BridgeCircuitHostParams {
+            kickoff_tx_id,
+            spv,
+            block_header_circuit_output,
+            headerchain_receipt,
+            light_client_proof,
+            lcp_receipt,
+            storage_proof,
+            network,
+            watchtower_inputs,
+            all_tweaked_watchtower_pubkeys,
+            watchtower_challenge_connector_start_idx,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_wt_tx(
+        kickoff_tx: Transaction,
+        spv: SPV,
+        headerchain_receipt: Receipt,
+        light_client_proof: LightClientProof,
+        lcp_receipt: Receipt,
+        storage_proof: StorageProof,
+        network: Network,
+        watchtower_contexts: &[WatchtowerContext],
+        watchtower_challenge_connector_start_idx: u16,
+    ) -> Result<Self, BridgeCircuitHostParamsError> {
+        let watchtower_inputs = Self::get_wt_inputs(
+            kickoff_tx.compute_txid(),
+            watchtower_contexts,
+            watchtower_challenge_connector_start_idx,
+        )?;
+
+        let block_header_circuit_output: BlockHeaderCircuitOutput =
+            borsh::from_slice(&headerchain_receipt.journal.bytes)
+                .map_err(|_| BridgeCircuitHostParamsError::InvalidHeaderchainReceipt)?;
+
+        let all_tweaked_watchtower_pubkeys =
+            Self::get_all_pubkeys(&kickoff_tx, watchtower_challenge_connector_start_idx)?;
+
+        Ok(BridgeCircuitHostParams {
+            kickoff_tx_id: kickoff_tx.compute_txid(),
+            spv,
+            block_header_circuit_output,
+            headerchain_receipt,
+            light_client_proof,
+            lcp_receipt,
+            storage_proof,
+            network,
+            watchtower_inputs,
+            all_tweaked_watchtower_pubkeys,
+            watchtower_challenge_connector_start_idx,
+        })
+    }
+
+    fn get_wt_inputs(
+        kickoff_tx_id: Txid,
+        watchtower_contexts: &[WatchtowerContext],
+        watchtower_challenge_connector_start_idx: u16,
+    ) -> Result<Vec<WatchtowerInput>, BridgeCircuitHostParamsError> {
+        watchtower_contexts
+            .iter()
+            .map(|context| {
+                WatchtowerInput::from_txs(
+                    kickoff_tx_id,
+                    context.watchtower_tx.clone(),
+                    context.previous_txs,
+                    watchtower_challenge_connector_start_idx,
+                )
+                .map_err(|_| BridgeCircuitHostParamsError::InvalidWatchtowerInputs)
+            })
+            .collect()
+    }
+
+    fn get_all_pubkeys(
+        kickoff_tx: &Transaction,
+        watchtower_challenge_connector_start_idx: u16,
+    ) -> Result<Vec<XOnlyPublicKey>, BridgeCircuitHostParamsError> {
+        let start_index = watchtower_challenge_connector_start_idx as usize;
+        let end_index = kickoff_tx
+            .output
+            .len()
+            .checked_sub(Self::OP_RETURN_OUTPUT)
+            .ok_or(BridgeCircuitHostParamsError::InvalidNumberOfKickoffOutputs)?
+            .checked_sub(Self::ANCHOR_OUTPUT)
+            .ok_or(BridgeCircuitHostParamsError::InvalidNumberOfKickoffOutputs)?;
+
+        let mut all_tweaked_watchtower_pubkeys = Vec::new();
+
+        for i in (start_index..end_index).step_by(2) {
+            let output = &kickoff_tx.output[i];
+
+            let xonly_public_key =
+                XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34])
+                    .map_err(|_| BridgeCircuitHostParamsError::InvalidPubkey)?;
+
+            all_tweaked_watchtower_pubkeys.push(xonly_public_key);
+        }
+        Ok(all_tweaked_watchtower_pubkeys)
+    }
+}
+
+pub struct WatchtowerContext<'a> {
+    pub watchtower_tx: Transaction,
+    pub previous_txs: &'a [Transaction],
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct SuccinctBridgeCircuitPublicInputs {
+    pub kickoff_txid: [u8; 32],
     pub payout_tx_block_hash: [u8; 20],
     pub latest_block_hash: [u8; 20],
     pub challenge_sending_watchtowers: [u8; 20],
     pub move_to_vault_txid: [u8; 32],
-    pub watchtower_challenge_wpks_hash: [u8; 32],
+    pub watchtower_pubkeys_digest: [u8; 32],
     pub operator_id: [u8; 32],
 }
 
 impl SuccinctBridgeCircuitPublicInputs {
     pub fn journal_hash(self) -> blake3::Hash {
         let pre_deposit_constant = [
+            self.kickoff_txid,
             self.move_to_vault_txid,
-            self.watchtower_challenge_wpks_hash,
+            self.watchtower_pubkeys_digest,
             self.operator_id,
         ]
         .concat();
@@ -50,6 +195,7 @@ impl SuccinctBridgeCircuitPublicInputs {
             self.challenge_sending_watchtowers,
         ]
         .concat();
+
         let binding = blake3::hash(&concatenated_data);
         let hash_bytes = binding.as_bytes();
 
@@ -60,11 +206,13 @@ impl SuccinctBridgeCircuitPublicInputs {
 
     pub fn deposit_constant(self) -> [u8; 32] {
         let pre_deposit_constant = [
+            self.kickoff_txid,
             self.move_to_vault_txid,
-            self.watchtower_challenge_wpks_hash,
+            self.watchtower_pubkeys_digest,
             self.operator_id,
         ]
         .concat();
+
         Sha256::digest(&pre_deposit_constant).into()
     }
 }
