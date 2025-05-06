@@ -15,9 +15,11 @@ pub struct DepositConstant(pub [u8; 32]);
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
 pub struct ChallengeSendingWatchtowers(pub [u8; 20]);
 
-impl PartialEq<[u8; 20]> for ChallengeSendingWatchtowers {
-    fn eq(&self, other: &[u8; 20]) -> bool {
-        self.0 == *other
+impl Deref for ChallengeSendingWatchtowers {
+    type Target = [u8; 20];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -52,9 +54,11 @@ impl TryFrom<&[u8]> for LatestBlockhash {
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
 pub struct TotalWork(pub [u8; 16]);
 
-impl PartialEq<[u8; 16]> for TotalWork {
-    fn eq(&self, other: &[u8; 16]) -> bool {
-        self.0 == *other
+impl Deref for TotalWork {
+    type Target = [u8; 16];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
