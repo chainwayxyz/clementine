@@ -740,9 +740,9 @@ mod tests {
         let (total_work, challenge_sending_watchtowers) =
             total_work_and_watchtower_flags(&input, &WORK_ONLY_IMAGE_ID);
 
-        assert_eq!(total_work, [0u8; 16], "Total work is not correct");
+        assert_eq!(*total_work, [0u8; 16], "Total work is not correct");
         assert_eq!(
-            challenge_sending_watchtowers, [0u8; 20],
+            *challenge_sending_watchtowers, [0u8; 20],
             "Challenge sending watchtowers is not correct"
         );
     }
