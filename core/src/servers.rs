@@ -130,10 +130,15 @@ where
         .identity(server_identity)
         .client_ca_root(client_ca);
 
-    let server_builder = tonic::transport::Server::builder()
-        .tls_config(tls_config)
-        .map_err(|e| BridgeError::ConfigError(format!("Failed to configure TLS: {:?}", e)))?
-        .add_service(service);
+    let mut server_builder = if let ServerAddr::Tcp(_) = addr {
+        tonic::transport::Server::builder()
+            .tls_config(tls_config)
+            .wrap_err("Failed to configure TLS")?
+    } else {
+        tonic::transport::Server::builder()
+    };
+
+    let server_builder = server_builder.add_service(service);
 
     match addr {
         ServerAddr::Tcp(socket_addr) => {
