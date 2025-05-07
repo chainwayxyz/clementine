@@ -143,34 +143,3 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
 
     Ok(())
 }
-
-async fn test_aggregator_has_no_access_to_internal_methods() -> Result<(), eyre::Report> {
-    let mut config = create_test_config_with_thread_name().await;
-    let _rpc = create_regtest_rpc(&mut config).await;
-    let actors = create_actors(&mut config).await;
-
-    let port = find_available_port().await;
-    let host = "127.0.0.1";
-
-    config.host = host.to_string();
-    config.port = port;
-
-    let (_socket_addr, _shutdown_tx) =
-        create_aggregator_grpc_server::<MockCitreaClient>(config.clone()).await?;
-
-    let mut clients = get_clients(
-        vec![endpoint.clone()],
-        ClementineAggregatorClient::new,
-        &config,
-    )
-    .await?;
-
-    clients[0]
-        .get
-        .await
-        .expect("aggregator can call public method");
-    clients[0]
-        .internal_end_round(Empty {})
-        .await
-        .expect_err("aggregator cannot call internal method");
-}

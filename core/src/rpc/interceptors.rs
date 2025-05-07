@@ -38,7 +38,6 @@ fn only_aggregator_and_self(
     aggregator_cert: &CertificateDer<'static>,
 ) -> Result<Request<()>, Status> {
     let Some(peer_certs) = req.peer_certs() else {
-        println!("No peer certs");
         if cfg!(test) {
             // Test mode, we don't need to verify peer certificates
             return Ok(req);

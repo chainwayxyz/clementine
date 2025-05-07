@@ -31,7 +31,7 @@ Before compiling Clementine:
 3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):
 
    ```bash
-   xcode-select --install 
+   xcode-select --install
    ```
 
 4. If on Ubuntu, install these packages:
@@ -90,14 +90,16 @@ Clementine uses the following logic to determine the configuration source:
 
 You can mix these approaches - for example, reading main configuration from a file but protocol parameters from environment variables.
 
-### Mutual TLS (mTLS) Configuration
+### RPC Authentication
 
-Clementine uses mutual TLS (mTLS) to secure gRPC communications between components:
+Clementine uses mutual TLS (mTLS) to secure gRPC communications between entities and to authenticate clients. Client certificates are verified and filtered by the verifier/operator to ensure that:
 
-- All gRPC server components (Verifier, Operator, Aggregator)
-- gRPC client connections
+1. Verifier/Operator methods can only be called by the aggregator (using aggregator's client certificate `aggregator_cert_path`)
+2. Internal methods can only be called by the entity's own client certificate (using the entity's client certificate `client_cert_path`)
 
-#### Certificate Setup
+The aggregator does not enforce client certificates but does use TLS for encryption.
+
+#### Certificate Setup for Tests
 
 Before running the servers, you need to generate certificates. A script is provided for this purpose:
 
@@ -116,10 +118,14 @@ certs/
 │   ├── ca.pem     # Copy of CA certificate (for convenience)
 │   ├── server.key # Server private key
 │   └── server.pem # Server certificate
-└── client/
+├── client/
+│   ├── ca.pem     # Copy of CA certificate (for convenience)
+│   ├── client.key # Client private key
+│   └── client.pem # Client certificate
+└── aggregator/
     ├── ca.pem     # Copy of CA certificate (for convenience)
-    ├── client.key # Client private key
-    └── client.pem # Client certificate
+    ├── aggregator.key # Aggregator private key
+    └── aggregator.pem # Aggregator certificate
 ```
 
 > [!NOTE]
