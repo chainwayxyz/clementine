@@ -209,6 +209,33 @@ mod tests {
             "BRIDGE_CONTRACT_ADDRESS",
             &default_config.bridge_contract_address,
         );
+        std::env::set_var(
+            "AGGREGATOR_CERT_PATH",
+            default_config
+                .aggregator_cert_path
+                .clone()
+                .unwrap_or_default(),
+        );
+        std::env::set_var(
+            "CLIENT_CERT_PATH",
+            default_config.client_cert_path.clone().unwrap_or_default(),
+        );
+        std::env::set_var(
+            "CLIENT_KEY_PATH",
+            default_config.client_key_path.clone().unwrap_or_default(),
+        );
+        std::env::set_var(
+            "SERVER_CERT_PATH",
+            default_config.server_cert_path.clone().unwrap_or_default(),
+        );
+        std::env::set_var(
+            "SERVER_KEY_PATH",
+            default_config.server_key_path.clone().unwrap_or_default(),
+        );
+        std::env::set_var(
+            "CA_CERT_PATH",
+            default_config.ca_cert_path.clone().unwrap_or_default(),
+        );
 
         std::env::set_var(
             "SECURITY_COUNCIL",

@@ -106,7 +106,10 @@ pub struct BridgeConfig {
     /// Path to the client key file.
     pub client_key_path: Option<PathBuf>,
 
-    /// Path to the CA certificate file. (used to verify client certificates, optional)
+    /// Path to the CA certificate file which is used to verify client
+    /// certificates, optional.  When not provided, client verification will be
+    /// disabled. This should be provided at the same time as aggregator
+    /// certificate, otherwise an error will be thrown.
     ///
     /// This is not used in aggregator since ANYONE can call the aggregator.
     pub ca_cert_path: Option<PathBuf>,

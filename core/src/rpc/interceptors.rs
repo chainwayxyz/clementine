@@ -1,4 +1,4 @@
-use tonic::{service::Interceptor, transport::CertificateDer, GrpcMethod, Request, Status};
+use tonic::{service::Interceptor, transport::CertificateDer, Request, Status};
 
 #[derive(Debug, Clone)]
 pub enum Interceptors {
@@ -10,12 +10,14 @@ pub enum Interceptors {
 }
 
 fn is_internal(req: &Request<()>) -> bool {
-    let Some(path) = req.extensions().get::<GrpcMethod>() else {
+    // This normally doesn't exist but we add it in the AddMethodMiddleware
+    let Some(path) = req.metadata().get("grpc-method") else {
         // No grpc method? this should not happen
+        tracing::error!("Missing grpc-method header in request");
         return false;
     };
 
-    path.method().starts_with("Internal")
+    path.as_bytes().starts_with(b"Internal")
 }
 
 impl Interceptor for Interceptors {
@@ -36,6 +38,7 @@ fn only_aggregator_and_self(
     aggregator_cert: &CertificateDer<'static>,
 ) -> Result<Request<()>, Status> {
     let Some(peer_certs) = req.peer_certs() else {
+        println!("No peer certs");
         if cfg!(test) {
             // Test mode, we don't need to verify peer certificates
             return Ok(req);

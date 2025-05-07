@@ -9,6 +9,7 @@ use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorSe
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
 use crate::rpc::interceptors::Interceptors::{Noop, OnlyAggregatorAndSelf};
+use crate::utils::AddMethodMiddlewareLayer;
 use crate::verifier::VerifierServer;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
@@ -173,6 +174,7 @@ where
             );
 
             let server_builder = tonic::transport::Server::builder()
+                .layer(AddMethodMiddlewareLayer)
                 .tls_config(tls_config)
                 .wrap_err("Failed to configure TLS")?
                 .add_service(service);
@@ -195,7 +197,9 @@ where
         }
         #[cfg(unix)]
         ServerAddr::Unix(ref socket_path) => {
-            let server_builder = tonic::transport::Server::builder().add_service(service);
+            let server_builder = tonic::transport::Server::builder()
+                .layer(AddMethodMiddlewareLayer)
+                .add_service(service);
             tracing::info!(
                 "Starting {} gRPC server with Unix socket: {:?}",
                 server_name,
@@ -238,6 +242,52 @@ where
     Ok((addr, shutdown_tx))
 }
 
+fn warn_disable_client_ca(server_name: &str, config: &mut BridgeConfig) {
+    if cfg!(test) {
+        return;
+    }
+
+    if config.ca_cert_path.is_some() {
+        tracing::warn!(
+            "Client CA certificate path is set, even though {} gRPC server should have client certificate verification DISABLED. Overriding CA certificate path to None...",
+            server_name
+        );
+
+        config.ca_cert_path = None;
+    }
+}
+
+fn abort_if_missing_client_verification(
+    server_name: &str,
+    config: &BridgeConfig,
+) -> Result<(), BridgeError> {
+    if cfg!(test) {
+        return Ok(());
+    }
+
+    if config.ca_cert_path.is_none() {
+        tracing::warn!(
+            "Client CA certificate path is not set, even though {} gRPC server should have client certificate verification ENABLED. This means that requests cannot be verified to be from the aggregator or from the operator itself. Aborting...",
+            server_name
+        );
+        return Err(BridgeError::ConfigError(
+            "Missing client CA certificate path".into(),
+        ));
+    }
+
+    if config.aggregator_cert_path.is_none() {
+        tracing::warn!(
+            "Aggregator certificate path is not set, even though {} gRPC server should have client certificate verification ENABLED. This means that requests cannot be verified to be from the aggregator. Aborting...",
+            server_name
+        );
+        return Err(BridgeError::ConfigError(
+            "Missing aggregator certificate path".into(),
+        ));
+    }
+
+    Ok(())
+}
+
 pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
@@ -254,6 +304,8 @@ pub async fn create_verifier_grpc_server<C: CitreaClientT>(
         .wrap_err("Failed to parse address")?;
     let verifier = VerifierServer::<C>::new(config.clone()).await?;
     let svc = ClementineVerifierServer::new(verifier);
+
+    abort_if_missing_client_verification("Verifier", &config)?;
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, "Verifier", &config).await?;
@@ -277,6 +329,8 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
         .wrap_err("Failed to parse address")?;
     let operator = OperatorServer::<C>::new(config.clone()).await?;
 
+    abort_if_missing_client_verification("Operator", &config)?;
+
     let svc = ClementineOperatorServer::new(operator);
     let (server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, "Operator", &config).await?;
@@ -289,13 +343,15 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
 }
 
 pub async fn create_aggregator_grpc_server(
-    config: BridgeConfig,
+    mut config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
     let aggregator = Aggregator::new(config.clone()).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
+
+    warn_disable_client_ca("Aggregator", &mut config);
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, "Aggregator", &config).await?;
