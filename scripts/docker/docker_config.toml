@@ -72,6 +72,7 @@ server_key_path = "certs/server/server.key"
 ca_cert_path = "certs/ca/ca.pem"
 client_cert_path = "certs/client/client.pem"
 client_key_path = "certs/client/client.key"
+aggregator_cert_path = "certs/aggregator/aggregator.pem"
 security_council = "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
 
 # Testing only fields.

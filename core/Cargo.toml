@@ -52,6 +52,7 @@ sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib" }
+rustls-pki-types = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

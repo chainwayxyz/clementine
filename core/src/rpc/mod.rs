@@ -16,6 +16,7 @@ pub mod clementine;
 
 pub mod aggregator;
 mod error;
+pub mod interceptors;
 pub mod operator;
 mod parser;
 pub mod verifier;

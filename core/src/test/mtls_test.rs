@@ -1,80 +1,10 @@
-use crate::errors::BridgeError;
+use crate::citrea::mock::MockCitreaClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::Empty;
 use crate::servers::create_operator_grpc_server;
 use crate::test::common::create_test_config_with_thread_name;
-use std::fmt::Debug;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tokio::net::TcpListener;
-use tonic::async_trait;
-
-// Simple mock implementation of CitreaClientT
-#[derive(Clone, Debug)]
-pub struct MockCitreaClient;
-
-#[async_trait]
-impl crate::citrea::CitreaClientT for MockCitreaClient {
-    async fn new(
-        _citrea_rpc_url: String,
-        _light_client_prover_url: String,
-        _secret_key: Option<alloy::signers::local::PrivateKeySigner>,
-    ) -> Result<Self, BridgeError> {
-        Ok(MockCitreaClient)
-    }
-
-    async fn withdrawal_utxos(
-        &self,
-        _withdrawal_index: u64,
-    ) -> Result<bitcoin::OutPoint, BridgeError> {
-        unimplemented!()
-    }
-
-    async fn collect_deposit_move_txids(
-        &self,
-        _last_deposit_idx: Option<u32>,
-        _to_height: u64,
-    ) -> Result<Vec<(u64, bitcoin::Txid)>, BridgeError> {
-        unimplemented!()
-    }
-
-    async fn collect_withdrawal_utxos(
-        &self,
-        _last_withdrawal_idx: Option<u32>,
-        _to_height: u64,
-    ) -> Result<Vec<(u64, bitcoin::OutPoint)>, BridgeError> {
-        unimplemented!()
-    }
-
-    async fn get_light_client_proof(
-        &self,
-        _l1_height: u64,
-    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
-        unimplemented!()
-    }
-
-    async fn get_citrea_l2_height_range(
-        &self,
-        _block_height: u64,
-        _timeout: std::time::Duration,
-    ) -> Result<(u64, u64), BridgeError> {
-        unimplemented!()
-    }
-
-    async fn get_replacement_deposit_move_txids(
-        &self,
-        _from_height: u64,
-        _to_height: u64,
-    ) -> Result<Vec<(bitcoin::Txid, bitcoin::Txid)>, BridgeError> {
-        unimplemented!()
-    }
-
-    async fn check_nofn_correctness(
-        &self,
-        _nofn_xonly_pk: bitcoin::XOnlyPublicKey,
-    ) -> Result<(), BridgeError> {
-        unimplemented!()
-    }
-}
 
 // Helper function to find an available port
 async fn find_available_port() -> u16 {

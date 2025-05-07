@@ -111,6 +111,9 @@ impl BridgeConfig {
         let ca_cert_path = std::env::var("CA_CERT_PATH").ok().map(PathBuf::from);
         let client_cert_path = std::env::var("CLIENT_CERT_PATH").ok().map(PathBuf::from);
         let client_key_path = std::env::var("CLIENT_KEY_PATH").ok().map(PathBuf::from);
+        let aggregator_cert_path = std::env::var("AGGREGATOR_CERT_PATH")
+            .ok()
+            .map(PathBuf::from);
 
         let security_council_string = read_string_from_env("SECURITY_COUNCIL")?;
 
@@ -147,6 +150,7 @@ impl BridgeConfig {
             ca_cert_path,
             client_cert_path,
             client_key_path,
+            aggregator_cert_path,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),

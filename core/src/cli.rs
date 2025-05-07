@@ -383,6 +383,7 @@ mod tests {
         env::set_var("CA_CERT_PATH", "certs/ca/ca.pem");
         env::set_var("CLIENT_CERT_PATH", "certs/client/client.pem");
         env::set_var("CLIENT_KEY_PATH", "certs/client/client.key");
+        env::set_var("AGGREGATOR_CERT_PATH", "certs/aggregator/aggregator.pem");
         env::set_var(
             "SECURITY_COUNCIL",
             "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0",
@@ -439,6 +440,7 @@ mod tests {
         env::remove_var("CA_CERT_PATH");
         env::remove_var("CLIENT_CERT_PATH");
         env::remove_var("CLIENT_KEY_PATH");
+        env::remove_var("AGGREGATOR_CERT_PATH");
         env::remove_var("SECURITY_COUNCIL");
     }
 

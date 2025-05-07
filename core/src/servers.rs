@@ -8,15 +8,16 @@ use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
+use crate::rpc::interceptors::Interceptors::{Noop, OnlyAggregatorAndSelf};
 use crate::verifier::VerifierServer;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
-use eyre::Context;
-use std::path::PathBuf;
+use eyre::{Context, OptionExt};
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
-use tonic::transport::{Certificate, Identity, ServerTlsConfig};
+use tonic::service::interceptor::InterceptedService;
+use tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
 
 // Add this to ensure certificates exist in tests
 #[cfg(test)]
@@ -76,77 +77,106 @@ where
     // Ensure certificates exist in test mode
     #[cfg(test)]
     {
-        ensure_test_certificates().map_err(|e| {
-            BridgeError::ConfigError(format!("Failed to ensure test certificates: {}", e))
-        })?;
+        ensure_test_certificates().wrap_err("Failed to ensure test certificates")?;
     }
-
-    // Get certificate paths from config or use defaults
-    let server_cert_path = config
-        .server_cert_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("certs/server/server.pem"));
-    let server_key_path = config
-        .server_key_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("certs/server/server.key"));
-    let ca_cert_path = config
-        .ca_cert_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("certs/ca/ca.pem"));
-
-    // Load TLS certificates
-    let cert = tokio::fs::read(&server_cert_path).await.map_err(|e| {
-        BridgeError::ConfigError(format!(
-            "Failed to read server certificate from {}: {}",
-            server_cert_path.display(),
-            e
-        ))
-    })?;
-
-    let key = tokio::fs::read(&server_key_path).await.map_err(|e| {
-        BridgeError::ConfigError(format!(
-            "Failed to read server key from {}: {}",
-            server_key_path.display(),
-            e
-        ))
-    })?;
-
-    let server_identity = Identity::from_pem(cert, key);
-
-    // Load CA certificate for client verification
-    let client_ca_cert = tokio::fs::read(&ca_cert_path).await.map_err(|e| {
-        BridgeError::ConfigError(format!(
-            "Failed to read CA certificate from {}: {}",
-            ca_cert_path.display(),
-            e
-        ))
-    })?;
-
-    let client_ca = Certificate::from_pem(client_ca_cert);
-
-    // Build TLS configuration
-    let tls_config = ServerTlsConfig::new()
-        .identity(server_identity)
-        .client_ca_root(client_ca);
-
-    let mut server_builder = if let ServerAddr::Tcp(_) = addr {
-        tonic::transport::Server::builder()
-            .tls_config(tls_config)
-            .wrap_err("Failed to configure TLS")?
-    } else {
-        tonic::transport::Server::builder()
-    };
-
-    let server_builder = server_builder.add_service(service);
 
     match addr {
         ServerAddr::Tcp(socket_addr) => {
+            // Get certificate paths from config or use defaults
+            let server_cert_path = config
+                .server_cert_path
+                .as_ref()
+                .ok_or_eyre("Missing server certificate for TLS")?;
+            let server_key_path = config
+                .server_key_path
+                .as_ref()
+                .ok_or_eyre("Missing server key for TLS")?;
+
+            // Load TLS certificates
+            let cert = tokio::fs::read(&server_cert_path).await.wrap_err(format!(
+                "Failed to read server certificate from {}",
+                server_cert_path.display()
+            ))?;
+            let key = tokio::fs::read(&server_key_path).await.wrap_err(format!(
+                "Failed to read server key from {}",
+                server_key_path.display()
+            ))?;
+
+            let server_identity = Identity::from_pem(cert, key);
+
+            // Client verification is optional
+            let client_ca = {
+                if let Some(ca_cert_path) = config.ca_cert_path.as_ref() {
+                    // Load CA certificate for client verification
+                    let client_ca_cert = tokio::fs::read(&ca_cert_path).await.wrap_err(format!(
+                        "Failed to read CA certificate from {}",
+                        ca_cert_path.display()
+                    ))?;
+
+                    Some(Certificate::from_pem(client_ca_cert))
+                } else {
+                    None
+                }
+            };
+
+            // Build TLS configuration
+            let tls_config = ServerTlsConfig::new().identity(server_identity);
+
+            let has_client_ca = client_ca.is_some();
+
+            // Client verification is optional
+            let tls_config = if let Some(client_ca) = client_ca {
+                tls_config.client_ca_root(client_ca)
+            } else {
+                tls_config
+            };
+
+            use rustls_pki_types::pem::PemObject;
+            let service = InterceptedService::new(
+                service,
+                if has_client_ca {
+                    let client_cert = &config
+                        .client_cert_path
+                        .as_ref()
+                        .ok_or_eyre("Missing client certificate for TLS")?;
+                    let client_cert = CertificateDer::from_pem_file(client_cert)
+                        .wrap_err(format!(
+                            "Failed to read client certificate from {}",
+                            client_cert.display()
+                        ))?
+                        .to_owned();
+
+                    let aggregator_cert = &config
+                        .aggregator_cert_path
+                        .as_ref()
+                        .ok_or_eyre("Missing aggregator certificate for TLS")?;
+                    let aggregator_cert = CertificateDer::from_pem_file(aggregator_cert)
+                        .wrap_err(format!(
+                            "Failed to read aggregator certificate from {}",
+                            aggregator_cert.display()
+                        ))?
+                        .to_owned();
+
+                    OnlyAggregatorAndSelf {
+                        aggregator_cert,
+                        our_cert: client_cert,
+                    }
+                } else {
+                    Noop
+                },
+            );
+
             tracing::info!(
                 "Starting {} gRPC server with TCP address: {}",
                 server_name,
                 socket_addr
             );
+
+            let server_builder = tonic::transport::Server::builder()
+                .tls_config(tls_config)
+                .wrap_err("Failed to configure TLS")?
+                .add_service(service);
+
             let server_name_str = server_name.to_string();
 
             let handle = server_builder.serve_with_shutdown(socket_addr, async move {
@@ -165,6 +195,7 @@ where
         }
         #[cfg(unix)]
         ServerAddr::Unix(ref socket_path) => {
+            let server_builder = tonic::transport::Server::builder().add_service(service);
             tracing::info!(
                 "Starting {} gRPC server with Unix socket: {:?}",
                 server_name,

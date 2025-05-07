@@ -89,16 +89,32 @@ pub struct BridgeConfig {
     /// Operator endpoint. For the aggregator only
     pub operator_endpoints: Option<Vec<String>>,
 
+    // TLS certificates
     /// Path to the server certificate file.
+    ///
+    /// Required for all entities.
     pub server_cert_path: Option<PathBuf>,
     /// Path to the server key file.
     pub server_key_path: Option<PathBuf>,
-    /// Path to the CA certificate file.
-    pub ca_cert_path: Option<PathBuf>,
-    /// Path to the client certificate file.
+
+    /// Path to the client certificate file. (used to communicate with other gRPC services)
+    ///
+    /// Required for all entities. This is used to authenticate requests.
+    /// Aggregator's client certificate should match the expected aggregator
+    /// certificate in other entities.
     pub client_cert_path: Option<PathBuf>,
     /// Path to the client key file.
     pub client_key_path: Option<PathBuf>,
+
+    /// Path to the CA certificate file. (used to verify client certificates, optional)
+    ///
+    /// This is not used in aggregator since ANYONE can call the aggregator.
+    pub ca_cert_path: Option<PathBuf>,
+
+    /// Path to the aggregator certificate file. (used to authenticate requests from aggregator)
+    ///
+    /// Aggregator's client cert should be equal to the this certificate.
+    pub aggregator_cert_path: Option<PathBuf>,
 
     // /// Directory containing unix sockets
     // pub socket_path: String,
@@ -231,9 +247,11 @@ impl Default for BridgeConfig {
 
             server_cert_path: Some(PathBuf::from("certs/server/server.pem")),
             server_key_path: Some(PathBuf::from("certs/server/server.key")),
-            ca_cert_path: Some(PathBuf::from("certs/ca/ca.pem")),
             client_cert_path: Some(PathBuf::from("certs/client/client.pem")),
             client_key_path: Some(PathBuf::from("certs/client/client.key")),
+            ca_cert_path: Some(PathBuf::from("certs/ca/ca.pem")),
+
+            aggregator_cert_path: Some(PathBuf::from("certs/aggregator/aggregator.pem")),
 
             #[cfg(test)]
             test_params: TestParams::default(),
