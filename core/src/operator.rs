@@ -1,9 +1,12 @@
+use ark_ff::PrimeField;
+use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
+use crate::builder::script::extract_winternitz_commits;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
@@ -19,6 +22,7 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::header_chain_prover::HeaderChainProver;
 use crate::states::context::DutyResult;
 use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
@@ -37,8 +41,14 @@ use bitcoin::{
 };
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
+use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
-use eyre::Context;
+use bridge_circuit_host::bridge_circuit_host::{
+    create_spv, prove_bridge_circuit, REGTEST_BRIDGE_CIRCUIT_ELF,
+};
+use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
+use bridge_circuit_host::utils::get_ark_verifying_key;
+use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -59,6 +69,7 @@ pub struct Operator<C: CitreaClientT> {
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSenderClient,
+    pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
 }
 
@@ -188,6 +199,8 @@ where
             config.db_name
         );
 
+        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
+
         Ok(Operator {
             rpc,
             db: db.clone(),
@@ -196,6 +209,7 @@ where
             collateral_funding_outpoint,
             tx_sender,
             citrea_client,
+            header_chain_prover,
             reimburse_addr,
         })
     }
@@ -972,16 +986,222 @@ where
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        _watchtower_challenges: HashMap<usize, Transaction>,
+        watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
-        _latest_blockhash: Witness,
+        latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        let assert_txs = self
-            .create_assert_commitment_txs(TransactionRequestData {
-                kickoff_data,
-                deposit_outpoint: deposit_data.get_deposit_outpoint(),
-            })
+        let context = ContractContext::new_context_for_kickoffs(
+            kickoff_data,
+            deposit_data.clone(),
+            self.config.protocol_paramset(),
+        );
+        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
+        let txhandlers = create_txhandlers(
+            TransactionType::Kickoff,
+            context,
+            &mut TxHandlerCache::new(),
+            &mut db_cache,
+        )
+        .await?;
+        let move_txid = txhandlers
+            .get(&TransactionType::MoveToVault)
+            .ok_or(eyre::eyre!(
+                "Move to vault txhandler not found in send_asserts"
+            ))?
+            .get_cached_tx()
+            .compute_txid();
+        let kickoff_tx = txhandlers
+            .get(&TransactionType::Kickoff)
+            .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
+            .get_cached_tx();
+        tracing::warn!("Calculated move and kickoff tx in send_asserts");
+        let (payout_op_xonly_pk, payout_block_hash, payout_txid, deposit_idx) = self
+            .db
+            .get_payout_info_from_move_txid(None, move_txid)
+            .await
+            .wrap_err("Failed to get payout info from db during sending asserts.")?
+            .ok_or_eyre(format!(
+                "Payout info not found in db while sending asserts for move txid: {}",
+                move_txid
+            ))?;
+
+        if payout_op_xonly_pk != kickoff_data.operator_xonly_pk {
+            return Err(eyre::eyre!(
+                "Payout operator xonly pk does not match kickoff operator xonly pk in send_asserts"
+            )
+            .into());
+        }
+
+        let (payout_block_height, payout_block) = self
+            .db
+            .get_full_block_from_hash(None, payout_block_hash)
+            .await?
+            .ok_or_eyre(format!(
+                "Payout block {:?} {:?} not found in db",
+                payout_op_xonly_pk, payout_block_hash
+            ))?;
+
+        let payout_tx_index = payout_block
+            .txdata
+            .iter()
+            .position(|tx| tx.compute_txid() == payout_txid)
+            .ok_or_eyre(format!(
+                "Payout txid {:?} not found in block {:?} {:?}",
+                payout_txid, payout_op_xonly_pk, payout_block_hash
+            ))?;
+        let payout_tx = &payout_block.txdata[payout_tx_index];
+        tracing::warn!("Calculated payout tx in send_asserts");
+
+        let (light_client_proof, lcp_receipt, l2_height) = self
+            .citrea_client
+            .get_light_client_proof(payout_block_height as u64)
+            .await
+            .wrap_err("Failed to get light client proof for payout block height")?
+            .ok_or_eyre("Light client proof is not available for payout block height")?;
+        tracing::warn!("Got light client proof in send_asserts");
+        let storage_proof = self
+            .citrea_client
+            .get_storage_proof(l2_height, deposit_idx as u32)
+            .await
+            .wrap_err(format!(
+                "Failed to get storage proof for move txid {:?}, l2 height {}, deposit_idx {}",
+                move_txid, l2_height, deposit_idx
+            ))?;
+        tracing::warn!("Got storage proof in send_asserts");
+
+        // get committed latest blockhash
+        let wt_derive_path = ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
+            deposit_data.get_deposit_outpoint(),
+            self.config.protocol_paramset(),
+        );
+        let commits = extract_winternitz_commits(
+            latest_blockhash,
+            &[wt_derive_path],
+            self.config.protocol_paramset(),
+        )?;
+        let _latest_blockhash = commits
+            .first()
+            .ok_or_eyre("Failed to get latest blockhash in send_asserts")?;
+
+        let (current_hcp, hcp_height) = self
+            .header_chain_prover
+            .get_tip_header_chain_proof()
             .await?;
+        tracing::warn!("Got header chain proof in send_asserts");
+
+        let headers = self.db.get_headers_until_height(None, hcp_height).await?;
+
+        tracing::warn!(
+            "Got headers in send_asserts, num_headers: {}",
+            headers.len()
+        );
+        let blockhashes_serialized: Vec<[u8; 32]> = headers
+            .iter()
+            .map(|header| header.block_hash().to_byte_array()) // TODO: get blockhash directly from db
+            .collect::<Vec<_>>();
+        let spv = create_spv(
+            payout_tx.clone(),
+            &blockhashes_serialized,
+            payout_block.clone(),
+            payout_block_height,
+            payout_tx_index as u32,
+        );
+        tracing::warn!("Calculated spv in send_asserts");
+
+        // tracing::warn!("Printing proof params -----------------");
+        // tracing::warn!(
+        //     "Payout block: {:?}",
+        //     bitcoin::consensus::serialize(&payout_block)
+        // );
+        // tracing::warn!(
+        //     "Block headers: {:?}",
+        //     headers
+        //         .iter()
+        //         .map(bitcoin::consensus::serialize)
+        //         .collect::<Vec<_>>()
+        // );
+        // tracing::warn!("Light client proof: {:?}", light_client_proof);
+        // tracing::warn!(
+        //     "LCP receipt: {:?}",
+        //     borsh::to_vec(&lcp_receipt).wrap_err("Failed to serialize lcp receipt")?
+        // );
+        // tracing::warn!("Storage proof: {:?}", storage_proof);
+        // tracing::warn!(
+        //     "Kickoff tx bytes: {:?}",
+        //     bitcoin::consensus::serialize(&kickoff_tx)
+        // );
+        // tracing::warn!(
+        //     "Watchtower challenges (index, transaction): {:?}",
+        //     watchtower_challenges
+        //         .iter()
+        //         .map(|(k, v)| (k, bitcoin::consensus::serialize(v)))
+        //         .collect::<Vec<_>>()
+        // );
+
+        // tracing::warn!(
+        //     "Committed latest blockhash witness: {:?}",
+        //     _latest_blockhash
+        // );
+        // tracing::warn!(
+        //     "Header chain proof receipt {:?}",
+        //     borsh::to_vec(&current_hcp).wrap_err("Failed to serialize hcp receipt")?
+        // );
+
+        let previos_txs = [kickoff_tx.clone()]; // TODO: change and add previous txs after watchtower tx becomes rbf
+        let watchtower_contexts = watchtower_challenges
+            .values()
+            .map(|tx| WatchtowerContext {
+                watchtower_tx: tx.clone(),
+                previous_txs: &previos_txs,
+            })
+            .collect::<Vec<_>>();
+
+        let watchtower_challenge_connector_start_idx =
+            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+
+        let bridge_circuit_host_params = BridgeCircuitHostParams::new_with_wt_tx(
+            kickoff_tx.clone(),
+            spv,
+            current_hcp,
+            light_client_proof,
+            lcp_receipt,
+            storage_proof,
+            self.config.protocol_paramset().network,
+            &watchtower_contexts,
+            watchtower_challenge_connector_start_idx,
+        )
+        .map_err(|e| {
+            eyre::eyre!(
+                "Failed to create bridge circuit host params in send_asserts: {:?}",
+                e
+            )
+        })?;
+
+        let (g16_proof, g16_output, public_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF); // TODO: change to network specific elf
+        tracing::warn!("Proved bridge circuit in send_asserts");
+        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
+
+        let asserts = generate_assertions(
+            g16_proof,
+            vec![public_input_scalar],
+            &get_ark_verifying_key(),
+        )
+        .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?;
+
+        let assert_txs = self
+            .create_assert_commitment_txs(
+                TransactionRequestData {
+                    kickoff_data,
+                    deposit_outpoint: deposit_data.get_deposit_outpoint(),
+                },
+                ClementineBitVMPublicKeys::get_assert_commit_data(
+                    asserts,
+                    &public_inputs.challenge_sending_watchtowers,
+                ),
+            )
+            .await?;
+
         let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in assert_txs {
             self.tx_sender
@@ -1091,6 +1311,7 @@ where
                 .await?;
                 Ok(DutyResult::Handled)
             }
+            Duty::VerifierDisprove { .. } => Ok(DutyResult::Handled),
             Duty::SendLatestBlockhash {
                 kickoff_data,
                 deposit_data,
@@ -1101,7 +1322,6 @@ where
                     .await?;
                 Ok(DutyResult::Handled)
             }
-            Duty::VerifierDisprove { .. } => Ok(DutyResult::Handled),
             Duty::CheckIfKickoff {
                 txid,
                 block_height,
@@ -1161,6 +1381,40 @@ where
         _block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
+        tracing::warn!("Operator called handle finalized block {}", _block_height);
+        if _block_cache
+            .block
+            .as_ref()
+            .expect("Block should exist")
+            .txdata
+            .len()
+            > 1
+        {
+            tracing::warn!(
+                "Block tx count: {}",
+                _block_cache
+                    .block
+                    .as_ref()
+                    .expect("Block should exist")
+                    .txdata
+                    .len()
+            );
+            tracing::warn!(
+                "Block txs: {:?}",
+                &_block_cache
+                    .block
+                    .as_ref()
+                    .expect("Block should exist")
+                    .txdata[1..]
+                    .iter()
+                    .map(|tx| tx
+                        .input
+                        .iter()
+                        .map(|input| input.previous_output)
+                        .collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
+            );
+        }
         Ok(())
     }
 }

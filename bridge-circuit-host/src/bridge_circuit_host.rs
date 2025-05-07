@@ -22,6 +22,9 @@ use circuits_lib::header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 use sha2::{Digest, Sha256};
 
+pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
+
 const _BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
 const TESTNET4_WORK_ONLY_ELF: &[u8] =

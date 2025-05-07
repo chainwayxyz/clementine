@@ -2065,11 +2065,13 @@ version = "0.3.0"
 dependencies = [
  "alloy",
  "ark-bn254",
+ "ark-ff 0.5.0",
  "ark-groth16",
  "ark-serialize 0.5.0",
  "async-stream",
  "async-trait",
  "base64 0.22.1",
+ "bincode",
  "bitcoin",
  "bitcoin-script",
  "bitcoincore-rpc",

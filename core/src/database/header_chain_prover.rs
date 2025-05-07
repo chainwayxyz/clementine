@@ -216,6 +216,26 @@ impl Database {
         Ok(result)
     }
 
+    /// Gets all headers until a given height.
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<Header>`] - Headers of the blocks
+    pub async fn get_headers_until_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        height: u64,
+    ) -> Result<Vec<Header>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT block_header FROM header_chain_proofs WHERE height <= $1 ORDER BY height ASC;",
+        )
+        .bind(height as i64);
+        let result: Vec<(BlockHeaderDB,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        let result = result.iter().map(|result| result.0 .0).collect::<Vec<_>>();
+        Ok(result)
+    }
+
     /// Sets an existing block's (in database) proof by referring to it by it's
     /// hash.
     pub async fn set_block_proof(
