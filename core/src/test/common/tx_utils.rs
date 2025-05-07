@@ -62,13 +62,9 @@ pub async fn send_tx(
 ) -> Result<()> {
     let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
     let mut dbtx = tx_sender.test_dbtx().await.unwrap();
-    if let TxType::WatchtowerChallenge(_) = tx_type {
-        // Please manually insert it with the correct RBF spending info.
-        tracing::error!("Attempting to send watchtower challenge tx with send_tx which does not support RBF with PSBT");
-    }
 
     // Try to send the transaction with CPFP first
-    tx_sender
+    let send_result = tx_sender
         .insert_try_to_send(
             &mut dbtx,
             Some(TxMetadata {
@@ -90,8 +86,25 @@ pub async fn send_tx(
             &[],
             &[],
         )
-        .await
-        .expect("failed to send tx");
+        .await;
+
+    // If CPFP fails, try with RBF
+    if let Err(e) = send_result {
+        tracing::warn!("Failed to send with CPFP, trying RBF: {}", e);
+        tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &tx,
+                FeePayingType::RBF,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+    }
 
     dbtx.commit().await?;
 
