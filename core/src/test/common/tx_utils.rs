@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::builder::transaction::TransactionType as TxType;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::SignedTxsWithType;
-use crate::tx_sender::{FeePayingType, TxMetadata, TxSenderClient};
+use crate::tx_sender::{FeePayingType, RbfSigningInfo, TxMetadata, TxSenderClient};
 use bitcoin::consensus::{self};
 use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
@@ -64,7 +64,7 @@ pub async fn send_tx(
     let mut dbtx = tx_sender.test_dbtx().await.unwrap();
 
     // Try to send the transaction with CPFP first
-    let send_result = tx_sender
+    tx_sender
         .insert_try_to_send(
             &mut dbtx,
             Some(TxMetadata {
@@ -75,40 +75,30 @@ pub async fn send_tx(
                 round_idx: None,
             }),
             &tx,
-            if tx_type == TxType::Challenge {
+            if tx_type == TxType::Challenge || matches!(tx_type, TxType::WatchtowerChallenge(_)) {
                 FeePayingType::RBF
             } else {
                 FeePayingType::CPFP
             },
-            None,
+            if matches!(tx_type, TxType::WatchtowerChallenge(_)) {
+                Some(RbfSigningInfo {
+                    vout: 0,
+                    tweak_merkle_root: None,
+                })
+            } else {
+                None
+            },
             &[],
             &[],
             &[],
             &[],
         )
-        .await;
-
-    // If CPFP fails, try with RBF
-    if let Err(e) = send_result {
-        tracing::warn!("Failed to send with CPFP, trying RBF: {}", e);
-        tx_sender
-            .insert_try_to_send(
-                &mut dbtx,
-                None,
-                &tx,
-                FeePayingType::RBF,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await?;
-    }
+        .await
+        .expect("failed to send tx");
 
     dbtx.commit().await?;
 
-    if tx_type == TxType::Challenge {
+    if tx_type == TxType::Challenge || matches!(tx_type, TxType::WatchtowerChallenge(_)) {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
     } else {
         ensure_tx_onchain(rpc, tx.compute_txid()).await?;
