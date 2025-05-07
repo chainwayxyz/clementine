@@ -14,17 +14,23 @@ use alloy::{
         },
         Provider, ProviderBuilder, RootProvider,
     },
-    rpc::types::{Filter, Log},
+    rpc::{
+        client::ClientBuilder,
+        types::{Filter, Log},
+    },
     signers::{local::PrivateKeySigner, Signer},
     sol,
     sol_types::SolEvent,
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
+use bridge_circuit_host::{fetch_storage_proof, receipt_from_inner};
+use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
 use lazy_static::lazy_static;
+use risc0_zkvm::{InnerReceipt, Receipt};
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
@@ -114,7 +120,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
-    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError>;
+    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError>;
 
     /// Returns the L2 block height range for the given L1 block height.
     ///
@@ -162,12 +168,19 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         nofn_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError>;
+
+    async fn get_storage_proof(
+        &self,
+        l2_height: u64,
+        deposit_index: u32,
+    ) -> Result<StorageProof, BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
 /// RPC.
 #[derive(Clone, Debug)]
 pub struct CitreaClient {
+    rpc_url: Url,
     pub client: HttpClient,
     pub light_client_prover_client: HttpClient,
     pub wallet_address: alloy::primitives::Address,
@@ -213,6 +226,18 @@ impl CitreaClient {
 
 #[async_trait]
 impl CitreaClientT for CitreaClient {
+    async fn get_storage_proof(
+        &self,
+        l2_height: u64,
+        deposit_index: u32,
+    ) -> Result<StorageProof, BridgeError> {
+        let hex_l2_str = format!("0x{:x}", l2_height);
+        let alloy_client = ClientBuilder::default().http(self.rpc_url.clone());
+        fetch_storage_proof(&hex_l2_str, deposit_index, alloy_client)
+            .await
+            .map_err(BridgeError::from)
+    }
+
     async fn new(
         citrea_rpc_url: String,
         light_client_prover_url: String,
@@ -238,13 +263,14 @@ impl CitreaClientT for CitreaClient {
         );
 
         let client = HttpClientBuilder::default()
-            .build(citrea_rpc_url)
+            .build(citrea_rpc_url.clone())
             .wrap_err("Failed to create Citrea RPC client")?;
         let light_client_prover_client = HttpClientBuilder::default()
             .build(light_client_prover_url)
             .wrap_err("Failed to create Citrea LCP RPC client")?;
 
         Ok(CitreaClient {
+            rpc_url: citrea_rpc_url,
             client,
             light_client_prover_client,
             wallet_address,
@@ -344,7 +370,7 @@ impl CitreaClientT for CitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
-    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
+    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
         let proof_result = self
             .light_client_prover_client
             .get_light_client_proof_by_l1_height(l1_height)
@@ -357,13 +383,21 @@ impl CitreaClientT for CitreaClient {
         );
 
         let ret = if let Some(proof_result) = proof_result {
+            let decoded: InnerReceipt =
+                bincode::deserialize(&proof_result.proof).expect("Failed to deserialize");
+            let receipt = receipt_from_inner(decoded).expect("Failed to create receipt");
+
+            let l2_height = u64::try_from(proof_result.light_client_proof_output.last_l2_height)
+                .wrap_err("Failed to convert l2 height to u64")?;
+            let hex_l2_str = format!("0x{:x}", l2_height);
+
             Some((
-                proof_result
-                    .light_client_proof_output
-                    .last_l2_height
-                    .try_into()
-                    .wrap_err("Can't convert last_l2_height to u64")?,
-                proof_result.proof,
+                LightClientProof {
+                    lc_journal: receipt.journal.bytes.clone(),
+                    l2_height: hex_l2_str,
+                },
+                receipt,
+                l2_height,
             ))
         } else {
             None
@@ -403,8 +437,8 @@ impl CitreaClientT for CitreaClient {
                     block_height - 1
                 ))?;
 
-        let l2_height_end: u64 = proof_current.0;
-        let l2_height_start: u64 = proof_previous.0;
+        let l2_height_end: u64 = proof_current.2;
+        let l2_height_start: u64 = proof_previous.2;
 
         Ok((l2_height_start, l2_height_end))
     }

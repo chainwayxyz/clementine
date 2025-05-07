@@ -136,6 +136,29 @@ impl Database {
         }
     }
 
+    pub async fn get_full_block_from_hash(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_hash: BlockHash,
+    ) -> Result<Option<(u32, bitcoin::Block)>, BridgeError> {
+        let query =
+            sqlx::query_as("SELECT height, block_data FROM bitcoin_blocks WHERE block_hash = $1")
+                .bind(BlockHashDB(block_hash));
+
+        let block_data: Option<(i32, Vec<u8>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match block_data {
+            Some((height_i32, bytes)) => {
+                let height = u32::try_from(height_i32).wrap_err(BridgeError::IntConversionError)?;
+                let block = bitcoin::consensus::deserialize(&bytes)
+                    .wrap_err(BridgeError::IntConversionError)?;
+                Ok(Some((height, block)))
+            }
+            None => Ok(None),
+        }
+    }
+
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

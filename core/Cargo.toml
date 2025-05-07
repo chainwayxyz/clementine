@@ -52,6 +52,9 @@ sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
 circuits-lib = { path = "../circuits-lib" }
+bridge-circuit-host = { path = "../bridge-circuit-host" }
+bincode = { workspace = true }
+ark-ff = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

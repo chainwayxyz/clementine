@@ -2,6 +2,9 @@ use super::CitreaClientT;
 use crate::errors::BridgeError;
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{OutPoint, Txid};
+use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
+use eyre::Context;
+use risc0_zkvm::Receipt;
 use std::{
     collections::HashMap,
     fmt,
@@ -67,6 +70,17 @@ impl MockCitreaClient {
 
 #[async_trait]
 impl CitreaClientT for MockCitreaClient {
+    async fn get_storage_proof(
+        &self,
+        _l2_height: u64,
+        deposit_index: u32,
+    ) -> Result<StorageProof, BridgeError> {
+        Ok(StorageProof {
+            storage_proof_utxo: "".to_string(),
+            storage_proof_deposit_idx: "".to_string(),
+            index: deposit_index,
+        })
+    }
     /// Connects a database with the given URL which is stored in
     /// `citrea_rpc_url`. Other paramaters are dumped.
     async fn new(
@@ -163,8 +177,18 @@ impl CitreaClientT for MockCitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
-    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
-        Ok(Some((l1_height, vec![0; 32])))
+    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
+        Ok(Some((
+            LightClientProof {
+                lc_journal: vec![],
+                l2_height: l1_height.to_string(),
+            },
+            borsh::from_slice(include_bytes!(
+                "../../../bridge-circuit-host/bin-files/lcp_receipt.bin"
+            ))
+            .wrap_err("Couldn't create mock receipt")?,
+            l1_height,
+        )))
     }
 
     async fn get_citrea_l2_height_range(

@@ -145,7 +145,7 @@ pub async fn fetch_storage_proof(
     l2_height: &String,
     deposit_index: u32,
     client: RpcClient,
-) -> StorageProof {
+) -> eyre::Result<StorageProof> {
     let ind = deposit_index;
     let tx_index: u32 = ind * 2;
 
@@ -179,19 +179,19 @@ pub async fn fetch_storage_proof(
         l2_height
     ]);
 
-    let response: serde_json::Value = client.request("eth_getProof", request).await.unwrap();
+    let response: serde_json::Value = client.request("eth_getProof", request).await?;
 
-    let response: EIP1186AccountProofResponse = serde_json::from_value(response).unwrap();
+    let response: EIP1186AccountProofResponse = serde_json::from_value(response)?;
 
-    let serialized_utxo = serde_json::to_string(&response.storage_proof[0]).unwrap();
+    let serialized_utxo = serde_json::to_string(&response.storage_proof[0])?;
 
-    let serialized_deposit = serde_json::to_string(&response.storage_proof[1]).unwrap();
+    let serialized_deposit = serde_json::to_string(&response.storage_proof[1])?;
 
-    StorageProof {
+    Ok(StorageProof {
         storage_proof_utxo: serialized_utxo,
         storage_proof_deposit_idx: serialized_deposit,
         index: ind,
-    }
+    })
 }
 
 /// Converts an `InnerReceipt` into a `Receipt`, ensuring all required fields are present.
@@ -209,7 +209,7 @@ pub async fn fetch_storage_proof(
 /// * If `claim.output.value()` is empty.
 /// * If `output` is `None`.
 /// * If `output.journal.value()` is empty.
-fn receipt_from_inner(inner: InnerReceipt) -> eyre::Result<Receipt> {
+pub fn receipt_from_inner(inner: InnerReceipt) -> eyre::Result<Receipt> {
     let mb_claim = inner.claim().or_else(|_| bail!("Claim is empty"))?;
     let claim = mb_claim
         .value()

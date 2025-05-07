@@ -168,7 +168,7 @@ impl HeaderChainProver {
         &self,
         current_block_hash: BlockHash,
         block_headers: Vec<Header>,
-        previous_proof: Receipt,
+        previous_proof: Option<Receipt>,
     ) -> Result<Receipt, BridgeError> {
         tracing::debug!(
             "Prover starts proving {} blocks ending with block with hash {}",
@@ -177,7 +177,7 @@ impl HeaderChainProver {
         );
 
         let headers: Vec<CircuitBlockHeader> = block_headers.into_iter().map(Into::into).collect();
-        let receipt = self.prove_block_headers(Some(previous_proof), headers)?;
+        let receipt = self.prove_block_headers(previous_proof, headers)?;
 
         self.db
             .set_block_proof(None, current_block_hash, receipt.clone())
@@ -304,7 +304,7 @@ impl HeaderChainProver {
             .await?
             .ok_or(eyre::eyre!("No proven block found"))?;
         let receipt = self
-            .prove_and_save_block(latest_proven_block.0, block_headers, previous_proof)
+            .prove_and_save_block(latest_proven_block.0, block_headers, Some(previous_proof))
             .await?;
 
         Ok(Some(receipt))
@@ -317,7 +317,8 @@ impl HeaderChainProver {
     /// # Returns
     ///
     /// - [`Receipt`]: Specified block's proof receipt
-    pub async fn get_tip_header_chain_proof(&self) -> Result<Receipt, BridgeError> {
+    /// - [`u64`]: Height of the proven header chain
+    pub async fn get_tip_header_chain_proof(&self) -> Result<(Receipt, u64), BridgeError> {
         let latest_proven_block = self
             .db
             .get_latest_proven_block_info(None)
@@ -331,11 +332,15 @@ impl HeaderChainProver {
 
         // If tip is proven, return the proof.
         if latest_proven_block.2 == tip_height {
-            self.db
-                .get_block_proof_by_hash(None, latest_proven_block.0)
-                .await
-                .wrap_err("Failed to get block proof")?
-                .ok_or(HeaderChainProverError::BatchNotReady)?;
+            tracing::warn!("Returning existing proof for height {}", tip_height);
+            return Ok((
+                self.db
+                    .get_block_proof_by_hash(None, latest_proven_block.0)
+                    .await
+                    .wrap_err("Failed to get block proof")?
+                    .ok_or(HeaderChainProverError::BatchNotReady)?,
+                tip_height,
+            ));
         }
 
         // If in limits of the batch size but not in a target block, prove block
@@ -351,13 +356,21 @@ impl HeaderChainProver {
         let previous_proof = self
             .db
             .get_block_proof_by_hash(None, latest_proven_block.0)
-            .await?
-            .ok_or(eyre::eyre!("No proven block found"))?;
-        let receipt = self
-            .prove_and_save_block(latest_proven_block.0, block_headers, previous_proof)
             .await?;
 
-        Ok(receipt)
+        let receipt = self
+            .prove_and_save_block(
+                block_headers
+                    .last()
+                    .expect("Block headers should not be empty in get_tip_header_chain_proof")
+                    .block_hash(),
+                block_headers,
+                previous_proof,
+            )
+            .await?;
+        tracing::warn!("Generated new proof for height {}", tip_height);
+
+        Ok((receipt, tip_height))
     }
 
     /// Saves a new block to database, later to be proven.
@@ -453,7 +466,7 @@ impl HeaderChainProver {
             .collect::<Vec<_>>();
 
         let receipt = self
-            .prove_and_save_block(current_block_hash, block_headers, prev_proof)
+            .prove_and_save_block(current_block_hash, block_headers, Some(prev_proof))
             .await?;
         tracing::info!(
             "Receipt for block with hash {:?} and height with: {:?}: {:?}",
@@ -542,7 +555,7 @@ mod tests {
 
         // Test assumption is for block 0.
         let hash = rpc.client.get_block_hash(0).await.unwrap();
-        let receipt = prover.get_tip_header_chain_proof().await.unwrap();
+        let (receipt, _) = prover.get_tip_header_chain_proof().await.unwrap();
         let db_receipt = prover
             .db
             .get_block_proof_by_hash(None, hash)
@@ -565,7 +578,7 @@ mod tests {
         // Check if `HeaderChainProver::new` added the assumption.
         let previous_receipt =
             Receipt::try_from_slice(include_bytes!("../tests/data/first_1.bin")).unwrap();
-        let read_recipt = prover.get_tip_header_chain_proof().await.unwrap();
+        let (read_recipt, _) = prover.get_tip_header_chain_proof().await.unwrap();
         assert_eq!(previous_receipt.journal, read_recipt.journal);
 
         // Set up the next non proven block.
@@ -580,11 +593,11 @@ mod tests {
             .unwrap();
 
         let receipt = prover
-            .prove_and_save_block(hash, vec![header], previous_receipt)
+            .prove_and_save_block(hash, vec![header], Some(previous_receipt))
             .await
             .unwrap();
 
-        let read_recipt = prover.get_tip_header_chain_proof().await.unwrap();
+        let (read_recipt, _) = prover.get_tip_header_chain_proof().await.unwrap();
         assert_eq!(receipt.journal, read_recipt.journal);
     }
 
@@ -653,7 +666,7 @@ mod tests {
             .unwrap();
 
         let genesis_hash = rpc.client.get_block_hash(0).await.unwrap();
-        let genesis_block_proof = prover.get_tip_header_chain_proof().await.unwrap();
+        let (genesis_block_proof, _) = prover.get_tip_header_chain_proof().await.unwrap();
         let db_proof = db
             .get_block_proof_by_hash(None, genesis_hash)
             .await

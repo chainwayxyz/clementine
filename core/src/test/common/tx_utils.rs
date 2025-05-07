@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::builder::transaction::TransactionType as TxType;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::SignedTxsWithType;
-use crate::tx_sender::{FeePayingType, TxMetadata, TxSenderClient};
+use crate::tx_sender::{FeePayingType, RbfSigningInfo, TxMetadata, TxSenderClient};
 use bitcoin::consensus::{self};
 use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
@@ -62,10 +62,6 @@ pub async fn send_tx(
 ) -> Result<()> {
     let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
     let mut dbtx = tx_sender.test_dbtx().await.unwrap();
-    if let TxType::WatchtowerChallenge(_) = tx_type {
-        // Please manually insert it with the correct RBF spending info.
-        tracing::error!("Attempting to send watchtower challenge tx with send_tx which does not support RBF with PSBT");
-    }
 
     // Try to send the transaction with CPFP first
     tx_sender
@@ -79,12 +75,19 @@ pub async fn send_tx(
                 round_idx: None,
             }),
             &tx,
-            if tx_type == TxType::Challenge {
+            if tx_type == TxType::Challenge || matches!(tx_type, TxType::WatchtowerChallenge(_)) {
                 FeePayingType::RBF
             } else {
                 FeePayingType::CPFP
             },
-            None,
+            if matches!(tx_type, TxType::WatchtowerChallenge(_)) {
+                Some(RbfSigningInfo {
+                    vout: 0,
+                    tweak_merkle_root: None,
+                })
+            } else {
+                None
+            },
             &[],
             &[],
             &[],
@@ -95,7 +98,7 @@ pub async fn send_tx(
 
     dbtx.commit().await?;
 
-    if tx_type == TxType::Challenge {
+    if tx_type == TxType::Challenge || matches!(tx_type, TxType::WatchtowerChallenge(_)) {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
     } else {
         ensure_tx_onchain(rpc, tx.compute_txid()).await?;
