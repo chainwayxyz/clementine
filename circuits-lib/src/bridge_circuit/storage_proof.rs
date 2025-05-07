@@ -120,11 +120,7 @@ pub fn verify_storage_proofs(
 
     let move_txid = MoveTxid(deposit_storage_proof.value.to_le_bytes());
 
-    (
-        wd_outpoint,
-        vout,
-        move_txid,
-    )
+    (wd_outpoint, vout, move_txid)
 }
 
 /// Verifies an Ethereum storage proof against an expected root hash.
