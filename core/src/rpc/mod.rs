@@ -68,18 +68,9 @@ where
     }
 
     // Get certificate paths from config or use defaults
-    let client_cert_path = &config
-        .client_cert_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("certs/client/client.pem"));
-    let client_key_path = &config
-        .client_key_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("certs/client/client.key"));
-    let ca_cert_path = &config
-        .ca_cert_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("certs/ca/ca.pem"));
+    let client_cert_path = &config.client_cert_path.clone();
+    let client_key_path = &config.client_key_path.clone();
+    let ca_cert_path = &config.ca_cert_path.clone();
 
     // Load client certificate and key
     let client_cert = tokio::fs::read(&client_cert_path).await.map_err(|e| {
@@ -101,12 +92,11 @@ where
     let client_identity = Identity::from_pem(client_cert, client_key);
 
     // Load CA certificate
-    let ca_cert = tokio::fs::read(&ca_cert_path).await.map_err(|e| {
-        BridgeError::ConfigError(format!(
-            "Failed to read CA certificate from {}: {}",
-            ca_cert_path.display(),
-            e
-        ))
+    let ca_cert = tokio::fs::read(&ca_cert_path).await.wrap_err_with(|| {
+        format!(
+            "Failed to read CA certificate from {}",
+            ca_cert_path.display()
+        )
     })?;
 
     let ca_certificate = Certificate::from_pem(ca_cert);

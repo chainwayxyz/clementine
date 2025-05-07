@@ -1,15 +1,12 @@
-use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::Empty;
 use crate::rpc::get_clients;
-use crate::servers::{create_aggregator_grpc_server, create_operator_grpc_server};
+use crate::servers::create_operator_grpc_server;
 use crate::test::common::create_test_config_with_thread_name;
 use crate::{citrea::mock::MockCitreaClient, test::common::create_regtest_rpc};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use tokio::net::TcpListener;
-
-use super::common::create_actors;
 
 // Helper function to find an available port
 async fn find_available_port() -> u16 {
@@ -80,8 +77,8 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
     let endpoint = format!("https://{}:{}", host, port);
 
     let mut agg_config = config.clone();
-    agg_config.client_cert_path = Some(PathBuf::from("certs/aggregator/aggregator.pem"));
-    agg_config.client_key_path = Some(PathBuf::from("certs/aggregator/aggregator.key"));
+    agg_config.client_cert_path = PathBuf::from("certs/aggregator/aggregator.pem");
+    agg_config.client_key_path = PathBuf::from("certs/aggregator/aggregator.key");
 
     let mut clients = get_clients(
         vec![endpoint.clone()],
@@ -101,8 +98,8 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
 
     let mut bad_config = config.clone();
     // Server key is not recognized to be safe, all requests
-    bad_config.client_cert_path = Some(PathBuf::from("certs/server/server.pem"));
-    bad_config.client_key_path = Some(PathBuf::from("certs/server/server.key"));
+    bad_config.client_cert_path = PathBuf::from("certs/server/server.pem");
+    bad_config.client_key_path = PathBuf::from("certs/server/server.key");
 
     let mut clients = get_clients(
         vec![endpoint.clone()],
@@ -122,8 +119,8 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
 
     let mut internal_client_config = config.clone();
     // Server key is not recognized to be safe, all requests
-    internal_client_config.client_cert_path = Some(PathBuf::from("certs/client/client.pem"));
-    internal_client_config.client_key_path = Some(PathBuf::from("certs/client/client.key"));
+    internal_client_config.client_cert_path = PathBuf::from("certs/client/client.pem");
+    internal_client_config.client_key_path = PathBuf::from("certs/client/client.key");
 
     let mut clients = get_clients(
         vec![endpoint.clone()],

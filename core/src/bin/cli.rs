@@ -341,11 +341,11 @@ fn get_block_merkle_proof(
 // Create a minimal config with default TLS paths
 fn create_minimal_config() -> BridgeConfig {
     BridgeConfig {
-        server_cert_path: Some(PathBuf::from("certs/server/server.pem")),
-        server_key_path: Some(PathBuf::from("certs/server/server.key")),
-        ca_cert_path: Some(PathBuf::from("certs/ca/ca.pem")),
-        client_cert_path: Some(PathBuf::from("certs/client/client.pem")),
-        client_key_path: Some(PathBuf::from("certs/client/client.key")),
+        server_cert_path: PathBuf::from("certs/server/server.pem"),
+        server_key_path: PathBuf::from("certs/server/server.key"),
+        ca_cert_path: PathBuf::from("certs/ca/ca.pem"),
+        client_cert_path: PathBuf::from("certs/client/client.pem"),
+        client_key_path: PathBuf::from("certs/client/client.key"),
         ..Default::default()
     }
 }

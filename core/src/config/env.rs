@@ -106,14 +106,15 @@ impl BridgeConfig {
             };
 
         // TLS certificate and key paths
-        let server_cert_path = std::env::var("SERVER_CERT_PATH").ok().map(PathBuf::from);
-        let server_key_path = std::env::var("SERVER_KEY_PATH").ok().map(PathBuf::from);
-        let ca_cert_path = std::env::var("CA_CERT_PATH").ok().map(PathBuf::from);
-        let client_cert_path = std::env::var("CLIENT_CERT_PATH").ok().map(PathBuf::from);
-        let client_key_path = std::env::var("CLIENT_KEY_PATH").ok().map(PathBuf::from);
-        let aggregator_cert_path = std::env::var("AGGREGATOR_CERT_PATH")
-            .ok()
-            .map(PathBuf::from);
+        let server_cert_path = read_string_from_env("SERVER_CERT_PATH").map(PathBuf::from)?;
+        let server_key_path = read_string_from_env("SERVER_KEY_PATH").map(PathBuf::from)?;
+        let client_cert_path = read_string_from_env("CLIENT_CERT_PATH").map(PathBuf::from)?;
+        let ca_cert_path = read_string_from_env("CA_CERT_PATH").map(PathBuf::from)?;
+        let client_key_path = read_string_from_env("CLIENT_KEY_PATH").map(PathBuf::from)?;
+        let aggregator_cert_path =
+            read_string_from_env("AGGREGATOR_CERT_PATH").map(PathBuf::from)?;
+        let client_verification =
+            read_string_from_env("CLIENT_VERIFICATION").is_ok_and(|s| s == "true" || s == "1");
 
         let security_council_string = read_string_from_env("SECURITY_COUNCIL")?;
 
@@ -145,6 +146,7 @@ impl BridgeConfig {
             all_operators_secret_keys,
             security_council,
 
+            client_verification,
             server_cert_path,
             server_key_path,
             ca_cert_path,
@@ -211,31 +213,13 @@ mod tests {
         );
         std::env::set_var(
             "AGGREGATOR_CERT_PATH",
-            default_config
-                .aggregator_cert_path
-                .clone()
-                .unwrap_or_default(),
+            default_config.aggregator_cert_path.clone(),
         );
-        std::env::set_var(
-            "CLIENT_CERT_PATH",
-            default_config.client_cert_path.clone().unwrap_or_default(),
-        );
-        std::env::set_var(
-            "CLIENT_KEY_PATH",
-            default_config.client_key_path.clone().unwrap_or_default(),
-        );
-        std::env::set_var(
-            "SERVER_CERT_PATH",
-            default_config.server_cert_path.clone().unwrap_or_default(),
-        );
-        std::env::set_var(
-            "SERVER_KEY_PATH",
-            default_config.server_key_path.clone().unwrap_or_default(),
-        );
-        std::env::set_var(
-            "CA_CERT_PATH",
-            default_config.ca_cert_path.clone().unwrap_or_default(),
-        );
+        std::env::set_var("CLIENT_CERT_PATH", default_config.client_cert_path.clone());
+        std::env::set_var("CLIENT_KEY_PATH", default_config.client_key_path.clone());
+        std::env::set_var("SERVER_CERT_PATH", default_config.server_cert_path.clone());
+        std::env::set_var("SERVER_KEY_PATH", default_config.server_key_path.clone());
+        std::env::set_var("CA_CERT_PATH", default_config.ca_cert_path.clone());
 
         std::env::set_var(
             "SECURITY_COUNCIL",

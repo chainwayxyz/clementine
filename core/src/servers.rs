@@ -13,7 +13,8 @@ use crate::utils::AddMethodMiddlewareLayer;
 use crate::verifier::VerifierServer;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
-use eyre::{Context, OptionExt};
+use eyre::Context;
+use rustls_pki_types::pem::PemObject;
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
@@ -83,80 +84,58 @@ where
 
     match addr {
         ServerAddr::Tcp(socket_addr) => {
-            // Get certificate paths from config or use defaults
-            let server_cert_path = config
-                .server_cert_path
-                .as_ref()
-                .ok_or_eyre("Missing server certificate for TLS")?;
-            let server_key_path = config
-                .server_key_path
-                .as_ref()
-                .ok_or_eyre("Missing server key for TLS")?;
-
-            // Load TLS certificates
-            let cert = tokio::fs::read(&server_cert_path).await.wrap_err(format!(
-                "Failed to read server certificate from {}",
-                server_cert_path.display()
-            ))?;
-            let key = tokio::fs::read(&server_key_path).await.wrap_err(format!(
-                "Failed to read server key from {}",
-                server_key_path.display()
-            ))?;
+            let cert = tokio::fs::read(&config.server_cert_path)
+                .await
+                .wrap_err(format!(
+                    "Failed to read server certificate from {}",
+                    config.server_cert_path.display()
+                ))?;
+            let key = tokio::fs::read(&config.server_key_path)
+                .await
+                .wrap_err(format!(
+                    "Failed to read server key from {}",
+                    config.server_key_path.display()
+                ))?;
 
             let server_identity = Identity::from_pem(cert, key);
 
-            // Client verification is optional
-            let client_ca = {
-                if let Some(ca_cert_path) = config.ca_cert_path.as_ref() {
-                    // Load CA certificate for client verification
-                    let client_ca_cert = tokio::fs::read(&ca_cert_path).await.wrap_err(format!(
-                        "Failed to read CA certificate from {}",
-                        ca_cert_path.display()
-                    ))?;
+            // Load CA certificate for client verification
+            let client_ca_cert = tokio::fs::read(&config.ca_cert_path)
+                .await
+                .wrap_err(format!(
+                    "Failed to read CA certificate from {}",
+                    config.ca_cert_path.display()
+                ))?;
 
-                    Some(Certificate::from_pem(client_ca_cert))
-                } else {
-                    None
-                }
-            };
+            let client_ca = Certificate::from_pem(client_ca_cert);
 
             // Build TLS configuration
             let tls_config = ServerTlsConfig::new().identity(server_identity);
 
-            let has_client_ca = client_ca.is_some();
-
             // Client verification is optional
-            let tls_config = if let Some(client_ca) = client_ca {
+            let tls_config = if config.client_verification {
                 tls_config.client_ca_root(client_ca)
             } else {
                 tls_config
             };
 
-            use rustls_pki_types::pem::PemObject;
             let service = InterceptedService::new(
                 service,
-                if has_client_ca {
-                    let client_cert = &config
-                        .client_cert_path
-                        .as_ref()
-                        .ok_or_eyre("Missing client certificate for TLS")?;
-                    let client_cert = CertificateDer::from_pem_file(client_cert)
+                if config.client_verification {
+                    let client_cert = CertificateDer::from_pem_file(&config.client_cert_path)
                         .wrap_err(format!(
                             "Failed to read client certificate from {}",
-                            client_cert.display()
+                            config.client_cert_path.display()
                         ))?
                         .to_owned();
 
-                    let aggregator_cert = &config
-                        .aggregator_cert_path
-                        .as_ref()
-                        .ok_or_eyre("Missing aggregator certificate for TLS")?;
-                    let aggregator_cert = CertificateDer::from_pem_file(aggregator_cert)
-                        .wrap_err(format!(
-                            "Failed to read aggregator certificate from {}",
-                            aggregator_cert.display()
-                        ))?
-                        .to_owned();
+                    let aggregator_cert =
+                        CertificateDer::from_pem_file(&config.aggregator_cert_path)
+                            .wrap_err(format!(
+                                "Failed to read aggregator certificate from {}",
+                                config.aggregator_cert_path.display()
+                            ))?
+                            .to_owned();
 
                     OnlyAggregatorAndSelf {
                         aggregator_cert,
@@ -242,52 +221,6 @@ where
     Ok((addr, shutdown_tx))
 }
 
-fn warn_disable_client_ca(server_name: &str, config: &mut BridgeConfig) {
-    if cfg!(test) {
-        return;
-    }
-
-    if config.ca_cert_path.is_some() {
-        tracing::warn!(
-            "Client CA certificate path is set, even though {} gRPC server should have client certificate verification DISABLED. Overriding CA certificate path to None...",
-            server_name
-        );
-
-        config.ca_cert_path = None;
-    }
-}
-
-fn abort_if_missing_client_verification(
-    server_name: &str,
-    config: &BridgeConfig,
-) -> Result<(), BridgeError> {
-    if cfg!(test) {
-        return Ok(());
-    }
-
-    if config.ca_cert_path.is_none() {
-        tracing::warn!(
-            "Client CA certificate path is not set, even though {} gRPC server should have client certificate verification ENABLED. This means that requests cannot be verified to be from the aggregator or from the operator itself. Aborting...",
-            server_name
-        );
-        return Err(BridgeError::ConfigError(
-            "Missing client CA certificate path".into(),
-        ));
-    }
-
-    if config.aggregator_cert_path.is_none() {
-        tracing::warn!(
-            "Aggregator certificate path is not set, even though {} gRPC server should have client certificate verification ENABLED. This means that requests cannot be verified to be from the aggregator. Aborting...",
-            server_name
-        );
-        return Err(BridgeError::ConfigError(
-            "Missing aggregator certificate path".into(),
-        ));
-    }
-
-    Ok(())
-}
-
 pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
@@ -304,8 +237,6 @@ pub async fn create_verifier_grpc_server<C: CitreaClientT>(
         .wrap_err("Failed to parse address")?;
     let verifier = VerifierServer::<C>::new(config.clone()).await?;
     let svc = ClementineVerifierServer::new(verifier);
-
-    abort_if_missing_client_verification("Verifier", &config)?;
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, "Verifier", &config).await?;
@@ -329,8 +260,6 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
         .wrap_err("Failed to parse address")?;
     let operator = OperatorServer::<C>::new(config.clone()).await?;
 
-    abort_if_missing_client_verification("Operator", &config)?;
-
     let svc = ClementineOperatorServer::new(operator);
     let (server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, "Operator", &config).await?;
@@ -351,7 +280,14 @@ pub async fn create_aggregator_grpc_server(
     let aggregator = Aggregator::new(config.clone()).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
 
-    warn_disable_client_ca("Aggregator", &mut config);
+    if config.client_verification {
+        tracing::warn!(
+                "Client verification is enabled, even though Aggregator gRPC server should have client certificate verification DISABLED. Overriding to false...",
+
+            );
+
+        config.client_verification = false;
+    }
 
     let (server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, "Aggregator", &config).await?;
