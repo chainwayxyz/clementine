@@ -18,6 +18,9 @@ use risc0_zkvm::Receipt;
 
 use crate::utils::get_ark_verifying_key;
 
+const OP_RETURN_OUTPUT: usize = 1;
+const ANCHOR_OUTPUT: usize = 1;
+
 #[derive(Debug, Clone)]
 pub struct BridgeCircuitHostParams {
     pub kickoff_tx_id: Txid,
@@ -31,6 +34,7 @@ pub struct BridgeCircuitHostParams {
     pub watchtower_inputs: Vec<WatchtowerInput>,
     pub all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
     pub watchtower_challenge_connector_start_idx: u16,
+    pub payout_input_index: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -44,12 +48,11 @@ pub enum BridgeCircuitHostParamsError {
     InvalidWatchtowerInputs,
     InvalidPubkey,
     InvalidNumberOfKickoffOutputs,
+    PayoutInputIndexNotFound,
+    PayoutInputIndexTooLarge(usize),
 }
 
 impl BridgeCircuitHostParams {
-    const OP_RETURN_OUTPUT: usize = 1;
-    const ANCHOR_OUTPUT: usize = 1;
-
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         kickoff_tx_id: Txid,
@@ -63,6 +66,7 @@ impl BridgeCircuitHostParams {
         watchtower_inputs: Vec<WatchtowerInput>,
         all_tweaked_watchtower_pubkeys: Vec<XOnlyPublicKey>,
         watchtower_challenge_connector_start_idx: u16,
+        payout_input_index: u16,
     ) -> Self {
         BridgeCircuitHostParams {
             kickoff_tx_id,
@@ -76,6 +80,7 @@ impl BridgeCircuitHostParams {
             watchtower_inputs,
             all_tweaked_watchtower_pubkeys,
             watchtower_challenge_connector_start_idx,
+            payout_input_index,
         }
     }
 
@@ -91,7 +96,7 @@ impl BridgeCircuitHostParams {
         watchtower_contexts: &[WatchtowerContext],
         watchtower_challenge_connector_start_idx: u16,
     ) -> Result<Self, BridgeCircuitHostParamsError> {
-        let watchtower_inputs = Self::get_wt_inputs(
+        let watchtower_inputs = get_wt_inputs(
             kickoff_tx.compute_txid(),
             watchtower_contexts,
             watchtower_challenge_connector_start_idx,
@@ -102,7 +107,18 @@ impl BridgeCircuitHostParams {
                 .map_err(|_| BridgeCircuitHostParamsError::InvalidHeaderchainReceipt)?;
 
         let all_tweaked_watchtower_pubkeys =
-            Self::get_all_pubkeys(&kickoff_tx, watchtower_challenge_connector_start_idx)?;
+            get_all_pubkeys(&kickoff_tx, watchtower_challenge_connector_start_idx)?;
+
+        let storage_proof_utxo: EIP1186StorageProof =
+            serde_json::from_str(&storage_proof.storage_proof_utxo)
+                .expect("Failed to deserialize UTXO storage proof");
+
+        let wd_txid_bytes: [u8; 32] = storage_proof_utxo.value.to_le_bytes();
+
+        let wd_txid: Txid = bitcoin::consensus::deserialize(&wd_txid_bytes)
+            .map_err(|_| BridgeCircuitHostParamsError::InvalidStorageProof)?;
+
+        let payout_input_index = get_payout_input_index(wd_txid, &spv.transaction.0)?;
 
         Ok(BridgeCircuitHostParams {
             kickoff_tx_id: kickoff_tx.compute_txid(),
@@ -116,54 +132,69 @@ impl BridgeCircuitHostParams {
             watchtower_inputs,
             all_tweaked_watchtower_pubkeys,
             watchtower_challenge_connector_start_idx,
+            payout_input_index,
         })
     }
+}
 
-    fn get_wt_inputs(
-        kickoff_tx_id: Txid,
-        watchtower_contexts: &[WatchtowerContext],
-        watchtower_challenge_connector_start_idx: u16,
-    ) -> Result<Vec<WatchtowerInput>, BridgeCircuitHostParamsError> {
-        watchtower_contexts
-            .iter()
-            .map(|context| {
-                WatchtowerInput::from_txs(
-                    kickoff_tx_id,
-                    context.watchtower_tx.clone(),
-                    context.previous_txs,
-                    watchtower_challenge_connector_start_idx,
-                )
-                .map_err(|_| BridgeCircuitHostParamsError::InvalidWatchtowerInputs)
-            })
-            .collect()
-    }
-
-    fn get_all_pubkeys(
-        kickoff_tx: &Transaction,
-        watchtower_challenge_connector_start_idx: u16,
-    ) -> Result<Vec<XOnlyPublicKey>, BridgeCircuitHostParamsError> {
-        let start_index = watchtower_challenge_connector_start_idx as usize;
-        let end_index = kickoff_tx
-            .output
-            .len()
-            .checked_sub(Self::OP_RETURN_OUTPUT)
-            .ok_or(BridgeCircuitHostParamsError::InvalidNumberOfKickoffOutputs)?
-            .checked_sub(Self::ANCHOR_OUTPUT)
-            .ok_or(BridgeCircuitHostParamsError::InvalidNumberOfKickoffOutputs)?;
-
-        let mut all_tweaked_watchtower_pubkeys = Vec::new();
-
-        for i in (start_index..end_index).step_by(2) {
-            let output = &kickoff_tx.output[i];
-
-            let xonly_public_key =
-                XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34])
-                    .map_err(|_| BridgeCircuitHostParamsError::InvalidPubkey)?;
-
-            all_tweaked_watchtower_pubkeys.push(xonly_public_key);
+fn get_payout_input_index(
+    wd_txid: Txid,
+    payout_tx: &Transaction,
+) -> Result<u16, BridgeCircuitHostParamsError> {
+    for (index, input) in payout_tx.input.iter().enumerate() {
+        if input.previous_output.txid == wd_txid {
+            return u16::try_from(index).map_err(|_| {
+                // This should never happen
+                BridgeCircuitHostParamsError::PayoutInputIndexTooLarge(index)
+            });
         }
-        Ok(all_tweaked_watchtower_pubkeys)
     }
+    Err(BridgeCircuitHostParamsError::PayoutInputIndexNotFound)
+}
+
+fn get_wt_inputs(
+    kickoff_tx_id: Txid,
+    watchtower_contexts: &[WatchtowerContext],
+    watchtower_challenge_connector_start_idx: u16,
+) -> Result<Vec<WatchtowerInput>, BridgeCircuitHostParamsError> {
+    watchtower_contexts
+        .iter()
+        .map(|context| {
+            WatchtowerInput::from_txs(
+                kickoff_tx_id,
+                context.watchtower_tx.clone(),
+                context.previous_txs,
+                watchtower_challenge_connector_start_idx,
+            )
+            .map_err(|_| BridgeCircuitHostParamsError::InvalidWatchtowerInputs)
+        })
+        .collect()
+}
+
+fn get_all_pubkeys(
+    kickoff_tx: &Transaction,
+    watchtower_challenge_connector_start_idx: u16,
+) -> Result<Vec<XOnlyPublicKey>, BridgeCircuitHostParamsError> {
+    let start_index = watchtower_challenge_connector_start_idx as usize;
+    let end_index = kickoff_tx
+        .output
+        .len()
+        .checked_sub(OP_RETURN_OUTPUT)
+        .ok_or(BridgeCircuitHostParamsError::InvalidNumberOfKickoffOutputs)?
+        .checked_sub(ANCHOR_OUTPUT)
+        .ok_or(BridgeCircuitHostParamsError::InvalidNumberOfKickoffOutputs)?;
+
+    let mut all_tweaked_watchtower_pubkeys = Vec::new();
+
+    for i in (start_index..end_index).step_by(2) {
+        let output = &kickoff_tx.output[i];
+
+        let xonly_public_key = XOnlyPublicKey::from_slice(&output.script_pubkey.as_bytes()[2..34])
+            .map_err(|_| BridgeCircuitHostParamsError::InvalidPubkey)?;
+
+        all_tweaked_watchtower_pubkeys.push(xonly_public_key);
+    }
+    Ok(all_tweaked_watchtower_pubkeys)
 }
 
 pub struct WatchtowerContext<'a> {

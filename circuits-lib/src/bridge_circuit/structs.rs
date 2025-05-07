@@ -10,6 +10,28 @@ use crate::header_chain::BlockHeaderCircuitOutput;
 use super::{spv::SPV, transaction::CircuitTransaction};
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct WithdrawalOutpointTxid(pub [u8; 32]);
+
+impl Deref for WithdrawalOutpointTxid {
+    type Target = [u8; 32];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct MoveTxid(pub [u8; 32]);
+
+impl Deref for MoveTxid {
+    type Target = [u8; 32];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
 pub struct DepositConstant(pub [u8; 32]);
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
@@ -269,6 +291,7 @@ pub struct BridgeCircuitInput {
     pub watchtower_inputs: Vec<WatchtowerInput>,
     pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
+    pub payout_input_index: u16,
     pub lcp: LightClientProof,
     pub sp: StorageProof,
     pub watchtower_challenge_connector_start_idx: u16,
@@ -282,6 +305,7 @@ impl BridgeCircuitInput {
         all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
+        payout_input_index: u16,
         lcp: LightClientProof,
         sp: StorageProof,
         watchtower_challenge_connector_start_idx: u16,
@@ -291,6 +315,7 @@ impl BridgeCircuitInput {
             watchtower_inputs,
             hcp,
             payout_spv,
+            payout_input_index,
             lcp,
             sp,
             all_tweaked_watchtower_pubkeys,

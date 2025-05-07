@@ -73,6 +73,7 @@ pub fn prove_bridge_circuit(
         all_tweaked_watchtower_pubkeys,
         bridge_circuit_host_params.block_header_circuit_output,
         bridge_circuit_host_params.spv,
+        bridge_circuit_host_params.payout_input_index,
         bridge_circuit_host_params.light_client_proof,
         bridge_circuit_host_params.storage_proof,
         bridge_circuit_host_params.watchtower_challenge_connector_start_idx,

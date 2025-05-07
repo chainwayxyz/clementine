@@ -4,7 +4,7 @@ use alloy_rpc_types::EIP1186StorageProof;
 use jmt::KeyHash;
 use sha2::{Digest, Sha256};
 
-use super::structs::StorageProof;
+use super::structs::{MoveTxid, StorageProof, WithdrawalOutpointTxid};
 
 const ADDRESS: [u8; 20] = hex_literal::hex!("3100000000000000000000000000000000000002");
 
@@ -19,14 +19,15 @@ const DEPOSIT_STORAGE_INDEX: [u8; 32] =
 ///
 /// # Parameters
 ///
-/// - `storage_proof`: A reference to `StorageProof`, containing UTXO and deposit proofs.
+/// - `storage_proof`: A reference to `StorageProof`, containing UTXO, vout and deposit proofs.
 /// - `state_root`: A 32-byte array representing the Ethereum state root.
 ///
 /// # Returns
 ///
 /// A tuple containing:
-/// - A `String` representing the verified UTXO value.
-/// - A `[u8; 32]` array representing the move-to-vault transaction ID.
+/// - A `WithdrawalOutpointTxid` representing the transaction ID (txid) of the withdrawal outpoint.
+/// - A `u32` representing the output index (vout) of the withdrawal outpoint.
+/// - A `MoveTxid` array representing the move-to-vault transaction ID.
 ///
 /// # Panics
 ///
@@ -37,7 +38,7 @@ const DEPOSIT_STORAGE_INDEX: [u8; 32] =
 pub fn verify_storage_proofs(
     storage_proof: &StorageProof,
     state_root: [u8; 32],
-) -> (String, u32, [u8; 32]) {
+) -> (WithdrawalOutpointTxid, u32, MoveTxid) {
     let utxo_storage_proof: EIP1186StorageProof =
         serde_json::from_str(&storage_proof.storage_proof_utxo)
             .expect("Failed to deserialize UTXO storage proof");
@@ -115,10 +116,14 @@ pub fn verify_storage_proofs(
 
     let vout = u32::from_le_bytes(buf[0..4].try_into().expect("Vout value conversion failed"));
 
+    let wd_outpoint = WithdrawalOutpointTxid(utxo_storage_proof.value.to_le_bytes());
+
+    let move_txid = MoveTxid(deposit_storage_proof.value.to_le_bytes());
+
     (
-        utxo_storage_proof.value.to_string(),
+        wd_outpoint,
         vout,
-        deposit_storage_proof.value.to_le_bytes(),
+        move_txid,
     )
 }
 
@@ -170,7 +175,6 @@ fn storage_verify(storage_proof: &EIP1186StorageProof, expected_root_hash: [u8; 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
 
     const STORAGE_PROOF: &[u8] =
         include_bytes!("../../../bridge-circuit-host/bin-files/storage_proof.bin");
@@ -185,18 +189,14 @@ mod tests {
                 .try_into()
                 .expect("Valid length, cannot fail");
 
-        let (user_wd_outpoint_str, vout, move_tx_id) =
+        let (user_wd_outpoint, vout, move_tx_id) =
             verify_storage_proofs(&storage_proof, state_root);
 
-        let move_tx_id_hex = hex::encode(move_tx_id);
-
-        let user_wd_outpoint_bytes = num_bigint::BigUint::from_str(&user_wd_outpoint_str)
-            .unwrap()
-            .to_bytes_be();
+        let move_tx_id_hex = hex::encode(*move_tx_id);
 
         let expected_user_wd_outpoint_bytes = [
-            29, 122, 171, 234, 80, 11, 195, 50, 201, 150, 174, 189, 12, 92, 152, 86, 129, 162, 137,
-            96, 47, 228, 95, 42, 164, 202, 255, 198, 16, 54, 100, 56,
+            56, 100, 54, 16, 198, 255, 202, 164, 42, 95, 228, 47, 96, 137, 162, 129, 86, 152, 92,
+            12, 189, 174, 150, 201, 50, 195, 11, 80, 234, 171, 122, 29,
         ];
 
         let expected_vout: u32 = 0;
@@ -210,7 +210,7 @@ mod tests {
         );
 
         assert_eq!(
-            user_wd_outpoint_bytes, expected_user_wd_outpoint_bytes,
+            *user_wd_outpoint, expected_user_wd_outpoint_bytes,
             "Invalid UTXO value"
         );
 
