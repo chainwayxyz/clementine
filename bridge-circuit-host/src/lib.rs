@@ -158,7 +158,8 @@ pub async fn fetch_storage_proof(
     // Storage key address calculation UTXO
     let storage_key_wd_utxo: alloy_primitives::Uint<256, 4> =
         storage_address_wd_utxo + U256::from(tx_index);
-    let storage_key_wd_utxo_hex = format!("0x{}", hex::encode(storage_key_wd_utxo.to_be_bytes::<32>()));
+    let storage_key_wd_utxo_hex =
+        format!("0x{}", hex::encode(storage_key_wd_utxo.to_be_bytes::<32>()));
 
     // Storage key address calculation Vout
     let storage_key_vout: alloy_primitives::Uint<256, 4> =
