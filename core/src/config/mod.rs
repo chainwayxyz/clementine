@@ -89,6 +89,41 @@ pub struct BridgeConfig {
     /// Operator endpoint. For the aggregator only
     pub operator_endpoints: Option<Vec<String>>,
 
+    // TLS certificates
+    /// Path to the server certificate file.
+    ///
+    /// Required for all entities.
+    pub server_cert_path: PathBuf,
+    /// Path to the server key file.
+    pub server_key_path: PathBuf,
+
+    /// Path to the client certificate file. (used to communicate with other gRPC services)
+    ///
+    /// Required for all entities. This is used to authenticate requests.
+    /// Aggregator's client certificate should match the expected aggregator
+    /// certificate in other entities.
+    ///
+    /// Aggregator needs this to call other entities, other entities need this
+    /// to call their own interanl endpoints.
+    pub client_cert_path: PathBuf,
+    /// Path to the client key file.
+    pub client_key_path: PathBuf,
+
+    /// Path to the CA certificate file which is used to verify client
+    /// certificates.
+    pub ca_cert_path: PathBuf,
+
+    /// Whether client certificates should be restricted to Aggregator and Self certificates.
+    ///
+    /// Client certificates are always validated against the CA certificate
+    /// according to mTLS regardless of this setting.
+    pub client_verification: bool,
+
+    /// Path to the aggregator certificate file. (used to authenticate requests from aggregator)
+    ///
+    /// Aggregator's client cert should be equal to the this certificate.
+    pub aggregator_cert_path: PathBuf,
+
     // /// Directory containing unix sockets
     // pub socket_path: String,
     /// All Secret keys. Just for testing purposes.
@@ -217,6 +252,14 @@ impl Default for BridgeConfig {
             // socket_path: "/".to_string(),
             verifier_endpoints: None,
             operator_endpoints: None,
+
+            server_cert_path: PathBuf::from("certs/server/server.pem"),
+            server_key_path: PathBuf::from("certs/server/server.key"),
+            client_cert_path: PathBuf::from("certs/client/client.pem"),
+            client_key_path: PathBuf::from("certs/client/client.key"),
+            ca_cert_path: PathBuf::from("certs/ca/ca.pem"),
+            aggregator_cert_path: PathBuf::from("certs/aggregator/aggregator.pem"),
+            client_verification: true,
 
             #[cfg(test)]
             test_params: TestParams::default(),
