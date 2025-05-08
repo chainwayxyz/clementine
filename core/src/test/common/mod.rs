@@ -162,7 +162,7 @@ pub async fn mine_once_after_in_mempool(
 
         if mempool_result.is_ok() {
             tracing::debug!(
-                "{} transaction to hit the mempool: {:?}",
+                "{} transaction hit the mempool: {:?}",
                 tx_name,
                 mempool_result.unwrap()
             );
@@ -276,6 +276,7 @@ pub async fn create_bumpable_tx(
     network: bitcoin::Network,
     fee_paying_type: FeePayingType,
     requires_rbf_signing_info: bool,
+    fee: Option<Amount>,
 ) -> Result<Transaction, BridgeError> {
     let (address, spend_info) =
         builder::address::create_taproot_address(&[], Some(signer.xonly_public_key), network);
@@ -288,6 +289,8 @@ pub async fn create_bumpable_tx(
         FeePayingType::CPFP => Version::non_standard(3),
         FeePayingType::RBF => Version::TWO,
     };
+
+    let fee = fee.unwrap_or(MIN_TAPROOT_AMOUNT * 3);
 
     let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
         .with_version(version)
@@ -314,7 +317,7 @@ pub async fn create_bumpable_tx(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
-            value: amount - builder::transaction::anchor_output().value - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
+            value: amount - builder::transaction::anchor_output().value - fee, // buffer so that rbf works without adding inputs
             script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
         }))
         .add_output(UnspentTxOut::from_partial(

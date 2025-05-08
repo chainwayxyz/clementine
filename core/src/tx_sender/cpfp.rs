@@ -1,13 +1,4 @@
-use eyre::eyre;
-use std::env;
-
-use bitcoin::{
-    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
-};
-use bitcoincore_rpc::PackageSubmissionResult;
-use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
-use eyre::Context;
-
+use super::{Result, SendTxError, TxMetadata, TxSender};
 use crate::errors::{ErrorExt, ResultExt};
 use crate::extended_rpc::BitcoinRPCError;
 use crate::tx_sender::FeePayingType;
@@ -23,8 +14,14 @@ use crate::{
     constants::MIN_TAPROOT_AMOUNT,
     rpc::clementine::NormalSignatureKind,
 };
-
-use super::{Result, SendTxError, TxMetadata, TxSender};
+use bitcoin::{
+    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Weight,
+};
+use bitcoincore_rpc::PackageSubmissionResult;
+use bitcoincore_rpc::{PackageTransactionResult, RpcApi};
+use eyre::eyre;
+use eyre::Context;
+use std::env;
 
 impl TxSender {
     /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP.

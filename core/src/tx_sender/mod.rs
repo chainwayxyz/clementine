@@ -414,7 +414,7 @@ mod tests {
         let (client, _tx_sender, _cancel_txs, rpc, db, signer, network) =
             create_bg_tx_sender(rpc).await;
 
-        let tx = create_bumpable_tx(&rpc, &signer, network, FeePayingType::CPFP, false)
+        let tx = create_bumpable_tx(&rpc, &signer, network, FeePayingType::CPFP, false, None)
             .await
             .unwrap();
 
