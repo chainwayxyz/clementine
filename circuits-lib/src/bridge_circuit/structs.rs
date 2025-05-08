@@ -183,13 +183,13 @@ impl WatchtowerInput {
     /// - `kickoff_tx_id`: The kickoff transaction id whose output is consumed by an input of the watchtower transaction.
     /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
     ///   referencing the `kickoff_tx`.
-    /// * `previous_txs` - An optional slice of transactions, each of which should include
+    /// * `prevout_txs` - An optional slice of transactions, each of which should include
     ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs shoul be in the same order as the inputs in the watchtower tx )
     ///
     /// # Note
     ///
     /// All previous transactions other than kickoff tx whose outputs are spent by the `watchtower_tx`
-    /// should be supplied in `previous_txs` if they exist.
+    /// should be supplied in `prevout_txs` if they exist.
     ///
     /// # Returns
     ///
@@ -213,7 +213,7 @@ impl WatchtowerInput {
     pub fn from_txs(
         kickoff_tx_id: Txid,
         watchtower_tx: Transaction,
-        previous_txs: &[Transaction],
+        prevout_txs: &[Transaction],
         watchtower_challenge_connector_start_idx: u16,
     ) -> Result<Self, &'static str> {
         let watchtower_challenge_input_idx = watchtower_tx
@@ -246,7 +246,7 @@ impl WatchtowerInput {
                 let txid = input.previous_output.txid;
                 let vout = input.previous_output.vout as usize;
 
-                let tx = previous_txs
+                let tx = prevout_txs
                     .iter()
                     .find(|tx| tx.compute_txid() == txid)
                     .ok_or("Previous transaction not found")?;
