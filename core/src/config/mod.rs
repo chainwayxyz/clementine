@@ -113,7 +113,10 @@ pub struct BridgeConfig {
     /// certificates.
     pub ca_cert_path: PathBuf,
 
-    /// Whether client verification should be performed in mutual TLS.
+    /// Whether client certificates should be restricted to Aggregator and Self certificates.
+    ///
+    /// Client certificates are always validated against the CA certificate
+    /// according to mTLS regardless of this setting.
     pub client_verification: bool,
 
     /// Path to the aggregator certificate file. (used to authenticate requests from aggregator)
