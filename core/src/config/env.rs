@@ -220,6 +220,10 @@ mod tests {
         std::env::set_var("SERVER_CERT_PATH", default_config.server_cert_path.clone());
         std::env::set_var("SERVER_KEY_PATH", default_config.server_key_path.clone());
         std::env::set_var("CA_CERT_PATH", default_config.ca_cert_path.clone());
+        std::env::set_var(
+            "CLIENT_VERIFICATION",
+            default_config.client_verification.to_string(),
+        );
 
         std::env::set_var(
             "SECURITY_COUNCIL",

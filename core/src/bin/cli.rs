@@ -346,6 +346,7 @@ fn create_minimal_config() -> BridgeConfig {
         ca_cert_path: PathBuf::from("certs/ca/ca.pem"),
         client_cert_path: PathBuf::from("certs/client/client.pem"),
         client_key_path: PathBuf::from("certs/client/client.key"),
+        client_verification: true,
         ..Default::default()
     }
 }
