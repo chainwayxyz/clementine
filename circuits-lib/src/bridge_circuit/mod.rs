@@ -33,7 +33,6 @@ use k256::{
 use lc_proof::lc_proof_verifier;
 use sha2::{Digest, Sha256};
 use signature::hazmat::PrehashVerifier;
-use std::str::FromStr;
 use storage_proof::verify_storage_proofs;
 use structs::{
     BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
@@ -125,22 +124,27 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let light_client_circuit_output = lc_proof_verifier(input.lcp.clone());
 
     // Storage proof verification for deposit tx index and withdrawal outpoint
-    let (user_wd_outpoint_str, move_tx_id) =
+    let (user_wd_outpoint, vout, move_txid) =
         verify_storage_proofs(&input.sp, light_client_circuit_output.l2_state_root);
 
-    let user_wd_outpoint = num_bigint::BigUint::from_str(&user_wd_outpoint_str).unwrap();
+    let user_wd_txid = bitcoin::Txid::from_byte_array(*user_wd_outpoint);
 
-    let user_wd_txid = bitcoin::Txid::from_byte_array(
-        user_wd_outpoint
-            .to_bytes_be()
-            .as_slice()
-            .try_into()
-            .unwrap(),
+    let payout_input_index: usize = input.payout_input_index as usize;
+
+    assert_eq!(
+        user_wd_txid,
+        input.payout_spv.transaction.input[payout_input_index]
+            .previous_output
+            .txid,
+        "Invalid withdrawal transaction ID"
     );
 
     assert_eq!(
-        user_wd_txid, input.payout_spv.transaction.input[0].previous_output.txid,
-        "Invalid withdrawal transaction ID"
+        vout,
+        input.payout_spv.transaction.input[payout_input_index]
+            .previous_output
+            .vout,
+        "Invalid withdrawal transaction output index"
     );
 
     let last_output = input.payout_spv.transaction.output.last().unwrap();
@@ -150,7 +154,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         &kickoff_txid,
         input.watchtower_challenge_connector_start_idx,
         &input.all_tweaked_watchtower_pubkeys,
-        move_tx_id,
+        *move_txid,
     );
 
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
@@ -699,6 +703,7 @@ mod tests {
             sp: StorageProof::default(),
             all_tweaked_watchtower_pubkeys: watchtower_pubkeys,
             watchtower_challenge_connector_start_idx,
+            payout_input_index: 0,
         };
 
         (input, kickoff_txid)

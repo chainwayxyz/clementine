@@ -10,7 +10,7 @@ use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
-use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
+use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 
 use circuits_lib::common::constants::{
@@ -61,22 +61,9 @@ pub fn prove_bridge_circuit(
     [u8; 31],
     BridgeCircuitBitvmInputs,
 ) {
-    let all_tweaked_watchtower_pubkeys: Vec<[u8; 32]> = bridge_circuit_host_params
-        .all_tweaked_watchtower_pubkeys
-        .iter()
-        .map(|pubkey| pubkey.serialize())
-        .collect();
-
-    let bridge_circuit_input = BridgeCircuitInput::new(
-        bridge_circuit_host_params.kickoff_tx_id,
-        bridge_circuit_host_params.watchtower_inputs,
-        all_tweaked_watchtower_pubkeys,
-        bridge_circuit_host_params.block_header_circuit_output,
-        bridge_circuit_host_params.spv,
-        bridge_circuit_host_params.light_client_proof,
-        bridge_circuit_host_params.storage_proof,
-        bridge_circuit_host_params.watchtower_challenge_connector_start_idx,
-    );
+    let bridge_circuit_input = bridge_circuit_host_params
+        .clone()
+        .into_bridge_circuit_input();
 
     let header_chain_proof_output_serialized =
         borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
