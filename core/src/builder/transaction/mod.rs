@@ -30,6 +30,7 @@ use bitcoin::transaction::Version;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 use eyre::Context;
 use hex;
+use input::UtxoVout;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
@@ -637,6 +638,35 @@ pub fn create_move_to_vault_txhandler(
         ))
         .add_output(UnspentTxOut::from_partial(anchor_output()))
         .finalize())
+}
+
+/// Creates a [`TxHandlerBuilder`] for the `emergency_stop_tx`. This transaction will move
+/// the funds to a the address controlled by the security council from the move to vault txout
+/// This transaction will be used to stop malicious activities if there is a security issue.
+pub fn create_emergency_stop_txhandler(
+    deposit_data: &mut DepositData,
+    move_to_vault_txhandler: &TxHandler,
+    paramset: &'static ProtocolParamset,
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    let security_council = deposit_data.security_council.clone();
+
+    let builder = TxHandlerBuilder::new(TransactionType::MoveToVault)
+        .with_version(Version::non_standard(3))
+        .add_input(
+            NormalSignatureKind::NotStored,
+            move_to_vault_txhandler.get_spendable_output(UtxoVout::DepositInMove)?,
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_scripts(
+            paramset.bridge_amount - ANCHOR_AMOUNT,
+            vec![Arc::new(Multisig::from_security_council(security_council))],
+            None,
+            paramset.network,
+        ))
+        .finalize();
+
+    Ok(builder)
 }
 
 /// Creates a [`TxHandlerBuilder`] for the `move_to_vault_tx`. This transaction will move

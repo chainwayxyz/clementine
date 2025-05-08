@@ -353,7 +353,7 @@ pub mod verifier_deposit_sign_params {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierDepositFinalizeParams {
-    #[prost(oneof = "verifier_deposit_finalize_params::Params", tags = "1, 2, 3")]
+    #[prost(oneof = "verifier_deposit_finalize_params::Params", tags = "1, 2, 3, 4")]
     pub params: ::core::option::Option<verifier_deposit_finalize_params::Params>,
 }
 /// Nested message and enum types in `VerifierDepositFinalizeParams`.
@@ -366,7 +366,16 @@ pub mod verifier_deposit_finalize_params {
         SchnorrSig(::prost::alloc::vec::Vec<u8>),
         #[prost(bytes, tag = "3")]
         MoveTxAggNonce(::prost::alloc::vec::Vec<u8>),
+        #[prost(bytes, tag = "4")]
+        EmergencyStopAggNonce(::prost::alloc::vec::Vec<u8>),
     }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VerifierDepositFinalizeResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub move_to_vault_partial_sig: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub emergency_stop_partial_sig: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierPublicKeys {
@@ -1475,7 +1484,10 @@ pub mod clementine_verifier_client {
             request: impl tonic::IntoStreamingRequest<
                 Message = super::VerifierDepositFinalizeParams,
             >,
-        ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::VerifierDepositFinalizeResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -2592,7 +2604,10 @@ pub mod clementine_verifier_server {
             request: tonic::Request<
                 tonic::Streaming<super::VerifierDepositFinalizeParams>,
             >,
-        ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::VerifierDepositFinalizeResponse>,
+            tonic::Status,
+        >;
         /// Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
         async fn internal_handle_kickoff(
             &self,
@@ -3023,7 +3038,7 @@ pub mod clementine_verifier_server {
                     > tonic::server::ClientStreamingService<
                         super::VerifierDepositFinalizeParams,
                     > for DepositFinalizeSvc<T> {
-                        type Response = super::PartialSig;
+                        type Response = super::VerifierDepositFinalizeResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
