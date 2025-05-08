@@ -135,6 +135,40 @@ impl BridgeCircuitHostParams {
             payout_input_index,
         })
     }
+
+    pub fn into_bridge_circuit_input(self) -> BridgeCircuitInput {
+        let BridgeCircuitHostParams {
+            kickoff_tx_id,
+            spv,
+            block_header_circuit_output,
+            headerchain_receipt: _,
+            light_client_proof,
+            lcp_receipt: _,
+            storage_proof,
+            network: _,
+            watchtower_inputs,
+            all_tweaked_watchtower_pubkeys,
+            watchtower_challenge_connector_start_idx,
+            payout_input_index,
+        } = self;
+
+        let all_tweaked_watchtower_pubkeys: Vec<[u8; 32]> = all_tweaked_watchtower_pubkeys
+            .iter()
+            .map(|pubkey| pubkey.serialize())
+            .collect();
+
+        BridgeCircuitInput::new(
+            kickoff_tx_id,
+            watchtower_inputs,
+            all_tweaked_watchtower_pubkeys,
+            block_header_circuit_output,
+            spv,
+            payout_input_index,
+            light_client_proof,
+            storage_proof,
+            watchtower_challenge_connector_start_idx,
+        )
+    }
 }
 
 fn get_payout_input_index(
