@@ -8,13 +8,22 @@ use crate::operator::OperatorServer;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
+use crate::rpc::interceptors::Interceptors::{Noop, OnlyAggregatorAndSelf};
+use crate::utils::AddMethodMiddlewareLayer;
 use crate::verifier::VerifierServer;
 use crate::{config::BridgeConfig, errors};
 use errors::BridgeError;
 use eyre::Context;
+use rustls_pki_types::pem::PemObject;
 use std::thread;
 use tokio::sync::oneshot;
 use tonic::server::NamedService;
+use tonic::service::interceptor::InterceptedService;
+use tonic::transport::{Certificate, CertificateDer, Identity, ServerTlsConfig};
+
+// Add this to ensure certificates exist in tests
+#[cfg(test)]
+use crate::test::common::ensure_test_certificates;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
 
@@ -50,6 +59,7 @@ pub async fn create_grpc_server<S>(
     addr: ServerAddr,
     service: S,
     server_name: &str,
+    config: &BridgeConfig,
 ) -> Result<(ServerAddr, oneshot::Sender<()>), BridgeError>
 where
     S: tower::Service<
@@ -66,15 +76,83 @@ where
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
-    let server_builder = tonic::transport::Server::builder().add_service(service);
+    // Ensure certificates exist in test mode
+    #[cfg(test)]
+    {
+        ensure_test_certificates().wrap_err("Failed to ensure test certificates")?;
+    }
 
     match addr {
         ServerAddr::Tcp(socket_addr) => {
+            let cert = tokio::fs::read(&config.server_cert_path)
+                .await
+                .wrap_err(format!(
+                    "Failed to read server certificate from {}",
+                    config.server_cert_path.display()
+                ))?;
+            let key = tokio::fs::read(&config.server_key_path)
+                .await
+                .wrap_err(format!(
+                    "Failed to read server key from {}",
+                    config.server_key_path.display()
+                ))?;
+
+            let server_identity = Identity::from_pem(cert, key);
+
+            // Load CA certificate for client verification
+            let client_ca_cert = tokio::fs::read(&config.ca_cert_path)
+                .await
+                .wrap_err(format!(
+                    "Failed to read CA certificate from {}",
+                    config.ca_cert_path.display()
+                ))?;
+
+            let client_ca = Certificate::from_pem(client_ca_cert);
+
+            // Build TLS configuration
+            let tls_config = ServerTlsConfig::new()
+                .identity(server_identity)
+                .client_ca_root(client_ca);
+
+            let service = InterceptedService::new(
+                service,
+                if config.client_verification {
+                    let client_cert = CertificateDer::from_pem_file(&config.client_cert_path)
+                        .wrap_err(format!(
+                            "Failed to read client certificate from {}",
+                            config.client_cert_path.display()
+                        ))?
+                        .to_owned();
+
+                    let aggregator_cert =
+                        CertificateDer::from_pem_file(&config.aggregator_cert_path)
+                            .wrap_err(format!(
+                                "Failed to read aggregator certificate from {}",
+                                config.aggregator_cert_path.display()
+                            ))?
+                            .to_owned();
+
+                    OnlyAggregatorAndSelf {
+                        aggregator_cert,
+                        our_cert: client_cert,
+                    }
+                } else {
+                    Noop
+                },
+            );
+
             tracing::info!(
                 "Starting {} gRPC server with TCP address: {}",
                 server_name,
                 socket_addr
             );
+
+            let server_builder = tonic::transport::Server::builder()
+                .layer(AddMethodMiddlewareLayer)
+                .tls_config(tls_config)
+                .wrap_err("Failed to configure TLS")?
+                .add_service(service);
+
             let server_name_str = server_name.to_string();
 
             let handle = server_builder.serve_with_shutdown(socket_addr, async move {
@@ -93,6 +171,9 @@ where
         }
         #[cfg(unix)]
         ServerAddr::Unix(ref socket_path) => {
+            let server_builder = tonic::transport::Server::builder()
+                .layer(AddMethodMiddlewareLayer)
+                .add_service(service);
             tracing::info!(
                 "Starting {} gRPC server with Unix socket: {:?}",
                 server_name,
@@ -149,10 +230,11 @@ pub async fn create_verifier_grpc_server<C: CitreaClientT>(
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
-    let verifier = VerifierServer::<C>::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config.clone()).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
-    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Verifier").await?;
+    let (server_addr, shutdown_tx) =
+        create_grpc_server(addr.into(), svc, "Verifier", &config).await?;
 
     match server_addr {
         ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),
@@ -171,10 +253,11 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
-    let operator = OperatorServer::<C>::new(config).await?;
+    let operator = OperatorServer::<C>::new(config.clone()).await?;
 
     let svc = ClementineOperatorServer::new(operator);
-    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Operator").await?;
+    let (server_addr, shutdown_tx) =
+        create_grpc_server(addr.into(), svc, "Operator", &config).await?;
     tracing::info!("Operator gRPC server created");
 
     match server_addr {
@@ -184,15 +267,25 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
 }
 
 pub async fn create_aggregator_grpc_server(
-    config: BridgeConfig,
+    mut config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, oneshot::Sender<()>), BridgeError> {
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
-    let aggregator = Aggregator::new(config).await?;
+    let aggregator = Aggregator::new(config.clone()).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
 
-    let (server_addr, shutdown_tx) = create_grpc_server(addr.into(), svc, "Aggregator").await?;
+    if config.client_verification {
+        tracing::warn!(
+                "Client verification is enabled, even though Aggregator gRPC server should have client certificate verification DISABLED. Overriding to false...",
+
+            );
+
+        config.client_verification = false;
+    }
+
+    let (server_addr, shutdown_tx) =
+        create_grpc_server(addr.into(), svc, "Aggregator", &config).await?;
 
     match server_addr {
         ServerAddr::Tcp(socket_addr) => Ok((socket_addr, shutdown_tx)),
@@ -214,11 +307,11 @@ pub async fn create_verifier_unix_server<C: CitreaClientT>(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let verifier = VerifierServer::<C>::new(config).await?;
+    let verifier = VerifierServer::<C>::new(config.clone()).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     let (server_addr, shutdown_tx) =
-        create_grpc_server(socket_path.into(), svc, "Verifier").await?;
+        create_grpc_server(socket_path.into(), svc, "Verifier", &config).await?;
 
     match server_addr {
         ServerAddr::Unix(path) => Ok((path, shutdown_tx)),
@@ -249,11 +342,11 @@ pub async fn create_operator_unix_server<C: CitreaClientT>(
     .await
     .wrap_err("Failed to connect to Bitcoin RPC")?;
 
-    let operator = OperatorServer::<C>::new(config).await?;
+    let operator = OperatorServer::<C>::new(config.clone()).await?;
     let svc = ClementineOperatorServer::new(operator);
 
     let (server_addr, shutdown_tx) =
-        create_grpc_server(socket_path.into(), svc, "Operator").await?;
+        create_grpc_server(socket_path.into(), svc, "Operator", &config).await?;
 
     match server_addr {
         ServerAddr::Unix(path) => Ok((path, shutdown_tx)),
@@ -276,11 +369,11 @@ pub async fn create_aggregator_unix_server(
     config: BridgeConfig,
     socket_path: std::path::PathBuf,
 ) -> Result<(std::path::PathBuf, oneshot::Sender<()>), BridgeError> {
-    let aggregator = Aggregator::new(config).await?;
+    let aggregator = Aggregator::new(config.clone()).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
 
     let (server_addr, shutdown_tx) =
-        create_grpc_server(socket_path.into(), svc, "Aggregator").await?;
+        create_grpc_server(socket_path.into(), svc, "Aggregator", &config).await?;
 
     match server_addr {
         ServerAddr::Unix(path) => Ok((path, shutdown_tx)),

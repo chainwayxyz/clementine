@@ -59,20 +59,24 @@ impl Aggregator {
                 .verifier_endpoints
                 .clone()
                 .ok_or(BridgeError::ConfigError(
-                    "Couldn't find verifier endpoints in config file!".to_string(),
+                    "No verifier endpoints provided in config".into(),
                 ))?;
-        let verifier_clients =
-            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::new).await?;
 
         let operator_endpoints =
             config
                 .operator_endpoints
                 .clone()
                 .ok_or(BridgeError::ConfigError(
-                    "Couldn't find operator endpoints in config file!".to_string(),
+                    "No operator endpoints provided in config".into(),
                 ))?;
+
+        // Create clients to connect to all verifiers
+        let verifier_clients =
+            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::new, &config).await?;
+
+        // Create clients to connect to all operators
         let operator_clients =
-            rpc::get_clients(operator_endpoints, ClementineOperatorClient::new).await?;
+            rpc::get_clients(operator_endpoints, ClementineOperatorClient::new, &config).await?;
 
         let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
 

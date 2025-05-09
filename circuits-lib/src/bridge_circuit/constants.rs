@@ -1,5 +1,15 @@
 use ark_bn254::Fr;
 use ark_ff::BigInt;
+use hex_literal::hex;
+
+pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
+    hex!("b192e93809581f8fdc1e4df0886bb5668fa1443567b7cf5ccd516392a1c7659a");
+pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
+    hex!("a196330eb8889df6bccaf2a13a86f4240396ac0ef28070cd2c2058b5def78a6e");
+pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
+    hex!("d8d296a67e0a2635621c225c9d35814975c5512fbfc98d6eb1f0867617786450");
+pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
+    hex!("2f3cf54cd18bcd1ed368563929eca5bec65bd48bf09d642a6f8128c7c7ec9951");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =

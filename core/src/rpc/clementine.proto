@@ -99,6 +99,12 @@ message WinternitzPubkey {
 message DepositParams {
   Deposit deposit = 1;
   Actors actors = 2;
+  SecurityCouncil security_council = 3;
+}
+
+message SecurityCouncil {
+  repeated bytes pks = 1;
+  uint32 threshold = 2;
 }
 
 message Deposit {
@@ -287,32 +293,11 @@ message XOnlyPublicKeyRpc {
 // connected to the same database and both have access to watchtowers'
 // winternitz pubkeys.
 service ClementineOperator {
-  // Returns an operator's deposit keys.
-  // Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
-  rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
-  // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
-  // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-  // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+  // Returns the operator's xonly public key
   //
-  // # Parameters
-  // - deposit_params: User's deposit information
-  // - transaction_type: Requested Transaction type
-  // - kickoff_id: Operator's kickoff ID
-  //
-  // # Returns
-  // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
-  rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
+  // Used by aggregator inside setup
+  rpc GetXOnlyPublicKey(Empty) returns (XOnlyPublicKeyRpc) {}
 
-  // Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
-  // in the same order.
-  // # Parameters
-  // - deposit_params: User's deposit information
-  // - kickoff_id: Operator's kickoff ID
-  // - commit_data: Commitment data for each MiniAssert tx's
-  //
-  // # Returns
-  // - Raw signed assert transactions
-  rpc InternalCreateAssertCommitmentTxs(TransactionRequest) returns (SignedTxsWithType) {}
   // Returns an operator's parameters. It will be called once, by the
   // aggregator, to set all the public keys.
   //
@@ -320,7 +305,15 @@ service ClementineOperator {
   //
   // Returns an [`OperatorParams`], which includes operator's configuration and
   // Watchtower parameters.
+  //
+  // Used by aggregator inside setup
   rpc GetParams(Empty) returns (stream OperatorParams) {}
+
+  // Returns an operator's deposit keys.
+  // Deposit keys include Assert BitVM winternitz keys, and challenge ACK hashes.
+  //
+  // Used by aggregator inside new_deposit
+  rpc GetDepositKeys(DepositParams) returns (OperatorKeys) {}
 
   // Signs everything that includes Operator's burn connector.
   //
@@ -353,13 +346,35 @@ service ClementineOperator {
   // - deposit_outpoint: Withdrawal's deposit UTXO
   rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
 
+  // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+  // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
+  // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+  //
+  // # Parameters
+  // - deposit_params: User's deposit information
+  // - transaction_type: Requested Transaction type
+  // - kickoff_id: Operator's kickoff ID
+  //
+  // # Returns
+  // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
+  //
+  // Only used in tests
+  rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
+
+  // Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
+  // in the same order.
+  // # Parameters
+  // - deposit_params: User's deposit information
+  // - kickoff_id: Operator's kickoff ID
+  // - commit_data: Commitment data for each MiniAssert tx's
+  //
+  // # Returns
+  // - Raw signed assert transactions
+  rpc InternalCreateAssertCommitmentTxs(TransactionRequest) returns (SignedTxsWithType) {}
 
   rpc InternalFinalizedPayout(FinalizedPayoutParams) returns (Txid) {}
 
   rpc InternalEndRound(Empty) returns (Empty) {}
-
-  // Returns the operator's xonly public key
-  rpc GetXOnlyPublicKey(Empty) returns (XOnlyPublicKeyRpc) {}
 }
 
 // Verifier --------------------------------------------------------------------
@@ -455,11 +470,53 @@ message XOnlyPublicKeys {
 }
 
 service ClementineVerifier {
-  // Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
-  rpc SetOperatorKeys(OperatorKeysWithDeposit)  returns (Empty) {}
-  // Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
-  // Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
-  // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+  // Returns verifiers' metadata. Needs to be called once per setup.
+  //
+  // Used by aggregator inside setup to let all verifiers know all other verifier pks
+  rpc GetParams(Empty) returns (VerifierParams) {}
+
+  // Saves an operator.
+  //
+  // Used by aggregator inside setup to let all verifiers know all other operator pks
+  rpc SetOperator(stream OperatorParams) returns (Empty) {}
+
+  // Sets the operator's winternitz keys and challenge ACK hashes and saves them
+  // into the db.
+  //
+  // Used by aggregator inside new_deposit to let all verifiers know all other operators' deposit information
+  rpc SetOperatorKeys(OperatorKeysWithDeposit) returns (Empty) {}
+
+  // Generates nonces for a deposit.
+  //
+  // # Returns
+  //
+  // Nonce metadata followed by nonces.
+  //
+  // Used by aggregator inside new_deposit
+  rpc NonceGen(NonceGenRequest) returns (stream NonceGenResponse) {}
+
+  // Signs deposit with given aggNonces and verifier's secNonce using
+  // nonce_id.
+  //
+  // Used by aggregator inside new_deposit
+  rpc DepositSign(stream VerifierDepositSignParams)
+    returns (stream PartialSig) {}
+
+  // Verifies every signature and signs move_tx.
+  //
+  // Used by aggregator inside new_deposit
+  rpc DepositFinalize(stream VerifierDepositFinalizeParams)
+    returns (PartialSig) {}
+
+  // Debug a transaction by retrieving its current state and history
+  rpc DebugTx(TxDebugRequest) returns (TxDebugInfo) {}
+
+  // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
+  rpc InternalHandleKickoff(Txid) returns (Empty) {}
+
+  // 1. Signs all tx's it can according to given transaction type (use it with AllNeededForDeposit to get almost all tx's)
+  // 2. Creates the transactions denoted by the deposit and operator_idx, round_idx, and kickoff_idx.
+  // 3. It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
   //
   // # Parameters
   // - deposit_params: User's deposit information
@@ -469,35 +526,10 @@ service ClementineVerifier {
   // # Returns
   // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
   rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
-  // Signs the verifiers own watchtower challenge tx in the corresponding kickoff and returns the signed raw tx
+
+  // Signs the verifiers own watchtower challenge tx in the corresponding
+  // kickoff and returns the signed raw tx
   rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (SignedTxWithType) {}
-  // Returns verifiers' metadata. Needs to be called once per setup.
-  rpc GetParams(Empty) returns (VerifierParams) {}
-
-  // Saves an operator.
-  rpc SetOperator(stream OperatorParams) returns (Empty) {}
-
-  // Generates nonces for a deposit.
-  //
-  // # Returns
-  //
-  // Nonce metadata followed by nonces.
-  rpc NonceGen(NonceGenRequest) returns (stream NonceGenResponse) {}
-
-  // Signs deposit with given aggNonces and it's corresponding secNonce using
-  // nonce_id.
-  rpc DepositSign(stream VerifierDepositSignParams)
-    returns (stream PartialSig) {}
-
-  // Verifies every signature and signs move_tx.
-  rpc DepositFinalize(stream VerifierDepositFinalizeParams)
-    returns (PartialSig) {}
-
-  // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
-  rpc InternalHandleKickoff(Txid) returns (Empty) {}
-
-  // Debug a transaction by retrieving its current state and history
-  rpc DebugTx(TxDebugRequest) returns (TxDebugInfo) {}
 }
 
 // Aggregator ------------------------------------------------------------------
@@ -529,12 +561,16 @@ message AggregatorWithdrawResponse {
 }
 
 service ClementineAggregator {
+  rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
+
   // Sets up the system of verifiers, watchtowers and operators by:
   //
   // 1. Collects verifier keys from each verifier
   // 2. Distributes these verifier keys to all verifiers
   // 3. Collects all operator configs from each operator
   // 4. Distributes these operator configs to all verifiers
+  //
+  // Used by the clementine-backend service
   rpc Setup(Empty) returns (VerifierPublicKeys) {}
 
   // This will call, DepositNonceGen for every verifier,
@@ -543,14 +579,16 @@ service ClementineAggregator {
   // this will also call the operator to get their signatures and send it to
   // DepositFinalize then it will collect the partial sigs and create the move
   // tx.
+  //
+  // Used by the clementine-backend service to initiate a deposit
   rpc NewDeposit(Deposit) returns (Txid) {}
 
   // Call's withdraw on all operators
+  // Used by the clementine-backend service to initiate a withdrawal
   rpc Withdraw(WithdrawParams)
     returns (AggregatorWithdrawResponse) {}
 
-  // send a pre-signed tx
+  // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
-  rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
 }

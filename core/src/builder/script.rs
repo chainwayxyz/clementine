@@ -15,11 +15,13 @@ use bitcoin::{
     script::Builder,
     ScriptBuf, XOnlyPublicKey,
 };
-use bitcoin::{taproot, Amount, Txid, Witness};
+use bitcoin::{taproot, Txid, Witness};
 use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
 use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
+
+use super::transaction::SecurityCouncil;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SpendPath {
@@ -176,6 +178,48 @@ impl CheckSig {
 
     pub fn new(xonly_pk: XOnlyPublicKey) -> Self {
         Self(xonly_pk)
+    }
+}
+
+#[derive(Clone)]
+pub struct Multisig {
+    pubkeys: Vec<XOnlyPublicKey>,
+    threshold: u32,
+}
+
+impl SpendableScript for Multisig {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::ManualSpend(self)
+    }
+
+    fn to_script_buf(&self) -> ScriptBuf {
+        let mut script_builder = Builder::new()
+            .push_x_only_key(&self.pubkeys[0])
+            .push_opcode(OP_CHECKSIG);
+        for pubkey in self.pubkeys.iter().skip(1) {
+            script_builder = script_builder.push_x_only_key(pubkey);
+            script_builder = script_builder.push_opcode(OP_CHECKSIGADD);
+        }
+        script_builder = script_builder.push_int(self.threshold as i64);
+        script_builder = script_builder.push_opcode(OP_NUMEQUAL);
+        script_builder.into_script()
+    }
+}
+
+impl Multisig {
+    pub fn new(pubkeys: Vec<XOnlyPublicKey>, threshold: u32) -> Self {
+        Self { pubkeys, threshold }
+    }
+
+    pub fn from_security_council(security_council: SecurityCouncil) -> Self {
+        Self {
+            pubkeys: security_council.pks,
+            threshold: security_council.threshold,
+        }
     }
 }
 
@@ -363,7 +407,7 @@ impl PreimageRevealScript {
 
 /// Struct for deposit script that commits Citrea address to be deposited into onchain.
 #[derive(Debug, Clone)]
-pub struct BaseDepositScript(pub(crate) XOnlyPublicKey, EVMAddress, Amount);
+pub struct BaseDepositScript(pub(crate) XOnlyPublicKey, EVMAddress);
 
 impl SpendableScript for BaseDepositScript {
     fn as_any(&self) -> &dyn Any {
@@ -384,7 +428,6 @@ impl SpendableScript for BaseDepositScript {
             .push_opcode(OP_IF)
             .push_slice(citrea)
             .push_slice(self.1 .0)
-            .push_slice(self.2.to_sat().to_be_bytes())
             .push_opcode(OP_ENDIF)
             .into_script()
     }
@@ -395,15 +438,15 @@ impl BaseDepositScript {
         Witness::from_slice(&[signature.serialize()])
     }
 
-    pub fn new(nofn_xonly_pk: XOnlyPublicKey, evm_address: EVMAddress, amount: Amount) -> Self {
-        Self(nofn_xonly_pk, evm_address, amount)
+    pub fn new(nofn_xonly_pk: XOnlyPublicKey, evm_address: EVMAddress) -> Self {
+        Self(nofn_xonly_pk, evm_address)
     }
 }
 
 /// Struct for deposit script that replaces an old move tx with a replacement deposit (to update bridge design on chain)
 /// It commits to the old move txid inside the script.
 #[derive(Debug, Clone)]
-pub struct ReplacementDepositScript(pub(crate) XOnlyPublicKey, Txid, Amount);
+pub struct ReplacementDepositScript(pub(crate) XOnlyPublicKey, Txid);
 
 impl SpendableScript for ReplacementDepositScript {
     fn as_any(&self) -> &dyn Any {
@@ -434,8 +477,8 @@ impl ReplacementDepositScript {
         Witness::from_slice(&[signature.serialize()])
     }
 
-    pub fn new(nofn_xonly_pk: XOnlyPublicKey, old_move_txid: Txid, amount: Amount) -> Self {
-        Self(nofn_xonly_pk, old_move_txid, amount)
+    pub fn new(nofn_xonly_pk: XOnlyPublicKey, old_move_txid: Txid) -> Self {
+        Self(nofn_xonly_pk, old_move_txid)
     }
 }
 
@@ -448,6 +491,7 @@ pub enum ScriptKind<'a> {
     BaseDepositScript(&'a BaseDepositScript),
     ReplacementDepositScript(&'a ReplacementDepositScript),
     Other(&'a OtherSpendable),
+    ManualSpend(&'a Multisig),
 }
 
 #[cfg(test)]
@@ -461,7 +505,8 @@ fn get_script_from_arr<T: SpendableScript>(
 #[cfg(test)]
 mod tests {
     use crate::actor::{Actor, WinternitzDerivationPath};
-    use crate::bitvm_client;
+    use crate::bitvm_client::{self, UNSPENDABLE_XONLY_PUBKEY};
+    use crate::builder::address::create_taproot_address;
     use crate::config::protocol::ProtocolParamsetName;
     use crate::extended_rpc::ExtendedRpc;
     use std::sync::Arc;
@@ -469,9 +514,9 @@ mod tests {
     use super::*;
 
     use bitcoin::hashes::Hash;
-    use bitcoin::secp256k1::PublicKey;
+    use bitcoin::secp256k1::{PublicKey, SecretKey};
     use bitcoincore_rpc::RpcApi;
-    use secp256k1::rand;
+    use secp256k1::rand::{self, Rng};
     // Create some dummy values for testing.
     // Note: These values are not cryptographically secure and are only used for tests.
     fn dummy_xonly() -> XOnlyPublicKey {
@@ -484,7 +529,7 @@ mod tests {
     }
 
     fn dummy_pubkey() -> PublicKey {
-        *bitvm_client::UNSPENDABLE_PUBKEY
+        bitvm_client::UNSPENDABLE_XONLY_PUBKEY.public_key(bitcoin::secp256k1::Parity::Even)
     }
 
     fn dummy_params() -> Parameters {
@@ -509,11 +554,7 @@ mod tests {
             )),
             Box::new(TimelockScript::new(Some(dummy_xonly()), 10)),
             Box::new(PreimageRevealScript::new(dummy_xonly(), [0; 20])),
-            Box::new(BaseDepositScript::new(
-                dummy_xonly(),
-                dummy_evm_address(),
-                Amount::from_sat(100),
-            )),
+            Box::new(BaseDepositScript::new(dummy_xonly(), dummy_evm_address())),
         ];
 
         // helper closures that return Option<(usize, &T)> using get_script_from_arr.
@@ -582,18 +623,13 @@ mod tests {
             ),
             (
                 "BaseDepositScript",
-                Arc::new(BaseDepositScript::new(
-                    dummy_xonly(),
-                    dummy_evm_address(),
-                    Amount::from_sat(50),
-                )),
+                Arc::new(BaseDepositScript::new(dummy_xonly(), dummy_evm_address())),
             ),
             (
                 "ReplacementDepositScript",
                 Arc::new(ReplacementDepositScript::new(
                     dummy_xonly(),
                     Txid::all_zeros(),
-                    Amount::from_sat(50),
                 )),
             ),
             ("Other", Arc::new(OtherSpendable::new(dummy_scriptbuf()))),
@@ -901,11 +937,8 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let script: Arc<dyn SpendableScript> = Arc::new(BaseDepositScript::new(
-            xonly_pk,
-            EVMAddress([2; 20]),
-            Amount::from_sat(50),
-        ));
+        let script: Arc<dyn SpendableScript> =
+            Arc::new(BaseDepositScript::new(xonly_pk, EVMAddress([2; 20])));
         let scripts = vec![script];
         let (builder, _) = create_taproot_test_tx(
             &rpc,
@@ -941,11 +974,8 @@ mod tests {
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
-        let script: Arc<dyn SpendableScript> = Arc::new(ReplacementDepositScript::new(
-            xonly_pk,
-            Txid::all_zeros(),
-            Amount::from_sat(50),
-        ));
+        let script: Arc<dyn SpendableScript> =
+            Arc::new(ReplacementDepositScript::new(xonly_pk, Txid::all_zeros()));
         let scripts = vec![script];
         let (builder, _) = create_taproot_test_tx(
             &rpc,
@@ -1039,5 +1069,61 @@ mod tests {
         tracing::info!("{:?}", extracted);
         assert_eq!(extracted[0], kickoff_blockhash);
         assert_eq!(extracted[1], assert_commit_data);
+    }
+
+    #[tokio::test]
+    async fn test_multisig_matches_descriptor() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        // select a random number of public keys
+        let num_pks = rand::thread_rng().gen_range(1..=10);
+        let threshold = rand::thread_rng().gen_range(1..=num_pks);
+
+        let mut pks = Vec::new();
+        for _ in 0..num_pks {
+            let secret_key = SecretKey::new(&mut rand::thread_rng());
+            let kp = bitcoin::secp256k1::Keypair::from_secret_key(&*SECP, &secret_key);
+            pks.push(kp.public_key().x_only_public_key().0);
+        }
+
+        let unspendable_xonly_pk_str = (*UNSPENDABLE_XONLY_PUBKEY).to_string();
+        let descriptor = format!(
+            "tr({},multi_a({},{}))",
+            unspendable_xonly_pk_str,
+            threshold,
+            pks.iter()
+                .map(|pk| pk.to_string())
+                .collect::<Vec<String>>()
+                .join(",")
+        );
+
+        let descriptor_info = rpc.client.get_descriptor_info(&descriptor).await.expect("");
+
+        let descriptor = descriptor_info.descriptor;
+
+        let addresses = rpc
+            .client
+            .derive_addresses(&descriptor, None)
+            .await
+            .expect("");
+
+        tracing::info!("{:?}", addresses);
+
+        let multisig_address = addresses[0].clone().assume_checked();
+
+        let multisig = Multisig::new(pks, threshold);
+
+        let (addr, _) = create_taproot_address(
+            &[multisig.to_script_buf()],
+            None,
+            config.protocol_paramset().network,
+        );
+
+        // println!("addr: {:?}", addr);
+        // println!("multisig_address: {:?}", multisig_address);
+
+        assert_eq!(addr, multisig_address);
     }
 }

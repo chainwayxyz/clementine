@@ -1,14 +1,17 @@
 //! # Common Utilities for Integration Tests
+use std::path::Path;
+use std::process::Command;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
+use crate::builder::script::{CheckSig, Multisig, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::{
     create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
-    ReplacementDepositData, TxHandler, DEFAULT_SEQUENCE,
+    ReplacementDepositData, SecurityCouncil, TxHandler, DEFAULT_SEQUENCE,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
@@ -433,6 +436,7 @@ fn sign_nofn_deposit_tx(
     deposit_tx: &TxHandler,
     config: &BridgeConfig,
     verifiers_public_keys: Vec<PublicKey>,
+    security_council: SecurityCouncil,
 ) -> Transaction {
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
@@ -501,8 +505,9 @@ fn sign_nofn_deposit_tx(
     let mut witness = Witness::from_slice(&[final_taproot_sig.serialize()]);
     // get script of movetx
     let script_buf = CheckSig::new(nofn_xonly_pk).to_script_buf();
+    let multisig_script_buf = Multisig::from_security_council(security_council).to_script_buf();
     let (_, spend_info) = create_taproot_address(
-        &[script_buf.clone()],
+        &[script_buf.clone(), multisig_script_buf.clone()],
         None,
         config.protocol_paramset().network,
     );
@@ -549,9 +554,30 @@ pub async fn run_replacement_deposit(
 
     tracing::info!("First deposit move txid: {}", move_txid);
 
+    let (addr, _) = create_taproot_address(
+        &[
+            CheckSig::new(nofn_xonly_pk).to_script_buf(),
+            Multisig::from_security_council(config.security_council.clone()).to_script_buf(),
+        ],
+        None,
+        config.protocol_paramset().network,
+    );
+
+    let move_tx = rpc
+        .client
+        .get_raw_transaction(&move_txid, None)
+        .await
+        .expect("Failed to get move tx");
+
+    assert_eq!(move_tx.output[0].script_pubkey, addr.script_pubkey());
+
     // generate replacement deposit tx
-    let new_deposit_tx =
-        create_replacement_deposit_txhandler(move_txid, nofn_xonly_pk, config.protocol_paramset())?;
+    let new_deposit_tx = create_replacement_deposit_txhandler(
+        move_txid,
+        nofn_xonly_pk,
+        config.protocol_paramset(),
+        config.security_council.clone(),
+    )?;
     let some_funding_utxo = rpc
         .send_to_address(
             &create_taproot_address(
@@ -594,8 +620,12 @@ pub async fn run_replacement_deposit(
         )
         .expect("Failed to sign replacement deposit tx");
 
-    let replacement_deposit_tx =
-        sign_nofn_deposit_tx(&new_deposit_tx, config, verifiers_public_keys.clone());
+    let replacement_deposit_tx = sign_nofn_deposit_tx(
+        &new_deposit_tx,
+        config,
+        verifiers_public_keys.clone(),
+        config.security_council.clone(),
+    );
 
     aggregator
         .internal_send_tx(SendTxRequest {
@@ -697,4 +727,35 @@ async fn test_regtest_create_and_connect() {
     let new_rpc_height = rpc.client.get_block_count().await.unwrap();
     let height = macro_rpc.client.get_block_count().await.unwrap();
     assert_eq!(height, new_rpc_height);
+}
+
+/// Ensures that TLS certificates exist for tests.
+/// This will run the certificate generation script if certificates don't exist.
+pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
+    static GENERATE_LOCK: Mutex<()> = Mutex::new(());
+
+    while !Path::new("./certs/ca/ca.pem").exists() {
+        if let Ok(_lock) = GENERATE_LOCK.lock() {
+            println!("Generating TLS certificates for tests...");
+
+            let output = Command::new("sh")
+                .arg("-c")
+                .arg("cd .. && ./scripts/generate_certs.sh")
+                .output()?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("Failed to generate certificates: {}", stderr);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Certificate generation failed: {}", stderr),
+                ));
+            }
+
+            println!("TLS certificates generated successfully");
+            break;
+        }
+    }
+
+    Ok(())
 }
