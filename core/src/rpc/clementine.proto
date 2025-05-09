@@ -565,4 +565,6 @@ service ClementineAggregator {
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
   rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
+
+  rpc InternalSendEmergencyStopTx(RawSignedTx) returns (Empty) {}
 }

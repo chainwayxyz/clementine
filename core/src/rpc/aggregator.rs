@@ -761,7 +761,7 @@ impl Aggregator {
         Ok(combined_stop_tx)
     }
 
-    async fn send_emergency_stop_tx(&self, tx: bitcoin::Transaction) -> Result<(), Status> {
+    pub async fn send_emergency_stop_tx(&self, tx: bitcoin::Transaction) -> Result<bitcoin::Transaction, Status> {
         // Add fee bumper.
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
@@ -782,7 +782,7 @@ impl Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
 
-        Ok(())
+        Ok(tx)
     }
 }
 
@@ -1219,6 +1219,19 @@ impl ClementineAggregator for Aggregator {
             num_verifiers: num_verifiers as u32,
         }))
     }
+
+    // async fn send_emergency_stop_tx(
+    //     &self,
+    //     request: Request<clementine::SendEmergencyStopTxRequest>,
+    // ) -> Result<Response<Empty>, Status> {
+    //     let tx: bitcoin::Transaction = request
+    //         .into_inner()
+    //         .raw_tx
+    //         .ok_or(Status::invalid_argument("Missing raw_tx"))?
+    //         .try_into()?;
+    //     self.send_emergency_stop_tx(tx).await?;
+    //     Ok(Response::new(Empty {}))
+    // }
 }
 
 #[cfg(test)]
@@ -1437,5 +1450,154 @@ mod tests {
         .unwrap();
 
         assert!(tx.confirmations.unwrap() > 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_two_deposit_movetx_() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address_0 = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_address_1 = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint_0 = rpc
+            .send_to_address(&deposit_address_0, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_outpoint_1 = rpc
+            .send_to_address(&deposit_address_1, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info_0 = DepositInfo {
+            deposit_outpoint: deposit_outpoint_0,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        let deposit_info_1 = DepositInfo {
+            deposit_outpoint: deposit_outpoint_1,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        let movetx_txid_0: Txid = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info_0))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let movetx_txid_1: Txid = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info_1))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let tx_0 = poll_get(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
+
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&movetx_txid_0, None)
+                    .await;
+
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
+
+                Ok(tx_result)
+            },
+            None,
+            None,
+        )
+        .await
+        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
+        .unwrap();
+
+        let tx_1 = poll_get(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
+
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&movetx_txid_1, None)
+                    .await;
+
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
+
+                Ok(tx_result)
+            },
+            None,
+            None,
+        )
+        .await
+        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
+        .unwrap();
+
+        assert!(tx_0.confirmations.unwrap() > 0);
+        assert!(tx_1.confirmations.unwrap() > 0);
+
+        // let x = aggregator..send_emergency_stop_tx(tx_0.tx.clone()).await;
     }
 }
