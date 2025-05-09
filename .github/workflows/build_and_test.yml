@@ -171,6 +171,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
       - uses: taiki-e/install-action@cargo-llvm-cov
