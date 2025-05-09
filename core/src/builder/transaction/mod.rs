@@ -27,7 +27,9 @@ use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::transaction::Version;
-use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{
+    Address, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+};
 use eyre::Context;
 use hex;
 use input::UtxoVout;
@@ -341,6 +343,7 @@ pub enum TransactionType {
     Round,
     Kickoff,
     MoveToVault,
+    EmergencyStop,
     Payout,
     Challenge,
     UnspentKickoff(usize),
@@ -517,6 +520,9 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::YieldKickoffTxid => {
                     NormalTransaction(Normal::YieldKickoffTxid as i32)
                 }
+                TransactionType::EmergencyStop => {
+                    NormalTransaction(Normal::UnspecifiedTransactionType as i32)
+                }
             }),
         }
     }
@@ -650,7 +656,7 @@ pub fn create_emergency_stop_txhandler(
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     let security_council = deposit_data.security_council.clone();
 
-    let builder = TxHandlerBuilder::new(TransactionType::MoveToVault)
+    let builder = TxHandlerBuilder::new(TransactionType::EmergencyStop)
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
@@ -667,6 +673,25 @@ pub fn create_emergency_stop_txhandler(
         .finalize();
 
     Ok(builder)
+}
+
+/// We assume that the vector of (Txid, Transaction) includes input-output pairs which are signed
+/// using Sighash Single | AnyoneCanPay. This function will combine the inputs and outputs of the
+/// transactions into a single transaction. Beware, this may be dangerous, as there are no checks.
+pub fn combine_emergency_stop_txhandler(txs: Vec<(Txid, Transaction)>) -> Transaction {
+    let (inputs, mut outputs): (Vec<TxIn>, Vec<TxOut>) = txs
+        .into_iter()
+        .map(|(_, tx)| (tx.input[0].clone(), tx.output[0].clone()))
+        .unzip();
+
+    outputs.push(anchor_output());
+
+    Transaction {
+        version: Version::non_standard(3),
+        lock_time: bitcoin::absolute::LockTime::ZERO,
+        input: inputs,
+        output: outputs,
+    }
 }
 
 /// Creates a [`TxHandlerBuilder`] for the `move_to_vault_tx`. This transaction will move

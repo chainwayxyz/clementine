@@ -5,8 +5,9 @@ use super::clementine::{
 use super::clementine::{AggregatorWithdrawResponse, Deposit, VerifierPublicKeys, WithdrawParams};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
-    create_emergency_stop_txhandler, create_move_to_vault_txhandler, Actors, DepositData,
-    DepositInfo, Signed, TransactionType, TxHandler,
+    combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
+    create_move_to_vault_txhandler, Actors, DepositData, DepositInfo, Signed, TransactionType,
+    TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
@@ -26,7 +27,7 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{TapSighash, XOnlyPublicKey};
+use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
 use futures::{
     future::try_join_all,
@@ -748,6 +749,40 @@ impl Aggregator {
         Ok(VerifierPublicKeys {
             verifier_public_keys: vpks,
         })
+    }
+
+    pub async fn generate_combined_emergency_stop_tx(
+        &self,
+        move_txids: Vec<Txid>,
+    ) -> Result<bitcoin::Transaction, BridgeError> {
+        let stop_txs = self.db.get_emergency_stop_txs(None, move_txids).await?;
+        let combined_stop_tx = combine_emergency_stop_txhandler(stop_txs);
+
+        Ok(combined_stop_tx)
+    }
+
+    async fn send_emergency_stop_tx(&self, tx: bitcoin::Transaction) -> Result<(), Status> {
+        // Add fee bumper.
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &tx,
+                FeePayingType::CPFP,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .map_err(BridgeError::from)?;
+        dbtx.commit()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+
+        Ok(())
     }
 }
 

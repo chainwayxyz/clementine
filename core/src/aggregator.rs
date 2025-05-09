@@ -116,7 +116,7 @@ impl Aggregator {
         &self.operator_clients
     }
 
-    /// collects and distributes keys to verifiers from operators and watchtowers for the new deposit
+    /// Collects and distributes keys to verifiers from operators and watchtowers for the new deposit
     /// for operators: get bitvm assert winternitz public keys and watchtower challenge ack hashes
     /// for watchtowers: get winternitz public keys for watchtower challenges
     pub async fn collect_and_distribute_keys(
