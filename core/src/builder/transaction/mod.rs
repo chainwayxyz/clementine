@@ -665,7 +665,7 @@ pub fn create_emergency_stop_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount - ANCHOR_AMOUNT,
+            paramset.bridge_amount - ANCHOR_AMOUNT.checked_mul(3).unwrap(),
             vec![Arc::new(Multisig::from_security_council(security_council))],
             None,
             paramset.network,
@@ -679,6 +679,15 @@ pub fn create_emergency_stop_txhandler(
 /// using Sighash Single | AnyoneCanPay. This function will combine the inputs and outputs of the
 /// transactions into a single transaction. Beware, this may be dangerous, as there are no checks.
 pub fn combine_emergency_stop_txhandler(txs: Vec<(Txid, Transaction)>) -> Transaction {
+    for (_, tx) in &txs {
+        if tx.input.len() != 1 {
+            panic!("Expected only one input per transaction");
+        }
+        if tx.output.len() != 1 {
+            panic!("Expected only one output per transaction");
+        }
+    }
+
     let (inputs, mut outputs): (Vec<TxIn>, Vec<TxOut>) = txs
         .into_iter()
         .map(|(_, tx)| (tx.input[0].clone(), tx.output[0].clone()))

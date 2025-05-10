@@ -665,6 +665,11 @@ impl Aggregator {
         let emergency_stop_tx = emergency_stop_txhandler.get_cached_tx();
         let move_to_vault_txid = move_txhandler.get_txid();
 
+        tracing::debug!(
+            "Move to vault tx id: {}",
+            move_to_vault_txid.to_string()
+        );
+
         self.db
             .set_signed_emergency_stop_tx(None, move_to_vault_txid, emergency_stop_tx)
             .await?;
@@ -761,7 +766,10 @@ impl Aggregator {
         Ok(combined_stop_tx)
     }
 
-    pub async fn send_emergency_stop_tx(&self, tx: bitcoin::Transaction) -> Result<bitcoin::Transaction, Status> {
+    pub async fn send_emergency_stop_tx(
+        &self,
+        tx: bitcoin::Transaction,
+    ) -> Result<bitcoin::Transaction, Status> {
         // Add fee bumper.
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
@@ -1220,18 +1228,23 @@ impl ClementineAggregator for Aggregator {
         }))
     }
 
-    // async fn send_emergency_stop_tx(
-    //     &self,
-    //     request: Request<clementine::SendEmergencyStopTxRequest>,
-    // ) -> Result<Response<Empty>, Status> {
-    //     let tx: bitcoin::Transaction = request
-    //         .into_inner()
-    //         .raw_tx
-    //         .ok_or(Status::invalid_argument("Missing raw_tx"))?
-    //         .try_into()?;
-    //     self.send_emergency_stop_tx(tx).await?;
-    //     Ok(Response::new(Empty {}))
-    // }
+    async fn internal_send_emergency_stop_tx(
+        &self,
+        request: Request<clementine::TxidList>,
+    ) -> Result<Response<clementine::Txid>, Status> {
+        let txids: Vec<Txid> = request
+            .into_inner()
+            .txids
+            .into_iter()
+            .map(|txid| Txid::from_slice(&txid.txid).unwrap())
+            .collect();
+
+        let combined_stop_tx = self.generate_combined_emergency_stop_tx(txids).await?;
+
+        let tx = self.send_emergency_stop_tx(combined_stop_tx).await?;
+        let txid = tx.compute_txid();
+        Ok(Response::new(txid.into()))
+    }
 }
 
 #[cfg(test)]
@@ -1243,6 +1256,7 @@ mod tests {
     use crate::rpc::clementine::{self};
     use crate::test::common::*;
     use crate::{builder, EVMAddress};
+    use bitcoin::hashes::Hash;
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
     use eyre::Context;
@@ -1598,6 +1612,47 @@ mod tests {
         assert!(tx_0.confirmations.unwrap() > 0);
         assert!(tx_1.confirmations.unwrap() > 0);
 
-        // let x = aggregator..send_emergency_stop_tx(tx_0.tx.clone()).await;
+        let move_txids = vec![movetx_txid_0, movetx_txid_1];
+
+        tracing::debug!("Move txids: {:?}", move_txids);
+
+        let emergency_txid: Txid = aggregator
+            .internal_send_emergency_stop_tx(tonic::Request::new(clementine::TxidList {
+                txids: move_txids
+                    .iter()
+                    .map(|txid| clementine::Txid {
+                        txid: txid.to_byte_array().to_vec(),
+                    })
+                    .collect(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .expect("Failed to send emergency stop tx");
+
+        let emergencty_tx = poll_get(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
+
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&emergency_txid, None)
+                    .await;
+
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
+
+                Ok(tx_result)
+            },
+            None,
+            None,
+        )
+        .await
+        .wrap_err_with(|| eyre::eyre!("Emergency stop tx did not land onchain"))
+        .unwrap();
     }
 }

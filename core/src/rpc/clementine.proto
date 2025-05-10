@@ -540,6 +540,10 @@ message AggregatorWithdrawResponse {
   repeated WithdrawResult withdraw_responses = 1;
 }
 
+message TxidList {
+  repeated Txid txids = 1;
+}
+
 service ClementineAggregator {
   // Sets up the system of verifiers, watchtowers and operators by:
   //
@@ -566,5 +570,5 @@ service ClementineAggregator {
 
   rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
 
-  rpc InternalSendEmergencyStopTx(RawSignedTx) returns (Empty) {}
+  rpc InternalSendEmergencyStopTx(TxidList) returns (Txid) {}
 }
