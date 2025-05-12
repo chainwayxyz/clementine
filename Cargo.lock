@@ -1669,7 +1669,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=2e8f9f1#2e8f9f182582cfea87d1f86c379627bfab2bf2f5"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=e933dad#e933dadcc8b8c6f02e6cb0c51fc2f0db1679f055"
 dependencies = [
  "async-trait",
  "bitcoincore-rpc-json",
@@ -1684,7 +1684,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc-json"
 version = "0.18.0"
-source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=2e8f9f1#2e8f9f182582cfea87d1f86c379627bfab2bf2f5"
+source = "git+https://github.com/chainwayxyz/rust-bitcoincore-rpc.git?rev=e933dad#e933dadcc8b8c6f02e6cb0c51fc2f0db1679f055"
 dependencies = [
  "bitcoin",
  "serde",
@@ -1878,13 +1878,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.101",
-]
-
-[[package]]
-name = "bridge-circuit"
-version = "0.1.0"
-dependencies = [
- "risc0-build",
 ]
 
 [[package]]
@@ -8365,13 +8358,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
  "bitflags 2.9.0",
-]
-
-[[package]]
-name = "work-only"
-version = "0.1.0"
-dependencies = [
- "risc0-build",
 ]
 
 [[package]]
