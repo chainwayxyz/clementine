@@ -15,6 +15,7 @@ use crate::rpc::parser;
 use crate::rpc::parser::parse_transaction_request;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
+use futures::{FutureExt, TryFutureExt};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -89,14 +90,19 @@ where
                     schnorr_sig: sig.serialize().to_vec(),
                 };
 
-                sent_sigs += 1;
-                tracing::debug!(
-                    "Sent signature {}/{} to src/operator in deposit_sign()",
-                    sent_sigs,
-                    expected_sigs
-                );
-
-                if tx.send(Ok(operator_burn_sig)).await.is_err() {
+                if tx
+                    .send(Ok(operator_burn_sig))
+                    .inspect_ok(|_| {
+                        sent_sigs += 1;
+                        tracing::debug!(
+                            "Sent signature {}/{} in deposit_sign()",
+                            sent_sigs,
+                            expected_sigs
+                        );
+                    })
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
