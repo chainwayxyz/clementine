@@ -7,6 +7,7 @@ use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use serde::{Deserialize, Serialize};
 
+use crate::errors::BridgeError;
 use crate::errors::ResultExt;
 use crate::{
     actor::Actor,
@@ -378,6 +379,13 @@ impl TxSender {
         TxSenderClient::new(self.db.clone(), self.btc_syncer_consumer_id.clone())
     }
 }
+    impl TxSenderClient {
+        pub async fn test_dbtx(
+            &self,
+        ) -> std::result::Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
+            self.db.begin_transaction().await
+        }
+    }
 
 #[cfg(test)]
 mod tests {
@@ -403,13 +411,6 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::oneshot;
 
-    impl TxSenderClient {
-        pub async fn test_dbtx(
-            &self,
-        ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
-            self.db.begin_transaction().await
-        }
-    }
 
     pub(super) async fn create_tx_sender(
         rpc: ExtendedRpc,

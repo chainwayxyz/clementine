@@ -3,6 +3,7 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+use crate::citrea::mock::MOCK_CITREA_GLOBAL;
 use crate::citrea::CitreaClientT;
 use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
@@ -247,6 +248,7 @@ pub async fn create_test_config_with_thread_name() -> BridgeConfig {
             None
         };
 
+    MOCK_CITREA_GLOBAL.lock().await.remove(&handle.to_string());
     config.db_name = handle.to_string();
     config.citrea_rpc_url = handle.to_string();
 

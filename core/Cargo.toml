@@ -52,13 +52,14 @@ serde_with = { workspace = true }
 sov-rollup-interface = { workspace = true, features = ["native"] }
 rand_chacha = { workspace = true }
 log = { workspace = true }
+criterion = { version = "0.5.1", features = ["html_reports","async_tokio"] }
+citrea-e2e = { workspace = true }
+bridge-circuit-host = { path = "../bridge-circuit-host" }
 
 [dev-dependencies]
 serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
-citrea-e2e = { workspace = true }
 base64 = { workspace = true }
-bridge-circuit-host = { path = "../bridge-circuit-host" }
 
 [[bin]]
 name = "clementine-cli"
@@ -67,3 +68,7 @@ path = "src/bin/cli.rs"
 
 [lints.clippy]
 unwrap_used = { level = "deny" }
+
+[[bench]]
+name = "deposit"
+harness = false

@@ -31,7 +31,7 @@ pub mod tx_sender;
 pub mod utils;
 pub mod verifier;
 
-#[cfg(test)]
+// #[cfg(test)]
 pub mod test;
 
 macro_rules! impl_try_from_vec_u8 {

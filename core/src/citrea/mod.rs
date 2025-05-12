@@ -28,7 +28,7 @@ use lazy_static::lazy_static;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
-#[cfg(test)]
+// #[cfg(test)]
 pub mod mock;
 
 lazy_static! {

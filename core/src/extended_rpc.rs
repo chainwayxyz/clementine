@@ -173,7 +173,7 @@ impl ExtendedRpc {
     /// # Returns
     /// A vector of block hashes for the newly mined blocks.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[cfg(test)]
+    // #[cfg(test)]
     pub async fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>> {
         let new_address = self
             .client
