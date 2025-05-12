@@ -15,7 +15,7 @@ use crate::rpc::parser;
 use crate::rpc::parser::parse_transaction_request;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
-use futures::{FutureExt, TryFutureExt};
+use futures::TryFutureExt;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
