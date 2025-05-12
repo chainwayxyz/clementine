@@ -659,16 +659,18 @@ impl Aggregator {
             ))
         })?;
 
+        let final_sig = bitcoin::taproot::Signature {
+            signature: final_sig,
+            sighash_type: bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+        };
+
         // insert the signature into the tx
-        emergency_stop_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
+        emergency_stop_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 0, 0)?;
 
         let emergency_stop_tx = emergency_stop_txhandler.get_cached_tx();
         let move_to_vault_txid = move_txhandler.get_txid();
 
-        tracing::debug!(
-            "Move to vault tx id: {}",
-            move_to_vault_txid.to_string()
-        );
+        tracing::debug!("Move to vault tx id: {}", move_to_vault_txid.to_string());
 
         self.db
             .set_signed_emergency_stop_tx(None, move_to_vault_txid, emergency_stop_tx)
@@ -775,7 +777,13 @@ impl Aggregator {
         self.tx_sender
             .insert_try_to_send(
                 &mut dbtx,
-                None,
+                Some(TxMetadata {
+                    deposit_outpoint: None,
+                    operator_xonly_pk: None,
+                    round_idx: None,
+                    kickoff_idx: None,
+                    tx_type: TransactionType::EmergencyStop,
+                }),
                 &tx,
                 FeePayingType::CPFP,
                 None,
@@ -1236,7 +1244,7 @@ impl ClementineAggregator for Aggregator {
             .into_inner()
             .txids
             .into_iter()
-            .map(|txid| Txid::from_slice(&txid.txid).unwrap())
+            .map(|txid| Txid::from_slice(&txid.txid).expect("Failed to parse txid"))
             .collect();
 
         let combined_stop_tx = self.generate_combined_emergency_stop_tx(txids).await?;
