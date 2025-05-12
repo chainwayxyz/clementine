@@ -1790,6 +1790,9 @@ pub mod clementine_aggregator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// Creates an emergency stop tx that won't be broadcasted.
+        /// Tx will have around 3 sats/vbyte fee.
+        /// Set add_anchor to true to add an anchor output for cpfp..
         pub async fn internal_create_emergency_stop_tx(
             &mut self,
             request: impl tonic::IntoRequest<super::CreateEmergencyStopTxRequest>,
@@ -3298,6 +3301,9 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status>;
+        /// Creates an emergency stop tx that won't be broadcasted.
+        /// Tx will have around 3 sats/vbyte fee.
+        /// Set add_anchor to true to add an anchor output for cpfp..
         async fn internal_create_emergency_stop_tx(
             &self,
             request: tonic::Request<super::CreateEmergencyStopTxRequest>,

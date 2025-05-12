@@ -1654,7 +1654,7 @@ mod tests {
             .await
             .expect("Failed to send emergency stop tx");
 
-        let emergency_stop_txid = raw_tx.txid();
+        let emergency_stop_txid = raw_tx.compute_txid();
         rpc.mine_blocks(1).await.unwrap();
 
         let _emergencty_tx = poll_get(
