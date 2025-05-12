@@ -785,7 +785,7 @@ impl Aggregator {
                     tx_type: TransactionType::EmergencyStop,
                 }),
                 &tx,
-                FeePayingType::CPFP,
+                FeePayingType::RBF,
                 None,
                 &[],
                 &[],
