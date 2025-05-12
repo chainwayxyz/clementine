@@ -488,9 +488,11 @@ pub struct AggregatorWithdrawResponse {
     pub withdraw_responses: ::prost::alloc::vec::Vec<WithdrawResult>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TxidList {
+pub struct CreateEmergencyStopTxRequest {
     #[prost(message, repeated, tag = "1")]
     pub txids: ::prost::alloc::vec::Vec<Txid>,
+    #[prost(bool, tag = "2")]
+    pub add_anchor: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1788,10 +1790,13 @@ pub mod clementine_aggregator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn internal_send_emergency_stop_tx(
+        pub async fn internal_create_emergency_stop_tx(
             &mut self,
-            request: impl tonic::IntoRequest<super::TxidList>,
-        ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status> {
+            request: impl tonic::IntoRequest<super::CreateEmergencyStopTxRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxWithType>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1802,14 +1807,14 @@ pub mod clementine_aggregator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineAggregator/InternalSendEmergencyStopTx",
+                "/clementine.ClementineAggregator/InternalCreateEmergencyStopTx",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "clementine.ClementineAggregator",
-                        "InternalSendEmergencyStopTx",
+                        "InternalCreateEmergencyStopTx",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -3293,10 +3298,13 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::NofnResponse>, tonic::Status>;
-        async fn internal_send_emergency_stop_tx(
+        async fn internal_create_emergency_stop_tx(
             &self,
-            request: tonic::Request<super::TxidList>,
-        ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
+            request: tonic::Request<super::CreateEmergencyStopTxRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxWithType>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct ClementineAggregatorServer<T> {
@@ -3609,27 +3617,27 @@ pub mod clementine_aggregator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineAggregator/InternalSendEmergencyStopTx" => {
+                "/clementine.ClementineAggregator/InternalCreateEmergencyStopTx" => {
                     #[allow(non_camel_case_types)]
-                    struct InternalSendEmergencyStopTxSvc<T: ClementineAggregator>(
+                    struct InternalCreateEmergencyStopTxSvc<T: ClementineAggregator>(
                         pub Arc<T>,
                     );
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::TxidList>
-                    for InternalSendEmergencyStopTxSvc<T> {
-                        type Response = super::Txid;
+                    > tonic::server::UnaryService<super::CreateEmergencyStopTxRequest>
+                    for InternalCreateEmergencyStopTxSvc<T> {
+                        type Response = super::SignedTxWithType;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::TxidList>,
+                            request: tonic::Request<super::CreateEmergencyStopTxRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineAggregator>::internal_send_emergency_stop_tx(
+                                <T as ClementineAggregator>::internal_create_emergency_stop_tx(
                                         &inner,
                                         request,
                                     )
@@ -3644,7 +3652,7 @@ pub mod clementine_aggregator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = InternalSendEmergencyStopTxSvc(inner);
+                        let method = InternalCreateEmergencyStopTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

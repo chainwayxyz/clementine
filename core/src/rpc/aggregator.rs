@@ -761,9 +761,10 @@ impl Aggregator {
     pub async fn generate_combined_emergency_stop_tx(
         &self,
         move_txids: Vec<Txid>,
+        add_anchor: bool,
     ) -> Result<bitcoin::Transaction, BridgeError> {
         let stop_txs = self.db.get_emergency_stop_txs(None, move_txids).await?;
-        let combined_stop_tx = combine_emergency_stop_txhandler(stop_txs);
+        let combined_stop_tx = combine_emergency_stop_txhandler(stop_txs, add_anchor);
 
         Ok(combined_stop_tx)
     }
@@ -1236,22 +1237,27 @@ impl ClementineAggregator for Aggregator {
         }))
     }
 
-    async fn internal_send_emergency_stop_tx(
+    async fn internal_create_emergency_stop_tx(
         &self,
-        request: Request<clementine::TxidList>,
-    ) -> Result<Response<clementine::Txid>, Status> {
-        let txids: Vec<Txid> = request
-            .into_inner()
+        request: Request<clementine::CreateEmergencyStopTxRequest>,
+    ) -> Result<Response<clementine::SignedTxWithType>, Status> {
+        let inner_request = request.into_inner();
+        let txids: Vec<Txid> = inner_request
             .txids
             .into_iter()
             .map(|txid| Txid::from_slice(&txid.txid).expect("Failed to parse txid"))
             .collect();
 
-        let combined_stop_tx = self.generate_combined_emergency_stop_tx(txids).await?;
+        let add_anchor = inner_request.add_anchor;
 
-        let tx = self.send_emergency_stop_tx(combined_stop_tx).await?;
-        let txid = tx.compute_txid();
-        Ok(Response::new(txid.into()))
+        let combined_stop_tx = self
+            .generate_combined_emergency_stop_tx(txids, add_anchor)
+            .await?;
+
+        Ok(Response::new(clementine::SignedTxWithType {
+            transaction_type: Some(TransactionType::EmergencyStop.into()),
+            raw_tx: bitcoin::consensus::serialize(&combined_stop_tx).to_vec(),
+        }))
     }
 }
 
@@ -1475,7 +1481,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn aggregator_two_deposit_movetx_() {
+    async fn aggregator_two_deposit_movetx_and_emergency_stop() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
@@ -1624,28 +1630,40 @@ mod tests {
 
         tracing::debug!("Move txids: {:?}", move_txids);
 
-        let emergency_txid: Txid = aggregator
-            .internal_send_emergency_stop_tx(tonic::Request::new(clementine::TxidList {
-                txids: move_txids
-                    .iter()
-                    .map(|txid| clementine::Txid {
-                        txid: txid.to_byte_array().to_vec(),
-                    })
-                    .collect(),
-            }))
+        let emergency_txid = aggregator
+            .internal_create_emergency_stop_tx(tonic::Request::new(
+                clementine::CreateEmergencyStopTxRequest {
+                    txids: move_txids
+                        .iter()
+                        .map(|txid| clementine::Txid {
+                            txid: txid.to_byte_array().to_vec(),
+                        })
+                        .collect(),
+                    add_anchor: true,
+                },
+            ))
             .await
             .unwrap()
-            .into_inner()
-            .try_into()
+            .into_inner();
+
+        let raw_tx: bitcoin::Transaction =
+            bitcoin::consensus::deserialize(&emergency_txid.raw_tx).expect("Failed to deserialize");
+
+        rpc.client
+            .send_raw_transaction(&raw_tx)
+            .await
             .expect("Failed to send emergency stop tx");
 
-        let emergencty_tx = poll_get(
+        let emergency_stop_txid = raw_tx.txid();
+        rpc.mine_blocks(1).await.unwrap();
+
+        let _emergencty_tx = poll_get(
             async || {
                 rpc.mine_blocks(1).await.unwrap();
 
                 let tx_result = rpc
                     .client
-                    .get_raw_transaction_info(&emergency_txid, None)
+                    .get_raw_transaction_info(&emergency_stop_txid, None)
                     .await;
 
                 let tx_result = tx_result

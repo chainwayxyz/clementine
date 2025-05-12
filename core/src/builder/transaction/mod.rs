@@ -654,10 +654,11 @@ pub fn create_emergency_stop_txhandler(
     move_to_vault_txhandler: &TxHandler,
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
+    // Hand calculated, total tx size is 11 + 126 * NUM_EMERGENCY_STOPS
+    const EACH_EMERGENCY_STOP_VBYTES: Amount = Amount::from_sat(126);
     let security_council = deposit_data.security_council.clone();
 
     let builder = TxHandlerBuilder::new(TransactionType::EmergencyStop)
-        .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NotStored,
             move_to_vault_txhandler.get_spendable_output(UtxoVout::DepositInMove)?,
@@ -665,7 +666,7 @@ pub fn create_emergency_stop_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount - ANCHOR_AMOUNT.checked_mul(3).unwrap(),
+            paramset.bridge_amount - ANCHOR_AMOUNT - EACH_EMERGENCY_STOP_VBYTES * 3,
             vec![Arc::new(Multisig::from_security_council(security_council))],
             None,
             paramset.network,
@@ -678,7 +679,11 @@ pub fn create_emergency_stop_txhandler(
 /// We assume that the vector of (Txid, Transaction) includes input-output pairs which are signed
 /// using Sighash Single | AnyoneCanPay. This function will combine the inputs and outputs of the
 /// transactions into a single transaction. Beware, this may be dangerous, as there are no checks.
-pub fn combine_emergency_stop_txhandler(txs: Vec<(Txid, Transaction)>) -> Transaction {
+pub fn combine_emergency_stop_txhandler(
+    txs: Vec<(Txid, Transaction)>,
+    add_anchor: bool,
+) -> Transaction {
+    // Sanity checks
     for (_, tx) in &txs {
         if tx.input.len() != 1 {
             panic!("Expected only one input per transaction");
@@ -693,10 +698,12 @@ pub fn combine_emergency_stop_txhandler(txs: Vec<(Txid, Transaction)>) -> Transa
         .map(|(_, tx)| (tx.input[0].clone(), tx.output[0].clone()))
         .unzip();
 
-    outputs.push(anchor_output());
+    if add_anchor {
+        outputs.push(anchor_output());
+    }
 
     Transaction {
-        version: Version::non_standard(3),
+        version: Version::non_standard(2),
         lock_time: bitcoin::absolute::LockTime::ZERO,
         input: inputs,
         output: outputs,
