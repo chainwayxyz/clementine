@@ -80,6 +80,15 @@ enum OperatorCommands {
         #[arg(long)]
         output_amount: u64,
     },
+    /// Finalize payout
+    FinalizePayout {
+        #[arg(long)]
+        payout_blockhash: String,
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+    },
     // Add other operator commands as needed
 }
 
@@ -91,6 +100,19 @@ enum VerifierCommands {
     NonceGen {
         #[arg(long)]
         num_nonces: u32,
+    },
+    /// Create watchtower challenge transaction
+    CreateWatchtowerChallenge {
+        #[arg(long)]
+        deposit_outpoint_txid: String,
+        #[arg(long)]
+        deposit_outpoint_vout: u32,
+        #[arg(long)]
+        operator_xonly_pk: String,
+        #[arg(long)]
+        round_idx: u32,
+        #[arg(long)]
+        kickoff_idx: u32,
     },
     // /// Set verifier public keys
     // SetVerifiers {
@@ -418,6 +440,39 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .await
                 .expect("Failed to make a request");
         }
+        OperatorCommands::FinalizePayout {
+            payout_blockhash,
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+        } => {
+            println!("Finalizing payout with blockhash {}", payout_blockhash);
+            let mut payout_blockhash_bytes = hex::decode(payout_blockhash).expect("Failed to decode blockhash");
+            payout_blockhash_bytes.reverse();
+
+            let mut deposit_outpoint_txid_bytes = hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
+            deposit_outpoint_txid_bytes.reverse();
+
+            let params = clementine_core::rpc::clementine::FinalizedPayoutParams {
+                payout_blockhash: payout_blockhash_bytes,
+                deposit_outpoint: Some(clementine_core::rpc::clementine::Outpoint {
+                    txid: deposit_outpoint_txid_bytes,
+                    vout: deposit_outpoint_vout,
+                }),
+            };
+
+            let response = operator
+                .internal_finalized_payout(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+
+            let txid = bitcoin::Txid::from_byte_array(
+                response.get_ref().txid
+                    .clone()
+                    .try_into()
+                    .expect("Failed to convert txid to array"),
+            );
+            println!("Finalized payout txid: {}", txid);
+        }
     }
 }
 
@@ -445,6 +500,39 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .await
                 .expect("Failed to make a request");
             println!("Noncegen response: {:?}", response);
+        }
+        VerifierCommands::CreateWatchtowerChallenge {
+            deposit_outpoint_txid,
+            deposit_outpoint_vout,
+            operator_xonly_pk,
+            round_idx,
+            kickoff_idx,
+        } => {
+            println!("Creating watchtower challenge transaction");
+            let mut deposit_outpoint_txid_bytes = hex::decode(deposit_outpoint_txid).expect("Failed to decode txid");
+            deposit_outpoint_txid_bytes.reverse();
+
+            let operator_xonly_pk_bytes = hex::decode(operator_xonly_pk).expect("Failed to decode operator xonly public key");
+
+            let request = clementine_core::rpc::clementine::TransactionRequest {
+                deposit_outpoint: Some(clementine_core::rpc::clementine::Outpoint {
+                    txid: deposit_outpoint_txid_bytes,
+                    vout: deposit_outpoint_vout,
+                }),
+                kickoff_id: Some(clementine_core::rpc::clementine::KickoffId {
+                    operator_xonly_pk: operator_xonly_pk_bytes,
+                    round_idx,
+                    kickoff_idx,
+                }),
+            };
+
+            let response = verifier
+                .internal_create_watchtower_challenge(Request::new(request))
+                .await
+                .expect("Failed to make a request");
+
+            println!("Transaction type: {:?}", response.get_ref().transaction_type);
+            println!("Raw transaction: {}", hex::encode(&response.get_ref().raw_tx));
         }
     }
 }

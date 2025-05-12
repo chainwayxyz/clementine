@@ -1103,6 +1103,8 @@ mod tests {
 
         let descriptor = descriptor_info.descriptor;
 
+        tracing::error!("descriptor: {:?}", descriptor);
+
         let addresses = rpc
             .client
             .derive_addresses(&descriptor, None)

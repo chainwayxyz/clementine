@@ -486,6 +486,15 @@ impl TxSender {
         //     .await
         //     .wrap_err("Failed to test mempool accept")?;
 
+        tracing::error!(
+            "TRYING TO SUBMIT THE PACKAGE: {:?}",
+            package_refs
+                .iter()
+                .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                .collect::<Vec<_>>()
+        );
+
+        return Ok(());
         let submit_package_result: PackageSubmissionResult = self
             .rpc
             .client

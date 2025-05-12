@@ -22,6 +22,7 @@ use crate::{
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
+use bitcoin::Transaction;
 use std::collections::BTreeMap;
 use std::net::TcpListener;
 use std::sync::Arc;
@@ -134,6 +135,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),
         "-maxtxfee=5".to_string(),
+        "-dustrelayfee=0".to_string(),
     ];
 
     // Create log file in temp directory
@@ -616,4 +618,31 @@ impl Owner for MockOwner {
     ) -> Result<(), BridgeError> {
         Ok(())
     }
+}
+
+
+#[tokio::test]
+async fn test_create_regtest_rpc() {
+    let tx_bytes = [3u8, 0, 0, 0, 0, 1, 1, 85, 58, 207, 252, 95, 238, 221, 45, 55, 163, 10, 47, 97, 118, 137, 128, 189, 39, 213, 212, 183, 29, 13, 142, 52, 143, 139, 189, 51, 234, 78, 221, 37, 0, 0, 0, 0, 253, 255, 255, 255, 4, 74, 1, 0, 0, 0, 0, 0, 0, 34, 81, 32, 76, 123, 201, 33, 109, 111, 45, 98, 239, 176, 202, 67, 29, 78, 75, 179, 245, 13, 108, 172, 254, 38, 20, 207, 144, 139, 210, 113, 120, 68, 6, 167, 74, 1, 0, 0, 0, 0, 0, 0, 34, 81, 32, 181, 120, 240, 235, 126, 195, 70, 240, 170, 49, 23, 96, 214, 254, 19, 193, 121, 240, 163, 253, 88, 119, 110, 179, 92, 26, 29, 139, 158, 186, 180, 43, 0, 0, 0, 0, 0, 0, 0, 0, 83, 106, 76, 80, 213, 9, 79, 216, 78, 162, 225, 228, 248, 14, 37, 160, 33, 114, 132, 50, 146, 40, 11, 60, 52, 158, 13, 18, 80, 219, 86, 242, 145, 126, 203, 18, 71, 93, 70, 163, 217, 169, 10, 195, 181, 85, 243, 0, 166, 140, 230, 74, 47, 118, 128, 28, 139, 139, 102, 128, 130, 29, 89, 176, 203, 240, 64, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 2, 0, 0, 240, 0, 0, 0, 0, 0, 0, 0, 4, 81, 2, 78, 115, 1, 64, 17, 206, 131, 147, 58, 156, 57, 41, 254, 161, 124, 250, 184, 100, 104, 155, 241, 160, 94, 241, 97, 140, 1, 226, 235, 1, 162, 212, 152, 5, 117, 82, 18, 30, 197, 40, 96, 202, 162, 54, 94, 128, 183, 38, 98, 18, 20, 119, 132, 198, 39, 50, 68, 186, 245, 145, 221, 63, 187, 178, 44, 191, 122, 70, 0, 0, 0, 0];
+    let tx: Transaction = bitcoin::consensus::deserialize(&tx_bytes).unwrap();
+    println!("tx: {:?}", tx);
+    println!("serialized: {:?}", hex::encode(bitcoin::consensus::serialize(&tx)));
+    // remove the first two outputs and extend the third outputs script pubkey with 64 zeros
+    let txout_vec = tx.output.clone();
+    let mut txout_vec = txout_vec.into_iter().skip(2).collect::<Vec<_>>();
+    let txout = txout_vec[0].clone();
+    let mut original_script_pubkey = txout.script_pubkey.as_bytes().to_vec();
+    original_script_pubkey.extend_from_slice(&vec![0; 64]);
+    let txout = bitcoin::TxOut {
+        value: txout.value,
+        script_pubkey: bitcoin::ScriptBuf::from_bytes(original_script_pubkey),
+    };
+    txout_vec[0] = txout;
+    let tx = Transaction {
+        version: tx.version,
+        input: tx.input,
+        output: txout_vec,
+        lock_time: tx.lock_time,
+    };
+    println!("serialized: {:?}", hex::encode(bitcoin::consensus::serialize(&tx)));
 }

@@ -13,7 +13,6 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::config::protocol::ProtocolParamset;
 use crate::constants::ANCHOR_AMOUNT;
-use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
 use crate::{builder, UTXO};
@@ -21,6 +20,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::transaction::Version;
+use bitcoin::Amount;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{TxOut, Txid};
 use std::sync::Arc;
@@ -45,6 +45,7 @@ pub fn create_kickoff_txhandler(
     operator_unlock_hashes: &[[u8; 20]],
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
+    let dust_amount = Amount::from_sat(0);
     let kickoff_idx = kickoff_data.kickoff_idx as usize;
     let move_txid: Txid = *move_txhandler.get_txid();
     let mut builder =
@@ -67,21 +68,21 @@ pub fn create_kickoff_txhandler(
     builder = builder
         // goes to challenge tx or no challenge tx
         .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            dust_amount,
             vec![operator_script, operator_1week],
             None,
             paramset.network,
         ))
         // kickoff finalizer connector
         .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            dust_amount,
             vec![nofn_script.clone()],
             None,
             paramset.network,
         ))
         // UTXO to reimburse tx
         .add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            dust_amount,
             vec![nofn_script.clone()],
             None,
             paramset.network,
@@ -98,7 +99,7 @@ pub fn create_kickoff_txhandler(
     builder = builder.add_output(super::create_taproot_output_with_hidden_node(
         operator_5week,
         disprove_root_hash,
-        MIN_TAPROOT_AMOUNT,
+        dust_amount,
         paramset.network,
     ));
 
@@ -117,7 +118,7 @@ pub fn create_kickoff_txhandler(
             builder = builder.add_output(super::create_taproot_output_with_hidden_node(
                 nofn_latest_blockhash,
                 &latest_blockhash_root_hash,
-                MIN_TAPROOT_AMOUNT,
+                dust_amount,
                 paramset.network,
             ));
         }
@@ -127,7 +128,7 @@ pub fn create_kickoff_txhandler(
             }
             let latest_blockhash_script = latest_blockhash_script[0].clone();
             builder = builder.add_output(UnspentTxOut::from_scripts(
-                MIN_TAPROOT_AMOUNT,
+                dust_amount,
                 vec![nofn_latest_blockhash, latest_blockhash_script],
                 None,
                 paramset.network,
@@ -148,7 +149,7 @@ pub fn create_kickoff_txhandler(
                 builder = builder.add_output(super::create_taproot_output_with_hidden_node(
                     nofn_4week.clone(),
                     script_hash,
-                    MIN_TAPROOT_AMOUNT,
+                    dust_amount,
                     paramset.network,
                 ));
             }
@@ -156,7 +157,7 @@ pub fn create_kickoff_txhandler(
         AssertScripts::AssertSpendableScript(assert_scripts) => {
             for script in assert_scripts {
                 builder = builder.add_output(UnspentTxOut::from_scripts(
-                    MIN_TAPROOT_AMOUNT,
+                    dust_amount,
                     vec![nofn_4week.clone(), script],
                     None,
                     paramset.network,
@@ -174,7 +175,7 @@ pub fn create_kickoff_txhandler(
         ));
         // UTXO for watchtower challenge or watchtower challenge timeouts
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT * 2 + ANCHOR_AMOUNT, // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
+            dust_amount * 2 + ANCHOR_AMOUNT, // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
             vec![nofn_2week.clone()],
             Some(*watchtower_xonly_pk), // key path as watchtowers xonly pk
             paramset.network,
@@ -190,7 +191,7 @@ pub fn create_kickoff_txhandler(
             operator_unlock_hashes[watchtower_idx],
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            dust_amount,
             vec![
                 nofn_3week.clone(),
                 nofn_2week.clone(),

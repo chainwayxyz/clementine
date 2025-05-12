@@ -51,6 +51,7 @@ pub fn create_round_txhandler(
     pubkeys: &[bitvm::signatures::winternitz::PublicKey],
     paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
+    let dust_amount = Amount::from_sat(0);
     let mut builder =
         TxHandlerBuilder::new(TransactionType::Round).with_version(Version::non_standard(3));
     let input_amount;
@@ -92,8 +93,7 @@ pub fn create_round_txhandler(
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
         input_amount
-            - (paramset.kickoff_amount + MIN_TAPROOT_AMOUNT)
-                * (paramset.num_kickoffs_per_round as u64)
+            - (paramset.kickoff_amount + dust_amount) * (paramset.num_kickoffs_per_round as u64)
             - ANCHOR_AMOUNT,
         vec![],
         Some(operator_xonly_pk),
@@ -117,7 +117,7 @@ pub fn create_round_txhandler(
     // Create reimburse utxos
     for _ in 0..paramset.num_kickoffs_per_round {
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            dust_amount,
             vec![],
             Some(operator_xonly_pk),
             paramset.network,
