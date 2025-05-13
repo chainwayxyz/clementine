@@ -1,9 +1,99 @@
+use std::ops::{Deref, DerefMut};
+
+use crate::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
+use bitcoin::{hashes::Hash, Amount, ScriptBuf, Transaction, TxOut, Txid, Witness};
 use borsh::{BorshDeserialize, BorshSerialize};
-use final_spv::spv::SPV;
-use header_chain::header_chain::BlockHeaderCircuitOutput;
 use serde::{Deserialize, Serialize};
 
-use super::winternitz::WinternitzHandler;
+use crate::header_chain::BlockHeaderCircuitOutput;
+
+use super::{spv::SPV, transaction::CircuitTransaction};
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct WithdrawalOutpointTxid(pub [u8; 32]);
+
+impl Deref for WithdrawalOutpointTxid {
+    type Target = [u8; 32];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct MoveTxid(pub [u8; 32]);
+
+impl Deref for MoveTxid {
+    type Target = [u8; 32];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct DepositConstant(pub [u8; 32]);
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ChallengeSendingWatchtowers(pub [u8; 20]);
+
+impl Deref for ChallengeSendingWatchtowers {
+    type Target = [u8; 20];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct PayoutTxBlockhash(pub [u8; 20]);
+
+impl TryFrom<&[u8]> for PayoutTxBlockhash {
+    type Error = &'static str;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let arr: [u8; 20] = value
+            .try_into()
+            .map_err(|_| "Expected 20 bytes for PayoutTxBlockhash")?;
+        Ok(PayoutTxBlockhash(arr))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct LatestBlockhash(pub [u8; 20]);
+
+impl TryFrom<&[u8]> for LatestBlockhash {
+    type Error = &'static str;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let arr: [u8; 20] = value
+            .try_into()
+            .map_err(|_| "Expected 20 bytes for LatestBlockhash")?;
+        Ok(LatestBlockhash(arr))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct TotalWork(pub [u8; 16]);
+
+impl Deref for TotalWork {
+    type Target = [u8; 16];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<&[u8]> for TotalWork {
+    type Error = &'static str;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let arr: [u8; 16] = value
+            .try_into()
+            .map_err(|_| "Expected 16 bytes for TotalWork")?;
+        Ok(TotalWork(arr))
+    }
+}
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitInput {
@@ -15,59 +105,398 @@ pub struct WorkOnlyCircuitOutput {
     pub work_u128: [u32; 4],
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
+pub struct WatchTowerChallengeTxCommitment {
+    pub compressed_g16_proof: [u8; 128],
+    pub total_work: [u8; 16],
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
 pub struct LightClientProof {
     pub lc_journal: Vec<u8>,
     pub l2_height: String,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
 pub struct StorageProof {
-    pub storage_proof_utxo: String, // This will be an Outpoint but only a txid is given
-    pub storage_proof_deposit_idx: String, // This is the index of the withdrawal
-    pub index: u32,                 // For now this is 18, for a specifix withdrawal
-    pub txid_hex: [u8; 32],         // Move txid
+    pub storage_proof_utxo: String,         // This will be an Outpoint
+    pub storage_proof_vout: String,         // This is the vout of the txid
+    pub storage_proof_deposit_txid: String, // This is the index of the withdrawal
+    pub index: u32,                         // For now this is 18, for a specifix withdrawal
 }
+
+// #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
+// pub struct WatchtowerInputs {
+//     pub watchtower_idxs: Vec<u8>, // Which watchtower this is
+//     pub watchtower_pubkeys: Vec<Vec<u8>>, // We do not know what these will be for sure right now
+//     pub watchtower_challenge_input_idxs: Vec<u8>,
+//     pub watchtower_challenge_utxos: Vec<Vec<Vec<u8>>>, // BridgeCircuitUTXO
+//     pub watchtower_challenge_txs: Vec<Vec<u8>>, // BridgeCircuitTransaction
+//     pub watchtower_challenge_witnesses: Vec<Vec<u8>>, // BridgeCircuitTransactionWitness Vec<Some(Witness)>
+// }
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
-pub struct BridgeCircuitInput {
-    pub winternitz_details: Vec<WinternitzHandler>,
-    pub hcp: BlockHeaderCircuitOutput,
-    pub payout_spv: SPV,
-    pub lcp: LightClientProof,
-    pub sp: StorageProof,
-    pub num_watchtowers: u32,
+pub struct WatchtowerInput {
+    pub watchtower_idx: u16,                           // Which watchtower this is
+    pub watchtower_challenge_input_idx: u16, // Which input index this challenge connector txout goes to
+    pub watchtower_challenge_utxos: Vec<CircuitTxOut>, // BridgeCircuitUTXO TxOut serialized and all the prevouts for watchtower challenge tx, Vec<TxOut>
+    pub watchtower_challenge_tx: CircuitTransaction, // BridgeCircuitTransaction challenge tx itself for each watchtower
+    pub watchtower_challenge_witness: CircuitWitness, // Witness
 }
 
-impl BridgeCircuitInput {
+impl WatchtowerInput {
     pub fn new(
-        winternitz_details: Vec<WinternitzHandler>,
-        hcp: BlockHeaderCircuitOutput,
-        payout_spv: SPV,
-        lcp: LightClientProof,
-        sp: StorageProof,
-        num_watchtowers: u32,
+        watchtower_idx: u16,
+        watchtower_challenge_input_idx: u16,
+        watchtower_challenge_utxos: Vec<TxOut>,
+        watchtower_challenge_tx: Transaction,
+        watchtower_challenge_witness: Witness,
     ) -> Result<Self, &'static str> {
-        if num_watchtowers > 160 {
-            return Err("num_watchtowers exceeds the limit: 160");
+        if watchtower_idx as usize >= MAX_NUMBER_OF_WATCHTOWERS {
+            return Err("Watchtower index out of bounds");
         }
+
+        let watchtower_challenge_tx = CircuitTransaction::from(watchtower_challenge_tx);
+
+        let watchtower_challenge_witness: CircuitWitness =
+            CircuitWitness::from(watchtower_challenge_witness);
+
+        let watchtower_challenge_utxos: Vec<CircuitTxOut> = watchtower_challenge_utxos
+            .into_iter()
+            .map(CircuitTxOut::from)
+            .collect::<Vec<CircuitTxOut>>();
+
         Ok(Self {
-            winternitz_details,
-            hcp,
-            payout_spv,
-            lcp,
-            sp,
-            num_watchtowers,
+            watchtower_idx,
+            watchtower_challenge_input_idx,
+            watchtower_challenge_utxos,
+            watchtower_challenge_tx,
+            watchtower_challenge_witness,
+        })
+    }
+
+    /// Constructs a `WatchtowerInput` instance from the kickoff transaction, the watchtower transaction and
+    /// an optional slice of previous transactions.
+    ///
+    /// # Arguments
+    ///
+    /// - `kickoff_tx_id`: The kickoff transaction id whose output is consumed by an input of the watchtower transaction.
+    /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
+    ///   referencing the `kickoff_tx`.
+    /// * `prevout_txs` - An optional slice of transactions, each of which should include
+    ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs shoul be in the same order as the inputs in the watchtower tx )
+    ///
+    /// # Note
+    ///
+    /// All previous transactions other than kickoff tx whose outputs are spent by the `watchtower_tx`
+    /// should be supplied in `prevout_txs` if they exist.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(WatchtowerInput)` if all required data is successfully extracted and validated.
+    /// Returns `Err(&'static str)` if any error occurs during the process.
+    ///
+    /// # Errors
+    ///
+    /// This function will return errors if:
+    /// - The kickoff transaction is not referenced by any input in the watchtower transaction.
+    /// - The output index underflows when computing the watchtower index.
+    /// - The watchtower index exceeds `MAX_NUMBER_OF_WATCHTOWERS`.
+    /// - A previous transaction required to resolve an input is not provided.
+    /// - An output referenced by an input is missing or out of bounds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - The watchtower index cannot be converted to `u8` (should be unreachable due to earlier bounds check).
+    ///
+    pub fn from_txs(
+        kickoff_tx_id: Txid,
+        watchtower_tx: Transaction,
+        prevout_txs: &[Transaction],
+        watchtower_challenge_connector_start_idx: u16,
+    ) -> Result<Self, &'static str> {
+        let watchtower_challenge_input_idx = watchtower_tx
+            .input
+            .iter()
+            .position(|input| input.previous_output.txid == kickoff_tx_id)
+            .map(|ind| ind as u16)
+            .ok_or("Kickoff txid not found in watchtower inputs")?;
+
+        let output_index = watchtower_tx.input[watchtower_challenge_input_idx as usize]
+            .previous_output
+            .vout as usize;
+
+        let watchtower_index = output_index
+            .checked_sub(watchtower_challenge_connector_start_idx as usize)
+            .ok_or("Output index underflow")?
+            / 2;
+
+        if watchtower_index >= MAX_NUMBER_OF_WATCHTOWERS {
+            return Err("Watchtower index out of bounds");
+        }
+
+        let watchtower_idx =
+            u16::try_from(watchtower_index).expect("Cannot fail, already checked bounds");
+
+        let watchtower_challenge_utxos: Vec<CircuitTxOut> = watchtower_tx
+            .input
+            .iter()
+            .map(|input| {
+                let txid = input.previous_output.txid;
+                let vout = input.previous_output.vout as usize;
+
+                let tx = prevout_txs
+                    .iter()
+                    .find(|tx| tx.compute_txid() == txid)
+                    .ok_or("Previous transaction not found")?;
+
+                let tx_out = tx
+                    .output
+                    .get(vout)
+                    .cloned()
+                    .ok_or("Output index out of bounds")?;
+
+                Ok::<CircuitTxOut, &'static str>(CircuitTxOut::from(tx_out))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut watchtower_challenge_tx = CircuitTransaction::from(watchtower_tx);
+
+        let watchtower_challenge_witness = CircuitWitness::from(
+            watchtower_challenge_tx.input[watchtower_challenge_input_idx as usize]
+                .witness
+                .clone(),
+        );
+
+        for input in &mut watchtower_challenge_tx.input {
+            input.witness.clear();
+        }
+
+        Ok(Self {
+            watchtower_idx,
+            watchtower_challenge_input_idx,
+            watchtower_challenge_utxos,
+            watchtower_challenge_tx,
+            watchtower_challenge_witness,
         })
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
-pub struct BridgeCircuitOutput {
-    pub winternitz_pubkeys_digest: [u8; 20],
-    pub correct_watchtowers: Vec<bool>,
-    pub payout_tx_blockhash: [u8; 32],
-    pub last_blockhash: [u8; 32],
-    pub deposit_txid: [u8; 32],
-    pub operator_id: [u8; 32],
+#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
+pub struct BridgeCircuitInput {
+    pub kickoff_tx_id: CircuitTxid, // BridgeCircuitTransaction
+    // Add all watchtower pubkeys as global input as Vec<[u8; 32]> Which should be shorter than or equal to 160 elements
+    pub all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>, // Per watchtower [u8; 34] or OP_PUSHNUM_1 OP_PUSHBYTES_32 <TweakedXOnlyPublicKey> which is [u8; 32]
+    pub watchtower_inputs: Vec<WatchtowerInput>,
+    pub hcp: BlockHeaderCircuitOutput,
+    pub payout_spv: SPV,
+    pub payout_input_index: u16,
+    pub lcp: LightClientProof,
+    pub sp: StorageProof,
+    pub watchtower_challenge_connector_start_idx: u16,
+}
+
+#[allow(clippy::too_many_arguments)]
+impl BridgeCircuitInput {
+    pub fn new(
+        kickoff_tx_id: Txid,
+        watchtower_inputs: Vec<WatchtowerInput>,
+        all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
+        hcp: BlockHeaderCircuitOutput,
+        payout_spv: SPV,
+        payout_input_index: u16,
+        lcp: LightClientProof,
+        sp: StorageProof,
+        watchtower_challenge_connector_start_idx: u16,
+    ) -> Self {
+        Self {
+            kickoff_tx_id: CircuitTxid::from(kickoff_tx_id),
+            watchtower_inputs,
+            hcp,
+            payout_spv,
+            payout_input_index,
+            lcp,
+            sp,
+            all_tweaked_watchtower_pubkeys,
+            watchtower_challenge_connector_start_idx,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug)]
+pub struct WatchtowerChallengeSet {
+    pub challenge_senders: [u8; 20],
+    pub challenge_outputs: Vec<[TxOut; 3]>,
+}
+
+fn serialize_txout<W: borsh::io::Write>(txout: &TxOut, writer: &mut W) -> borsh::io::Result<()> {
+    BorshSerialize::serialize(&txout.value.to_sat(), writer)?;
+    BorshSerialize::serialize(&txout.script_pubkey.as_bytes(), writer)
+}
+
+fn deserialize_txout<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<TxOut> {
+    let value = Amount::from_sat(u64::deserialize_reader(reader)?);
+    let script_pubkey = ScriptBuf::from_bytes(Vec::<u8>::deserialize_reader(reader)?);
+
+    Ok(TxOut {
+        value,
+        script_pubkey,
+    })
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct CircuitTxOut(pub TxOut);
+
+impl CircuitTxOut {
+    pub fn from(tx_out: TxOut) -> Self {
+        Self(tx_out)
+    }
+
+    pub fn inner(&self) -> &TxOut {
+        &self.0
+    }
+}
+
+impl BorshSerialize for CircuitTxOut {
+    #[inline]
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        serialize_txout(&self.0, writer)?;
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for CircuitTxOut {
+    #[inline]
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let tx_out = deserialize_txout(reader)?;
+        Ok(Self(tx_out))
+    }
+}
+
+impl Deref for CircuitTxOut {
+    type Target = TxOut;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CircuitTxOut {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<TxOut> for CircuitTxOut {
+    fn from(tx_out: TxOut) -> Self {
+        Self(tx_out)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+pub struct CircuitWitness(pub Witness);
+
+impl CircuitWitness {
+    pub fn from(witness: Witness) -> Self {
+        Self(witness)
+    }
+
+    pub fn inner(&self) -> &Witness {
+        &self.0
+    }
+}
+
+impl BorshSerialize for CircuitWitness {
+    #[inline]
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        BorshSerialize::serialize(&self.0.to_vec(), writer)?;
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for CircuitWitness {
+    #[inline]
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let witness_data = Vec::<Vec<u8>>::deserialize_reader(reader)?;
+        let witness = Witness::from(witness_data);
+        Ok(Self(witness))
+    }
+}
+
+impl Deref for CircuitWitness {
+    type Target = Witness;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CircuitWitness {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<Witness> for CircuitWitness {
+    fn from(witness: Witness) -> Self {
+        Self(witness)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Copy)]
+pub struct CircuitTxid(pub Txid);
+
+impl CircuitTxid {
+    pub fn from(tx_id: Txid) -> Self {
+        Self(tx_id)
+    }
+
+    pub fn inner(&self) -> &Txid {
+        &self.0
+    }
+}
+
+impl BorshSerialize for CircuitTxid {
+    #[inline]
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        BorshSerialize::serialize(&self.0.as_byte_array(), writer)?;
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for CircuitTxid {
+    #[inline]
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let tx_data: [u8; 32] =
+            Vec::<u8>::deserialize_reader(reader)?
+                .try_into()
+                .map_err(|_| {
+                    borsh::io::Error::new(
+                        borsh::io::ErrorKind::InvalidData,
+                        "Failed to convert Vec<u8> to [u8; 32]",
+                    )
+                })?;
+
+        let tx_id = Txid::from_byte_array(tx_data);
+
+        Ok(Self(tx_id))
+    }
+}
+
+impl Deref for CircuitTxid {
+    type Target = Txid;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CircuitTxid {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<Txid> for CircuitTxid {
+    fn from(tx_id: Txid) -> Self {
+        Self(tx_id)
+    }
 }

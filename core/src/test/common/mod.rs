@@ -1,4 +1,7 @@
 //! # Common Utilities for Integration Tests
+use std::path::Path;
+use std::process::Command;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::actor::Actor;
@@ -689,4 +692,35 @@ async fn test_regtest_create_and_connect() {
     let new_rpc_height = rpc.client.get_block_count().await.unwrap();
     let height = macro_rpc.client.get_block_count().await.unwrap();
     assert_eq!(height, new_rpc_height);
+}
+
+/// Ensures that TLS certificates exist for tests.
+/// This will run the certificate generation script if certificates don't exist.
+pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
+    static GENERATE_LOCK: Mutex<()> = Mutex::new(());
+
+    while !Path::new("./certs/ca/ca.pem").exists() {
+        if let Ok(_lock) = GENERATE_LOCK.lock() {
+            println!("Generating TLS certificates for tests...");
+
+            let output = Command::new("sh")
+                .arg("-c")
+                .arg("cd .. && ./scripts/generate_certs.sh")
+                .output()?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!("Failed to generate certificates: {}", stderr);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Certificate generation failed: {}", stderr),
+                ));
+            }
+
+            println!("TLS certificates generated successfully");
+            break;
+        }
+    }
+
+    Ok(())
 }

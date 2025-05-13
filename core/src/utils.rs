@@ -1,5 +1,9 @@
 use crate::errors::BridgeError;
+use http::HeaderValue;
 use std::fmt::Debug;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tower::{Layer, Service};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
@@ -124,3 +128,64 @@ macro_rules! delayed_panic {
 }
 
 pub(crate) use delayed_panic;
+
+#[derive(Debug, Clone, Default)]
+pub struct AddMethodMiddlewareLayer;
+
+impl<S> Layer<S> for AddMethodMiddlewareLayer {
+    type Service = AddMethodMiddleware<S>;
+
+    fn layer(&self, service: S) -> Self::Service {
+        AddMethodMiddleware { inner: service }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AddMethodMiddleware<S> {
+    inner: S,
+}
+
+type BoxFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+impl<S, ReqBody, ResBody> Service<http::Request<ReqBody>> for AddMethodMiddleware<S>
+where
+    S: Service<http::Request<ReqBody>, Response = http::Response<ResBody>> + Clone + Send + 'static,
+    S::Future: Send + 'static,
+    ReqBody: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, mut req: http::Request<ReqBody>) -> Self::Future {
+        // See: https://docs.rs/tower/latest/tower/trait.Service.html#be-careful-when-cloning-inner-services
+        let clone = self.inner.clone();
+        let mut inner = std::mem::replace(&mut self.inner, clone);
+
+        Box::pin(async move {
+            let path = req.uri().path();
+
+            let grpc_method =
+                if let &[_, _, method] = &path.split("/").collect::<Vec<&str>>().as_slice() {
+                    Some(method.to_string())
+                } else {
+                    None
+                };
+
+            if let Some(grpc_method) = grpc_method {
+                if let Ok(grpc_method) = HeaderValue::from_str(&grpc_method) {
+                    req.headers_mut().insert("grpc-method", grpc_method);
+                }
+            }
+
+            // Do extra async work here...
+            let response = inner.call(req).await?;
+
+            Ok(response)
+        })
+    }
+}
