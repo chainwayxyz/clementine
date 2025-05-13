@@ -476,7 +476,7 @@ service ClementineVerifier {
   // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
   rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
   // Signs the verifiers own watchtower challenge tx in the corresponding kickoff and returns the signed raw tx
-  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (SignedTxWithType) {}
+  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (RawTxWithRbfInfo) {}
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
 
@@ -528,6 +528,16 @@ message SignedTxWithType {
 
 message SignedTxsWithType {
   repeated SignedTxWithType signed_txs = 1;
+}
+
+message RbfSigningInfoRpc {
+  bytes merkle_root = 1;
+  uint32 vout = 2;
+}
+
+message RawTxWithRbfInfo {
+  bytes raw_tx = 1;
+  RbfSigningInfoRpc rbf_info = 2;
 }
 
 message AggregatorWithdrawResponse {

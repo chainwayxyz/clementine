@@ -319,20 +319,23 @@ impl HeaderChainProver {
     /// - [`Receipt`]: Specified block's proof receipt
     /// - [`u64`]: Height of the proven header chain
     pub async fn get_tip_header_chain_proof(&self) -> Result<(Receipt, u64), BridgeError> {
-        let latest_proven_block = self
-            .db
-            .get_latest_proven_block_info(None)
-            .await?
-            .ok_or(eyre::eyre!("No proven block found"))?;
+        let latest_proven_block =
+            self.db
+                .get_latest_proven_block_info(None)
+                .await?
+                .ok_or(eyre::eyre!(
+                    "No proven block found in get_tip_header_chain_proof"
+                ))?;
         let tip_height = self
             .db
             .get_latest_finalized_block_height(None)
             .await?
-            .ok_or(eyre::eyre!("No tip block found"))?;
+            .ok_or(eyre::eyre!(
+                "No tip block found in get_tip_header_chain_proof"
+            ))?;
 
         // If tip is proven, return the proof.
         if latest_proven_block.2 == tip_height {
-            tracing::warn!("Returning existing proof for height {}", tip_height);
             return Ok((
                 self.db
                     .get_block_proof_by_hash(None, latest_proven_block.0)
@@ -356,7 +359,10 @@ impl HeaderChainProver {
         let previous_proof = self
             .db
             .get_block_proof_by_hash(None, latest_proven_block.0)
-            .await?;
+            .await?
+            .ok_or(eyre::eyre!(
+                "No proven block found in get_tip_header_chain_proof"
+            ))?;
 
         let receipt = self
             .prove_and_save_block(
@@ -365,7 +371,7 @@ impl HeaderChainProver {
                     .expect("Block headers should not be empty in get_tip_header_chain_proof")
                     .block_hash(),
                 block_headers,
-                previous_proof,
+                Some(previous_proof),
             )
             .await?;
         tracing::warn!("Generated new proof for height {}", tip_height);

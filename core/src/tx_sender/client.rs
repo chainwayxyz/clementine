@@ -202,6 +202,7 @@ impl TxSenderClient {
         related_txs: &[(TransactionType, Transaction)],
         tx_metadata: Option<TxMetadata>,
         config: &BridgeConfig,
+        rbf_info: Option<RbfSigningInfo>,
     ) -> Result<u32> {
         let tx_metadata = tx_metadata.map(|mut data| {
             data.tx_type = tx_type;
@@ -224,15 +225,14 @@ impl TxSenderClient {
             | TransactionType::KickoffNotFinalized
             | TransactionType::MiniAssert(_)
             | TransactionType::LatestBlockhashTimeout
-            | TransactionType::LatestBlockhash
-            | TransactionType::WatchtowerChallenge(_) => {
+            | TransactionType::LatestBlockhash => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
                     signed_tx,
                     FeePayingType::CPFP,
-                    None,
+                    rbf_info,
                     &[],
                     &[],
                     &[],
@@ -240,13 +240,13 @@ impl TxSenderClient {
                 )
                 .await
             }
-            TransactionType::Challenge => {
+            TransactionType::Challenge | TransactionType::WatchtowerChallenge(_) => {
                 self.insert_try_to_send(
                     dbtx,
                     tx_metadata,
                     signed_tx,
                     FeePayingType::RBF,
-                    None, // not required since SinglePlusAnyoneCanPay
+                    rbf_info,
                     &[],
                     &[],
                     &[],
@@ -270,7 +270,7 @@ impl TxSenderClient {
                     tx_metadata,
                     signed_tx,
                     FeePayingType::CPFP,
-                    None,
+                    rbf_info,
                     &[OutPoint {
                         txid: kickoff_txid,
                         vout: 1, // TODO: Make this a function of smth
@@ -297,7 +297,7 @@ impl TxSenderClient {
                     tx_metadata,
                     signed_tx,
                     FeePayingType::CPFP,
-                    None,
+                    rbf_info,
                     &[],
                     &[],
                     &[],

@@ -383,9 +383,10 @@ impl CitreaClientT for CitreaClient {
         );
 
         let ret = if let Some(proof_result) = proof_result {
-            let decoded: InnerReceipt =
-                bincode::deserialize(&proof_result.proof).expect("Failed to deserialize");
-            let receipt = receipt_from_inner(decoded).expect("Failed to create receipt");
+            let decoded: InnerReceipt = bincode::deserialize(&proof_result.proof)
+                .wrap_err("Failed to deserialize light client proof from citrea lcp")?;
+            let receipt = receipt_from_inner(decoded)
+                .wrap_err("Failed to create receipt from light client proof")?;
 
             let l2_height = u64::try_from(proof_result.light_client_proof_output.last_l2_height)
                 .wrap_err("Failed to convert l2 height to u64")?;

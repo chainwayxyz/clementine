@@ -757,6 +757,7 @@ where
                             &signed_txs,
                             tx_metadata,
                             &self.config,
+                            None,
                         )
                         .await?;
                 }
@@ -1089,16 +1090,16 @@ where
             .await?;
         tracing::warn!("Got header chain proof in send_asserts");
 
-        let headers = self.db.get_headers_until_height(None, hcp_height).await?;
+        let block_hashes = self
+            .db
+            .get_blockhashes_until_height(None, hcp_height)
+            .await?;
 
-        tracing::warn!(
-            "Got headers in send_asserts, num_headers: {}",
-            headers.len()
-        );
-        let blockhashes_serialized: Vec<[u8; 32]> = headers
+        let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
             .iter()
-            .map(|header| header.block_hash().to_byte_array()) // TODO: get blockhash directly from db
+            .map(|bh| bh.to_byte_array())
             .collect::<Vec<_>>();
+
         let spv = create_spv(
             payout_tx.clone(),
             &blockhashes_serialized,
@@ -1218,6 +1219,7 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     &self.config,
+                    None,
                 )
                 .await?;
         }
@@ -1267,6 +1269,7 @@ where
                     deposit_outpoint: Some(deposit_outpoint),
                 }),
                 &self.config,
+                None,
             )
             .await?;
         dbtx.commit().await?;

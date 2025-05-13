@@ -579,7 +579,6 @@ impl Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
 
-        // TODO: Sign the transaction correctly after we create taproot witness generation functions
         Ok(move_txhandler.promote()?)
     }
 

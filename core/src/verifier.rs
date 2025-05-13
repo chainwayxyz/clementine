@@ -995,6 +995,7 @@ where
                             &signed_txs,
                             tx_metadata,
                             &self.config,
+                            None,
                         )
                         .await?;
                 }
@@ -1010,8 +1011,8 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let (tx_type, challenge_tx) = self
-            .create_and_sign_watchtower_challenge(
+        let (tx_type, challenge_tx, rbf_info) = self
+            .create_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
                     kickoff_data,
@@ -1035,6 +1036,7 @@ where
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                 }),
                 &self.config,
+                Some(rbf_info),
             )
             .await?;
         dbtx.commit().await?;
@@ -1222,6 +1224,7 @@ where
                             deposit_outpoint: None,
                         }),
                         &self.config,
+                        None,
                     )
                     .await?;
             }
@@ -1358,8 +1361,8 @@ where
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
-        tracing::info!(
-            "Handling finalized block height: {:?} and block cache height: {:?}",
+        tracing::warn!(
+            "Verifier Handling finalized block height: {:?} and block cache height: {:?}",
             block_height,
             block_cache.block_height
         );

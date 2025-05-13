@@ -980,7 +980,7 @@ mod tests {
                                 );
                                 tx.send((kickoff_data, signed_txs_to_txid(raw_txs)))
                                     .unwrap();
-                                let watchtower_challenge_tx = verifier_rpc
+                                let _watchtower_challenge_tx = verifier_rpc
                                     .internal_create_watchtower_challenge(TransactionRequest {
                                         deposit_outpoint: Some(deposit_outpoint.into()),
                                         kickoff_id: Some(kickoff_data.into()),
@@ -988,13 +988,6 @@ mod tests {
                                     .await
                                     .unwrap()
                                     .into_inner();
-                                tx.send((
-                                    kickoff_data,
-                                    signed_txs_to_txid(SignedTxsWithType {
-                                        signed_txs: vec![watchtower_challenge_tx],
-                                    }),
-                                ))
-                                .unwrap();
                             }
                         }
                     }

@@ -474,6 +474,20 @@ pub struct SignedTxsWithType {
     pub signed_txs: ::prost::alloc::vec::Vec<SignedTxWithType>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RbfSigningInfoRpc {
+    #[prost(bytes = "vec", tag = "1")]
+    pub merkle_root: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "2")]
+    pub vout: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RawTxWithRbfInfo {
+    #[prost(bytes = "vec", tag = "1")]
+    pub raw_tx: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "2")]
+    pub rbf_info: ::core::option::Option<RbfSigningInfoRpc>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatorWithdrawResponse {
     #[prost(message, repeated, tag = "1")]
     pub withdraw_responses: ::prost::alloc::vec::Vec<WithdrawResult>,
@@ -1343,7 +1357,7 @@ pub mod clementine_verifier_client {
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::RawTxWithRbfInfo>,
             tonic::Status,
         > {
             self.inner
@@ -2543,7 +2557,7 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::TransactionRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::RawTxWithRbfInfo>,
             tonic::Status,
         >;
         /// Returns verifiers' metadata. Needs to be called once per setup.
@@ -2787,7 +2801,7 @@ pub mod clementine_verifier_server {
                         T: ClementineVerifier,
                     > tonic::server::UnaryService<super::TransactionRequest>
                     for InternalCreateWatchtowerChallengeSvc<T> {
-                        type Response = super::SignedTxWithType;
+                        type Response = super::RawTxWithRbfInfo;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

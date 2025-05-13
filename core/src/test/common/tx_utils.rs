@@ -59,6 +59,7 @@ pub async fn send_tx(
     rpc: &ExtendedRpc,
     raw_tx: &[u8],
     tx_type: TxType,
+    rbf_info: Option<RbfSigningInfo>,
 ) -> Result<()> {
     let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
     let mut dbtx = tx_sender.test_dbtx().await.unwrap();
@@ -80,14 +81,7 @@ pub async fn send_tx(
             } else {
                 FeePayingType::CPFP
             },
-            if matches!(tx_type, TxType::WatchtowerChallenge(_)) {
-                Some(RbfSigningInfo {
-                    vout: 0,
-                    tweak_merkle_root: None,
-                })
-            } else {
-                None
-            },
+            rbf_info,
             &[],
             &[],
             &[],
@@ -193,7 +187,7 @@ pub async fn send_tx_with_type(
         .iter()
         .find(|tx| tx.transaction_type == Some(tx_type.into()))
         .unwrap();
-    send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type)
+    send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type, None)
         .await
         .context(format!("failed to send {:?} transaction", tx_type))?;
     Ok(())

@@ -426,7 +426,6 @@ impl ClementineBitVMPublicKeys {
         let mut scripts = Vec::new();
         let first_script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
             vec![
-                (self.latest_blockhash_pk.to_vec(), 40),
                 (self.challenge_sending_watchtowers_pk.to_vec(), 40),
                 (self.bitvm_pks.0[0].to_vec(), 64),
                 (self.bitvm_pks.1[NUM_U256 - 2].to_vec(), 64),
@@ -532,7 +531,6 @@ impl ClementineBitVMPublicKeys {
     ) -> Vec<WinternitzDerivationPath> {
         if mini_assert_idx == 0 {
             vec![
-                Self::get_latest_blockhash_derivation(deposit_outpoint, paramset),
                 Self::get_challenge_sending_watchtowers_derivation(deposit_outpoint, paramset),
                 WinternitzDerivationPath::BitvmAssert(32 * 2, 3, 0, deposit_outpoint, paramset),
                 WinternitzDerivationPath::BitvmAssert(32 * 2, 4, 12, deposit_outpoint, paramset),
