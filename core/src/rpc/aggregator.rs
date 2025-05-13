@@ -652,12 +652,7 @@ impl Aggregator {
             &musig_partial_sigs,
             Message::from_digest(sighash.to_byte_array()),
         )
-        .map_err(|x| {
-            BridgeError::Error(format!(
-                "Aggregating Emergency Stop signatures failed {}",
-                x
-            ))
-        })?;
+        .wrap_err("Failed to aggregate emergency stop signatures")?;
 
         let final_sig = bitcoin::taproot::Signature {
             signature: final_sig,
