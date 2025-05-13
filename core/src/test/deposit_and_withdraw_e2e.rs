@@ -9,7 +9,7 @@ use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::rpc::clementine::{
-    self, FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
+    FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
@@ -29,8 +29,8 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
+use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;
-use alloy::primitives::{FixedBytes, Uint};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};

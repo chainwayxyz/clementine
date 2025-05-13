@@ -6,12 +6,9 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
-use alloy::sol;
-use alloy::sol_types;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
-use bitcoin::OutPoint;
 use bitcoin::{Block, Transaction, Txid};
 
 /// Returns merkle proof for a given transaction (via txid) in a block.
@@ -154,13 +151,13 @@ pub async fn get_transaction_params(
     }
     let sha_script_pubkeys = sha256::Hash::from_engine(enc_script_pubkeys);
 
-    let mut reversed_sha_script_pubkeys = sha_script_pubkeys.as_byte_array().to_vec();
-    // reversed_sha_script_pubkeys.reverse();
+    let sha_script_pks: [u8; 32] = sha_script_pubkeys
+        .as_byte_array()
+        .to_vec()
+        .try_into()
+        .unwrap();
 
-    let reversed_sha_script_pks: [u8; 32] = reversed_sha_script_pubkeys.try_into().unwrap();
-
-
-    let sha_script_pubkeys = FixedBytes::from(reversed_sha_script_pks);
+    let sha_script_pubkeys = FixedBytes::from(sha_script_pks);
 
     Ok((tp, mp, sha_script_pubkeys))
 }
