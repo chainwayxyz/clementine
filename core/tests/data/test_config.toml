@@ -42,6 +42,7 @@ db_name = "clementine"
 # Citrea RPC URL.
 citrea_rpc_url = "http://127.0.0.1:12345"
 citrea_light_client_prover_url = ""
+citrea_chain_id = 5655
 bridge_contract_address = "3100000000000000000000000000000000000002"
 
 # Header chain prover's assumption to start with.
