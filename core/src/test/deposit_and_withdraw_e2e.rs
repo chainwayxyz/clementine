@@ -11,7 +11,7 @@ use crate::database::Database;
 use crate::rpc::clementine::{
     self, FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::{eth_get_trace, get_transaction_params, SECRET_KEYS};
+use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
     get_txid_where_utxo_is_spent,
@@ -182,102 +182,18 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         );
 
         tracing::debug!("Depositing to Citrea...");
-        let (citrea_transaction, citrea_merkle_proof, citrea_sha_script_pubkeys) =
-            get_transaction_params(
-                &rpc,
-                tx.clone(),
-                block.clone(),
-                block_height.try_into().unwrap(),
-                tx.compute_txid(),
-            )
-            .await?;
 
-        let citrea_client = CitreaClient::new(
-            config.citrea_rpc_url.clone(),
-            config.citrea_light_client_prover_url.clone(),
-            config.citrea_chain_id,
-            Some(SECRET_KEYS[0].to_string().parse().unwrap()),
-        )
-        .await
-        .unwrap();
-
-        tracing::info!("Setting operator to {}", citrea_client.wallet_address);
-        let response = citrea_client
-            .contract
-            .setOperator(citrea_client.wallet_address)
-            .send()
-            .await
-            .unwrap();
-
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
-        } // wait 5 seconds
-          // tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-        let operator = citrea_client.contract.operator().call().await.unwrap();
-
-        tracing::info!("Operator: {:?}", operator);
-        let mut new_citrea_merkle_proof = citrea_merkle_proof.clone();
-        // new_citrea_merkle_proof.blockHeight = Uint::from(5);
-
-        let getNofN = citrea_client
-            .contract
-            .getAggregatedKey()
-            .call()
-            .await
-            .unwrap();
-        tracing::info!("getNofN: {:?}", getNofN);
-
-        let nofn_from_aggregator = _aggregator
-            .get_nofn_aggregated_xonly_pk(clementine::Empty {})
-            .await
-            .unwrap();
-        tracing::info!("nofn_from_aggregator: {:?}", nofn_from_aggregator);
-
-        let balance = citrea::eth_get_balance(
+        citrea::deposit(
+            &rpc,
             sequencer.client.http_client().clone(),
-            crate::EVMAddress(citrea_client.wallet_address.to_vec().try_into().unwrap()),
+            block,
+            block_height.try_into().unwrap(),
+            tx,
         )
-        .await
-        .unwrap();
-        tracing::info!("balance: {:?}", balance);
-
-        let citrea_deposit_tx = citrea_client
-            .contract
-            .deposit(
-                citrea_transaction,
-                new_citrea_merkle_proof,
-                citrea_sha_script_pubkeys,
-            )
-            // .gas(1_000_000)
-            .send()
-            .await
-            .unwrap();
-
-        tracing::info!("AAAAAAA Custom deposit result: {:?}", citrea_deposit_tx);
-
-        // citrea::deposit(
-        //     &rpc,
-        //     sequencer.client.http_client().clone(),
-        //     block,
-        //     block_height.try_into().unwrap(),
-        //     tx,
-        // )
-        // .await?;
+        .await?;
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
-        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
-            sequencer.client.send_publish_batch_request().await.unwrap();
-        }
-
-        let txhash = citrea_deposit_tx.tx_hash();
-
-        tracing::info!("txhash: {:?}", txhash);
-
-        eth_get_trace(sequencer.client.http_client().clone(), txhash.to_string())
-            .await
-            .unwrap();
 
         // After the deposit, the balance should be non-zero.
         assert_ne!(
@@ -289,16 +205,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .unwrap(),
             0
         );
-
-        let new_balance = citrea::eth_get_balance(
-            sequencer.client.http_client().clone(),
-            crate::EVMAddress([1; 20]),
-        )
-        .await
-        .unwrap();
-
-        tracing::info!("new_balance: {:?}", new_balance);
-        
 
         tracing::debug!("Deposit operations are successful.");
 
