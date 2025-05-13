@@ -86,6 +86,7 @@ impl CitreaClientT for MockCitreaClient {
     async fn new(
         citrea_rpc_url: String,
         _light_client_prover_url: String,
+        _chain_id: u32,
         _secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError> {
         tracing::info!(
@@ -254,9 +255,14 @@ mod tests {
     #[tokio::test]
     async fn deposit_move_txid() {
         let config = create_test_config_with_thread_name().await;
-        let mut client = super::MockCitreaClient::new(config.citrea_rpc_url, "".to_string(), None)
-            .await
-            .unwrap();
+        let mut client = super::MockCitreaClient::new(
+            config.citrea_rpc_url,
+            "".to_string(),
+            config.citrea_chain_id,
+            None,
+        )
+        .await
+        .unwrap();
 
         assert!(client
             .collect_deposit_move_txids(None, 2)
@@ -290,9 +296,14 @@ mod tests {
     #[tokio::test]
     async fn withdrawal_utxos() {
         let config = create_test_config_with_thread_name().await;
-        let mut client = super::MockCitreaClient::new(config.citrea_rpc_url, "".to_string(), None)
-            .await
-            .unwrap();
+        let mut client = super::MockCitreaClient::new(
+            config.citrea_rpc_url,
+            "".to_string(),
+            config.citrea_chain_id,
+            None,
+        )
+        .await
+        .unwrap();
 
         assert!(client
             .collect_withdrawal_utxos(None, 2)

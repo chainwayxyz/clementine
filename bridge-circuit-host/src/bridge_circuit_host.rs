@@ -3,7 +3,6 @@ use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
 use crate::utils::calculate_succinct_output_prefix;
-use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
 use bitcoin::hashes::Hash;
 use bitcoin::Transaction;
@@ -11,7 +10,7 @@ use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
 use circuits_lib::bridge_circuit::spv::SPV;
-use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
+use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
 use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 
 use circuits_lib::common::constants::{
@@ -20,7 +19,6 @@ use circuits_lib::common::constants::{
 };
 use circuits_lib::header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
-use sha2::{Digest, Sha256};
 
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
@@ -66,22 +64,9 @@ pub fn prove_bridge_circuit(
     [u8; 31],
     BridgeCircuitBitvmInputs,
 ) {
-    let all_tweaked_watchtower_pubkeys: Vec<[u8; 32]> = bridge_circuit_host_params
-        .all_tweaked_watchtower_pubkeys
-        .iter()
-        .map(|pubkey| pubkey.serialize())
-        .collect();
-
-    let bridge_circuit_input = BridgeCircuitInput::new(
-        bridge_circuit_host_params.kickoff_tx_id,
-        bridge_circuit_host_params.watchtower_inputs,
-        all_tweaked_watchtower_pubkeys,
-        bridge_circuit_host_params.block_header_circuit_output,
-        bridge_circuit_host_params.spv,
-        bridge_circuit_host_params.light_client_proof,
-        bridge_circuit_host_params.storage_proof,
-        bridge_circuit_host_params.watchtower_challenge_connector_start_idx,
-    );
+    let bridge_circuit_input = bridge_circuit_host_params
+        .clone()
+        .into_bridge_circuit_input();
 
     let header_chain_proof_output_serialized =
         borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
@@ -131,8 +116,9 @@ pub fn prove_bridge_circuit(
     }
 
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
-        generate_succinct_bridge_circuit_public_inputs(bridge_circuit_input.clone());
-    let journal_hash = public_inputs.journal_hash();
+        SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_input.clone());
+
+    let journal_hash = public_inputs.host_journal_hash();
 
     let mut binding = ExecutorEnv::builder();
     let env = binding.write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap());
@@ -170,10 +156,10 @@ pub fn prove_bridge_circuit(
         ark_groth16_proof,
         g16_output,
         BridgeCircuitBitvmInputs {
-            payout_tx_block_hash: public_inputs.payout_tx_block_hash,
-            latest_block_hash: public_inputs.latest_block_hash,
-            challenge_sending_watchtowers: public_inputs.challenge_sending_watchtowers,
-            deposit_constant: public_inputs.deposit_constant(),
+            payout_tx_block_hash: public_inputs.payout_tx_block_hash.0,
+            latest_block_hash: public_inputs.latest_block_hash.0,
+            challenge_sending_watchtowers: public_inputs.challenge_sending_watchtowers.0,
+            deposit_constant: public_inputs.deposit_constant.0,
             combined_method_id: combined_method_id_constant,
         },
     )
@@ -271,79 +257,6 @@ pub fn prove_work_only_header_chain_proof(
         .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
         .unwrap()
         .receipt
-}
-
-/// Prepares the public inputs for the bridge circuit.
-///
-/// This function constructs the necessary public input values used in the
-/// succinct bridge circuit by processing watchtower signatures, computing
-/// block hashes, concatenating public keys, and extracting operator IDs.
-///
-/// # Arguments
-///
-/// * `input` - A `BridgeCircuitInput` containing all the necessary transaction
-///   and chain state details.
-///
-/// # Returns
-///
-/// Returns a `SuccinctBridgeCircuitPublicInputs` struct containing:
-/// - A compressed bitmask of watchtower challenges.
-/// - The payout transaction block hash.
-/// - The latest block hash.
-/// - The move-to-vault transaction ID.
-/// - A digest of watchtower challenge public keys.
-/// - The extracted operator ID.
-///
-fn generate_succinct_bridge_circuit_public_inputs(
-    input: BridgeCircuitInput,
-) -> SuccinctBridgeCircuitPublicInputs {
-    // challenge_sending_watchtowers
-    let challenge_sending_watchtowers = [0u8; 20];
-
-    // payout tx block hash
-    let payout_tx_block_hash: [u8; 20] = input.payout_spv.block_header.compute_block_hash()[12..32]
-        .try_into()
-        .unwrap();
-
-    // latest block hash
-    let latest_block_hash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32]
-        .try_into()
-        .unwrap();
-
-    // operator_id
-    let last_output = input.payout_spv.transaction.output.last().unwrap();
-    let last_output_script = last_output.script_pubkey.to_bytes();
-
-    let len: usize = last_output_script[1] as usize;
-    if len > 32 {
-        panic!("Invalid operator id length");
-    }
-
-    let mut operator_id = [0u8; 32];
-    operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
-
-    let deposit_storage_proof: EIP1186StorageProof =
-        serde_json::from_str(&input.sp.storage_proof_deposit_idx)
-            .expect("Failed to deserialize deposit storage proof");
-
-    let pubkey_concat = input
-        .all_tweaked_watchtower_pubkeys
-        .iter()
-        .flat_map(|pubkey| pubkey.to_vec())
-        .collect::<Vec<u8>>();
-
-    let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
-
-    let kickoff_txid = input.kickoff_tx_id.to_byte_array();
-    SuccinctBridgeCircuitPublicInputs {
-        kickoff_txid,
-        challenge_sending_watchtowers,
-        payout_tx_block_hash,
-        latest_block_hash,
-        move_to_vault_txid: deposit_storage_proof.value.to_le_bytes(),
-        operator_id,
-        watchtower_pubkeys_digest,
-    }
 }
 
 #[cfg(test)]

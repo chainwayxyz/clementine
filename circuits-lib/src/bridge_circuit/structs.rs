@@ -9,6 +9,92 @@ use crate::header_chain::BlockHeaderCircuitOutput;
 
 use super::{spv::SPV, transaction::CircuitTransaction};
 
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct WithdrawalOutpointTxid(pub [u8; 32]);
+
+impl Deref for WithdrawalOutpointTxid {
+    type Target = [u8; 32];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct MoveTxid(pub [u8; 32]);
+
+impl Deref for MoveTxid {
+    type Target = [u8; 32];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct DepositConstant(pub [u8; 32]);
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct ChallengeSendingWatchtowers(pub [u8; 20]);
+
+impl Deref for ChallengeSendingWatchtowers {
+    type Target = [u8; 20];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct PayoutTxBlockhash(pub [u8; 20]);
+
+impl TryFrom<&[u8]> for PayoutTxBlockhash {
+    type Error = &'static str;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let arr: [u8; 20] = value
+            .try_into()
+            .map_err(|_| "Expected 20 bytes for PayoutTxBlockhash")?;
+        Ok(PayoutTxBlockhash(arr))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct LatestBlockhash(pub [u8; 20]);
+
+impl TryFrom<&[u8]> for LatestBlockhash {
+    type Error = &'static str;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let arr: [u8; 20] = value
+            .try_into()
+            .map_err(|_| "Expected 20 bytes for LatestBlockhash")?;
+        Ok(LatestBlockhash(arr))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, BorshDeserialize, BorshSerialize)]
+pub struct TotalWork(pub [u8; 16]);
+
+impl Deref for TotalWork {
+    type Target = [u8; 16];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<&[u8]> for TotalWork {
+    type Error = &'static str;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let arr: [u8; 16] = value
+            .try_into()
+            .map_err(|_| "Expected 16 bytes for TotalWork")?;
+        Ok(TotalWork(arr))
+    }
+}
+
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitInput {
     pub header_chain_circuit_output: BlockHeaderCircuitOutput,
@@ -33,9 +119,10 @@ pub struct LightClientProof {
 
 #[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Default)]
 pub struct StorageProof {
-    pub storage_proof_utxo: String, // This will be an Outpoint but only a txid is given
-    pub storage_proof_deposit_idx: String, // This is the index of the withdrawal
-    pub index: u32,                 // For now this is 18, for a specifix withdrawal
+    pub storage_proof_utxo: String,         // This will be an Outpoint
+    pub storage_proof_vout: String,         // This is the vout of the txid
+    pub storage_proof_deposit_txid: String, // This is the index of the withdrawal
+    pub index: u32,                         // For now this is 18, for a specifix withdrawal
 }
 
 // #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -96,13 +183,13 @@ impl WatchtowerInput {
     /// - `kickoff_tx_id`: The kickoff transaction id whose output is consumed by an input of the watchtower transaction.
     /// * `watchtower_tx` - The watchtower challenge transaction that includes an input
     ///   referencing the `kickoff_tx`.
-    /// * `previous_txs` - An optional slice of transactions, each of which should include
+    /// * `prevout_txs` - An optional slice of transactions, each of which should include
     ///   at least one output that is later spent as an input in `watchtower_tx`. ( Txs shoul be in the same order as the inputs in the watchtower tx )
     ///
     /// # Note
     ///
     /// All previous transactions other than kickoff tx whose outputs are spent by the `watchtower_tx`
-    /// should be supplied in `previous_txs` if they exist.
+    /// should be supplied in `prevout_txs` if they exist.
     ///
     /// # Returns
     ///
@@ -126,7 +213,7 @@ impl WatchtowerInput {
     pub fn from_txs(
         kickoff_tx_id: Txid,
         watchtower_tx: Transaction,
-        previous_txs: &[Transaction],
+        prevout_txs: &[Transaction],
         watchtower_challenge_connector_start_idx: u16,
     ) -> Result<Self, &'static str> {
         let watchtower_challenge_input_idx = watchtower_tx
@@ -159,7 +246,7 @@ impl WatchtowerInput {
                 let txid = input.previous_output.txid;
                 let vout = input.previous_output.vout as usize;
 
-                let tx = previous_txs
+                let tx = prevout_txs
                     .iter()
                     .find(|tx| tx.compute_txid() == txid)
                     .ok_or("Previous transaction not found")?;
@@ -204,6 +291,7 @@ pub struct BridgeCircuitInput {
     pub watchtower_inputs: Vec<WatchtowerInput>,
     pub hcp: BlockHeaderCircuitOutput,
     pub payout_spv: SPV,
+    pub payout_input_index: u16,
     pub lcp: LightClientProof,
     pub sp: StorageProof,
     pub watchtower_challenge_connector_start_idx: u16,
@@ -217,6 +305,7 @@ impl BridgeCircuitInput {
         all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
         hcp: BlockHeaderCircuitOutput,
         payout_spv: SPV,
+        payout_input_index: u16,
         lcp: LightClientProof,
         sp: StorageProof,
         watchtower_challenge_connector_start_idx: u16,
@@ -226,6 +315,7 @@ impl BridgeCircuitInput {
             watchtower_inputs,
             hcp,
             payout_spv,
+            payout_input_index,
             lcp,
             sp,
             all_tweaked_watchtower_pubkeys,

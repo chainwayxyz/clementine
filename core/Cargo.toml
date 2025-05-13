@@ -55,6 +55,7 @@ circuits-lib = { path = "../circuits-lib" }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
 bincode = { workspace = true }
 ark-ff = { workspace = true }
+rustls-pki-types = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }

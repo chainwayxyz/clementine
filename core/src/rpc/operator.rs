@@ -17,6 +17,7 @@ use crate::rpc::parser::parse_transaction_request;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
+use futures::TryFutureExt;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -77,17 +78,37 @@ where
         let deposit_params: DepositParams = deposit_sign_session.try_into()?;
         let deposit_data: DepositData = deposit_params.try_into()?;
 
+        let expected_sigs = self
+            .operator
+            .config
+            .get_num_required_operator_sigs(&deposit_data);
+
         let mut deposit_signatures_rx = self.operator.deposit_sign(deposit_data).await?;
 
-        while let Some(sig) = deposit_signatures_rx.recv().await {
-            let operator_burn_sig = SchnorrSig {
-                schnorr_sig: sig.serialize().to_vec(),
-            };
+        tokio::spawn(async move {
+            let mut sent_sigs = 0;
+            while let Some(sig) = deposit_signatures_rx.recv().await {
+                let operator_burn_sig = SchnorrSig {
+                    schnorr_sig: sig.serialize().to_vec(),
+                };
 
-            if tx.send(Ok(operator_burn_sig)).await.is_err() {
-                break;
+                if tx
+                    .send(Ok(operator_burn_sig))
+                    .inspect_ok(|_| {
+                        sent_sigs += 1;
+                        tracing::debug!(
+                            "Sent signature {}/{} in deposit_sign()",
+                            sent_sigs,
+                            expected_sigs
+                        );
+                    })
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
             }
-        }
+        });
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }
@@ -230,6 +251,12 @@ where
         &self,
         request: Request<FinalizedPayoutParams>,
     ) -> Result<Response<clementine::Txid>, Status> {
+        if !cfg!(test) {
+            return Err(Status::permission_denied(
+                "This method is only available in tests",
+            ));
+        }
+
         let payout_blockhash: [u8; 32] = request
             .get_ref()
             .payout_blockhash
