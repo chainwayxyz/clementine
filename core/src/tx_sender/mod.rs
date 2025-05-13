@@ -1,11 +1,20 @@
-use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::TapNodeHash;
-use bitcoin::XOnlyPublicKey;
-use eyre::OptionExt;
-
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
-use bitcoincore_rpc::{json::EstimateMode, RpcApi};
-use serde::{Deserialize, Serialize};
+//! # Transaction Sender
+//!
+//! Transaction sender is responsible for sending Bitcoin transactions, bumping
+//! fees and making sure that transactions are finalized until the deadline, all
+//! in background.
+//!
+//! ## Concepts
+//!
+//! ### Active and Cancelled Transactions/UTXOs
+//!
+//! Transactions that are marked as active are candidate transactions for
+//! transaction sender. Their inputs must be
+//!
+//! ### Confirmed and Unconfirmed Blocks
+//!
+//! Blocks are marked as confirmed if a block is confirmed in the Bitcoin. If a
+//! reorg happens, the blocks are marked as unconfirmed.
 
 use crate::errors::ResultExt;
 use crate::{
@@ -14,6 +23,13 @@ use crate::{
     database::Database,
     extended_rpc::ExtendedRpc,
 };
+use bitcoin::taproot::TaprootSpendInfo;
+use bitcoin::TapNodeHash;
+use bitcoin::XOnlyPublicKey;
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
+use bitcoincore_rpc::{json::EstimateMode, RpcApi};
+use eyre::OptionExt;
+use serde::{Deserialize, Serialize};
 
 mod client;
 mod cpfp;
