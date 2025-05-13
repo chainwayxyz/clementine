@@ -1240,8 +1240,12 @@ impl ClementineAggregator for Aggregator {
         let txids: Vec<Txid> = inner_request
             .txids
             .into_iter()
-            .map(|txid| Txid::from_slice(&txid.txid).expect("Failed to parse txid"))
-            .collect();
+            .map(|txid| {
+                Txid::from_slice(&txid.txid).map_err(|e| {
+                    tonic::Status::invalid_argument(format!("Failed to parse txid: {e}"))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         let add_anchor = inner_request.add_anchor;
 

@@ -5,6 +5,7 @@
 use super::{wrapper::TxidDB, Database, DatabaseTransaction};
 use crate::{errors::BridgeError, execute_query_with_tx};
 use bitcoin::{consensus, Transaction, Txid};
+use eyre;
 use sqlx::QueryBuilder;
 
 impl Database {
@@ -56,10 +57,10 @@ impl Database {
             .into_iter()
             .map(|(txid, tx_data)| {
                 let tx = consensus::deserialize(&tx_data)
-                    .expect("Failed to deserialize emergency stop tx");
-                (txid.0, tx)
+                    .map_err(|e| eyre::eyre!("Failed to deserialize emergency stop tx: {e}"))?;
+                Ok((txid.0, tx))
             })
-            .collect())
+            .collect::<Result<_, eyre::Report>>()?)
     }
 }
 

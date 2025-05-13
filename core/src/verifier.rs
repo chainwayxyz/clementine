@@ -440,12 +440,12 @@ where
                 }
             }
 
-            assert_eq!(
-                session.nonces.len(),
-                2,
-                "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}",
-                session.nonces.len()
-            );
+            if session.nonces.len() != 2 {
+                return Err(eyre::eyre!(
+                    "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}",
+                    session.nonces.len()
+                ).into());
+            }
 
             Ok::<(), BridgeError>(())
         });

@@ -683,16 +683,6 @@ pub fn combine_emergency_stop_txhandler(
     txs: Vec<(Txid, Transaction)>,
     add_anchor: bool,
 ) -> Transaction {
-    // Sanity checks
-    for (_, tx) in &txs {
-        if tx.input.len() != 1 {
-            panic!("Expected only one input per transaction");
-        }
-        if tx.output.len() != 1 {
-            panic!("Expected only one output per transaction");
-        }
-    }
-
     let (inputs, mut outputs): (Vec<TxIn>, Vec<TxOut>) = txs
         .into_iter()
         .map(|(_, tx)| (tx.input[0].clone(), tx.output[0].clone()))
