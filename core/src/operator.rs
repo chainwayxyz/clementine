@@ -1110,51 +1110,12 @@ where
         );
         tracing::warn!("Calculated spv in send_asserts");
 
-        // tracing::warn!("Printing proof params -----------------");
-        // tracing::warn!(
-        //     "Payout block: {:?}",
-        //     bitcoin::consensus::serialize(&payout_block)
-        // );
-        // tracing::warn!(
-        //     "Block headers: {:?}",
-        //     headers
-        //         .iter()
-        //         .map(bitcoin::consensus::serialize)
-        //         .collect::<Vec<_>>()
-        // );
-        // tracing::warn!("Light client proof: {:?}", light_client_proof);
-        // tracing::warn!(
-        //     "LCP receipt: {:?}",
-        //     borsh::to_vec(&lcp_receipt).wrap_err("Failed to serialize lcp receipt")?
-        // );
-        // tracing::warn!("Storage proof: {:?}", storage_proof);
-        // tracing::warn!(
-        //     "Kickoff tx bytes: {:?}",
-        //     bitcoin::consensus::serialize(&kickoff_tx)
-        // );
-        // tracing::warn!(
-        //     "Watchtower challenges (index, transaction): {:?}",
-        //     watchtower_challenges
-        //         .iter()
-        //         .map(|(k, v)| (k, bitcoin::consensus::serialize(v)))
-        //         .collect::<Vec<_>>()
-        // );
-
-        // tracing::warn!(
-        //     "Committed latest blockhash witness: {:?}",
-        //     _latest_blockhash
-        // );
-        // tracing::warn!(
-        //     "Header chain proof receipt {:?}",
-        //     borsh::to_vec(&current_hcp).wrap_err("Failed to serialize hcp receipt")?
-        // );
-
-        let previos_txs = [kickoff_tx.clone()]; // TODO: change and add previous txs after watchtower tx becomes rbf
+        let previous_txs = [kickoff_tx.clone()]; // TODO: change and add previous txs after watchtower tx becomes rbf
         let watchtower_contexts = watchtower_challenges
             .values()
             .map(|tx| WatchtowerContext {
                 watchtower_tx: tx.clone(),
-                previous_txs: &previos_txs,
+                prevout_txs: &previous_txs,
             })
             .collect::<Vec<_>>();
 

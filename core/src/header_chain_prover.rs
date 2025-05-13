@@ -374,7 +374,7 @@ impl HeaderChainProver {
                 Some(previous_proof),
             )
             .await?;
-        tracing::warn!("Generated new proof for height {}", tip_height);
+        tracing::info!("Generated new proof for height {}", tip_height);
 
         Ok((receipt, tip_height))
     }

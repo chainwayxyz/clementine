@@ -77,7 +77,8 @@ impl CitreaClientT for MockCitreaClient {
     ) -> Result<StorageProof, BridgeError> {
         Ok(StorageProof {
             storage_proof_utxo: "".to_string(),
-            storage_proof_deposit_idx: "".to_string(),
+            storage_proof_vout: "".to_string(),
+            storage_proof_deposit_txid: "".to_string(),
             index: deposit_index,
         })
     }

@@ -1367,36 +1367,39 @@ where
             block_height,
             block_cache.block_height
         );
-        let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
-        let timeout = Duration::from_secs(max_attempts as u64);
+        // before block 60, citrea doesn't produce proofs
+        if block_height > 60 {
+            let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
+            let timeout = Duration::from_secs(max_attempts as u64);
 
-        let l2_range_result = self
-            .citrea_client
-            .get_citrea_l2_height_range(block_height.into(), timeout)
-            .await;
-        if let Err(e) = l2_range_result {
-            tracing::error!("Error getting citrea l2 height range: {:?}", e);
-            return Err(e);
-        }
-        let (l2_height_start, l2_height_end) =
-            l2_range_result.expect("Failed to get citrea l2 height range");
+            let l2_range_result = self
+                .citrea_client
+                .get_citrea_l2_height_range(block_height.into(), timeout)
+                .await;
+            if let Err(e) = l2_range_result {
+                tracing::error!("Error getting citrea l2 height range: {:?}", e);
+                return Err(e);
+            }
+            let (l2_height_start, l2_height_end) =
+                l2_range_result.expect("Failed to get citrea l2 height range");
 
-        tracing::info!(
-            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
-            l2_height_start,
-            l2_height_end
-        );
-        self.update_citrea_deposit_and_withdrawals(
-            &mut dbtx,
-            l2_height_start,
-            l2_height_end,
-            block_height,
-        )
-        .await?;
-
-        tracing::info!("Getting payout txids for block height: {:?}", block_height);
-        self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
+            tracing::info!(
+                "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+                l2_height_start,
+                l2_height_end
+            );
+            self.update_citrea_deposit_and_withdrawals(
+                &mut dbtx,
+                l2_height_start,
+                l2_height_end,
+                block_height,
+            )
             .await?;
+
+            tracing::info!("Getting payout txids for block height: {:?}", block_height);
+            self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
+                .await?;
+        }
 
         self.header_chain_prover
             .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
