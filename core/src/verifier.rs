@@ -163,6 +163,7 @@ where
         let citrea_client = C::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
+            config.citrea_chain_id,
             None,
         )
         .await?;

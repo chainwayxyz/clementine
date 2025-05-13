@@ -76,6 +76,8 @@ pub struct BridgeConfig {
     pub citrea_rpc_url: String,
     /// Citrea light client prover RPC URL.
     pub citrea_light_client_prover_url: String,
+    /// Citrea's EVM Chain ID.
+    pub citrea_chain_id: u32,
     /// Bridge contract address.
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
@@ -124,8 +126,6 @@ pub struct BridgeConfig {
     /// Aggregator's client cert should be equal to the this certificate.
     pub aggregator_cert_path: PathBuf,
 
-    // /// Directory containing unix sockets
-    // pub socket_path: String,
     /// All Secret keys. Just for testing purposes.
     pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
     /// All Secret keys. Just for testing purposes.
@@ -203,6 +203,7 @@ impl Default for BridgeConfig {
 
             citrea_rpc_url: "".to_string(),
             citrea_light_client_prover_url: "".to_string(),
+            citrea_chain_id: 5655,
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
 
             header_chain_proof_path: Some(
@@ -249,7 +250,6 @@ impl Default for BridgeConfig {
                 )
                 .expect("known valid input"),
             ),
-            // socket_path: "/".to_string(),
             verifier_endpoints: None,
             operator_endpoints: None,
 
