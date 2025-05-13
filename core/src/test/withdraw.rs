@@ -160,7 +160,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 async fn citrea_withdraw_and_get_utxo() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
+        "chainwayxyz/citrea-test:287189a716644ebbb8a6f3324dff35722e477ce9",
     );
     TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
 }

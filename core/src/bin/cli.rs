@@ -9,7 +9,7 @@ use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
     builder::transaction::SecurityCouncil,
-    citrea::Bridge::TransactionParams,
+    citrea::Bridge::{MerkleProof as CitreaMerkleProof, Transaction as CitreaTransaction},
     config::BridgeConfig,
     errors::BridgeError,
     extended_rpc,
@@ -713,19 +713,8 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
 
             let lock_time = tx.lock_time.to_consensus_u32();
 
-            let tx_params = TransactionParams {
-                version: FixedBytes::from(version),
-                flag: FixedBytes::from(flag),
-                vin: Bytes::copy_from_slice(&vin),
-                vout: Bytes::copy_from_slice(&vout),
-                witness: Bytes::copy_from_slice(&witness),
-                locktime: FixedBytes::from(lock_time),
-                intermediate_nodes: Bytes::copy_from_slice(&merkle_proof),
-                block_height: Uint::from(block_height),
-                index: Uint::from(index),
-            };
-
-            println!("Transaction params: {:?}", tx_params);
+            unimplemented!()
+            // println!("Transaction params: {:?}", tx_params);
         }
         AggregatorCommands::GetReplacementDepositAddress {
             move_txid,

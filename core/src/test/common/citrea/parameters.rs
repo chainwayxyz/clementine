@@ -1,11 +1,17 @@
 //! # Parameter Builder For Citrea Requests
 
-use crate::citrea::Bridge::TransactionParams;
+use crate::citrea::Bridge::MerkleProof as CitreaMerkleProof;
+use crate::citrea::Bridge::Transaction as CitreaTransaction;
 use crate::errors::BridgeError;
+use crate::extended_rpc::ExtendedRpc;
 use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
+use alloy::sol;
+use alloy::sol_types;
 use bitcoin::consensus::Encodable;
+use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
+use bitcoin::OutPoint;
 use bitcoin::{Block, Transaction, Txid};
 
 /// Returns merkle proof for a given transaction (via txid) in a block.
@@ -47,12 +53,13 @@ fn get_block_merkle_proof(
 
 /// Returns [`TransactionParams`] for a given transaction, which can be later
 /// used for deposit and withdrawal operations.
-pub fn get_transaction_params(
+pub async fn get_transaction_params(
+    rpc: &ExtendedRpc,
     transaction: Transaction,
     block: Block,
     block_height: u32,
     txid: Txid,
-) -> Result<TransactionParams, BridgeError> {
+) -> Result<(CitreaTransaction, CitreaMerkleProof, FixedBytes<32>), BridgeError> {
     // Version is in little endian format in Bitcoin.
     let version = (transaction.version.0 as u32).to_le_bytes();
     // TODO: Flag should be 0 if no witness elements. Do this in the future if
@@ -123,17 +130,38 @@ pub fn get_transaction_params(
     let locktime: u32 = transaction.lock_time.to_consensus_u32();
     let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
 
-    Ok(TransactionParams {
+    let tp = CitreaTransaction {
         version: FixedBytes::from(version),
         flag: FixedBytes::from(flag),
         vin: Bytes::copy_from_slice(&vin),
         vout: Bytes::copy_from_slice(&vout),
         witness: Bytes::copy_from_slice(&witness),
         locktime: FixedBytes::from(locktime),
-        intermediate_nodes: Bytes::copy_from_slice(&merkle_proof),
-        block_height: Uint::from(block_height),
+    };
+    let mp = CitreaMerkleProof {
+        intermediateNodes: Bytes::copy_from_slice(&merkle_proof),
+        blockHeight: Uint::from(block_height),
         index: Uint::from(index),
-    })
+    };
+
+    let mut enc_script_pubkeys = sha256::Hash::engine();
+    for input in transaction.input {
+        let prevout = rpc.get_txout_from_outpoint(&input.previous_output).await?;
+        prevout
+            .script_pubkey
+            .consensus_encode(&mut enc_script_pubkeys)
+            .unwrap();
+    }
+    let sha_script_pubkeys = sha256::Hash::from_engine(enc_script_pubkeys);
+
+    let mut reversed_sha_script_pubkeys = sha_script_pubkeys.as_byte_array().to_vec();
+    reversed_sha_script_pubkeys.reverse();
+
+    let reversed_sha_script_pks: [u8; 32] = reversed_sha_script_pubkeys.try_into().unwrap();
+
+    let sha_script_pubkeys = FixedBytes::from(reversed_sha_script_pks);
+
+    Ok((tp, mp, sha_script_pubkeys))
 }
 
 #[cfg(test)]
@@ -170,7 +198,9 @@ mod tests {
             hex::encode(bitcoin::consensus::serialize(&tx))
         );
         let transaction_params =
-            get_transaction_params(tx, block, block_info.height as u32, txid).unwrap();
+            get_transaction_params(&rpc, tx, block, block_info.height as u32, txid)
+                .await
+                .unwrap();
         println!("{:?}", transaction_params);
     }
 }

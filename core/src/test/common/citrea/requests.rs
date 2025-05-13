@@ -1,5 +1,6 @@
 use crate::citrea::LIGHT_CLIENT_ADDRESS;
 use crate::errors::BridgeError;
+use crate::extended_rpc::ExtendedRpc;
 use crate::test::common::citrea::parameters::get_transaction_params;
 use crate::EVMAddress;
 use alloy::sol_types::SolValue;
@@ -55,6 +56,7 @@ pub async fn eth_get_balance(
 /// won't directly talk with EVM but with Citrea. So that authorization can be done (Citrea will
 /// block this call if it isn't an operator).
 pub async fn deposit(
+    rpc: &ExtendedRpc,
     client: HttpClient,
     block: Block,
     block_height: u32,
@@ -62,7 +64,9 @@ pub async fn deposit(
 ) -> Result<(), BridgeError> {
     let txid = transaction.compute_txid();
 
-    let params = get_transaction_params(transaction, block, block_height, txid)?;
+    let params = get_transaction_params(rpc, transaction, block, block_height, txid).await?;
+    let encoded_transaction_params = hex::encode(params.abi_encode());
+    tracing::info!("Encoded transaction params: {}", encoded_transaction_params);
 
     let _response: () = client
         .request(

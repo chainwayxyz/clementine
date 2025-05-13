@@ -9,9 +9,9 @@ use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::rpc::clementine::{
-    FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
+    self, FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::SECRET_KEYS;
+use crate::test::common::citrea::{get_transaction_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
     get_txid_where_utxo_is_spent,
@@ -29,8 +29,8 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
-use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;
+use alloy::primitives::{FixedBytes, Uint};
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
@@ -137,7 +137,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let (
             _verifiers,
             mut operators,
-            _aggregator,
+            mut _aggregator,
             _cleanup,
             _deposit_params,
             move_txid,
@@ -182,13 +182,88 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         );
 
         tracing::debug!("Depositing to Citrea...");
-        citrea::deposit(
-            sequencer.client.http_client().clone(),
-            block,
-            block_height.try_into().unwrap(),
-            tx,
+        let (citrea_transaction, citrea_merkle_proof, citrea_sha_script_pubkeys) =
+            get_transaction_params(
+                &rpc,
+                tx.clone(),
+                block.clone(),
+                block_height.try_into().unwrap(),
+                tx.compute_txid(),
+            )
+            .await?;
+
+        let citrea_client = CitreaClient::new(
+            config.citrea_rpc_url.clone(),
+            config.citrea_light_client_prover_url.clone(),
+            config.citrea_chain_id,
+            Some(SECRET_KEYS[0].to_string().parse().unwrap()),
         )
-        .await?;
+        .await
+        .unwrap();
+
+        tracing::info!("Setting operator to {}", citrea_client.wallet_address);
+        let response = citrea_client
+            .contract
+            .setOperator(citrea_client.wallet_address)
+            .send()
+            .await
+            .unwrap();
+
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        } // wait 5 seconds
+          // tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let operator = citrea_client.contract.operator().call().await.unwrap();
+
+        tracing::info!("Operator: {:?}", operator);
+        let mut new_citrea_merkle_proof = citrea_merkle_proof.clone();
+        // new_citrea_merkle_proof.blockHeight = Uint::from(5);
+
+        let getNofN = citrea_client
+            .contract
+            .getAggregatedKey()
+            .call()
+            .await
+            .unwrap();
+        tracing::info!("getNofN: {:?}", getNofN);
+
+        let nofn_from_aggregator = _aggregator
+            .get_nofn_aggregated_xonly_pk(clementine::Empty {})
+            .await
+            .unwrap();
+        tracing::info!("nofn_from_aggregator: {:?}", nofn_from_aggregator);
+
+        let balance = citrea::eth_get_balance(
+            sequencer.client.http_client().clone(),
+            crate::EVMAddress(citrea_client.wallet_address.to_vec().try_into().unwrap()),
+        )
+        .await
+        .unwrap();
+        tracing::info!("balance: {:?}", balance);
+
+        let citrea_deposit_tx = citrea_client
+            .contract
+            .deposit(
+                citrea_transaction,
+                new_citrea_merkle_proof,
+                citrea_sha_script_pubkeys,
+            )
+            .from(citrea_client.wallet_address)
+            .estimate_gas()
+            .await
+            .unwrap();
+
+        tracing::info!("AAAAAAA Custom deposit result: {:?}", citrea_deposit_tx);
+
+        // citrea::deposit(
+        //     &rpc,
+        //     sequencer.client.http_client().clone(),
+        //     block,
+        //     block_height.try_into().unwrap(),
+        //     tx,
+        // )
+        // .await?;
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
@@ -407,7 +482,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
+        "chainwayxyz/citrea-test:287189a716644ebbb8a6f3324dff35722e477ce9",
     );
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
