@@ -374,6 +374,7 @@ mod tests {
         env::set_var("DB_NAME", "clementine");
         env::set_var("CITREA_RPC_URL", "");
         env::set_var("CITREA_LIGHT_CLIENT_PROVER_URL", "");
+        env::set_var("CITREA_CHAIN_ID", "5655");
         env::set_var(
             "BRIDGE_CONTRACT_ADDRESS",
             "3100000000000000000000000000000000000002",
