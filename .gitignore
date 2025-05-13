@@ -1,7 +1,5 @@
 bitvm_cache.bin
-
 .DS_Store
-
 risc0-guests/operator/guest/Cargo.lock
 risc0-guests/verifier/guest/Cargo.lock
 target/
@@ -16,3 +14,4 @@ lcov.json
 .docker/
 .idea/
 logs
+out.json*

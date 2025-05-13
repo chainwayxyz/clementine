@@ -14,7 +14,7 @@ use crate::test::common::{
 use crate::tx_sender::{FeePayingType, TxSender};
 use crate::EVMAddress;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::Txid;
+use bitcoin::{Amount, FeeRate, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BitcoinConfig, TestCaseDockerConfig};
@@ -106,6 +106,7 @@ impl TestCase for TxSenderReorgBehavior {
             config.protocol_paramset.network,
             FeePayingType::CPFP,
             false,
+            Some(Amount::from_sat(0)),
         )
         .await
         .unwrap();
@@ -115,7 +116,7 @@ impl TestCase for TxSenderReorgBehavior {
         f.bitcoin_nodes.disconnect_nodes().await?;
 
         let mut dbtx = db.begin_transaction().await.unwrap();
-        tx_sender_client
+        let id = tx_sender_client
             .insert_try_to_send(
                 &mut dbtx,
                 None,
@@ -130,35 +131,50 @@ impl TestCase for TxSenderReorgBehavior {
             .await
             .unwrap();
         dbtx.commit().await.unwrap();
+        let x = db
+            .get_sendable_txs(
+                None,
+                FeeRate::from_sat_per_vb_unchecked(1),
+                rpc.client.get_block_count().await.unwrap() as u32,
+            )
+            .await
+            .unwrap();
+        tracing::debug!("bfpt: {:?}", (x, id));
 
         // TODO: Don't do this.
         sleep(Duration::from_secs(3));
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3));
         rpc.mine_blocks(1).await.unwrap();
-        sleep(Duration::from_secs(3));
-        rpc.mine_blocks(1).await.unwrap();
-        sleep(Duration::from_secs(3));
-        rpc.mine_blocks(1).await.unwrap();
+        // sleep(Duration::from_secs(3));
+        // rpc.mine_blocks(1).await.unwrap();
+        // sleep(Duration::from_secs(3));
+        // rpc.mine_blocks(1).await.unwrap();
+        mine_once_after_in_mempool(&rpc, txid, Some("bumpable_cpfp_tx"), None).await?;
 
-        let start = std::time::Instant::now();
-        loop {
-            let tx_info = rpc.client.get_raw_transaction_info(&txid, None).await;
-            if tx_info.is_ok() && tx_info.unwrap().blockhash.is_some() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let x = db
+            .get_sendable_txs(
+                None,
+                FeeRate::from_sat_per_vb_unchecked(1),
+                rpc.client.get_block_count().await.unwrap() as u32,
+            )
+            .await
+            .unwrap();
+        tracing::debug!("bfpt: {:?}", x);
 
-            if start.elapsed() > Duration::from_secs(10) {
-                panic!("Timeout waiting for tx to be mined");
-            }
-        }
+        assert!(rpc
+            .client
+            .get_raw_transaction_info(&txid, None)
+            .await
+            .unwrap()
+            .blockhash
+            .is_some());
 
         let before_reorg_tip_height = rpc.client.get_block_count().await?;
         let before_reorg_tip_hash = rpc.client.get_block_hash(before_reorg_tip_height).await?;
 
         // Make the second branch longer and perform a reorg.
-        da1.generate(5).await.unwrap();
+        da1.generate(4).await.unwrap();
         f.bitcoin_nodes.connect_nodes().await?;
         f.bitcoin_nodes.wait_for_sync(None).await?;
 
@@ -175,6 +191,16 @@ impl TestCase for TxSenderReorgBehavior {
             "Re-org did not occur"
         );
 
+        let x = db
+            .get_sendable_txs(
+                None,
+                FeeRate::from_sat_per_vb_unchecked(1),
+                rpc.client.get_block_count().await.unwrap() as u32,
+            )
+            .await
+            .unwrap();
+        tracing::debug!("bfpt: {:?}", x);
+
         assert!(rpc
             .client
             .get_raw_transaction_info(&txid, None)
@@ -182,22 +208,59 @@ impl TestCase for TxSenderReorgBehavior {
             .unwrap()
             .blockhash
             .is_none());
+        // tracing::debug!(
+        //     "------- {:?}",
+        //     rpc.client.get_mempool_entry(&txid).await.unwrap()
+        // );
 
-        // Transaction should be included in the next block.
-        rpc.mine_blocks(1).await.unwrap();
-        let current_tip_hash = rpc
-            .client
-            .get_block_hash(rpc.client.get_block_count().await?)
-            .await?;
-        assert_eq!(
-            rpc.client
+        let start = std::time::Instant::now();
+        loop {
+            if start.elapsed() > Duration::from_secs(10) {
+                panic!("Timeout waiting for tx to be in mempool");
+            }
+            // Transaction should be included in the next block.
+            tracing::debug!(
+                "------- {:?}",
+                rpc.client.get_mempool_entry(&txid).await.unwrap()
+            );
+
+            let x = db
+                .get_sendable_txs(
+                    None,
+                    FeeRate::from_sat_per_vb_unchecked(1),
+                    rpc.client.get_block_count().await.unwrap() as u32,
+                )
+                .await
+                .unwrap();
+            tracing::debug!("bfpt: {:?}", x);
+            rpc.mine_blocks(1).await.unwrap();
+            let current_tip_hash = rpc
+                .client
+                .get_block_hash(rpc.client.get_block_count().await?)
+                .await?;
+            if !rpc
+                .client
                 .get_raw_transaction_info(&txid, None)
                 .await
                 .unwrap()
                 .blockhash
-                .unwrap(),
-            current_tip_hash
-        );
+                .is_some()
+            {
+                tracing::debug!("Transaction not in mempool yet");
+                sleep(Duration::from_secs(1));
+                continue;
+            }
+            assert_eq!(
+                rpc.client
+                    .get_raw_transaction_info(&txid, None)
+                    .await
+                    .unwrap()
+                    .blockhash
+                    .unwrap(),
+                current_tip_hash
+            );
+            break;
+        }
 
         Ok(())
     }
