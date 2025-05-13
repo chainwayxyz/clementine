@@ -36,6 +36,18 @@ pub async fn block_number(client: &HttpClient) -> Result<u32, BridgeError> {
     Ok(block_number)
 }
 
+pub async fn eth_get_trace(client: HttpClient, txhash: String) -> Result<(), BridgeError> {
+    let params = rpc_params![txhash, serde_json::json!({ "tracer": "callTracer" })];
+
+    let response: serde_json::Value = client
+        .request("debug_traceTransaction", params)
+        .await
+        .wrap_err("Failed to get transaction trace")?;
+
+    tracing::info!("response: {:?}", response);
+    Ok(())
+}
+
 pub async fn eth_get_balance(
     client: HttpClient,
     evm_address: EVMAddress,

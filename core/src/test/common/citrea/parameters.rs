@@ -155,9 +155,10 @@ pub async fn get_transaction_params(
     let sha_script_pubkeys = sha256::Hash::from_engine(enc_script_pubkeys);
 
     let mut reversed_sha_script_pubkeys = sha_script_pubkeys.as_byte_array().to_vec();
-    reversed_sha_script_pubkeys.reverse();
+    // reversed_sha_script_pubkeys.reverse();
 
     let reversed_sha_script_pks: [u8; 32] = reversed_sha_script_pubkeys.try_into().unwrap();
+
 
     let sha_script_pubkeys = FixedBytes::from(reversed_sha_script_pks);
 

@@ -11,7 +11,7 @@ use crate::database::Database;
 use crate::rpc::clementine::{
     self, FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::{get_transaction_params, SECRET_KEYS};
+use crate::test::common::citrea::{eth_get_trace, get_transaction_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
     get_txid_where_utxo_is_spent,
@@ -249,8 +249,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 new_citrea_merkle_proof,
                 citrea_sha_script_pubkeys,
             )
-            .from(citrea_client.wallet_address)
-            .estimate_gas()
+            // .gas(1_000_000)
+            .send()
             .await
             .unwrap();
 
@@ -267,6 +267,17 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
             sequencer.client.send_publish_batch_request().await.unwrap();
         }
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
+
+        let txhash = citrea_deposit_tx.tx_hash();
+
+        tracing::info!("txhash: {:?}", txhash);
+
+        eth_get_trace(sequencer.client.http_client().clone(), txhash.to_string())
+            .await
+            .unwrap();
 
         // After the deposit, the balance should be non-zero.
         assert_ne!(
@@ -278,6 +289,16 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .unwrap(),
             0
         );
+
+        let new_balance = citrea::eth_get_balance(
+            sequencer.client.http_client().clone(),
+            crate::EVMAddress([1; 20]),
+        )
+        .await
+        .unwrap();
+
+        tracing::info!("new_balance: {:?}", new_balance);
+        
 
         tracing::debug!("Deposit operations are successful.");
 
