@@ -24,19 +24,11 @@ use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
-use lazy_static::lazy_static;
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
 #[cfg(test)]
 pub mod mock;
-
-lazy_static! {
-    pub static ref CITREA_CHAIN_ID: u64 = std::env::var("CITREA_CHAIN_ID")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(5655);
-}
 
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
 pub const BRIDGE_CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
@@ -57,12 +49,14 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     ///
     /// - `citrea_rpc_url`: URL of the Citrea RPC.
     /// - `light_client_prover_url`: URL of the Citrea light client prover RPC.
+    /// - `chain_id`: Citrea's EVM chain id.
     /// - `secret_key`: EVM secret key of the EVM user. If not given, random
     ///   secret key is used (wallet is not required). This is given mostly for
     ///   testing purposes.
     async fn new(
         citrea_rpc_url: String,
         light_client_prover_url: String,
+        chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError>;
 
@@ -216,6 +210,7 @@ impl CitreaClientT for CitreaClient {
     async fn new(
         citrea_rpc_url: String,
         light_client_prover_url: String,
+        chain_id: u32,
         secret_key: Option<PrivateKeySigner>,
     ) -> Result<Self, BridgeError> {
         let citrea_rpc_url = Url::parse(&citrea_rpc_url).wrap_err("Can't parse Citrea RPC URL")?;
@@ -223,7 +218,7 @@ impl CitreaClientT for CitreaClient {
             Url::parse(&light_client_prover_url).wrap_err("Can't parse Citrea LCP RPC URL")?;
         let secret_key = secret_key.unwrap_or(PrivateKeySigner::random());
 
-        let key = secret_key.with_chain_id(Some(*CITREA_CHAIN_ID));
+        let key = secret_key.with_chain_id(Some(chain_id.into()));
         let wallet_address = key.address();
 
         let provider = ProviderBuilder::new()
@@ -557,6 +552,7 @@ mod tests {
             let citrea_client = CitreaClient::new(
                 config.citrea_rpc_url,
                 config.citrea_light_client_prover_url,
+                config.citrea_chain_id,
                 Some(SECRET_KEYS[0].to_string().parse().unwrap()),
             )
             .await
