@@ -16,7 +16,7 @@ use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::TEN_MINUTES_IN_SECS;
+use crate::constants::{CITREA_LCP_START_HEIGHT, TEN_MINUTES_IN_SECS};
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -1368,7 +1368,7 @@ where
             block_cache.block_height
         );
         // before block 60, citrea doesn't produce proofs
-        if block_height > 60 {
+        if block_height as u64 > CITREA_LCP_START_HEIGHT {
             let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
             let timeout = Duration::from_secs(max_attempts as u64);
 

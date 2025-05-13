@@ -1110,14 +1110,13 @@ where
         );
         tracing::warn!("Calculated spv in send_asserts");
 
-        let previous_txs = [kickoff_tx.clone()]; // TODO: change and add previous txs after watchtower tx becomes rbf
-        let watchtower_contexts = watchtower_challenges
-            .values()
-            .map(|tx| WatchtowerContext {
+        let mut wt_contexts = Vec::new();
+        for (_, tx) in watchtower_challenges.iter() {
+            wt_contexts.push(WatchtowerContext {
                 watchtower_tx: tx.clone(),
-                prevout_txs: &previous_txs,
-            })
-            .collect::<Vec<_>>();
+                prevout_txs: self.rpc.get_prevout_txs(tx).await?,
+            });
+        }
 
         let watchtower_challenge_connector_start_idx =
             (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
@@ -1130,7 +1129,7 @@ where
             lcp_receipt,
             storage_proof,
             self.config.protocol_paramset().network,
-            &watchtower_contexts,
+            &wt_contexts,
             watchtower_challenge_connector_start_idx,
         )
         .map_err(|e| {

@@ -197,7 +197,7 @@ fn get_wt_inputs(
             WatchtowerInput::from_txs(
                 kickoff_tx_id,
                 context.watchtower_tx.clone(),
-                context.prevout_txs,
+                &context.prevout_txs,
                 watchtower_challenge_connector_start_idx,
             )
             .map_err(|_| BridgeCircuitHostParamsError::InvalidWatchtowerInputs)
@@ -231,9 +231,9 @@ fn get_all_pubkeys(
     Ok(all_tweaked_watchtower_pubkeys)
 }
 
-pub struct WatchtowerContext<'a> {
+pub struct WatchtowerContext {
     pub watchtower_tx: Transaction,
-    pub prevout_txs: &'a [Transaction],
+    pub prevout_txs: Vec<Transaction>,
 }
 
 #[derive(Debug, Clone)]

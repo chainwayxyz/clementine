@@ -7,6 +7,7 @@ use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
+use crate::constants::CITREA_LCP_START_HEIGHT;
 use crate::database::Database;
 use crate::rpc::clementine::{
     FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
@@ -92,7 +93,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            initial_da_height: 60,
+            initial_da_height: CITREA_LCP_START_HEIGHT,
             ..Default::default()
         }
     }

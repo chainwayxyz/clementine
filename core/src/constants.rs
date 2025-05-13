@@ -8,6 +8,8 @@ pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330); // TODO: Maybe thi
 
 pub const TEN_MINUTES_IN_SECS: u32 = 600;
 
+pub const CITREA_LCP_START_HEIGHT: u64 = 60;
+
 lazy_static::lazy_static! {
   pub static ref BURN_SCRIPT: ScriptBuf = ("1111111111111111111114oLvT2")
           .parse::<Address<_>>()

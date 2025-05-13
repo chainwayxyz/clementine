@@ -86,6 +86,9 @@ impl HeaderChainProver {
         rpc: ExtendedRpc,
     ) -> Result<Self, HeaderChainProverError> {
         let db = Database::new(config).await.map_to_eyre()?;
+        db.save_initial_block_infos(&rpc, config.protocol_paramset().start_height)
+            .await
+            .wrap_err("Couldn't save block data until start_height")?;
 
         if let Some(proof_file) = &config.header_chain_proof_path {
             tracing::info!("Starting prover with assumption file {:?}.", proof_file);
@@ -138,7 +141,7 @@ impl HeaderChainProver {
                 )
                 .await
                 .inspect_err(|e| {
-                    tracing::warn!("Can't set initial block info for header chain prover, because: {e}. Doesn't affect anything, continuing...");
+                    tracing::debug!("Can't set initial block info for header chain prover, because: {e}. Doesn't affect anything, continuing...");
                 });
 
             db.set_block_proof(None, block_hash, proof)

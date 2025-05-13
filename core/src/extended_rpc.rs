@@ -93,6 +93,45 @@ impl ExtendedRpc {
         Ok(blockhash)
     }
 
+    pub async fn get_block_header_by_height(
+        &self,
+        height: u64,
+    ) -> Result<(bitcoin::BlockHash, bitcoin::block::Header)> {
+        let block_hash = self.client.get_block_hash(height).await.wrap_err(format!(
+            "Couldn't retrieve block hash from height {} from rpc",
+            height
+        ))?;
+        let block_header = self
+            .client
+            .get_block_header(&block_hash)
+            .await
+            .wrap_err(format!(
+                "Couldn't retrieve block header with block hash {} from rpc",
+                block_hash
+            ))?;
+        Ok((block_hash, block_header))
+    }
+
+    /// Gets the transactions that created the inputs of a given transaction.
+    ///
+    /// # Arguments
+    /// * `tx` - The transaction to get the previous transactions for
+    ///
+    /// # Returns
+    /// A vector of transactions that created the inputs of the given transaction.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_prevout_txs(
+        &self,
+        tx: &bitcoin::Transaction,
+    ) -> Result<Vec<bitcoin::Transaction>> {
+        let mut prevout_txs = Vec::new();
+        for input in &tx.input {
+            let txid = input.previous_output.txid;
+            prevout_txs.push(self.get_tx_of_txid(&txid).await?);
+        }
+        Ok(prevout_txs)
+    }
+
     /// Gets the transaction data for a given transaction ID.
     ///
     /// # Arguments

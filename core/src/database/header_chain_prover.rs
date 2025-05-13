@@ -7,7 +7,7 @@ use super::{
     wrapper::{BlockHashDB, BlockHeaderDB},
     Database, DatabaseTransaction,
 };
-use crate::{errors::BridgeError, execute_query_with_tx};
+use crate::{errors::BridgeError, execute_query_with_tx, extended_rpc::ExtendedRpc};
 use bitcoin::{
     block::{self, Header},
     BlockHash,
@@ -32,6 +32,66 @@ impl Database {
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
+        Ok(())
+    }
+
+    /// Collect block info from rpc and save it to hcp table.
+    async fn save_block_infos_within_range(
+        &self,
+        rpc: &ExtendedRpc,
+        height_start: u32,
+        height_end: u32,
+    ) -> Result<(), BridgeError> {
+        const BATCH_SIZE: u32 = 100;
+
+        for batch_start in (height_start..=height_end).step_by(BATCH_SIZE as usize) {
+            let batch_end = std::cmp::min(batch_start + BATCH_SIZE - 1, height_end);
+
+            // Collect all block headers in this batch
+            let mut block_infos = Vec::with_capacity((batch_end - batch_start + 1) as usize);
+            for height in batch_start..=batch_end {
+                let (block_hash, block_header) =
+                    rpc.get_block_header_by_height(height as u64).await?;
+                block_infos.push((block_hash, block_header, height));
+            }
+
+            // Save all blocks in this batch
+            let mut db_tx = self.begin_transaction().await?;
+            for (block_hash, block_header, height) in block_infos {
+                self.save_unproven_finalized_block(
+                    Some(&mut db_tx),
+                    block_hash,
+                    block_header,
+                    height as u64,
+                )
+                .await?;
+            }
+            db_tx.commit().await?;
+        }
+        Ok(())
+    }
+
+    /// This function assumes there are no blocks or some contiguous blocks starting from 0 already in the table.
+    /// Saves the block hashes and headers until given height(exclusive)
+    /// as they are needed for spv and hcp proofs.
+    pub async fn save_initial_block_infos(
+        &self,
+        rpc: &ExtendedRpc,
+        until_height: u32,
+    ) -> Result<(), BridgeError> {
+        if until_height == 0 {
+            return Ok(());
+        }
+        let max_height = self.get_max_height_hcp(None).await?;
+        if let Some(max_height) = max_height {
+            if max_height < until_height {
+                self.save_block_infos_within_range(rpc, max_height + 1, until_height - 1)
+                    .await?;
+            }
+        } else {
+            self.save_block_infos_within_range(rpc, 0, until_height - 1)
+                .await?;
+        }
         Ok(())
     }
 
@@ -274,6 +334,26 @@ impl Database {
         let receipt: Receipt = borsh::from_slice(&receipt).wrap_err(BridgeError::BorshError)?;
 
         Ok(Some(receipt))
+    }
+
+    /// Returns the maximum height present in the header_chain_proofs table.
+    /// Returns None if the table is empty.
+    async fn get_max_height_hcp(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Option<u32>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT MAX(height) as max_height 
+            FROM header_chain_proofs;",
+        );
+
+        let result: (Option<i64>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        result
+            .0
+            .map(|max| u32::try_from(max).wrap_err("Failed to convert max height to u32"))
+            .transpose()
+            .map_err(Into::into)
     }
 }
 
