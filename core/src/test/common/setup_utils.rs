@@ -441,6 +441,7 @@ pub async fn create_actors<C: CitreaClientT>(
             .collect::<Vec<_>>(),
         ClementineVerifierClient::new,
         &verifier_configs[0],
+        false
     )
     .await
     .expect("could not connect to verifiers");
@@ -452,6 +453,7 @@ pub async fn create_actors<C: CitreaClientT>(
             .collect::<Vec<_>>(),
         ClementineOperatorClient::new,
         &operator_configs[0],
+        false
     )
     .await
     .expect("could not connect to operators");
@@ -460,6 +462,7 @@ pub async fn create_actors<C: CitreaClientT>(
         vec![format!("unix://{}", aggregator_path.display())],
         ClementineAggregatorClient::new,
         &verifier_configs[0],
+        false
     )
     .await
     .expect("could not connect to aggregator")

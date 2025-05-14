@@ -354,7 +354,7 @@ fn create_minimal_config() -> BridgeConfig {
 async fn handle_operator_call(url: String, command: OperatorCommands) {
     let config = create_minimal_config();
     let mut operator =
-        clementine_core::rpc::get_clients(vec![url], ClementineOperatorClient::new, &config)
+        clementine_core::rpc::get_clients(vec![url], ClementineOperatorClient::new, &config, true)
             .await
             .expect("Exists")[0]
             .clone();
@@ -440,7 +440,7 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
     println!("Connecting to verifier at {}", url);
     let config = create_minimal_config();
     let mut verifier =
-        clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config)
+        clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config, true)
             .await
             .expect("Exists")[0]
             .clone();
@@ -468,7 +468,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
     println!("Connecting to aggregator at {}", url);
     let config = create_minimal_config();
     let mut aggregator =
-        clementine_core::rpc::get_clients(vec![url], ClementineAggregatorClient::new, &config)
+        clementine_core::rpc::get_clients(vec![url], ClementineAggregatorClient::new, &config, false )
             .await
             .expect("Exists")[0]
             .clone();

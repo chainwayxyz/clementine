@@ -4,7 +4,7 @@ use eyre::Context;
 use hyper_util::rt::TokioIo;
 use std::path::PathBuf;
 use tagged_signature::SignatureId;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri};
+use tonic::transport::{ Channel, ClientTlsConfig, Identity, Uri};
 
 // Add this to ensure certificates exist in tests
 #[cfg(test)]
@@ -55,6 +55,7 @@ pub async fn get_clients<CLIENT, F>(
     endpoints: Vec<String>,
     connect: F,
     config: &crate::config::BridgeConfig,
+    use_client_cert: bool,
 ) -> Result<Vec<CLIENT>, BridgeError>
 where
     F: FnOnce(Channel) -> CLIENT + Copy,
@@ -68,44 +69,36 @@ where
     }
 
     // Get certificate paths from config or use defaults
-    let client_cert_path = &config.client_cert_path.clone();
-    let client_key_path = &config.client_key_path.clone();
-    let ca_cert_path = &config.ca_cert_path.clone();
 
-    // Load client certificate and key
-    let client_cert = tokio::fs::read(&client_cert_path).await.map_err(|e| {
-        BridgeError::ConfigError(format!(
-            "Failed to read client certificate from {}: {}",
-            client_cert_path.display(),
-            e
-        ))
-    })?;
+    let tls_config = if use_client_cert {
+        // Get certificate paths from config or use defaults
+        let client_cert_path = &config.client_cert_path.clone();
+        let client_key_path = &config.client_key_path.clone();
 
-    let client_key = tokio::fs::read(&client_key_path).await.map_err(|e| {
-        BridgeError::ConfigError(format!(
-            "Failed to read client key from {}: {}",
-            client_key_path.display(),
-            e
-        ))
-    })?;
+        // Load client certificate and key
+        let client_cert = tokio::fs::read(&client_cert_path).await.map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "Failed to read client certificate from {}: {}",
+                client_cert_path.display(),
+                e
+            ))
+        })?;
 
-    let client_identity = Identity::from_pem(client_cert, client_key);
+        let client_key = tokio::fs::read(&client_key_path).await.map_err(|e| {
+            BridgeError::ConfigError(format!(
+                "Failed to read client key from {}: {}",
+                client_key_path.display(),
+                e
+            ))
+        })?;
 
-    // Load CA certificate
-    let ca_cert = tokio::fs::read(&ca_cert_path).await.wrap_err_with(|| {
-        format!(
-            "Failed to read CA certificate from {}",
-            ca_cert_path.display()
-        )
-    })?;
-
-    let ca_certificate = Certificate::from_pem(ca_cert);
-
-    // Configure TLS
-    let tls_config = ClientTlsConfig::new()
-        .ca_certificate(ca_certificate)
-        .domain_name("localhost")
-        .identity(client_identity);
+        let client_identity = Identity::from_pem(client_cert, client_key);
+        ClientTlsConfig::new()
+            .domain_name("localhost")
+            .identity(client_identity)
+    } else {
+        ClientTlsConfig::new().domain_name("localhost")
+    };
 
     futures::future::try_join_all(
         endpoints
