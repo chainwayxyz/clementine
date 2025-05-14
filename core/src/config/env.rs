@@ -138,6 +138,7 @@ impl BridgeConfig {
             db_name: read_string_from_env("DB_NAME")?,
             citrea_rpc_url: read_string_from_env("CITREA_RPC_URL")?,
             citrea_light_client_prover_url: read_string_from_env("CITREA_LIGHT_CLIENT_PROVER_URL")?,
+            citrea_chain_id: read_string_from_env_then_parse::<u32>("CITREA_CHAIN_ID")?,
             bridge_contract_address: read_string_from_env("BRIDGE_CONTRACT_ADDRESS")?,
             header_chain_proof_path,
             verifier_endpoints,
@@ -206,6 +207,10 @@ mod tests {
         std::env::set_var(
             "CITREA_LIGHT_CLIENT_PROVER_URL",
             &default_config.citrea_light_client_prover_url,
+        );
+        std::env::set_var(
+            "CITREA_CHAIN_ID",
+            default_config.citrea_chain_id.to_string(),
         );
         std::env::set_var(
             "BRIDGE_CONTRACT_ADDRESS",

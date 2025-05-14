@@ -5,6 +5,7 @@ use super::clementine::{
 use super::clementine::{AggregatorWithdrawResponse, Deposit, VerifierPublicKeys, WithdrawParams};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
+    combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
     create_move_to_vault_txhandler, Actors, DepositData, DepositInfo, Signed, TransactionType,
     TxHandler,
 };
@@ -26,7 +27,7 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{TapSighash, XOnlyPublicKey};
+use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
 use futures::{
     future::try_join_all,
@@ -69,7 +70,7 @@ async fn nonce_aggregator(
         + Send
         + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
-) -> Result<MusigAggNonce, BridgeError> {
+) -> Result<(MusigAggNonce, MusigAggNonce), BridgeError> {
     let mut total_sigs = 0;
 
     tracing::info!("Starting nonce aggregation");
@@ -123,7 +124,7 @@ async fn nonce_aggregator(
     if total_sigs == 0 {
         tracing::warn!("Sighash stream returned 0 signatures");
     }
-    // Finally, aggregate nonces for the movetx signature
+    // aggregate nonces for the movetx signature
     let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
         s.next()
             .await
@@ -142,9 +143,27 @@ async fn nonce_aggregator(
     tracing::debug!("Received nonces for movetx in nonce_aggregator");
 
     // TODO: consider spawn_blocking here
-    let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+    let move_tx_agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
 
-    Ok(agg_nonce)
+    let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
+        s.next()
+            .await
+            .transpose()? // Return the inner error if it exists
+            .ok_or_else(|| -> eyre::Report {
+                AggregatorError::InputStreamEndedEarlyUnknownSize {
+                    // Return an early end error if the stream is empty
+                    stream_name: "Nonce stream".to_string(),
+                }
+                .into()
+            })
+    }))
+    .await
+    .wrap_err("Failed to aggregate nonces for the emergency stop tx")?;
+
+    let emergency_stop_agg_nonce =
+        aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+
+    Ok((move_tx_agg_nonce, emergency_stop_agg_nonce))
 }
 
 /// Reroutes aggregated nonces to the signature aggregator.
@@ -280,10 +299,11 @@ async fn signature_aggregator(
 }
 
 /// Reroutes aggregated signatures to the caller.
+/// Also sends 2 aggregated nonces to the verifiers.
 async fn signature_distributor(
     mut final_sig_receiver: Receiver<FinalSigQueueItem>,
     deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
-    movetx_agg_nonce: impl Future<Output = Result<MusigAggNonce, Status>>,
+    agg_nonce: impl Future<Output = Result<(MusigAggNonce, MusigAggNonce), Status>>,
 ) -> Result<(), BridgeError> {
     use verifier_deposit_finalize_params::Params;
     let mut sig_count = 0;
@@ -314,11 +334,11 @@ async fn signature_distributor(
         );
     }
 
-    let movetx_agg_nonce = movetx_agg_nonce
+    let (movetx_agg_nonce, emergency_stop_agg_nonce) = agg_nonce
         .await
-        .wrap_err("Failed to get movetx aggregated nonce")?;
+        .wrap_err("Failed to get aggregated nonce for movetx and emergency stop")?;
 
-    tracing::debug!("Got movetx aggregated nonce in signature distributor");
+    tracing::info!("Got aggregated nonce for movetx and emergency stop in signature distributor");
 
     // Send the movetx agg nonce to the verifiers.
     for tx in &deposit_finalize_sender {
@@ -332,7 +352,21 @@ async fn signature_distributor(
             stream_name: "Deposit finalize sender (for movetx agg nonce)".to_string(),
         })?;
     }
-    tracing::debug!("Sent movetx aggregated nonce to verifiers in signature distributor");
+    tracing::info!("Sent movetx aggregated nonce to verifiers in signature distributor");
+
+    // send emergency stop agg nonce to verifiers
+    for tx in &deposit_finalize_sender {
+        tx.send(VerifierDepositFinalizeParams {
+            params: Some(Params::EmergencyStopAggNonce(
+                emergency_stop_agg_nonce.serialize().to_vec(),
+            )),
+        })
+        .await
+        .wrap_err_with(|| AggregatorError::OutputStreamEndedEarly {
+            stream_name: "Deposit finalize sender (for emergency stop agg nonce)".to_string(),
+        })?;
+    }
+    tracing::info!("Sent emergency stop aggregated nonce to verifiers in signature distributor");
 
     Ok(())
 }
@@ -583,6 +617,63 @@ impl Aggregator {
         Ok(move_txhandler.promote()?)
     }
 
+    async fn verify_and_save_emergency_stop_sigs(
+        &self,
+        emergency_stop_sigs: Vec<Vec<u8>>,
+        emergency_stop_agg_nonce: MusigAggNonce,
+        deposit_params: DepositParams,
+    ) -> Result<(), BridgeError> {
+        let mut deposit_data: crate::builder::transaction::DepositData =
+            deposit_params.try_into()?;
+        let musig_partial_sigs = parser::verifier::parse_partial_sigs(emergency_stop_sigs)?;
+
+        // create move tx and calculate sighash
+        let move_txhandler =
+            create_move_to_vault_txhandler(&mut deposit_data, self.config.protocol_paramset())?;
+
+        let mut emergency_stop_txhandler = create_emergency_stop_txhandler(
+            &mut deposit_data,
+            &move_txhandler,
+            self.config.protocol_paramset(),
+        )?;
+
+        let sighash = emergency_stop_txhandler.calculate_script_spend_sighash_indexed(
+            0,
+            0,
+            bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+        )?;
+
+        let verifiers_public_keys = deposit_data.get_verifiers();
+
+        let final_sig = crate::musig2::aggregate_partial_signatures(
+            &verifiers_public_keys,
+            None,
+            emergency_stop_agg_nonce,
+            &musig_partial_sigs,
+            Message::from_digest(sighash.to_byte_array()),
+        )
+        .wrap_err("Failed to aggregate emergency stop signatures")?;
+
+        let final_sig = bitcoin::taproot::Signature {
+            signature: final_sig,
+            sighash_type: bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+        };
+
+        // insert the signature into the tx
+        emergency_stop_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 0, 0)?;
+
+        let emergency_stop_tx = emergency_stop_txhandler.get_cached_tx();
+        let move_to_vault_txid = move_txhandler.get_txid();
+
+        tracing::debug!("Move to vault tx id: {}", move_to_vault_txid.to_string());
+
+        self.db
+            .set_signed_emergency_stop_tx(None, move_to_vault_txid, emergency_stop_tx)
+            .await?;
+
+        Ok(())
+    }
+
     /// Fetches operator xonly public keys from operators.
     pub async fn collect_operator_xonly_public_keys_with_clients(
         operator_clients: &[ClementineOperatorClient<tonic::transport::Channel>],
@@ -660,6 +751,50 @@ impl Aggregator {
         Ok(VerifierPublicKeys {
             verifier_public_keys: vpks,
         })
+    }
+
+    pub async fn generate_combined_emergency_stop_tx(
+        &self,
+        move_txids: Vec<Txid>,
+        add_anchor: bool,
+    ) -> Result<bitcoin::Transaction, BridgeError> {
+        let stop_txs = self.db.get_emergency_stop_txs(None, move_txids).await?;
+        let combined_stop_tx = combine_emergency_stop_txhandler(stop_txs, add_anchor);
+
+        Ok(combined_stop_tx)
+    }
+
+    pub async fn send_emergency_stop_tx(
+        &self,
+        tx: bitcoin::Transaction,
+    ) -> Result<bitcoin::Transaction, Status> {
+        // Add fee bumper.
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                Some(TxMetadata {
+                    deposit_outpoint: None,
+                    operator_xonly_pk: None,
+                    round_idx: None,
+                    kickoff_idx: None,
+                    tx_type: TransactionType::EmergencyStop,
+                }),
+                &tx,
+                FeePayingType::RBF,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .map_err(BridgeError::from)?;
+        dbtx.commit()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+
+        Ok(tx)
     }
 }
 
@@ -825,9 +960,9 @@ impl ClementineAggregator for Aggregator {
         let num_required_sigs = self.config.get_num_required_nofn_sigs(&deposit_data);
         let (first_responses, nonce_streams) = create_nonce_streams(
             participating_verifiers.clone(),
-            num_required_sigs as u32 + 1,
+            num_required_sigs as u32 + 2,
         )
-        .await?; // ask for +1 for the final movetx signature, but don't send it on deposit_sign stage
+        .await?; // ask for +2 for the final movetx signature + emergency stop signature, but don't send it on deposit_sign stage
 
         let mut partial_sig_streams =
             try_join_all(participating_verifiers.iter().map(|verifier_client| {
@@ -953,7 +1088,9 @@ impl ClementineAggregator for Aggregator {
         // Join the nonce aggregation handle to get the movetx agg nonce.
         let nonce_agg_handle = nonce_agg_handle
             .map_err(|_| Status::internal("panic when aggregating nonces"))
-            .map(|res| -> Result<MusigAggNonce, Status> { res.and_then(|r| r.map_err(Into::into)) })
+            .map(|res| -> Result<(MusigAggNonce, MusigAggNonce), Status> {
+                res.and_then(|r| r.map_err(Into::into))
+            })
             .shared();
 
         // Start the deposit finalization pipe.
@@ -1010,24 +1147,38 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!("Waiting for deposit finalization");
 
         // Collect partial signatures for move transaction
-        let move_tx_partial_sigs =
+        let partial_sigs: Vec<(Vec<u8>, Vec<u8>)> =
             try_join_all(deposit_finalize_futures.iter_mut().map(|fut| async {
-                Ok::<_, Status>(
-                    fut.await
-                        .map_err(|_| Status::internal("panic finishing deposit_finalize"))??
-                        .into_inner()
-                        .partial_sig,
-                )
+                let response = fut
+                    .await
+                    .map_err(|_| Status::internal("panic finishing deposit_finalize"))??
+                    .into_inner();
+                Ok::<_, Status>((
+                    response.move_to_vault_partial_sig,
+                    response.emergency_stop_partial_sig,
+                ))
             }))
             .await
             .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
 
-        tracing::debug!("Received move tx partial sigs: {:?}", move_tx_partial_sigs);
+        let (move_to_vault_sigs, emergency_stop_sigs): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
+            partial_sigs.into_iter().unzip();
+
+        tracing::debug!("Received move tx partial sigs: {:?}", move_to_vault_sigs);
 
         // Create the final move transaction and check the signatures
-        let movetx_agg_nonce = nonce_agg_handle.await?;
+        let (movetx_agg_nonce, emergency_stop_agg_nonce) = nonce_agg_handle.await?;
+
+        // Verify emergency stop signatures
+        self.verify_and_save_emergency_stop_sigs(
+            emergency_stop_sigs,
+            emergency_stop_agg_nonce,
+            deposit_params.clone(),
+        )
+        .await?;
+
         let signed_movetx_handler = self
-            .send_movetx(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
+            .send_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
             .await?;
         let txid = *signed_movetx_handler.get_txid();
 
@@ -1080,6 +1231,33 @@ impl ClementineAggregator for Aggregator {
             num_verifiers: num_verifiers as u32,
         }))
     }
+
+    async fn internal_create_emergency_stop_tx(
+        &self,
+        request: Request<clementine::CreateEmergencyStopTxRequest>,
+    ) -> Result<Response<clementine::SignedTxWithType>, Status> {
+        let inner_request = request.into_inner();
+        let txids: Vec<Txid> = inner_request
+            .txids
+            .into_iter()
+            .map(|txid| {
+                Txid::from_slice(&txid.txid).map_err(|e| {
+                    tonic::Status::invalid_argument(format!("Failed to parse txid: {e}"))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let add_anchor = inner_request.add_anchor;
+
+        let combined_stop_tx = self
+            .generate_combined_emergency_stop_tx(txids, add_anchor)
+            .await?;
+
+        Ok(Response::new(clementine::SignedTxWithType {
+            transaction_type: Some(TransactionType::EmergencyStop.into()),
+            raw_tx: bitcoin::consensus::serialize(&combined_stop_tx).to_vec(),
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -1091,6 +1269,7 @@ mod tests {
     use crate::rpc::clementine::{self};
     use crate::test::common::*;
     use crate::{builder, EVMAddress};
+    use bitcoin::hashes::Hash;
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
     use eyre::Context;
@@ -1298,5 +1477,207 @@ mod tests {
         .unwrap();
 
         assert!(tx.confirmations.unwrap() > 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn aggregator_two_deposit_movetx_and_emergency_stop() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+        let (_verifiers, _operators, mut aggregator, _cleanup) =
+            create_actors::<MockCitreaClient>(&config).await;
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.protocol_paramset().network,
+        );
+
+        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
+
+        let deposit_address_0 = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_address_1 = builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            evm_address,
+            config.protocol_paramset().network,
+            config.protocol_paramset().user_takes_after,
+        )
+        .unwrap()
+        .0;
+
+        let deposit_outpoint_0 = rpc
+            .send_to_address(&deposit_address_0, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_outpoint_1 = rpc
+            .send_to_address(&deposit_address_1, config.protocol_paramset().bridge_amount)
+            .await
+            .unwrap();
+        rpc.mine_blocks(18).await.unwrap();
+
+        let deposit_info_0 = DepositInfo {
+            deposit_outpoint: deposit_outpoint_0,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        let deposit_info_1 = DepositInfo {
+            deposit_outpoint: deposit_outpoint_1,
+            deposit_type: DepositType::BaseDeposit(BaseDepositData {
+                evm_address,
+                recovery_taproot_address: signer.address.as_unchecked().clone(),
+            }),
+        };
+
+        let movetx_txid_0: Txid = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info_0))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let movetx_txid_1: Txid = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info_1))
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3)).await;
+
+        let tx_0 = poll_get(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
+
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&movetx_txid_0, None)
+                    .await;
+
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
+
+                Ok(tx_result)
+            },
+            None,
+            None,
+        )
+        .await
+        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
+        .unwrap();
+
+        let tx_1 = poll_get(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
+
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&movetx_txid_1, None)
+                    .await;
+
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
+
+                Ok(tx_result)
+            },
+            None,
+            None,
+        )
+        .await
+        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
+        .unwrap();
+
+        assert!(tx_0.confirmations.unwrap() > 0);
+        assert!(tx_1.confirmations.unwrap() > 0);
+
+        let move_txids = vec![movetx_txid_0, movetx_txid_1];
+
+        tracing::debug!("Move txids: {:?}", move_txids);
+
+        let emergency_txid = aggregator
+            .internal_create_emergency_stop_tx(tonic::Request::new(
+                clementine::CreateEmergencyStopTxRequest {
+                    txids: move_txids
+                        .iter()
+                        .map(|txid| clementine::Txid {
+                            txid: txid.to_byte_array().to_vec(),
+                        })
+                        .collect(),
+                    add_anchor: true,
+                },
+            ))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let raw_tx: bitcoin::Transaction =
+            bitcoin::consensus::deserialize(&emergency_txid.raw_tx).expect("Failed to deserialize");
+
+        rpc.client
+            .send_raw_transaction(&raw_tx)
+            .await
+            .expect("Failed to send emergency stop tx");
+
+        let emergency_stop_txid = raw_tx.compute_txid();
+        rpc.mine_blocks(1).await.unwrap();
+
+        let _emergencty_tx = poll_get(
+            async || {
+                rpc.mine_blocks(1).await.unwrap();
+
+                let tx_result = rpc
+                    .client
+                    .get_raw_transaction_info(&emergency_stop_txid, None)
+                    .await;
+
+                let tx_result = tx_result
+                    .inspect_err(|e| {
+                        tracing::error!("Error getting transaction: {:?}", e);
+                    })
+                    .ok();
+
+                Ok(tx_result)
+            },
+            None,
+            None,
+        )
+        .await
+        .wrap_err_with(|| eyre::eyre!("Emergency stop tx did not land onchain"))
+        .unwrap();
     }
 }

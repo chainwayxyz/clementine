@@ -243,6 +243,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let citrea_client = CitreaClient::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
+            config.citrea_chain_id,
             Some(SECRET_KEYS[0].to_string().parse().unwrap()),
         )
         .await
@@ -416,10 +417,14 @@ async fn mock_citrea_run_truthful() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    let mut citrea_client =
-        MockCitreaClient::new(config.citrea_rpc_url.clone(), "".to_string(), None)
-            .await
-            .unwrap();
+    let mut citrea_client = MockCitreaClient::new(
+        config.citrea_rpc_url.clone(),
+        "".to_string(),
+        config.citrea_chain_id,
+        None,
+    )
+    .await
+    .unwrap();
 
     tracing::info!("Running deposit");
 
@@ -686,10 +691,14 @@ async fn mock_citrea_run_malicious() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    let mut citrea_client =
-        MockCitreaClient::new(config.citrea_rpc_url.clone(), "".to_string(), None)
-            .await
-            .unwrap();
+    let mut citrea_client = MockCitreaClient::new(
+        config.citrea_rpc_url.clone(),
+        "".to_string(),
+        config.citrea_chain_id,
+        None,
+    )
+    .await
+    .unwrap();
 
     tracing::info!("Running deposit");
 
@@ -879,10 +888,14 @@ async fn mock_citrea_run_malicious_after_exit() {
     let mut config = create_test_config_with_thread_name().await;
     let regtest = create_regtest_rpc(&mut config).await;
     let rpc = regtest.rpc().clone();
-    let mut citrea_client =
-        MockCitreaClient::new(config.citrea_rpc_url.clone(), "".to_string(), None)
-            .await
-            .unwrap();
+    let mut citrea_client = MockCitreaClient::new(
+        config.citrea_rpc_url.clone(),
+        "".to_string(),
+        config.citrea_chain_id,
+        None,
+    )
+    .await
+    .unwrap();
 
     tracing::info!("Running deposit");
 

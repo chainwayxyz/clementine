@@ -15,6 +15,7 @@ use sqlx::postgres::PgConnectOptions;
 use sqlx::ConnectOptions;
 use sqlx::{Pool, Postgres};
 
+mod aggregator;
 mod bitcoin_syncer;
 mod header_chain_prover;
 mod operator;
