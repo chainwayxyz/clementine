@@ -467,11 +467,15 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
 async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
     println!("Connecting to aggregator at {}", url);
     let config = create_minimal_config();
-    let mut aggregator =
-        clementine_core::rpc::get_clients(vec![url], ClementineAggregatorClient::new, &config, false )
-            .await
-            .expect("Exists")[0]
-            .clone();
+    let mut aggregator = clementine_core::rpc::get_clients(
+        vec![url],
+        ClementineAggregatorClient::new,
+        &config,
+        false,
+    )
+    .await
+    .expect("Exists")[0]
+        .clone();
 
     match command {
         AggregatorCommands::Setup => {

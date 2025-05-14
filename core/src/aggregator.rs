@@ -71,12 +71,22 @@ impl Aggregator {
                 ))?;
 
         // Create clients to connect to all verifiers
-        let verifier_clients =
-            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::new, &config, true).await?;
+        let verifier_clients = rpc::get_clients(
+            verifier_endpoints,
+            ClementineVerifierClient::new,
+            &config,
+            true,
+        )
+        .await?;
 
         // Create clients to connect to all operators
-        let operator_clients =
-            rpc::get_clients(operator_endpoints, ClementineOperatorClient::new, &config, true).await?;
+        let operator_clients = rpc::get_clients(
+            operator_endpoints,
+            ClementineOperatorClient::new,
+            &config,
+            true,
+        )
+        .await?;
 
         let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
 

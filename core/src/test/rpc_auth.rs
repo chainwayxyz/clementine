@@ -41,7 +41,7 @@ async fn test_mtls_connection() -> Result<(), eyre::Report> {
             vec![endpoint],
             ClementineOperatorClient::new,
             &config,
-            true
+            true,
         )
         .await?;
 
@@ -85,7 +85,7 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
         vec![endpoint.clone()],
         ClementineOperatorClient::new,
         &agg_config,
-        true
+        true,
     )
     .await?;
 
@@ -107,7 +107,7 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
         vec![endpoint.clone()],
         ClementineOperatorClient::new,
         &bad_config,
-        true
+        true,
     )
     .await?;
 
@@ -129,7 +129,7 @@ async fn test_auth_interceptor() -> Result<(), eyre::Report> {
         vec![endpoint.clone()],
         ClementineOperatorClient::new,
         &internal_client_config,
-        true
+        true,
     )
     .await?;
 

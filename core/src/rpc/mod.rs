@@ -4,7 +4,7 @@ use eyre::Context;
 use hyper_util::rt::TokioIo;
 use std::path::PathBuf;
 use tagged_signature::SignatureId;
-use tonic::transport::{ Channel, ClientTlsConfig, Identity, Uri};
+use tonic::transport::{Channel, ClientTlsConfig, Identity, Uri};
 
 // Add this to ensure certificates exist in tests
 #[cfg(test)]
