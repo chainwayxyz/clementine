@@ -1,29 +1,33 @@
 use alloy_primitives::Bytes;
 use alloy_primitives::{Keccak256, U256};
 use alloy_rpc_types::EIP1186StorageProof;
-use jmt::{proof::SparseMerkleProof, KeyHash};
+use jmt::KeyHash;
+use sha2::{Digest, Sha256};
 
-use super::structs::StorageProof;
+use super::structs::{MoveTxid, StorageProof, WithdrawalOutpointTxid};
 
 const ADDRESS: [u8; 20] = hex_literal::hex!("3100000000000000000000000000000000000002");
 
 // STORAGRE SLOTES of DATA STRUCTURES ON BRIDGE CONTRACT
 const UTXOS_STORAGE_INDEX: [u8; 32] =
-    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000026");
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000007");
 
-const DEPOSIT_MAPPING_STORAGE_INDEX: [u8; 32] =
-    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000027");
+const DEPOSIT_STORAGE_INDEX: [u8; 32] =
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000008");
 
 /// Verifies Ethereum storage proofs related to deposit and withdrawal UTXOs.
 ///
 /// # Parameters
 ///
-/// - `storage_proof`: A reference to `StorageProof`, containing UTXO and deposit proofs.
+/// - `storage_proof`: A reference to `StorageProof`, containing UTXO, vout and deposit proofs.
 /// - `state_root`: A 32-byte array representing the Ethereum state root.
 ///
 /// # Returns
 ///
-/// - A `String` representing the verified UTXO value.
+/// A tuple containing:
+/// - A `WithdrawalOutpointTxid` representing the transaction ID (txid) of the withdrawal outpoint.
+/// - A `u32` representing the output index (vout) of the withdrawal outpoint.
+/// - A `MoveTxid` array representing the move-to-vault transaction ID.
 ///
 /// # Panics
 ///
@@ -31,12 +35,20 @@ const DEPOSIT_MAPPING_STORAGE_INDEX: [u8; 32] =
 /// - If the computed deposit storage key does not match the proof.
 /// - If the computed UTXO storage key or deposit index is invalid.
 /// - If the proof verification via `storage_verify` fails.
-pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32]) -> String {
+pub fn verify_storage_proofs(
+    storage_proof: &StorageProof,
+    state_root: [u8; 32],
+) -> (WithdrawalOutpointTxid, u32, MoveTxid) {
     let utxo_storage_proof: EIP1186StorageProof =
         serde_json::from_str(&storage_proof.storage_proof_utxo)
             .expect("Failed to deserialize UTXO storage proof");
+
+    let vout_storage_proof: EIP1186StorageProof =
+        serde_json::from_str(&storage_proof.storage_proof_vout)
+            .expect("Failed to deserialize vout storage proof");
+
     let deposit_storage_proof: EIP1186StorageProof =
-        serde_json::from_str(&storage_proof.storage_proof_deposit_idx)
+        serde_json::from_str(&storage_proof.storage_proof_deposit_txid)
             .expect("Failed to deserialize deposit storage proof");
 
     let storage_address: U256 = {
@@ -48,34 +60,67 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
         )
     };
 
-    let storage_key: alloy_primitives::Uint<256, 4> =
+    let storage_key_utxo: alloy_primitives::Uint<256, 4> =
         storage_address + U256::from(storage_proof.index * 2);
 
-    let concatenated = [storage_proof.txid_hex, DEPOSIT_MAPPING_STORAGE_INDEX].concat();
+    let storage_key_vout: alloy_primitives::Uint<256, 4> =
+        storage_address + U256::from(storage_proof.index * 2 + 1);
 
-    let deposit_key = {
+    let storage_address_deposit: U256 = {
         let mut keccak = Keccak256::new();
-        keccak.update(concatenated);
-        let mut hash = keccak.finalize().0;
-        hash.reverse(); // Adjust endianness
-        hash
+        keccak.update(DEPOSIT_STORAGE_INDEX);
+        let hash = keccak.finalize();
+        U256::from_be_bytes(
+            <[u8; 32]>::try_from(&hash[..]).expect("Hash slice has incorrect length"),
+        )
     };
 
-    if deposit_key != deposit_storage_proof.key.as_b256().0 {
-        panic!("Invalid deposit storage key.");
+    let deposit_storage_key: alloy_primitives::Uint<256, 4> =
+        storage_address_deposit + U256::from(storage_proof.index);
+
+    let deposit_storage_key_bytes = deposit_storage_key.to_be_bytes::<32>();
+
+    if deposit_storage_key_bytes != deposit_storage_proof.key.as_b256().0 {
+        panic!(
+            "Invalid deposit storage key. left: {:?} right: {:?}",
+            deposit_storage_key_bytes,
+            deposit_storage_proof.key.as_b256().0
+        );
     }
 
-    if storage_key.to_le_bytes() != utxo_storage_proof.key.as_b256().0
-        || U256::from(storage_proof.index) != deposit_storage_proof.value
-    {
-        panic!("Invalid withdrawal UTXO storage key.");
+    if storage_key_utxo.to_be_bytes() != utxo_storage_proof.key.as_b256().0 {
+        panic!(
+            "Invalid withdrawal UTXO storage key. left: {:?} right: {:?}",
+            storage_key_utxo.to_be_bytes::<32>(),
+            utxo_storage_proof.key.as_b256().0
+        );
     }
 
-    storage_verify(&deposit_storage_proof, state_root);
+    if storage_key_vout.to_be_bytes() != vout_storage_proof.key.as_b256().0 {
+        panic!(
+            "Invalid withdrawal vout storage key. left: {:?} right: {:?}",
+            storage_key_vout.to_be_bytes::<32>(),
+            vout_storage_proof.key.as_b256().0
+        );
+    }
 
     storage_verify(&utxo_storage_proof, state_root);
 
-    utxo_storage_proof.value.to_string()
+    storage_verify(&deposit_storage_proof, state_root);
+
+    storage_verify(&vout_storage_proof, state_root);
+
+    let buf: [u8; 32] = vout_storage_proof.value.to_le_bytes();
+
+    // ENDIANNESS SHOULD BE CHECKED THIS FIELD IS 4 BYTES in the contract
+
+    let vout = u32::from_le_bytes(buf[0..4].try_into().expect("Vout value conversion failed"));
+
+    let wd_outpoint = WithdrawalOutpointTxid(utxo_storage_proof.value.to_le_bytes());
+
+    let move_txid = MoveTxid(deposit_storage_proof.value.to_le_bytes());
+
+    (wd_outpoint, vout, move_txid)
 }
 
 /// Verifies an Ethereum storage proof against an expected root hash.
@@ -90,39 +135,41 @@ pub fn verify_storage_proofs(storage_proof: &StorageProof, state_root: [u8; 32])
 /// - If Borsh deserialization of `storage_proof.proof[0]` fails.
 /// - If Merkle proof verification fails.
 fn storage_verify(storage_proof: &EIP1186StorageProof, expected_root_hash: [u8; 32]) {
-    let storage_key = [
-        b"Evm/s/",
-        ADDRESS.as_slice(),
-        &[32],
-        U256::from_le_slice(&storage_proof.key.as_b256().0)
-            .to_be_bytes::<32>()
-            .as_slice(),
-    ]
-    .concat();
-
-    let key_hash = KeyHash::with::<sha2::Sha256>(&storage_key);
+    let kaddr = {
+        let mut hasher: Sha256 = sha2::Digest::new_with_prefix(ADDRESS.as_slice());
+        #[allow(clippy::unnecessary_fallible_conversions)]
+        hasher.update(
+            U256::try_from(storage_proof.key.as_b256())
+                .unwrap()
+                .as_le_slice(),
+        );
+        let arr = hasher.finalize();
+        U256::from_le_slice(&arr)
+    };
+    let storage_key = [b"E/s/".as_slice(), kaddr.as_le_slice()].concat();
+    let key_hash = KeyHash::with::<Sha256>(storage_key.clone());
 
     let proved_value = if storage_proof.proof[1] == Bytes::from("y") {
         // Storage value exists and it's serialized form is:
-        let bytes = [&[32], storage_proof.value.to_be_bytes::<32>().as_slice()].concat();
+        let bytes = storage_proof.value.as_le_bytes().to_vec();
         Some(bytes)
     } else {
         // Storage value does not exist
-        None
+        panic!("storage does not exist");
     };
 
-    let storage_proof: SparseMerkleProof<sha2::Sha256> =
-        borsh::from_slice(&storage_proof.proof[0]).expect("Failed to deserialize storage proof");
+    let storage_proof: jmt::proof::SparseMerkleProof<Sha256> =
+        borsh::from_slice(&storage_proof.proof[0]).unwrap();
+
+    let expected_root_hash = jmt::RootHash(expected_root_hash);
 
     storage_proof
-        .verify(jmt::RootHash(expected_root_hash), key_hash, proved_value)
+        .verify(expected_root_hash, key_hash, proved_value)
         .expect("Account storage proof must be valid");
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
 
     const STORAGE_PROOF: &[u8] =
@@ -133,26 +180,37 @@ mod tests {
         let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
         let state_root: [u8; 32] =
-            hex::decode("ee3922198db909ff1e9ae81ce87933bb6afcc136fd1411088f725ada5efced78")
+            hex::decode("fe1dac365fa622b56c128f75080fbdc226ed087551755ca14c4b4b0287555aa5")
                 .expect("Valid hex, cannot fail")
                 .try_into()
                 .expect("Valid length, cannot fail");
 
-        let user_wd_outpoint_str = verify_storage_proofs(&storage_proof, state_root);
+        let (user_wd_outpoint, vout, move_tx_id) =
+            verify_storage_proofs(&storage_proof, state_root);
 
-        let user_wd_outpoint_bytes = num_bigint::BigUint::from_str(&user_wd_outpoint_str)
-            .unwrap()
-            .to_bytes_be();
+        let move_tx_id_hex = hex::encode(*move_tx_id);
 
         let expected_user_wd_outpoint_bytes = [
-            147, 207, 2, 221, 145, 156, 136, 149, 25, 238, 110, 211, 245, 51, 30, 237, 238, 245,
-            129, 239, 223, 144, 127, 37, 107, 63, 161, 147, 23, 142, 87, 91,
+            56, 100, 54, 16, 198, 255, 202, 164, 42, 95, 228, 47, 96, 137, 162, 129, 86, 152, 92,
+            12, 189, 174, 150, 201, 50, 195, 11, 80, 234, 171, 122, 29,
         ];
 
+        let expected_vout: u32 = 0;
+
+        let expected_move_tx_id_hex =
+            "0778b4ccf0c2e2e37d0d6f634f2acb47b22536b935007a137007f88af86d1755";
+
         assert_eq!(
-            user_wd_outpoint_bytes, expected_user_wd_outpoint_bytes,
+            move_tx_id_hex, expected_move_tx_id_hex,
+            "Invalid transaction ID"
+        );
+
+        assert_eq!(
+            *user_wd_outpoint, expected_user_wd_outpoint_bytes,
             "Invalid UTXO value"
         );
+
+        assert_eq!(vout, expected_vout, "Invalid vout value");
     }
 
     #[test]
@@ -161,7 +219,7 @@ mod tests {
         let mut storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
         let state_root: [u8; 32] =
-            hex::decode("ee3922198db909ff1e9ae81ce87933bb6afcc136fd1411088f725ada5efced78")
+            hex::decode("18f3fda28dd327044edc9ff0054ab2a51d6e36edb77a8b8ab028217f90221a5b")
                 .expect("Valid hex, cannot fail")
                 .try_into()
                 .expect("Valid length, cannot fail");
@@ -177,7 +235,7 @@ mod tests {
         let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
         let state_root: [u8; 32] =
-            hex::decode("ee3922198db909ff1e9ae81ce87933bb6afcc136fd1411088f725ada5efced79")
+            hex::decode("18f3fda28dd327044edc9ff0054ab2a51d6e36edb77a8b8ab028217f90221a5a")
                 .expect("Valid hex, cannot fail")
                 .try_into()
                 .expect("Valid length, cannot fail");

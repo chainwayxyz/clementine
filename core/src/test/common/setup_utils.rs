@@ -375,20 +375,20 @@ pub async fn create_actors<C: CitreaClientT>(
         .enumerate()
         .map(|(i, sk)| {
             let socket_path = socket_dir.path().join(format!("operator_{}.sock", i));
-            let verifier_config = verifier_configs[i].clone();
+            let verifier_config = verifier_configs[i % verifier_configs.len()].clone();
             async move {
                 let (socket_path, shutdown_tx) = create_operator_unix_server::<C>(
                     BridgeConfig {
                         secret_key: *sk,
-                        ..verifier_config
+                        ..verifier_config.clone()
                     },
                     socket_path,
                 )
                 .await?;
 
-                Ok::<(std::path::PathBuf, oneshot::Sender<()>), BridgeError>((
-                    socket_path,
-                    shutdown_tx,
+                Ok::<((std::path::PathBuf, oneshot::Sender<()>), BridgeConfig), BridgeError>((
+                    (socket_path, shutdown_tx),
+                    verifier_config,
                 ))
             }
         })
@@ -398,8 +398,10 @@ pub async fn create_actors<C: CitreaClientT>(
         .await
         .expect("Failed to join operator futures");
 
-    let (operator_paths, operator_shutdown_channels) =
+    let (operator_tmp, operator_configs) =
         operator_results.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+    let (operator_paths, operator_shutdown_channels) =
+        operator_tmp.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
 
     shutdown_channels.extend(operator_shutdown_channels);
 
@@ -438,6 +440,7 @@ pub async fn create_actors<C: CitreaClientT>(
             .map(|path| format!("unix://{}", path.display()))
             .collect::<Vec<_>>(),
         ClementineVerifierClient::new,
+        &verifier_configs[0],
     )
     .await
     .expect("could not connect to verifiers");
@@ -448,6 +451,7 @@ pub async fn create_actors<C: CitreaClientT>(
             .map(|path| format!("unix://{}", path.display()))
             .collect::<Vec<_>>(),
         ClementineOperatorClient::new,
+        &operator_configs[0],
     )
     .await
     .expect("could not connect to operators");
@@ -455,6 +459,7 @@ pub async fn create_actors<C: CitreaClientT>(
     let aggregator = get_clients(
         vec![format!("unix://{}", aggregator_path.display())],
         ClementineAggregatorClient::new,
+        &verifier_configs[0],
     )
     .await
     .expect("could not connect to aggregator")
@@ -492,7 +497,6 @@ pub fn get_deposit_address(
         nofn_xonly_pk,
         signer.address.as_unchecked(),
         evm_address,
-        config.protocol_paramset().bridge_amount,
         config.protocol_paramset().network,
         config.protocol_paramset().user_takes_after,
     )

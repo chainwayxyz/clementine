@@ -14,6 +14,7 @@ use sqlx::ConnectOptions;
 use sqlx::{Pool, Postgres};
 use std::time::Duration;
 
+mod aggregator;
 mod bitcoin_syncer;
 mod header_chain_prover;
 mod operator;

@@ -1,7 +1,7 @@
 //! # Environment Variable Support For [`BridgeConfig`]
 
 use super::BridgeConfig;
-use crate::errors::BridgeError;
+use crate::{builder::transaction::SecurityCouncil, errors::BridgeError};
 use bitcoin::{secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
@@ -105,6 +105,21 @@ impl BridgeConfig {
                 None
             };
 
+        // TLS certificate and key paths
+        let server_cert_path = read_string_from_env("SERVER_CERT_PATH").map(PathBuf::from)?;
+        let server_key_path = read_string_from_env("SERVER_KEY_PATH").map(PathBuf::from)?;
+        let client_cert_path = read_string_from_env("CLIENT_CERT_PATH").map(PathBuf::from)?;
+        let ca_cert_path = read_string_from_env("CA_CERT_PATH").map(PathBuf::from)?;
+        let client_key_path = read_string_from_env("CLIENT_KEY_PATH").map(PathBuf::from)?;
+        let aggregator_cert_path =
+            read_string_from_env("AGGREGATOR_CERT_PATH").map(PathBuf::from)?;
+        let client_verification =
+            read_string_from_env("CLIENT_VERIFICATION").is_ok_and(|s| s == "true" || s == "1");
+
+        let security_council_string = read_string_from_env("SECURITY_COUNCIL")?;
+
+        let security_council = SecurityCouncil::from_str(&security_council_string)?;
+
         let config = BridgeConfig {
             // Protocol paramset's source is independently defined
             protocol_paramset: Default::default(),
@@ -123,12 +138,22 @@ impl BridgeConfig {
             db_name: read_string_from_env("DB_NAME")?,
             citrea_rpc_url: read_string_from_env("CITREA_RPC_URL")?,
             citrea_light_client_prover_url: read_string_from_env("CITREA_LIGHT_CLIENT_PROVER_URL")?,
+            citrea_chain_id: read_string_from_env_then_parse::<u32>("CITREA_CHAIN_ID")?,
             bridge_contract_address: read_string_from_env("BRIDGE_CONTRACT_ADDRESS")?,
             header_chain_proof_path,
             verifier_endpoints,
             operator_endpoints,
             all_verifiers_secret_keys,
             all_operators_secret_keys,
+            security_council,
+
+            client_verification,
+            server_cert_path,
+            server_key_path,
+            ca_cert_path,
+            client_cert_path,
+            client_key_path,
+            aggregator_cert_path,
 
             #[cfg(test)]
             test_params: super::TestParams::default(),
@@ -184,9 +209,32 @@ mod tests {
             &default_config.citrea_light_client_prover_url,
         );
         std::env::set_var(
+            "CITREA_CHAIN_ID",
+            default_config.citrea_chain_id.to_string(),
+        );
+        std::env::set_var(
             "BRIDGE_CONTRACT_ADDRESS",
             &default_config.bridge_contract_address,
         );
+        std::env::set_var(
+            "AGGREGATOR_CERT_PATH",
+            default_config.aggregator_cert_path.clone(),
+        );
+        std::env::set_var("CLIENT_CERT_PATH", default_config.client_cert_path.clone());
+        std::env::set_var("CLIENT_KEY_PATH", default_config.client_key_path.clone());
+        std::env::set_var("SERVER_CERT_PATH", default_config.server_cert_path.clone());
+        std::env::set_var("SERVER_KEY_PATH", default_config.server_key_path.clone());
+        std::env::set_var("CA_CERT_PATH", default_config.ca_cert_path.clone());
+        std::env::set_var(
+            "CLIENT_VERIFICATION",
+            default_config.client_verification.to_string(),
+        );
+
+        std::env::set_var(
+            "SECURITY_COUNCIL",
+            default_config.security_council.to_string(),
+        );
+
         if let Some(ref header_chain_proof_path) = default_config.header_chain_proof_path {
             std::env::set_var("HEADER_CHAIN_PROOF_PATH", header_chain_proof_path);
         }

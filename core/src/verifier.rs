@@ -9,8 +9,9 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_move_to_vault_txhandler, create_txhandlers, ContractContext, DepositData, KickoffData,
-    OperatorData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_emergency_stop_txhandler, create_move_to_vault_txhandler, create_txhandlers,
+    ContractContext, DepositData, KickoffData, OperatorData, ReimburseDbCache, TransactionType,
+    TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
@@ -162,6 +163,7 @@ where
         let citrea_client = C::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
+            config.citrea_chain_id,
             None,
         )
         .await?;
@@ -396,9 +398,9 @@ where
             let num_required_sigs = verifier.config.get_num_required_nofn_sigs(&deposit_data);
 
             assert_eq!(
-                num_required_sigs + 1,
+                num_required_sigs + 2,
                 session.nonces.len(),
-                "Expected nonce count to be num_required_sigs + 1 (movetx)"
+                "Expected nonce count to be num_required_sigs + 2 (movetx & emergency stop)"
             );
 
             while let Some(agg_nonce) = agg_nonce_rx.recv().await {
@@ -439,12 +441,12 @@ where
                 }
             }
 
-            let last_nonce = session
-                .nonces
-                .pop()
-                .ok_or(eyre::eyre!("No last nonce available"))?;
-            session.nonces.clear();
-            session.nonces.push(last_nonce);
+            if session.nonces.len() != 2 {
+                return Err(eyre::eyre!(
+                    "Expected 2 nonces remaining in session, one for move tx and one for emergency stop, got {}",
+                    session.nonces.len()
+                ).into());
+            }
 
             Ok::<(), BridgeError>(())
         });
@@ -460,7 +462,7 @@ where
         mut sig_receiver: mpsc::Receiver<Signature>,
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
         mut operator_sig_receiver: mpsc::Receiver<Signature>,
-    ) -> Result<MusigPartialSignature, BridgeError> {
+    ) -> Result<(MusigPartialSignature, MusigPartialSignature), BridgeError> {
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
@@ -575,6 +577,25 @@ where
             .into());
         }
 
+        tracing::info!(
+            "Verifier{} Finished verifying final signatures of NofN",
+            self.signer.xonly_public_key.to_string()
+        );
+
+        let move_tx_agg_nonce = agg_nonce_receiver
+            .recv()
+            .await
+            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
+
+        let emergency_stop_agg_nonce = agg_nonce_receiver
+            .recv()
+            .await
+            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
+
+        tracing::info!(
+            "Verifier{} Received move tx and emergency stop aggregated nonces",
+            self.signer.xonly_public_key.to_string()
+        );
         // ------ OPERATOR SIGNATURES VERIFICATION ------
 
         let num_required_total_op_sigs = num_required_op_sigs * deposit_data.get_num_operators();
@@ -655,6 +676,10 @@ where
             .into());
         }
 
+        tracing::info!(
+            "Verifier{} Finished verifying final signatures of operators",
+            self.signer.xonly_public_key.to_string()
+        );
         // ----- MOVE TX SIGNING
 
         // Generate partial signature for move transaction
@@ -666,11 +691,6 @@ where
             0,
             bitcoin::TapSighashType::Default,
         )?;
-
-        let agg_nonce = agg_nonce_receiver
-            .recv()
-            .await
-            .ok_or(eyre::eyre!("Aggregated nonces channel ended prematurely"))?;
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
@@ -684,15 +704,59 @@ where
                 .ok_or_eyre("No move tx secnonce in session")?
         };
 
+        let emergency_stop_secnonce = {
+            let mut session_map = self.nonces.lock().await;
+            let session = session_map
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {session_id}"))?;
+            session
+                .nonces
+                .pop()
+                .ok_or_eyre("No emergency stop secnonce in session")?
+        };
+
         // sign move tx and save everything to db if everything is correct
-        let partial_sig = musig2::partial_sign(
+        let move_tx_partial_sig = musig2::partial_sign(
             deposit_data.get_verifiers(),
             None,
             movetx_secnonce,
-            agg_nonce,
+            move_tx_agg_nonce,
             self.signer.keypair,
             Message::from_digest(move_tx_sighash.to_byte_array()),
         )?;
+
+        tracing::info!(
+            "Verifier{} Finished signing move tx",
+            self.signer.xonly_public_key.to_string()
+        );
+
+        let emergency_stop_txhandler = create_emergency_stop_txhandler(
+            deposit_data,
+            &move_txhandler,
+            self.config.protocol_paramset(),
+        )?;
+
+        let emergency_stop_sighash = emergency_stop_txhandler
+            .calculate_script_spend_sighash_indexed(
+                0,
+                0,
+                bitcoin::TapSighashType::SinglePlusAnyoneCanPay,
+            )?;
+
+        let emergency_stop_partial_sig = musig2::partial_sign(
+            deposit_data.get_verifiers(),
+            None,
+            emergency_stop_secnonce,
+            emergency_stop_agg_nonce,
+            self.signer.keypair,
+            Message::from_digest(emergency_stop_sighash.to_byte_array()),
+        )?;
+
+        tracing::info!(
+            "Verifier{} Finished signing emergency stop tx",
+            self.signer.xonly_public_key.to_string()
+        );
 
         // Save signatures to db
         let mut dbtx = self.db.begin_transaction().await?;
@@ -754,7 +818,7 @@ where
         }
         dbtx.commit().await?;
 
-        Ok(partial_sig)
+        Ok((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
     pub async fn set_operator_keys(

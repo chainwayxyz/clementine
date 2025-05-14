@@ -17,10 +17,41 @@ The repository includes:
 
 ### Setup
 
-Clementine requires a Bitcoin node up and running. Please install and configure
-Bitcoin Core if you haven't already.
+Before compiling Clementine:
 
-### Preparing a Configuration File or Using Environment Variables to Configure Clementine
+1. Install Rust: [rustup.rs](https://rustup.rs/)
+2. Install RiscZero: [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
+
+   ```bash
+   # Overwrite default versions
+   rzup install r0vm 1.2.0
+   rzup install rust 1.81.0
+   ```
+
+3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):
+
+   ```bash
+   xcode-select --install
+   ```
+
+4. If on Ubuntu, install these packages:
+
+   ```bash
+   sudo apt install build-essential libssl-dev pkg-config
+   ```
+
+Before running Clementine:
+
+1. Install and configure a Bitcoin node (at least v28.0)
+2. Install and configure PostgreSQL
+3. Set `RUST_MIN_STACK` to at least 33554432
+
+   ```bash
+   # In *nix systems:
+   export RUST_MIN_STACK=33554432
+   ```
+
+### Configure Clementine
 
 Clementine supports two primary configuration methods:
 
@@ -58,6 +89,47 @@ Clementine uses the following logic to determine the configuration source:
    - If `READ_PARAMSET_FROM_ENV=0` or `READ_PARAMSET_FROM_ENV=off` or not set, protocol parameters are read from the specified protocol parameters file
 
 You can mix these approaches - for example, reading main configuration from a file but protocol parameters from environment variables.
+
+### RPC Authentication
+
+Clementine uses mutual TLS (mTLS) to secure gRPC communications between entities and to authenticate clients. Client certificates are verified and filtered by the verifier/operator to ensure that:
+
+1. Verifier/Operator methods can only be called by the aggregator (using aggregator's client certificate `aggregator_cert_path`)
+2. Internal methods can only be called by the entity's own client certificate (using the entity's client certificate `client_cert_path`)
+
+The aggregator does not enforce client certificates but does use TLS for encryption.
+
+#### Certificate Setup for Tests
+
+Before running the servers, you need to generate certificates. A script is provided for this purpose:
+
+```bash
+# Run from the project root
+./scripts/generate_certs.sh
+```
+
+This will create certificates in the following structure:
+```
+certs/
+├── ca/
+│   ├── ca.key     # CA private key
+│   └── ca.pem     # CA certificate
+├── server/
+│   ├── ca.pem     # Copy of CA certificate (for convenience)
+│   ├── server.key # Server private key
+│   └── server.pem # Server certificate
+├── client/
+│   ├── ca.pem     # Copy of CA certificate (for convenience)
+│   ├── client.key # Client private key
+│   └── client.pem # Client certificate
+└── aggregator/
+    ├── ca.pem     # Copy of CA certificate (for convenience)
+    ├── aggregator.key # Aggregator private key
+    └── aggregator.pem # Aggregator certificate
+```
+
+> [!NOTE]
+> For production use, you should use certificates signed by a trusted CA rather than self-signed ones.
 
 ### Starting a Server
 
@@ -123,6 +195,14 @@ For more information, use `--help` flag:
    cargo install cargo-risczero
    ```
 
+3. **TLS Certificates**
+
+   Tests that use gRPC connections require TLS certificates. These are automatically generated during test runs, but you can also generate them manually:
+
+   ```bash
+   ./scripts/generate_certs.sh
+   ```
+
 #### [Optional] Docker
 
 A docker image is provided in
@@ -168,9 +248,18 @@ To run all tests:
 cargo test
 ```
 
+## Security Considerations
+
+### TLS Certificates
+
+- Keep private keys (*.key) secure and don't commit them to version control
+- In production, use properly signed certificates from a trusted CA
+- Rotate certificates regularly
+- Consider using distinct client certificates for different clients/services
+
 ## License
 
-**(C) 2024 Chainway Limited** `clementine` was developed by Chainway Limited.
+**(C) 2025 Chainway Limited** `clementine` was developed by Chainway Limited.
 While we plan to adopt an open source license, we have not yet selected one. As
 such, all rights are reserved for the time being. Please reach out to us if you
 have thoughts on licensing.

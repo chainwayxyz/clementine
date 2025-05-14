@@ -6,6 +6,7 @@
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
+use crate::errors::ErrorExt;
 use crate::utils;
 use crate::utils::delayed_panic;
 use clap::Parser;
@@ -14,6 +15,7 @@ use eyre::Context;
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::process;
 use std::str::FromStr;
 use tracing::level_filters::LevelFilter;
 use tracing::Level;
@@ -50,6 +52,16 @@ where
 {
     match Args::try_parse_from(itr) {
         Ok(c) => Ok(c),
+        Err(e)
+            if matches!(
+                e.kind(),
+                clap::error::ErrorKind::DisplayHelp
+                    | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                    | clap::error::ErrorKind::DisplayVersion
+            ) =>
+        {
+            Err(BridgeError::CLIDisplayAndExit(e.render()))
+        }
         Err(e) => Err(BridgeError::ConfigError(e.to_string())),
     }
 }
@@ -149,7 +161,14 @@ pub fn get_cli_config() -> (BridgeConfig, Args) {
     match get_cli_config_from_args(args) {
         Ok(config) => config,
         Err(e) => {
-            delayed_panic!("Failed to get CLI config: {e:?}");
+            let e = e.into_eyre();
+            match e.root_cause().downcast_ref::<BridgeError>() {
+                Some(BridgeError::CLIDisplayAndExit(msg)) => {
+                    println!("{}", msg);
+                    process::exit(0);
+                }
+                _ => delayed_panic!("Failed to get CLI config: {e:?}"),
+            }
         }
     }
 }
@@ -219,7 +238,7 @@ mod tests {
     fn help_message() {
         match parse_from(vec!["clementine-core", "--help"]) {
             Ok(_) => panic!("expected configuration error"),
-            Err(BridgeError::ConfigError(e)) => println!("{e}"),
+            Err(BridgeError::CLIDisplayAndExit(_)) => {}
             e => panic!("unexpected error {e:#?}"),
         }
     }
@@ -230,7 +249,7 @@ mod tests {
     fn version() {
         match parse_from(vec!["clementine-core", "--version"]) {
             Ok(_) => panic!("expected configuration error"),
-            Err(BridgeError::ConfigError(e)) => println!("{e}"),
+            Err(BridgeError::CLIDisplayAndExit(_)) => {}
             e => panic!("unexpected error {e:#?}"),
         }
     }
@@ -355,9 +374,21 @@ mod tests {
         env::set_var("DB_NAME", "clementine");
         env::set_var("CITREA_RPC_URL", "");
         env::set_var("CITREA_LIGHT_CLIENT_PROVER_URL", "");
+        env::set_var("CITREA_CHAIN_ID", "5655");
         env::set_var(
             "BRIDGE_CONTRACT_ADDRESS",
             "3100000000000000000000000000000000000002",
+        );
+        env::set_var("SERVER_CERT_PATH", "certs/server/server.pem");
+        env::set_var("SERVER_KEY_PATH", "certs/server/server.key");
+        env::set_var("CA_CERT_PATH", "certs/ca/ca.pem");
+        env::set_var("CLIENT_CERT_PATH", "certs/client/client.pem");
+        env::set_var("CLIENT_KEY_PATH", "certs/client/client.key");
+        env::set_var("AGGREGATOR_CERT_PATH", "certs/aggregator/aggregator.pem");
+        env::set_var("CLIENT_VERIFICATION", "true");
+        env::set_var(
+            "SECURITY_COUNCIL",
+            "1:50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0",
         );
     }
 
@@ -406,6 +437,14 @@ mod tests {
         env::remove_var("CITREA_RPC_URL");
         env::remove_var("CITREA_LIGHT_CLIENT_PROVER_URL");
         env::remove_var("BRIDGE_CONTRACT_ADDRESS");
+        env::remove_var("SERVER_CERT_PATH");
+        env::remove_var("SERVER_KEY_PATH");
+        env::remove_var("CA_CERT_PATH");
+        env::remove_var("CLIENT_CERT_PATH");
+        env::remove_var("CLIENT_KEY_PATH");
+        env::remove_var("AGGREGATOR_CERT_PATH");
+        env::remove_var("CLIENT_VERIFICATION");
+        env::remove_var("SECURITY_COUNCIL");
     }
 
     // Helper to clean up all protocol paramset environment variables

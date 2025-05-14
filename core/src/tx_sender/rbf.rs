@@ -4,7 +4,7 @@ use bitcoin::taproot::{self};
 use bitcoin::{Psbt, TapSighashType, TxOut, Txid, Witness};
 use bitcoincore_rpc::json::{
     BumpFeeOptions, BumpFeeResult, CreateRawTransactionInput, FinalizePsbtResult,
-    WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
+    WalletCreateFundedPsbtOutput, WalletCreateFundedPsbtOutputs, WalletCreateFundedPsbtResult,
 };
 use eyre::{eyre, OptionExt};
 use std::str::FromStr;
@@ -158,35 +158,35 @@ impl TxSender {
             estimate_mode: None,
         };
 
-        let outputs = WalletCreateFundedPsbtOutputs {
-            map: &tx
-                .output
-                .iter()
-                .filter_map(|out| -> Option<Result<(String, Amount)>> {
-                    if out.script_pubkey.is_op_return() {
-                        return None;
-                    }
-
-                    let address = Address::from_script(&out.script_pubkey, self.network)
-                        .map_err(|e| eyre!(e));
-
-                    match address {
-                        Ok(address) => Some(Ok((address.to_string(), out.value))),
-                        Err(err) => Some(Err(err.into())),
-                    }
-                })
-                .collect::<Result<std::collections::HashMap<_, _>>>()?,
-            data: tx.output.iter().find_map(|out| {
+        let outputs: Vec<WalletCreateFundedPsbtOutput> = tx
+            .output
+            .iter()
+            .filter_map(|out| {
                 if out.script_pubkey.is_op_return() {
                     if let Some(Ok(Instruction::PushBytes(data))) =
                         out.script_pubkey.instructions().last()
                     {
-                        return Some(data.as_bytes());
+                        return Some(WalletCreateFundedPsbtOutput::OpReturn(
+                            data.as_bytes().to_vec(),
+                        ));
                     }
                 }
-                None
-            }),
-        };
+                let address =
+                    Address::from_script(&out.script_pubkey, self.network).map_err(|e| eyre!(e));
+                match address {
+                    Ok(address) => Some(WalletCreateFundedPsbtOutput::Spendable(
+                        address.to_string(),
+                        out.value,
+                    )),
+                    Err(err) => {
+                        tracing::warn!("Failed to create address from script: {}", err);
+                        None
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let outputs = WalletCreateFundedPsbtOutputs(outputs);
 
         self.rpc
             .client
@@ -835,6 +835,7 @@ mod tests {
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
     use bitcoin::TxOut;
+    use bitcoincore_rpc::json::GetRawTransactionResult;
     use std::result::Result;
     use std::time::Duration;
 
@@ -1343,7 +1344,10 @@ mod tests {
                     .get_raw_transaction_info(&tx.compute_txid(), None)
                     .await;
 
-                Ok(tx_result.is_ok() && tx_result.unwrap().confirmations.unwrap() > 0)
+                Ok(matches!(tx_result, Ok(GetRawTransactionResult {
+                    confirmations: Some(confirmations),
+                    ..
+                }) if confirmations > 0))
             },
             Some(Duration::from_secs(30)),
             Some(Duration::from_millis(100)),

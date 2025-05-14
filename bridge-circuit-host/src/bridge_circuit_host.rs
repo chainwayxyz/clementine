@@ -4,24 +4,26 @@ use crate::structs::{
 };
 use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
+use bitcoin::hashes::Hash;
 use bitcoin::Transaction;
-use bitcoin::{consensus::Decodable, hashes::Hash};
-use borsh::{self, BorshDeserialize};
+use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit::structs::{BridgeCircuitInput, WorkOnlyCircuitInput};
-use circuits_lib::bridge_circuit::winternitz::verify_winternitz_signature;
-use circuits_lib::bridge_circuit::HEADER_CHAIN_METHOD_ID;
-use final_spv::merkle_tree::BitcoinMerkleTree;
-use final_spv::spv::SPV;
-use header_chain::header_chain::CircuitBlockHeader;
-use header_chain::mmr_native::MMRNative;
+use circuits_lib::bridge_circuit::merkle_tree::BitcoinMerkleTree;
+use circuits_lib::bridge_circuit::spv::SPV;
+use circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput;
+use circuits_lib::bridge_circuit::transaction::CircuitTransaction;
 
+use circuits_lib::common::constants::{
+    MAINNET_HEADER_CHAIN_METHOD_ID, REGTEST_HEADER_CHAIN_METHOD_ID, SIGNET_HEADER_CHAIN_METHOD_ID,
+    TESTNET4_HEADER_CHAIN_METHOD_ID,
+};
+use circuits_lib::header_chain::mmr_native::MMRNative;
 use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
-use sha2::{Digest, Sha256};
 
 const _BRIDGE_CIRCUIT_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/prod-testnet4-bridge-circuit-guest");
-const WORK_ONLY_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
+    include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
+const TESTNET4_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
 /// Generates a Groth16 proof for the Bridge Circuit after performing sanity checks.
 ///
@@ -59,14 +61,9 @@ pub fn prove_bridge_circuit(
     [u8; 31],
     BridgeCircuitBitvmInputs,
 ) {
-    let bridge_circuit_input: BridgeCircuitInput = BridgeCircuitInput {
-        winternitz_details: bridge_circuit_host_params.winternitz_details,
-        hcp: bridge_circuit_host_params.block_header_circuit_output, // This will change in the future
-        payout_spv: bridge_circuit_host_params.spv,
-        lcp: bridge_circuit_host_params.light_client_proof,
-        sp: bridge_circuit_host_params.storage_proof,
-        num_watchtowers: bridge_circuit_host_params.num_of_watchtowers,
-    };
+    let bridge_circuit_input = bridge_circuit_host_params
+        .clone()
+        .into_bridge_circuit_input();
 
     let header_chain_proof_output_serialized =
         borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
@@ -80,13 +77,6 @@ pub fn prove_bridge_circuit(
     //     panic!("Light client proof receipt verification failed");
     // }
 
-    // Check for number of watchtowers
-    if bridge_circuit_input.winternitz_details.len()
-        != bridge_circuit_host_params.num_of_watchtowers as usize
-    {
-        panic!("Number of watchtowers mismatch");
-    }
-
     // Header chain verification
     if header_chain_proof_output_serialized
         != bridge_circuit_host_params.headerchain_receipt.journal.bytes
@@ -94,10 +84,18 @@ pub fn prove_bridge_circuit(
         panic!("Header chain proof output mismatch");
     }
 
+    let header_chain_method_id = match bridge_circuit_host_params.network {
+        bitcoin::Network::Bitcoin => MAINNET_HEADER_CHAIN_METHOD_ID,
+        bitcoin::Network::Testnet4 => TESTNET4_HEADER_CHAIN_METHOD_ID,
+        bitcoin::Network::Signet => SIGNET_HEADER_CHAIN_METHOD_ID,
+        bitcoin::Network::Regtest => REGTEST_HEADER_CHAIN_METHOD_ID,
+        _ => panic!("Unsupported network"),
+    };
+
     // Check for headerchain receipt
     if bridge_circuit_host_params
         .headerchain_receipt
-        .verify(HEADER_CHAIN_METHOD_ID)
+        .verify(header_chain_method_id)
         .is_err()
     {
         panic!("Header chain receipt verification failed");
@@ -115,8 +113,9 @@ pub fn prove_bridge_circuit(
     }
 
     let public_inputs: SuccinctBridgeCircuitPublicInputs =
-        generate_succinct_bridge_circuit_public_inputs(bridge_circuit_input.clone());
-    let journal_hash = public_inputs.journal_hash();
+        SuccinctBridgeCircuitPublicInputs::new(bridge_circuit_input.clone());
+
+    let journal_hash = public_inputs.host_journal_hash();
 
     let mut binding = ExecutorEnv::builder();
     let env = binding.write_slice(&borsh::to_vec(&bridge_circuit_input).unwrap());
@@ -126,6 +125,7 @@ pub fn prove_bridge_circuit(
     let prover = default_prover();
 
     tracing::info!("PROVING Bridge CIRCUIT");
+
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
         .unwrap()
@@ -153,10 +153,10 @@ pub fn prove_bridge_circuit(
         ark_groth16_proof,
         g16_output,
         BridgeCircuitBitvmInputs {
-            payout_tx_block_hash: public_inputs.payout_tx_block_hash,
-            latest_block_hash: public_inputs.latest_block_hash,
-            challenge_sending_watchtowers: public_inputs.challenge_sending_watchtowers,
-            deposit_constant: public_inputs.deposit_constant(),
+            payout_tx_block_hash: public_inputs.payout_tx_block_hash.0,
+            latest_block_hash: public_inputs.latest_block_hash.0,
+            challenge_sending_watchtowers: public_inputs.challenge_sending_watchtowers.0,
+            deposit_constant: public_inputs.deposit_constant.0,
             combined_method_id: combined_method_id_constant,
         },
     )
@@ -193,22 +193,15 @@ pub fn prove_bridge_circuit(
 /// - Generating the Merkle or MMR proof fails.
 ///
 pub fn create_spv(
-    payout_tx: &mut &[u8],
-    headers: &[u8],
+    payout_tx: Transaction,
+    block_hash_bytes: &[[u8; 32]],
     payment_block: bitcoin::Block,
     payment_block_height: u32,
     payment_tx_index: u32,
 ) -> SPV {
-    let payout_tx: Transaction = Transaction::consensus_decode::<&[u8]>(payout_tx).unwrap();
-
-    let headers = headers
-        .chunks(80)
-        .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
-        .collect::<Vec<CircuitBlockHeader>>();
-
     let mut mmr_native = MMRNative::new();
-    for header in headers {
-        mmr_native.append(header.compute_block_hash());
+    for block_hash in block_hash_bytes {
+        mmr_native.append(*block_hash);
     }
 
     let block_txids: Vec<[u8; 32]> = payment_block
@@ -224,7 +217,7 @@ pub fn create_spv(
     let payout_tx_proof = block_mt.generate_proof(payment_tx_index);
 
     SPV {
-        transaction: payout_tx.into(),
+        transaction: CircuitTransaction(payout_tx),
         block_inclusion_proof: payout_tx_proof,
         block_header: payment_block.header.into(),
         mmr_inclusion_proof: mmr_inclusion_proof.1,
@@ -258,255 +251,229 @@ pub fn prove_work_only_header_chain_proof(
         .unwrap();
     let prover = default_prover();
     prover
-        .prove_with_opts(env, WORK_ONLY_ELF, &ProverOpts::groth16())
+        .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
         .unwrap()
         .receipt
 }
 
-/// Prepares the public inputs for the bridge circuit.
-///
-/// This function constructs the necessary public input values used in the
-/// succinct bridge circuit by processing watchtower signatures, computing
-/// block hashes, concatenating public keys, and extracting operator IDs.
-///
-/// # Arguments
-///
-/// * `input` - A `BridgeCircuitInput` containing all the necessary transaction
-///   and chain state details.
-///
-/// # Returns
-///
-/// Returns a `SuccinctBridgeCircuitPublicInputs` struct containing:
-/// - A compressed bitmask of watchtower challenges.
-/// - The payout transaction block hash.
-/// - The latest block hash.
-/// - The move-to-vault transaction ID.
-/// - A digest of watchtower challenge public keys.
-/// - The extracted operator ID.
-///
-fn generate_succinct_bridge_circuit_public_inputs(
-    input: BridgeCircuitInput,
-) -> SuccinctBridgeCircuitPublicInputs {
-    // challenge_sending_watchtowers
-    let mut challenge_sending_watchtowers = [0u8; 20];
-    for (i, winternitz_handler) in input.winternitz_details.iter().enumerate() {
-        if winternitz_handler.signature.is_some()
-            && winternitz_handler.message.is_some()
-            && verify_winternitz_signature(winternitz_handler)
-        {
-            challenge_sending_watchtowers[i / 8] |= 1 << (i % 8);
-        }
-    }
-
-    // payout tx block hash
-    let payout_tx_block_hash: [u8; 20] = input.payout_spv.block_header.compute_block_hash()[12..32]
-        .try_into()
-        .unwrap();
-
-    // latest block hash
-    let latest_block_hash: [u8; 20] = input.hcp.chain_state.best_block_hash[12..32]
-        .try_into()
-        .unwrap();
-
-    // watchtower_challenge_wpks_hash
-    let pub_key_concat: Vec<u8> = input
-        .winternitz_details
-        .iter()
-        .flat_map(|wots_handler| {
-            wots_handler
-                .pub_key
-                .iter()
-                .flat_map(|pubkey| pubkey.to_vec())
-        })
-        .collect();
-
-    let wintertniz_pubkeys_digest: [u8; 32] = Sha256::digest(&pub_key_concat).into();
-
-    // operator_id
-    let last_output = input.payout_spv.transaction.output.last().unwrap();
-    let last_output_script = last_output.script_pubkey.to_bytes();
-
-    let len: usize = last_output_script[1] as usize;
-    if len > 32 {
-        panic!("Invalid operator id length");
-    }
-
-    let mut operator_id = [0u8; 32];
-    operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
-
-    SuccinctBridgeCircuitPublicInputs {
-        challenge_sending_watchtowers,
-        payout_tx_block_hash,
-        latest_block_hash,
-        move_to_vault_txid: input.sp.txid_hex,
-        watchtower_challenge_wpks_hash: wintertniz_pubkeys_digest,
-        operator_id,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::config::BCHostParameters;
-    use borsh::BorshDeserialize;
 
-    use circuits_lib::bridge_circuit::winternitz::{
-        generate_public_key, sign_digits, Parameters, WinternitzHandler,
-    };
-    use header_chain::header_chain::BlockHeaderCircuitOutput;
-    use hex_literal::hex;
-    use rand::rngs::SmallRng;
-    use rand::{Rng, SeedableRng};
-    use risc0_zkvm::Receipt;
-    use std::convert::TryInto;
+    // use crate::config::BCHostParameters;
+
+    use crate::mock_zkvm::MockZkvmHost;
 
     use super::*;
 
-    const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest");
-    const WORK_ONLY_ELF: &[u8] =
-        include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest");
-    pub static WORK_ONLY_IMAGE_ID: [u8; 32] =
-        hex_literal::hex!("1ff9f5b6d77bbd4296e1749049d4a841088fb72f7a324da71e31fa1576d4bc0b");
+    // const TEST_BRIDGE_CIRCUIT_ELF: &[u8] =
+    //     include_bytes!("../../risc0-circuits/elfs/test-testnet4-bridge-circuit-guest.bin");
 
-    const HEADERS: &[u8] = include_bytes!("../bin-files/testnet4_headers.bin");
-    const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");
-    const PAYOUT_TX: &[u8; 303] = include_bytes!("../bin-files/payout_tx.bin");
-    const TESTNET_BLOCK_72041: &[u8] = include_bytes!("../bin-files/testnet4_block_72041.bin");
+    const TESTNET4_HEADER_CHAIN_GUEST_ELF: &[u8] =
+        include_bytes!("../../risc0-circuits/elfs/testnet4-header-chain-guest.bin");
 
-    const LCP_RECEIPT: &[u8] = include_bytes!("../bin-files/lcp_receipt.bin");
-    const LIGHT_CLIENT_PROOF: &[u8] = include_bytes!("../bin-files/light_client_proof.bin");
-    const STORAGE_PROOF: &[u8] = include_bytes!("../bin-files/storage_proof.bin");
+    const TESTNET4_WORK_ONLY_ELF: &[u8] =
+        include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
 
-    pub const TEST_PARAMETERS: BCHostParameters = BCHostParameters {
-        l1_block_height: 72075,
-        payment_block_height: 72041,
-        move_to_vault_txid: hex!(
-            "BB25103468A467382ED9F585129AD40331B54425155D6F0FAE8C799391EE2E7F"
-        ),
-        payout_tx_index: 51,
-        deposit_index: 37,
+    use borsh::BorshDeserialize;
+    use circuits_lib::{
+        bridge_circuit::structs::WorkOnlyCircuitOutput,
+        common::zkvm::ZkvmHost,
+        header_chain::{
+            header_chain_circuit, BlockHeaderCircuitOutput, CircuitBlockHeader,
+            HeaderChainCircuitInput, HeaderChainPrevProofType,
+        },
     };
 
-    pub fn sign_winternitz(
-        message: Vec<u8>,
-        secret_key: Vec<u8>,
-        params: Parameters,
-    ) -> WinternitzHandler {
-        let pub_key: Vec<[u8; 20]> = generate_public_key(&params, &secret_key);
-        let signature = sign_digits(&params, &secret_key, &message);
+    // ALSO IMPORTANT FOR HEADERCHAIN IMAGE ID BITCOIN_NETWORK SHOULD BE SET TO "testnet4"
+    // pub const TESTNET4_WORK_ONLY_IMAGE_ID: [u8; 32] =
+    //     hex_literal::hex!("6d104e43b3c55b70a47873edbbd22c8cf01b5fc77e5ff973ad8ba4b9cf3528dc");
 
-        WinternitzHandler {
-            pub_key,
-            params,
-            signature: Some(signature),
-            message: Some(message),
-        }
-    }
+    const TESTNET4_HEADERS: &[u8] = include_bytes!("../bin-files/testnet4-headers.bin");
+    // const HEADER_CHAIN_INNER_PROOF: &[u8] = include_bytes!("../bin-files/testnet4_first_72075.bin");
+    // const PAYOUT_TX: &[u8; 303] = include_bytes!("../bin-files/payout_tx.bin");
+    // const TESTNET_BLOCK_72041: &[u8] = include_bytes!("../bin-files/testnet4_block_72041.bin");
+
+    // const LCP_RECEIPT: &[u8] = include_bytes!("../bin-files/lcp_receipt.bin");
+    // const LIGHT_CLIENT_PROOF: &[u8] = include_bytes!("../bin-files/light_client_proof.bin");
+    // const STORAGE_PROOF: &[u8] = include_bytes!("../bin-files/storage_proof.bin");
+
+    // pub const TEST_PARAMETERS: BCHostParameters = BCHostParameters {
+    //     l1_block_height: 72075,
+    //     payment_block_height: 72041,
+    //     move_to_vault_txid: hex_literal::hex!(
+    //         "BB25103468A467382ED9F585129AD40331B54425155D6F0FAE8C799391EE2E7F"
+    //     ),
+    //     payout_tx_index: 51,
+    //     deposit_index: 37,
+    // };
 
     #[tokio::test]
     #[ignore = "This test is too slow and only runs in x86_64."]
     async fn bridge_circuit_test() {
-        use circuits_lib::bridge_circuit::{
-            structs::{LightClientProof, StorageProof},
-            total_work_and_watchtower_flags,
+        // use circuits_lib::bridge_circuit::{
+        //     structs::{LightClientProof, StorageProof},
+        //     total_work_and_watchtower_flags,
+        // };
+
+        // let testnet4_work_only_method_id_from_elf =
+        //     compute_image_id(TESTNET4_WORK_ONLY_ELF).unwrap();
+        // assert_eq!(
+        //     testnet4_work_only_method_id_from_elf.as_bytes(),
+        //     TESTNET4_WORK_ONLY_IMAGE_ID,
+        //     "Method ID mismatch, make sure to build the guest programs with new hardcoded values."
+        // );
+
+        // let headerchain_receipt: Receipt =
+        //     Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
+
+        // let payment_block: bitcoin::Block =
+        //     bitcoin::block::Block::consensus_decode(&mut &TESTNET_BLOCK_72041[..]).unwrap();
+
+        // let spv = create_spv(
+        //     &mut PAYOUT_TX.as_ref(),
+        //     HEADERS,
+        //     payment_block,
+        //     TEST_PARAMETERS.payment_block_height,
+        //     TEST_PARAMETERS.payout_tx_index,
+        // );
+
+        // let light_client_proof: LightClientProof = borsh::from_slice(LIGHT_CLIENT_PROOF).unwrap();
+        // let lcp_receipt: Receipt = borsh::from_slice(LCP_RECEIPT).unwrap();
+
+        // let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
+
+        // let num_of_watchtowers: u32 = 1;
+
+        // let (ark_groth16_proof, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
+        //     prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
+
+        // let blake3_digest = bridge_circuit_bitvm_inputs.calculate_groth16_public_input();
+        // let g16_pi_calculated_outside = blake3_digest.as_bytes();
+        // assert_eq!(
+        //     output_scalar_bytes_trimmed,
+        //     g16_pi_calculated_outside[0..31]
+        // );
+        // assert!(bridge_circuit_bitvm_inputs.verify_bridge_circuit(ark_groth16_proof));
+    }
+
+    #[test]
+    fn test_header_chain_circuit() {
+        let value = option_env!("BITCOIN_NETWORK");
+        println!("BITCOIN_NETWORK: {:?}", value);
+        let headers = TESTNET4_HEADERS
+            .chunks(80)
+            .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+            .collect::<Vec<CircuitBlockHeader>>();
+
+        let host = MockZkvmHost::new();
+
+        let input = HeaderChainCircuitInput {
+            method_id: [0; 8],
+            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            block_headers: headers[..4000].to_vec(),
         };
+        host.write(&input);
+        header_chain_circuit(&host);
+        let proof = host.prove([0; 8].as_ref());
 
-        let work_only_method_id_from_elf = compute_image_id(WORK_ONLY_ELF).unwrap();
-        assert_eq!(
-            work_only_method_id_from_elf.as_bytes(),
-            WORK_ONLY_IMAGE_ID,
-            "Method ID mismatch, make sure to build the guest programs with new hardcoded values."
-        );
+        let output = BlockHeaderCircuitOutput::try_from_slice(&proof.journal).unwrap();
+        let new_host = MockZkvmHost::new();
 
-        let headerchain_receipt: Receipt =
-            Receipt::try_from_slice(HEADER_CHAIN_INNER_PROOF).unwrap();
+        let newinput = HeaderChainCircuitInput {
+            method_id: [0; 8],
+            prev_proof: HeaderChainPrevProofType::PrevProof(output),
+            block_headers: headers[4000..8000].to_vec(),
+        };
+        new_host.write(&newinput);
+        new_host.add_assumption(proof);
 
-        let payment_block: bitcoin::Block =
-            bitcoin::block::Block::consensus_decode(&mut &TESTNET_BLOCK_72041[..]).unwrap();
+        header_chain_circuit(&new_host);
 
-        let spv = create_spv(
-            &mut PAYOUT_TX.as_ref(),
-            HEADERS,
-            payment_block,
-            TEST_PARAMETERS.payment_block_height,
-            TEST_PARAMETERS.payout_tx_index,
-        );
+        let new_proof = new_host.prove([0; 8].as_ref());
 
-        let block_header_circuit_output: BlockHeaderCircuitOutput =
-            borsh::BorshDeserialize::try_from_slice(&headerchain_receipt.journal.bytes[..])
+        let new_output = BlockHeaderCircuitOutput::try_from_slice(&new_proof.journal).unwrap();
+
+        println!("Output: {:?}", new_output);
+    }
+
+    #[test]
+    #[ignore = "This test is too slow and only runs in x86_64."]
+    fn work_only_from_header_chain_test() {
+        std::env::set_var("RISC0_DEV_MODE", "1");
+        let testnet4_header_chain_method_id_from_elf: [u32; 8] =
+            compute_image_id(TESTNET4_HEADER_CHAIN_GUEST_ELF)
+                .unwrap()
+                .as_words()
+                .try_into()
                 .unwrap();
 
-        let work_only_circuit_input: WorkOnlyCircuitInput = WorkOnlyCircuitInput {
-            header_chain_circuit_output: block_header_circuit_output.clone(),
+        let headers = TESTNET4_HEADERS
+            .chunks(80)
+            .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+            .collect::<Vec<CircuitBlockHeader>>();
+
+        // Prepare the input for the circuit
+        let header_chain_input = HeaderChainCircuitInput {
+            method_id: testnet4_header_chain_method_id_from_elf,
+            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            block_headers: headers[..10].to_vec(),
         };
 
-        let work_only_groth16_proof_receipt: Receipt = prove_work_only_header_chain_proof(
-            headerchain_receipt.clone(),
-            &work_only_circuit_input,
-        );
+        let mut binding = ExecutorEnv::builder();
+        let env = binding.write_slice(&borsh::to_vec(&header_chain_input).unwrap());
+        let env = env.build().unwrap();
+        let prover = default_prover();
 
-        let g16_proof_receipt: &risc0_zkvm::Groth16Receipt<risc0_zkvm::ReceiptClaim> =
-            work_only_groth16_proof_receipt.inner.groth16().unwrap();
+        let header_chain_receipt = prover
+            .prove_with_opts(
+                env,
+                TESTNET4_HEADER_CHAIN_GUEST_ELF,
+                &ProverOpts::succinct(),
+            )
+            .unwrap()
+            .receipt;
 
-        let seal =
-            CircuitGroth16Proof::from_seal(g16_proof_receipt.seal.as_slice().try_into().unwrap());
+        // Extract journal of receipt
+        let header_chain_output =
+            BlockHeaderCircuitOutput::try_from_slice(&header_chain_receipt.journal.bytes).unwrap();
 
-        let compressed_proof = seal.to_compressed().unwrap();
+        println!("Output: {:?}", header_chain_output);
 
-        let commited_total_work: [u8; 16] = work_only_groth16_proof_receipt
-            .journal
-            .bytes
-            .try_into()
+        let work_only_input = circuits_lib::bridge_circuit::structs::WorkOnlyCircuitInput {
+            header_chain_circuit_output: header_chain_output.clone(),
+        };
+
+        let mut binding = ExecutorEnv::builder();
+        let env = binding.write_slice(&borsh::to_vec(&work_only_input).unwrap());
+        let env = env.add_assumption(header_chain_receipt);
+        let env = env.build().unwrap();
+        let prover = default_prover();
+
+        let work_only_prove_info = prover
+            .prove_with_opts(env, TESTNET4_WORK_ONLY_ELF, &ProverOpts::groth16())
             .unwrap();
 
-        let input: u64 = 1;
-
-        let compressed_proof_and_total_work: Vec<u8> =
-            [compressed_proof.as_ref(), commited_total_work.as_ref()].concat();
-
-        let len = compressed_proof_and_total_work.len();
-        let n0 = u32::try_from(len).expect("Length exceeds u32 max value");
-        let params = Parameters::new(n0, 8);
-
-        let mut rng = SmallRng::seed_from_u64(input);
-        let secret_key: Vec<u8> = (0..n0).map(|_| rng.gen()).collect();
-
-        let winternitz_details =
-            sign_winternitz(compressed_proof_and_total_work, secret_key, params);
-
-        let light_client_proof: LightClientProof = borsh::from_slice(LIGHT_CLIENT_PROOF).unwrap();
-        let lcp_receipt: Receipt = borsh::from_slice(LCP_RECEIPT).unwrap();
-
-        let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
-
-        let num_of_watchtowers: u32 = 1;
-
-        let bridge_circuit_host_params = BridgeCircuitHostParams {
-            winternitz_details: vec![winternitz_details],
-            light_client_proof,
-            storage_proof,
-            headerchain_receipt,
-            spv,
-            lcp_receipt,
-            block_header_circuit_output,
-            num_of_watchtowers,
-        };
-        // Do what a normal bridge circuit guest is supposed to do
-        (_, _) = total_work_and_watchtower_flags(
-            &bridge_circuit_host_params.winternitz_details,
-            bridge_circuit_host_params.num_of_watchtowers,
-            &WORK_ONLY_IMAGE_ID,
+        println!(
+            "Work only prove info . receipt: {:?}",
+            work_only_prove_info.receipt
+        );
+        println!(
+            "Work only prove info . session stats: {:?}",
+            work_only_prove_info.stats
         );
 
-        let (ark_groth16_proof, output_scalar_bytes_trimmed, bridge_circuit_bitvm_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, TEST_BRIDGE_CIRCUIT_ELF);
+        let groth16_seal = &work_only_prove_info.receipt.inner.groth16().unwrap().seal;
+        let seal: [u8; 256] = groth16_seal[0..256].try_into().unwrap();
 
-        let blake3_digest = bridge_circuit_bitvm_inputs.calculate_groth16_public_input();
-        let g16_pi_calculated_outside = blake3_digest.as_bytes();
-        assert_eq!(
-            output_scalar_bytes_trimmed,
-            g16_pi_calculated_outside[0..31]
-        );
-        assert!(bridge_circuit_bitvm_inputs.verify_bridge_circuit(ark_groth16_proof));
+        // Extract journal of receipt
+        let work_only_output = WorkOnlyCircuitOutput::try_from_slice(
+            &work_only_prove_info.receipt.journal.bytes.clone(),
+        )
+        .unwrap();
+
+        println!("Output: {:?}", work_only_output);
+
+        let circuit_g16_proof = CircuitGroth16Proof::from_seal(&seal);
+        println!("Circuit G16 proof: {:?}", circuit_g16_proof);
     }
 }

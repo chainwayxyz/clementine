@@ -61,6 +61,7 @@
 //! ```
 
 use crate::{
+    actor::VerificationError,
     builder::transaction::input::SpendableTxInError,
     extended_rpc::BitcoinRPCError,
     header_chain_prover::HeaderChainProverError,
@@ -69,6 +70,7 @@ use crate::{
     tx_sender::SendTxError,
 };
 use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
+use clap::builder::StyledStr;
 use core::fmt::Debug;
 use hex::FromHexError;
 use thiserror::Error;
@@ -101,6 +103,8 @@ pub enum BridgeError {
     BitcoinRPC(#[from] BitcoinRPCError),
     #[error("State machine error: {0}")]
     StateMachine(#[from] StateMachineError),
+    #[error("RPC authentication error: {0}")]
+    RPCAuthError(#[from] VerificationError),
 
     // Shared error messages
     #[error("Unsupported network")]
@@ -136,6 +140,8 @@ pub enum BridgeError {
     AlloyRpc(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
     #[error("Error while encoding/decoding EVM type: {0}")]
     AlloySolTypes(#[from] alloy::sol_types::Error),
+    #[error("{0}")]
+    CLIDisplayAndExit(StyledStr),
 
     #[error("Tonic status: {0}")]
     TonicStatus(#[from] tonic::Status),

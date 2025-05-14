@@ -1,13 +1,16 @@
 //! This module defines a command line interface for the RPC client.
 
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use alloy::primitives::{Bytes, FixedBytes, Uint};
-use bitcoin::{consensus::Encodable, hashes::Hash, Amount, Block, Txid};
+use bitcoin::{consensus::Encodable, hashes::Hash, Block, Txid};
 use bitcoincore_rpc::RpcApi;
 use clap::{Parser, Subcommand};
 use clementine_core::{
+    builder::transaction::SecurityCouncil,
     citrea::Bridge::TransactionParams,
+    config::BridgeConfig,
     errors::BridgeError,
     extended_rpc,
     rpc::clementine::{
@@ -133,8 +136,6 @@ enum AggregatorCommands {
         #[arg(long)]
         network: Option<String>,
         #[arg(long)]
-        bridge_amount: Option<u64>,
-        #[arg(long)]
         user_takes_after: Option<u64>,
     },
     /// Get transaction parameters of a move transaction
@@ -154,7 +155,7 @@ enum AggregatorCommands {
         #[arg(long)]
         network: Option<String>,
         #[arg(long)]
-        bridge_amount: Option<u64>,
+        security_council: Option<SecurityCouncil>,
     },
     /// Process a new withdrawal
     NewWithdrawal {
@@ -337,13 +338,26 @@ fn get_block_merkle_proof(
     Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
 }
 
+// Create a minimal config with default TLS paths
+fn create_minimal_config() -> BridgeConfig {
+    BridgeConfig {
+        server_cert_path: PathBuf::from("certs/server/server.pem"),
+        server_key_path: PathBuf::from("certs/server/server.key"),
+        ca_cert_path: PathBuf::from("certs/ca/ca.pem"),
+        client_cert_path: PathBuf::from("certs/client/client.pem"),
+        client_key_path: PathBuf::from("certs/client/client.key"),
+        client_verification: true,
+        ..Default::default()
+    }
+}
+
 async fn handle_operator_call(url: String, command: OperatorCommands) {
-    let mut operator = clementine_core::rpc::get_clients(vec![url], |channel| {
-        ClementineOperatorClient::new(channel)
-    })
-    .await
-    .expect("Exists")[0]
-        .clone();
+    let config = create_minimal_config();
+    let mut operator =
+        clementine_core::rpc::get_clients(vec![url], ClementineOperatorClient::new, &config)
+            .await
+            .expect("Exists")[0]
+            .clone();
 
     match command {
         OperatorCommands::GetDepositKeys {
@@ -355,6 +369,10 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 deposit_outpoint_txid, deposit_outpoint_vout
             );
             let params = clementine_core::rpc::clementine::DepositParams {
+                security_council: Some(clementine::SecurityCouncil {
+                    pks: vec![],
+                    threshold: 0,
+                }),
                 deposit: Some(Deposit {
                     deposit_outpoint: Some(Outpoint {
                         txid: deposit_outpoint_txid.into(),
@@ -420,12 +438,12 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
 
 async fn handle_verifier_call(url: String, command: VerifierCommands) {
     println!("Connecting to verifier at {}", url);
-    let mut verifier = clementine_core::rpc::get_clients(vec![url], |channel| {
-        ClementineVerifierClient::new(channel)
-    })
-    .await
-    .expect("Exists")[0]
-        .clone();
+    let config = create_minimal_config();
+    let mut verifier =
+        clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config)
+            .await
+            .expect("Exists")[0]
+            .clone();
 
     match command {
         VerifierCommands::GetParams => {
@@ -448,12 +466,12 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
 
 async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
     println!("Connecting to aggregator at {}", url);
-    let mut aggregator = clementine_core::rpc::get_clients(vec![url], |channel| {
-        ClementineAggregatorClient::new(channel)
-    })
-    .await
-    .expect("Exists")[0]
-        .clone();
+    let config = create_minimal_config();
+    let mut aggregator =
+        clementine_core::rpc::get_clients(vec![url], ClementineAggregatorClient::new, &config)
+            .await
+            .expect("Exists")[0]
+            .clone();
 
     match command {
         AggregatorCommands::Setup => {
@@ -528,7 +546,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             evm_address,
             recovery_taproot_address,
             network,
-            bridge_amount,
             user_takes_after,
         } => {
             let response = aggregator
@@ -564,11 +581,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 None => bitcoin::Network::Regtest,
             };
 
-            let bridge_amount = match bridge_amount {
-                Some(amount) => Amount::from_sat(amount),
-                None => Amount::from_sat(1_000_000_000),
-            };
-
             let user_takes_after = match user_takes_after {
                 Some(amount) => amount as u16,
                 None => 200,
@@ -578,7 +590,6 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 xonly_pk,
                 &recovery_taproot_address,
                 evm_address,
-                bridge_amount,
                 network,
                 user_takes_after,
             )
@@ -719,7 +730,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
         AggregatorCommands::GetReplacementDepositAddress {
             move_txid,
             network,
-            bridge_amount,
+            security_council,
         } => {
             let mut move_txid = hex::decode(move_txid).expect("Failed to decode txid");
             move_txid.reverse();
@@ -745,17 +756,12 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                 None => bitcoin::Network::Regtest,
             };
 
-            let bridge_amount = match bridge_amount {
-                Some(amount) => Amount::from_sat(amount),
-                None => Amount::from_sat(1_000_000_000),
-            };
-
             let (replacement_deposit_address, _) =
                 clementine_core::builder::address::generate_replacement_deposit_address(
                     move_txid,
                     nofn_xonly_pk,
-                    bridge_amount,
                     network,
+                    security_council.expect("Security council is required"),
                 )
                 .expect("Failed to generate replacement deposit address");
 

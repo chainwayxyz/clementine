@@ -23,6 +23,16 @@ use bitcoin::{OutPoint, TapNodeHash, TapSighashType, Witness};
 use bitvm::signatures::winternitz::{self, BinarysearchVerifier, ToBytesConverter, Winternitz};
 use eyre::OptionExt;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum VerificationError {
+    #[error("Invalid hex")]
+    InvalidHex,
+    #[error("Invalid length")]
+    InvalidLength,
+    #[error("Invalid signature")]
+    InvalidSignature,
+}
+
 #[derive(Debug, Clone)]
 pub enum WinternitzDerivationPath {
     /// round_idx, kickoff_idx
@@ -180,7 +190,6 @@ pub fn verify_schnorr(
 #[derive(Debug, Clone)]
 pub struct Actor {
     pub keypair: Keypair,
-    _secret_key: SecretKey,
     winternitz_secret_key: Option<SecretKey>,
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: PublicKey,
@@ -200,7 +209,6 @@ impl Actor {
 
         Actor {
             keypair,
-            _secret_key: keypair.secret_key(),
             winternitz_secret_key,
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
@@ -443,7 +451,7 @@ impl Actor {
                         | Kind::BaseDepositScript(_)
                         | Kind::ReplacementDepositScript(_)
                         | Kind::TimelockScript(_)
-                        | Kind::WithdrawalScript(_) => return Ok(None),
+                        | Kind::ManualSpend(_) => return Ok(None),
                     };
 
                     if signed_preimage {
@@ -524,7 +532,7 @@ impl Actor {
                         | Kind::BaseDepositScript(_)
                         | Kind::ReplacementDepositScript(_)
                         | Kind::TimelockScript(_)
-                        | Kind::WithdrawalScript(_) => return Ok(None),
+                        | Kind::ManualSpend(_) => return Ok(None),
                     };
 
                     if signed_winternitz {
@@ -641,7 +649,7 @@ impl Actor {
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)
                         | Kind::Other(_)
-                        | Kind::WithdrawalScript(_) => return Ok(None),
+                        | Kind::ManualSpend(_) => return Ok(None),
                     };
 
                     // Add P2TR elements (control block and script) to the witness
@@ -685,6 +693,50 @@ impl Actor {
 
         txhandler.sign_txins(signer)?;
         Ok(())
+    }
+
+    /// Generates an auth token using the hash of the public key
+    /// and a verifiable signature of the hash.
+    pub fn get_auth_token(&self) -> String {
+        let pk_hash = bitcoin::hashes::sha256::Hash::hash(&self.xonly_public_key.serialize());
+        // sign pk_hash
+        let sig = SECP.sign_schnorr(
+            &Message::from_digest(pk_hash.to_byte_array()),
+            &self.keypair,
+        );
+
+        // encode sig and sk_hash
+        let mut all_bytes = Vec::new();
+        all_bytes.extend(pk_hash.to_byte_array());
+        all_bytes.extend(sig.serialize());
+
+        hex::encode(all_bytes)
+    }
+
+    /// Verifies an auth token using the provided public key.
+    pub fn verify_auth_token(
+        &self,
+        token: &str,
+        pk: &XOnlyPublicKey,
+    ) -> Result<(), VerificationError> {
+        let Ok(bytes) = hex::decode(token) else {
+            return Err(VerificationError::InvalidHex);
+        };
+
+        if bytes.len() != 32 + 64 {
+            return Err(VerificationError::InvalidLength);
+        }
+
+        let sk_hash = &bytes[..32];
+        let sig = &bytes[32..];
+
+        let message = Message::from_digest(sk_hash.try_into().expect("checked length"));
+        SECP.verify_schnorr(
+            &schnorr::Signature::from_slice(sig).expect("checked length"),
+            &message,
+            pk,
+        )
+        .map_err(|_| VerificationError::InvalidSignature)
     }
 }
 
@@ -879,30 +931,6 @@ mod tests {
             .expect("Script spend signature verification failed");
     }
 
-    // #[test]
-    // fn verify_cached_tx() {
-    //     let sk = SecretKey::new(&mut rand::thread_rng());
-    //     let network = Network::Regtest;
-    //     let actor = Actor::new(sk, None, network);
-
-    //     let mut txhandler = create_valid_mock_tx_handler(&actor);
-
-    //     // Sign the transaction
-    //     actor
-    //         .sign_taproot_pubkey_spend(&mut txhandler, 0, None)
-    //         .unwrap();
-
-    //     // Add witness to the transaction
-    //     let sig = actor
-    //         .sign_taproot_pubkey_spend(&mut txhandler, 0, None)
-    //         .unwrap();
-    //     txhandler.get_cached_tx().input[0].witness = Witness::p2tr_key_spend(&sig);
-
-    //     // Verify the cached transaction
-    //     let cached_tx = txhandler.get_cached_tx();
-    //     cached_tx.verify().expect("Transaction verification failed");
-    // }
-
     #[test]
     fn actor_new() {
         let sk = SecretKey::new(&mut rand::thread_rng());
@@ -910,7 +938,6 @@ mod tests {
 
         let actor = Actor::new(sk, None, network);
 
-        assert_eq!(sk, actor._secret_key);
         assert_eq!(sk.public_key(&SECP), actor.public_key);
         assert_eq!(sk.x_only_public_key(&SECP).0, actor.xonly_public_key);
     }
@@ -1245,5 +1272,14 @@ mod tests {
             "Transaction should be allowed in mempool. Rejection reason: {:?}",
             mempool_accept_result[0].reject_reason.as_ref().unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn test_auth_token() {
+        let actor = Actor::new(SecretKey::new(&mut thread_rng()), None, Network::Regtest);
+        let token = actor.get_auth_token();
+        assert!(actor
+            .verify_auth_token(&token, &actor.xonly_public_key)
+            .is_ok());
     }
 }

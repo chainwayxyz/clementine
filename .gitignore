@@ -15,3 +15,5 @@ lcov.json
 .idea/
 logs
 out.json*
+
+core/certs/
