@@ -1,19 +1,27 @@
 //! # Parameter Builder For Citrea Requests
 
+use crate::builder;
+use crate::builder::script::SpendPath;
+use crate::builder::transaction::TransactionType;
 use crate::citrea::Bridge::MerkleProof as CitreaMerkleProof;
 use crate::citrea::Bridge::Transaction as CitreaTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::rpc::clementine::NormalSignatureKind;
 use crate::test::common::citrea::bitcoin_merkle::BitcoinMerkleTree;
+use crate::UTXO;
 use alloy::primitives::{Bytes, FixedBytes, Uint};
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::sha256;
 use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::schnorr;
 use bitcoin::{Block, Transaction, Txid};
+use bitcoincore_rpc::RpcApi;
+use eyre::Context;
 
 /// Returns merkle proof for a given transaction (via txid) in a block.
 fn get_block_merkle_proof(
-    block: Block,
+    block: &Block,
     target_txid: Txid,
 ) -> Result<(usize, Vec<u8>), BridgeError> {
     let mut txid_index = 0;
@@ -48,15 +56,9 @@ fn get_block_merkle_proof(
     Ok((txid_index, witness_idx_path.into_iter().flatten().collect()))
 }
 
-/// Returns [`TransactionParams`] for a given transaction, which can be later
-/// used for deposit and withdrawal operations.
-pub async fn get_transaction_params(
-    rpc: &ExtendedRpc,
-    transaction: Transaction,
-    block: Block,
-    block_height: u32,
-    txid: Txid,
-) -> Result<(CitreaTransaction, CitreaMerkleProof, FixedBytes<32>), BridgeError> {
+fn get_transaction_details_for_citrea(
+    transaction: &Transaction,
+) -> Result<CitreaTransaction, BridgeError> {
     // Version is in little endian format in Bitcoin.
     let version = (transaction.version.0 as u32).to_le_bytes();
     // TODO: Flag should be 0 if no witness elements. Do this in the future if
@@ -125,22 +127,35 @@ pub async fn get_transaction_params(
         .collect::<Vec<u8>>();
 
     let locktime: u32 = transaction.lock_time.to_consensus_u32();
-    let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
 
-    let tp = CitreaTransaction {
+    Ok(CitreaTransaction {
         version: FixedBytes::from(version),
         flag: FixedBytes::from(flag),
         vin: Bytes::copy_from_slice(&vin),
         vout: Bytes::copy_from_slice(&vout),
         witness: Bytes::copy_from_slice(&witness),
         locktime: FixedBytes::from(locktime),
-    };
-    let mp = CitreaMerkleProof {
+    })
+}
+
+fn get_transaction_merkle_proof_for_citrea(
+    block_height: u32,
+    block: &Block,
+    txid: Txid,
+) -> Result<CitreaMerkleProof, BridgeError> {
+    let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
+
+    Ok(CitreaMerkleProof {
         intermediateNodes: Bytes::copy_from_slice(&merkle_proof),
         blockHeight: Uint::from(block_height),
         index: Uint::from(index),
-    };
+    })
+}
 
+async fn get_transaction_sha_script_pubkeys_for_citrea(
+    rpc: &ExtendedRpc,
+    transaction: Transaction,
+) -> Result<FixedBytes<32>, BridgeError> {
     let mut enc_script_pubkeys = sha256::Hash::engine();
     for input in transaction.input {
         let prevout = rpc.get_txout_from_outpoint(&input.previous_output).await?;
@@ -159,7 +174,117 @@ pub async fn get_transaction_params(
 
     let sha_script_pubkeys = FixedBytes::from(sha_script_pks);
 
+    Ok(sha_script_pubkeys)
+}
+
+/// Returns [`TransactionParams`] for a given transaction, which can be later
+/// used for deposit and withdrawal operations.
+pub async fn get_citrea_deposit_params(
+    rpc: &ExtendedRpc,
+    transaction: Transaction,
+    block: Block,
+    block_height: u32,
+    txid: Txid,
+) -> Result<(CitreaTransaction, CitreaMerkleProof, FixedBytes<32>), BridgeError> {
+    let tp = get_transaction_details_for_citrea(&transaction)?;
+    let mp = get_transaction_merkle_proof_for_citrea(block_height, &block, txid)?;
+    let sha_script_pubkeys =
+        get_transaction_sha_script_pubkeys_for_citrea(rpc, transaction).await?;
     Ok((tp, mp, sha_script_pubkeys))
+}
+
+pub async fn get_citrea_safe_withdraw_params(
+    rpc: &ExtendedRpc,
+    withdrawal_dust_utxo: UTXO,
+    payout_output: bitcoin::TxOut,
+    sig: schnorr::Signature,
+) -> Result<
+    (
+        CitreaTransaction,
+        CitreaMerkleProof,
+        CitreaTransaction,
+        Bytes,
+        Bytes,
+    ),
+    BridgeError,
+> {
+    let prepare_tx = rpc
+        .get_tx_of_txid(&withdrawal_dust_utxo.outpoint.txid)
+        .await?;
+
+    let prepare_tx_struct = get_transaction_details_for_citrea(&prepare_tx)?;
+
+    let prepare_tx_blockhash = rpc
+        .get_blockhash_of_tx(&withdrawal_dust_utxo.outpoint.txid)
+        .await?;
+    let prepare_tx_block_height = rpc
+        .client
+        .get_block_info(&prepare_tx_blockhash)
+        .await
+        .wrap_err("Failed to get prepare tx block height")?
+        .height;
+    let prepare_tx_block_header = rpc
+        .client
+        .get_block_header(&prepare_tx_blockhash)
+        .await
+        .wrap_err("Failed to get prepare tx block header")?;
+    let prepare_tx_block = rpc
+        .client
+        .get_block(&prepare_tx_blockhash)
+        .await
+        .wrap_err("Failed to get prepare tx block")?;
+
+    let prepare_tx_mp = get_transaction_merkle_proof_for_citrea(
+        prepare_tx_block_height as u32,
+        &prepare_tx_block,
+        withdrawal_dust_utxo.outpoint.txid,
+    )?;
+
+    let txin = builder::transaction::input::SpendableTxIn::new(
+        withdrawal_dust_utxo.outpoint,
+        withdrawal_dust_utxo.txout.clone(),
+        vec![],
+        None,
+    );
+
+    let undpent_txout =
+        builder::transaction::output::UnspentTxOut::from_partial(payout_output.clone());
+
+    let mut tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
+        .add_input(
+            NormalSignatureKind::NotStored,
+            txin,
+            SpendPath::KeySpend,
+            builder::transaction::DEFAULT_SEQUENCE,
+        )
+        .add_output(undpent_txout.clone())
+        .finalize();
+
+    let taproot_signature = bitcoin::taproot::Signature {
+        signature: sig,
+        sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+    };
+
+    tx.set_p2tr_key_spend_witness(&taproot_signature, 0)?;
+
+    let payout_transaction = tx.get_cached_tx();
+
+    let payout_tx_params = get_transaction_details_for_citrea(payout_transaction)?;
+
+    let block_header_bytes =
+        Bytes::copy_from_slice(&bitcoin::consensus::serialize(&prepare_tx_block_header));
+
+    let output_script_pk_bytes = Bytes::copy_from_slice(&bitcoin::consensus::serialize(
+        &payout_transaction.output[0].script_pubkey,
+    ));
+
+    Ok((
+        prepare_tx_struct,
+        prepare_tx_mp,
+        payout_tx_params,
+        block_header_bytes,
+        output_script_pk_bytes,
+    ))
 }
 
 #[cfg(test)]
@@ -171,7 +296,7 @@ mod tests {
 
     #[ignore = "Manual testing utility"]
     #[tokio::test]
-    async fn test_get_transaction_params() {
+    async fn test_get_citrea_deposit_params() {
         let rpc = ExtendedRpc::connect(
             "http://127.0.0.1:38332".to_string(),
             "bitcoin".to_string(),
@@ -196,7 +321,7 @@ mod tests {
             hex::encode(bitcoin::consensus::serialize(&tx))
         );
         let transaction_params =
-            get_transaction_params(&rpc, tx, block, block_info.height as u32, txid)
+            get_citrea_deposit_params(&rpc, tx, block, block_info.height as u32, txid)
                 .await
                 .unwrap();
         println!("{:?}", transaction_params);

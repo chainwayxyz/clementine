@@ -376,7 +376,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     //     .get_block(&tx_info.blockhash.unwrap())
     //     .await
     //     .expect("a");
-    // let transaction_params = get_transaction_params(
+    // let transaction_params = get_citrea_deposit_params(
     //     &rpc,
     //     transaction.clone(),
     //     block,

@@ -1,7 +1,6 @@
 //! # Testing Utilities
 
 use crate::builder::script::SpendPath;
-use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
 use crate::citrea::CitreaClientT;
 use crate::database::DatabaseTransaction;
@@ -516,7 +515,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     rpc: &ExtendedRpc,
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
-) -> (UTXO, UnspentTxOut, schnorr::Signature) {
+) -> (UTXO, bitcoin::TxOut, schnorr::Signature) {
     let signer = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
@@ -547,7 +546,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
         value: withdrawal_amount,
         script_pubkey: withdrawal_address.script_pubkey(),
     };
-    let txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
+    let undpent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
         .add_input(
@@ -556,7 +555,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
             SpendPath::KeySpend,
             builder::transaction::DEFAULT_SEQUENCE,
         )
-        .add_output(txout.clone())
+        .add_output(undpent_txout.clone())
         .finalize();
 
     let sighash = tx

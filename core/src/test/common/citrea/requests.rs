@@ -1,7 +1,7 @@
 use crate::citrea::LIGHT_CLIENT_ADDRESS;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::test::common::citrea::parameters::get_transaction_params;
+use crate::test::common::citrea::parameters::get_citrea_deposit_params;
 use crate::EVMAddress;
 use alloy::sol_types::SolValue;
 use bitcoin::{Block, Transaction};
@@ -64,7 +64,7 @@ pub async fn deposit(
 ) -> Result<(), BridgeError> {
     let txid = transaction.compute_txid();
 
-    let params = get_transaction_params(rpc, transaction, block, block_height, txid).await?;
+    let params = get_citrea_deposit_params(rpc, transaction, block, block_height, txid).await?;
 
     let _response: () = client
         .request(
