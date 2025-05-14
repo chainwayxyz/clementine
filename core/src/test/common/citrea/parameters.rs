@@ -23,6 +23,7 @@ use eyre::Context;
 fn get_block_merkle_proof(
     block: &Block,
     target_txid: Txid,
+    is_witness_merkle_proof: bool,
 ) -> Result<(usize, Vec<u8>), BridgeError> {
     let mut txid_index = 0;
     let txids = block
@@ -30,15 +31,20 @@ fn get_block_merkle_proof(
         .iter()
         .enumerate()
         .map(|(i, tx)| {
-            if tx.compute_txid() == target_txid {
+            let txid = tx.compute_txid();
+            if txid == target_txid {
                 txid_index = i;
             }
 
-            if i == 0 {
-                [0; 32]
+            if is_witness_merkle_proof {
+                if i == 0 {
+                    [0; 32]
+                } else {
+                    let wtxid = tx.compute_wtxid();
+                    wtxid.as_byte_array().to_owned()
+                }
             } else {
-                let wtxid = tx.compute_wtxid();
-                wtxid.as_byte_array().to_owned()
+                txid.as_byte_array().to_owned()
             }
         })
         .collect::<Vec<_>>();
@@ -142,8 +148,9 @@ fn get_transaction_merkle_proof_for_citrea(
     block_height: u32,
     block: &Block,
     txid: Txid,
+    is_witness_merkle_proof: bool,
 ) -> Result<CitreaMerkleProof, BridgeError> {
-    let (index, merkle_proof) = get_block_merkle_proof(block, txid)?;
+    let (index, merkle_proof) = get_block_merkle_proof(block, txid, is_witness_merkle_proof)?;
 
     Ok(CitreaMerkleProof {
         intermediateNodes: Bytes::copy_from_slice(&merkle_proof),
@@ -187,7 +194,7 @@ pub async fn get_citrea_deposit_params(
     txid: Txid,
 ) -> Result<(CitreaTransaction, CitreaMerkleProof, FixedBytes<32>), BridgeError> {
     let tp = get_transaction_details_for_citrea(&transaction)?;
-    let mp = get_transaction_merkle_proof_for_citrea(block_height, &block, txid)?;
+    let mp = get_transaction_merkle_proof_for_citrea(block_height, &block, txid, true)?;
     let sha_script_pubkeys =
         get_transaction_sha_script_pubkeys_for_citrea(rpc, transaction).await?;
     Ok((tp, mp, sha_script_pubkeys))
@@ -238,6 +245,7 @@ pub async fn get_citrea_safe_withdraw_params(
         prepare_tx_block_height as u32,
         &prepare_tx_block,
         withdrawal_dust_utxo.outpoint.txid,
+        false,
     )?;
 
     let txin = builder::transaction::input::SpendableTxIn::new(
