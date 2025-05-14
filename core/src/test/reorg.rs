@@ -1,3 +1,8 @@
+//! # Reorg Tests
+//!
+//! This module contains tests that check the behavior of the some components
+//! in the event of a reorg.
+
 use crate::actor::Actor;
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::builder::transaction::{BaseDepositData, DepositInfo, DepositType};
@@ -13,6 +18,7 @@ use crate::test::common::{
 };
 use crate::tx_sender::{FeePayingType, TxSender};
 use crate::EVMAddress;
+use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{Amount, FeeRate, Txid};
 use bitcoincore_rpc::RpcApi;
@@ -131,15 +137,6 @@ impl TestCase for TxSenderReorgBehavior {
             .await
             .unwrap();
         dbtx.commit().await.unwrap();
-        let x = db
-            .get_sendable_txs(
-                None,
-                FeeRate::from_sat_per_vb_unchecked(1),
-                rpc.client.get_block_count().await.unwrap() as u32,
-            )
-            .await
-            .unwrap();
-        tracing::debug!("bfpt: {:?}", (x, id));
 
         // TODO: Don't do this.
         sleep(Duration::from_secs(3));
@@ -152,19 +149,20 @@ impl TestCase for TxSenderReorgBehavior {
         // rpc.mine_blocks(1).await.unwrap();
         mine_once_after_in_mempool(&rpc, txid, Some("bumpable_cpfp_tx"), None).await?;
 
-        let x = db
-            .get_sendable_txs(
-                None,
-                FeeRate::from_sat_per_vb_unchecked(1),
-                rpc.client.get_block_count().await.unwrap() as u32,
-            )
-            .await
-            .unwrap();
-        tracing::debug!("bfpt: {:?}", x);
-
         assert!(rpc
             .client
             .get_raw_transaction_info(&txid, None)
+            .await
+            .unwrap()
+            .blockhash
+            .is_some());
+
+        let tx_debug = tx_sender_client.debug_tx(id).await.unwrap();
+        tracing::debug!("debug tx: {:?}", tx_debug);
+        let fee_payer = Txid::from_slice(&tx_debug.fee_payer_utxos[0].txid).unwrap();
+        assert!(rpc
+            .client
+            .get_raw_transaction_info(&fee_payer, None)
             .await
             .unwrap()
             .blockhash
@@ -191,16 +189,6 @@ impl TestCase for TxSenderReorgBehavior {
             "Re-org did not occur"
         );
 
-        let x = db
-            .get_sendable_txs(
-                None,
-                FeeRate::from_sat_per_vb_unchecked(1),
-                rpc.client.get_block_count().await.unwrap() as u32,
-            )
-            .await
-            .unwrap();
-        tracing::debug!("bfpt: {:?}", x);
-
         assert!(rpc
             .client
             .get_raw_transaction_info(&txid, None)
@@ -208,10 +196,37 @@ impl TestCase for TxSenderReorgBehavior {
             .unwrap()
             .blockhash
             .is_none());
+
+        let tx_debug = tx_sender_client.debug_tx(id).await.unwrap();
+        tracing::debug!(
+            "debug tx: {:?}",
+            tx_sender_client.debug_tx(id).await.unwrap()
+        );
+        let fee_payer = Txid::from_slice(&tx_debug.fee_payer_utxos[0].txid).unwrap();
+        tracing::debug!(
+            "fee_payer: {:?}",
+            rpc.client.get_mempool_entry(&fee_payer).await.unwrap()
+        );
+        assert!(rpc
+            .client
+            .get_raw_transaction_info(&fee_payer, None)
+            .await
+            .unwrap()
+            .blockhash
+            .is_none());
+
+        rpc.mine_blocks(1).await.unwrap();
         // tracing::debug!(
-        //     "------- {:?}",
-        //     rpc.client.get_mempool_entry(&txid).await.unwrap()
+        //     "fee_payer: {:?}",
+        //     rpc.client.get_mempool_entry(&fee_payer).await.unwrap()
         // );
+        assert!(rpc
+            .client
+            .get_raw_transaction_info(&fee_payer, None)
+            .await
+            .unwrap()
+            .blockhash
+            .is_some());
 
         let start = std::time::Instant::now();
         loop {

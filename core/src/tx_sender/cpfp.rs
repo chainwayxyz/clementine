@@ -1,3 +1,22 @@
+//! # Child Pays For Parent (CPFP) Transactions
+//!
+//! This module implements the Child Pays For Parent (CPFP) strategy for sending
+//! Bitcoin transactions with transaction sender.
+//!
+//! ## Child Transaction Details
+//!
+//! A child transaction is created to pay for the fees of a parent transaction.
+//! They must be submitted together as a package for Bitcoin nodes to accept
+//! them.
+//!
+//! ### Fee Payer Transactions/UTXOs
+//!
+//! Child transaction needs to spend an UTXO for the fees. But because of the
+//! TRUC rules (https://github.com/bitcoin/bips/blob/master/bip-0431.mediawiki#specification),
+//! a third transaction can't be put into the package. So, a so called "fee
+//! payer" transaction must be send and confirmed before the CPFP package is
+//! send.
+
 use super::{Result, SendTxError, TxMetadata, TxSender};
 use crate::errors::{ErrorExt, ResultExt};
 use crate::extended_rpc::BitcoinRPCError;
@@ -24,7 +43,8 @@ use eyre::Context;
 use std::env;
 
 impl TxSender {
-    /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP.
+    /// Creates and broadcasts a new "fee payer" UTXO to be used for CPFP
+    /// transactions.
     ///
     /// This function is called when a CPFP attempt fails due to insufficient funds
     /// in the existing confirmed fee payer UTXOs associated with a transaction (`bumped_id`).
@@ -97,8 +117,8 @@ impl TxSender {
     /// Creates a Child-Pays-For-Parent (CPFP) child transaction.
     ///
     /// This transaction spends:
-    /// 1.  The designated "P2A anchor" output of the parent transaction (`p2a_anchor`).
-    /// 2.  One or more confirmed "fee payer" UTXOs (`fee_payer_utxos`) controlled by the `signer`.
+    /// 1. The designated "P2A anchor" output of the parent transaction (`p2a_anchor`).
+    /// 2. One or more confirmed "fee payer" UTXOs (`fee_payer_utxos`) controlled by the `signer`.
     ///
     /// It calculates the total fee required (`required_fee`) to make the combined parent + child
     /// package attractive to miners at the target `fee_rate`. The `required_fee` is paid entirely
@@ -193,12 +213,13 @@ impl TxSender {
 
     /// Creates a transaction package for CPFP submission.
     ///
-    /// Finds the P2A anchor output in the parent transaction (`tx`), then constructs
-    /// the child transaction using `create_child_tx`.
+    /// Finds the P2A anchor output in the parent transaction (`tx`), then
+    /// constructs the child transaction using `create_child_tx`.
     ///
     /// # Returns
-    /// A `Vec` containing the parent transaction followed by the child transaction,
-    /// ready for submission via the `submitpackage` RPC.
+    ///
+    /// - [`Vec<Transaction>`]: Parent transaction followed by the child
+    ///   transaction.
     fn create_package(
         &self,
         tx: Transaction,
@@ -238,16 +259,20 @@ impl TxSender {
     /// spent by a CPFP child transaction.
     ///
     /// # Returns
-    /// A `Vec` of `SpendableTxIn`, ready to be included as inputs in the CPFP child tx.
+    ///
+    /// - [`Vec<SpendableTxIn>`]: [`SpendableTxIn`]s of the confirmed fee payer
+    ///   UTXOs that are ready to be included as inputs in the CPFP child tx.
     async fn get_confirmed_fee_payer_utxos(
         &self,
         try_to_send_id: u32,
     ) -> Result<Vec<SpendableTxIn>> {
-        Ok(self
+        let confirmed_fee_payer_utxos = self
             .db
             .get_confirmed_fee_payer_utxos(None, try_to_send_id)
             .await
-            .map_to_eyre()?
+            .map_to_eyre()?;
+
+        let spendable_txins: Vec<_> = confirmed_fee_payer_utxos
             .iter()
             .map(|(txid, vout, amount)| {
                 SpendableTxIn::new(
@@ -263,7 +288,9 @@ impl TxSender {
                     Some(self.cached_spendinfo.clone()),
                 )
             })
-            .collect())
+            .collect();
+
+        Ok(spendable_txins)
     }
 
     /// Attempts to bump the fees of unconfirmed "fee payer" UTXOs using RBF.
@@ -276,14 +303,19 @@ impl TxSender {
     /// This ensures the fee payer UTXOs confirm quickly, making them available to be spent
     /// by the actual CPFP child transaction.
     ///
-    /// # Arguments
+    /// # Parameters
+    ///
     /// * `bumped_id` - The database ID of the parent transaction whose fee payer UTXOs need bumping.
     /// * `fee_rate` - The target fee rate for bumping the fee payer transactions.
     #[tracing::instrument(skip_all, fields(sender = self.btc_syncer_consumer_id, bumped_id, fee_rate))]
-    async fn bump_fees_of_fee_payer_txs(&self, bumped_id: u32, fee_rate: FeeRate) -> Result<()> {
+    async fn bump_fees_of_unconfirmed_fee_payer_txs(
+        &self,
+        bumped_id: u32,
+        fee_rate: FeeRate,
+    ) -> Result<()> {
         let bumpable_fee_payer_txs = self
             .db
-            .get_bumpable_fee_payer_txs(None, bumped_id)
+            .get_unconfirmed_fee_payer_txs(None, bumped_id)
             .await
             .map_to_eyre()?;
 
@@ -294,18 +326,23 @@ impl TxSender {
                 bumped_id,
                 fee_rate
             );
-            let new_txi_result = self
+            let new_txid = self
                 .rpc
                 .bump_fee_with_fee_rate(fee_payer_txid, fee_rate)
                 .await;
 
-            match new_txi_result {
+            match new_txid {
                 Ok(new_txid) => {
                     if new_txid != fee_payer_txid {
                         self.db
                             .save_fee_payer_tx(None, bumped_id, new_txid, vout, amount, Some(id))
                             .await
                             .map_to_eyre()?;
+                    } else {
+                        tracing::warn!(
+                            "Fee payer tx {} has enough fee, no need to bump",
+                            fee_payer_txid
+                        );
                     }
                 }
                 Err(e) => {
@@ -341,9 +378,10 @@ impl TxSender {
 
     /// Sends a transaction using the Child-Pays-For-Parent (CPFP) strategy.
     ///
-    /// # Logic:
+    /// # Logic
+    ///
     /// 1.  **Check Unconfirmed Fee Payers:** Ensures no unconfirmed fee payer UTXOs exist
-    ///     for this `try_to_send_id`. If they do, returns `UnconfirmedFeePayerUTXOsLeft`
+    ///     for this `try_to_send_id`. If they do, returns [`SendTxError::UnconfirmedFeePayerUTXOsLeft`]
     ///     as they need to confirm before being spendable by the child.
     /// 2.  **Get Confirmed Fee Payers:** Retrieves the available confirmed fee payer UTXOs.
     /// 3.  **Create Package:** Calls `create_package` to build the `vec![parent_tx, child_tx]`.
@@ -371,7 +409,7 @@ impl TxSender {
     ) -> Result<()> {
         let unconfirmed_fee_payer_utxos = self
             .db
-            .get_bumpable_fee_payer_txs(None, try_to_send_id)
+            .get_unconfirmed_fee_payer_txs(None, try_to_send_id)
             .await
             .map_to_eyre()?;
 
@@ -393,6 +431,7 @@ impl TxSender {
                 )
                 .await;
 
+            // TODO: Doc states that SendTxError::UnconfirmedFeePayerUTXOsLeft should be returned.
             return Ok(());
         }
 
@@ -400,17 +439,15 @@ impl TxSender {
 
         let confirmed_fee_payers = self.get_confirmed_fee_payer_utxos(try_to_send_id).await?;
         let confirmed_fee_payer_len = confirmed_fee_payers.len();
+        let total_fee_payer_amount = confirmed_fee_payers
+            .iter()
+            .map(|txi| txi.get_prevout().value)
+            .sum::<Amount>();
 
         let _ = self
             .db
             .update_tx_debug_sending_state(try_to_send_id, "creating_package", true)
             .await;
-
-        // to be used below
-        let total_fee_payer_amount = confirmed_fee_payers
-            .iter()
-            .map(|txi| txi.get_prevout().value)
-            .sum::<Amount>();
 
         let package = self
             .create_package(tx.clone(), fee_rate, confirmed_fee_payers)
