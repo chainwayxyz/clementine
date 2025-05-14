@@ -4,7 +4,7 @@ use eyre::Context;
 use hyper_util::rt::TokioIo;
 use std::path::PathBuf;
 use tagged_signature::SignatureId;
-use tonic::transport::{Channel, ClientTlsConfig, Identity, Uri};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Uri};
 
 // Add this to ensure certificates exist in tests
 #[cfg(test)]
@@ -69,6 +69,14 @@ where
     }
 
     // Get certificate paths from config or use defaults
+    let client_ca_cert = tokio::fs::read(&config.ca_cert_path)
+        .await
+        .wrap_err(format!(
+            "Failed to read CA certificate from {}",
+            config.ca_cert_path.display()
+        ))?;
+
+    let client_ca = Certificate::from_pem(client_ca_cert);
 
     let tls_config = if use_client_cert {
         // Get certificate paths from config or use defaults
@@ -96,8 +104,11 @@ where
         ClientTlsConfig::new()
             .domain_name("localhost")
             .identity(client_identity)
+            .ca_certificate(client_ca)
     } else {
-        ClientTlsConfig::new().domain_name("localhost")
+        ClientTlsConfig::new()
+            .domain_name("localhost")
+            .ca_certificate(client_ca)
     };
 
     futures::future::try_join_all(
