@@ -1264,9 +1264,9 @@ impl ClementineAggregator for Aggregator {
 mod tests {
     use crate::actor::Actor;
     use crate::builder::transaction::{BaseDepositData, DepositInfo, DepositType};
-    use crate::citrea::mock::MockCitreaClient;
     use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{self};
+    use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use crate::{builder, EVMAddress};
     use bitcoin::hashes::Hash;

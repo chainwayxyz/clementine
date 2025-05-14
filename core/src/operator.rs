@@ -1168,8 +1168,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::citrea::mock::MockCitreaClient;
     use crate::operator::Operator;
+    use crate::test::common::citrea::MockCitreaClient;
     use crate::test::common::*;
     use bitcoin::hashes::Hash;
     use bitcoin::{OutPoint, Txid};

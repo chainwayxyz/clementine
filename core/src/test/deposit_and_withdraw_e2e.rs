@@ -5,13 +5,12 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::rpc::clementine::{
     FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::SECRET_KEYS;
+use crate::test::common::citrea::{MockCitreaClient, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
     get_txid_where_utxo_is_spent,
