@@ -110,9 +110,10 @@ where
             let client_ca = Certificate::from_pem(client_ca_cert);
 
             // Build TLS configuration
-            let tls_config = ServerTlsConfig::new()
-                .identity(server_identity)
-                .client_ca_root(client_ca);
+            let mut tls_config = ServerTlsConfig::new().identity(server_identity);
+            if server_name != "Aggregator" {
+                tls_config = tls_config.client_ca_root(client_ca);
+            }
 
             let service = InterceptedService::new(
                 service,
