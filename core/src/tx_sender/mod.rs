@@ -6,15 +6,35 @@
 //!
 //! ## Concepts
 //!
-//! ### Active and Cancelled Transactions/UTXOs
+//! ### Transaction/UTXO Activation and Cancelation
 //!
-//! Transactions that are marked as active are candidate transactions for
-//! transaction sender. Their inputs must be
+//! Transactions and UTXOs can be marked as active, non-active or cancelled.
+//!
+//! Transactions/UTXOS that are marked as active are candidate transactions for
+//! transaction sender. Non-active transactions/UTXOS on the other hand are, not
+//! yet processed by the transaction sender.
+//!
+//! If a transaction/UTXO is marked as cancelled, it can't be used in
+//! transaction sender anymore. Spent transactions/UTXOs are examples for that.
+//!
+//! An active transaction can be send if its UTXOs are also marked as active
+//! and doesn't have any cancelled UTXO bounds which is specified when the send
+//! transaction call is issued.
 //!
 //! ### Confirmed and Unconfirmed Blocks
 //!
-//! Blocks are marked as confirmed if a block is confirmed in the Bitcoin. If a
-//! reorg happens, the blocks are marked as unconfirmed.
+//! Blocks are marked as confirmed when they are confirmed in the Bitcoin. And
+//! if a reorg happens, the blocks are marked as unconfirmed.
+//!
+//! After a block is confirmed, all of the transactions and UTXOs in that block
+//! gets assigned with the corresponding block id. Similarly, when a block is
+//! unconfirmed, all of the transactions and UTXOs in that block gets their
+//! block id removed.
+//!
+//! ## Debugging Transaction Sender
+//!
+//! There are several database tables that saves the transaction states. Please
+//! look for [`core/src/database/tx_sender.rs`] for more information.
 
 use crate::errors::ResultExt;
 use crate::{
@@ -281,8 +301,7 @@ impl TxSender {
     }
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
-        output.value == builder::transaction::anchor_output().value
-            && output.script_pubkey == builder::transaction::anchor_output().script_pubkey
+        *output == builder::transaction::anchor_output()
     }
 
     fn find_p2a_vout(&self, tx: &Transaction) -> Result<usize> {
