@@ -51,7 +51,7 @@ secp256k1 = { version = "0.30.0", features = [
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 
 # async + gRPC
-tonic = { version = "0.12.3", features = ["transport", "tls", "tls-roots", "tls-webpki-roots"] }
+tonic = { version = "0.12.3", features = ["tls"] }
 prost = "0.13.3"
 tokio = { version = "1.40.0", features = ["full"] }
 tokio-stream = { version = "0.1.16", features = ["sync"] }
