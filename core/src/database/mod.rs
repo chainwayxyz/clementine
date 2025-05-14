@@ -6,14 +6,13 @@
 //! **Warning:** This crate won't configure PostgreSQL itself and excepts admin
 //! privileges to create/drop databases.
 
-use std::time::Duration;
-
 use crate::{config::BridgeConfig, errors::BridgeError};
 use alloy::transports::http::reqwest::Url;
 use eyre::Context;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::ConnectOptions;
 use sqlx::{Pool, Postgres};
+use std::time::Duration;
 
 mod bitcoin_syncer;
 mod header_chain_prover;

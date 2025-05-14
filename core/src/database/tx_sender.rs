@@ -19,12 +19,17 @@ use sqlx::Executor;
 use std::ops::DerefMut;
 
 impl Database {
+    /// Set all transactions' `seen_block_id` to the given block id. This will
+    /// be called once a block is confirmed on the Bitcoin side.
     pub async fn confirm_transactions(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         block_id: u32,
     ) -> Result<(), BridgeError> {
-        // Common CTEs for reuse
+        let block_id = i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?;
+
+        // CTEs for collecting a block's transactions, spent UTXOs and confirmed
+        // RBF transactions.
         let common_ctes = r#"
             WITH relevant_txs AS (
                 SELECT txid
@@ -44,7 +49,6 @@ impl Database {
             )
         "#;
 
-        // Update tx_sender_activate_try_to_send_txids
         sqlx::query(&format!(
             "{}
             UPDATE tx_sender_activate_try_to_send_txids AS tap
@@ -53,11 +57,10 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_activate_try_to_send_outpoints
         sqlx::query(&format!(
             "{}
             UPDATE tx_sender_activate_try_to_send_outpoints AS tap
@@ -66,11 +69,10 @@ impl Database {
             AND tap.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_cancel_try_to_send_txids
         sqlx::query(&format!(
             "{}
             UPDATE tx_sender_cancel_try_to_send_txids AS ctt
@@ -79,11 +81,10 @@ impl Database {
             AND ctt.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_cancel_try_to_send_outpoints
         sqlx::query(&format!(
             "{}
             UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
@@ -92,11 +93,10 @@ impl Database {
             AND cto.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_fee_payer_utxos
         sqlx::query(&format!(
             "{}
             UPDATE tx_sender_fee_payer_utxos AS fpu
@@ -105,11 +105,10 @@ impl Database {
             AND fpu.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_try_to_send_txs for CPFP txid confirmation
         sqlx::query(&format!(
             "{}
             UPDATE tx_sender_try_to_send_txs AS txs
@@ -118,11 +117,10 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_try_to_send_txs for RBF txid confirmation
         sqlx::query(&format!(
             "{}
             UPDATE tx_sender_try_to_send_txs AS txs
@@ -131,7 +129,7 @@ impl Database {
             AND txs.seen_block_id IS NULL",
             common_ctes
         ))
-        .bind(i32::try_from(block_id).wrap_err("Failed to convert block id to i32")?)
+        .bind(block_id)
         .execute(tx.deref_mut())
         .await?;
 
@@ -186,11 +184,9 @@ impl Database {
 
             // Record debug info for confirmed RBF transactions
             for (tx_id,) in confirmed_rbf_txs {
-                // Add debug state change
                 tracing::debug!(try_to_send_id=?tx_id,  "Transaction confirmed in block {}: RBF confirmation",
             block_id);
 
-                // Update sending state
                 let _ = bg_db
                     .update_tx_debug_sending_state(tx_id as u32, "confirmed", true)
                     .await;
@@ -200,6 +196,10 @@ impl Database {
         Ok(())
     }
 
+    /// Unassigns `seen_block_id` from all transactions in the given block id.
+    /// By default, all transactions' `seen_block_id` is set to NULL. And they
+    /// get assigned a block id when they are confirmed on Bitcoin side. If a
+    /// reorg happens, block ids must be unassigned from all transactions.
     pub async fn unconfirm_transactions(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -218,21 +218,22 @@ impl Database {
 
         let bg_db = self.clone();
         tokio::spawn(async move {
-            let Ok(previously_confirmed_txs) = previously_confirmed_txs else {
-                tracing::error!("Failed to get previously confirmed txs");
-                return;
+            let previously_confirmed_txs = match previously_confirmed_txs {
+                Ok(txs) => txs,
+                Err(e) => {
+                    tracing::error!(error=?e, "Failed to get previously confirmed txs from database");
+                    return;
+                }
             };
 
             for (tx_id,) in previously_confirmed_txs {
-                tracing::warn!(try_to_send_id=?tx_id, "Transaction unconfirmed in block {}: unconfirming", block_id);
+                tracing::debug!(try_to_send_id=?tx_id, "Transaction unconfirmed in block {}: unconfirming", block_id);
                 let _ = bg_db
                     .update_tx_debug_sending_state(tx_id as u32, "unconfirmed", false)
                     .await;
             }
         });
 
-        // Unconfirm tx_sender_fee_payer_utxos
-        // Update tx_sender_activate_try_to_send_txids
         sqlx::query(
             "UPDATE tx_sender_activate_try_to_send_txids AS tap
              SET seen_block_id = NULL
@@ -242,7 +243,6 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_activate_try_to_send_outpoints
         sqlx::query(
             "UPDATE tx_sender_activate_try_to_send_outpoints AS tap
              SET seen_block_id = NULL
@@ -252,7 +252,6 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_cancel_try_to_send_txids
         sqlx::query(
             "UPDATE tx_sender_cancel_try_to_send_txids AS ctt
              SET seen_block_id = NULL
@@ -262,7 +261,6 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_cancel_try_to_send_outpoints
         sqlx::query(
             "UPDATE tx_sender_cancel_try_to_send_outpoints AS cto
              SET seen_block_id = NULL
@@ -272,7 +270,6 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_fee_payer_utxos
         sqlx::query(
             "UPDATE tx_sender_fee_payer_utxos AS fpu
              SET seen_block_id = NULL
@@ -282,7 +279,6 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
 
-        // Update tx_sender_try_to_send_txs
         sqlx::query(
             "UPDATE tx_sender_try_to_send_txs AS txs
              SET seen_block_id = NULL
@@ -298,6 +294,7 @@ impl Database {
     /// Saves a fee payer transaction to the database.
     ///
     /// # Arguments
+    ///
     /// * `bumped_id` - The id of the bumped transaction
     /// * `fee_payer_txid` - The txid of the fee payer transaction
     /// * `vout` - The output index of the UTXO
@@ -320,17 +317,34 @@ impl Database {
         .bind(TxidDB(fee_payer_txid))
         .bind(i32::try_from(vout).wrap_err("Failed to convert vout to i32")?)
         .bind(i64::try_from(amount.to_sat()).wrap_err("Failed to convert amount to i64")?)
-        .bind(replacement_of_id.map( i32::try_from).transpose().wrap_err("Failed to convert replacement of id to i32")?);
+        .bind(replacement_of_id.map(i32::try_from).transpose().wrap_err("Failed to convert replacement of id to i32")?);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
 
+    /// Returns all unconfirmed fee payer transactions for a given bumped
+    /// transaction.
+    ///
     /// Some fee payer TXs may not hit onchain, so we need to bump their fees.
-    /// These TXs should not be confirmed and should not be replaced by other TXs.
-    /// Replaced means that the TX was bumped and the replacement TX is in the database.
-    pub async fn get_bumpable_fee_payer_txs(
+    /// These TXs should not be confirmed and should not be replaced by other
+    /// TXs. Replaced means that the TX was bumped and the replacement TX is in
+    /// the database.
+    ///
+    /// # Parameters
+    ///
+    /// - `bumped_id`: The id of the bumped transaction
+    ///
+    /// # Returns
+    ///
+    /// A vector of unconfirmed fee payer transaction details, including:
+    ///
+    /// - [`u32`]: Id of the fee payer transaction.
+    /// - [`Txid`]: Txid of the fee payer transaction.
+    /// - [`u32`]: Output index of the UTXO.
+    /// - [`Amount`]: Amount in satoshis.
+    pub async fn get_unconfirmed_fee_payer_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         bumped_id: u32,
@@ -835,11 +849,9 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-
-    use crate::test::common::*;
-
     use super::*;
     use crate::database::Database;
+    use crate::test::common::*;
     use bitcoin::absolute::Height;
     use bitcoin::hashes::Hash;
     use bitcoin::transaction::Version;
