@@ -1346,40 +1346,7 @@ where
         _block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
-        tracing::warn!("Operator called handle finalized block {}", _block_height);
-        if _block_cache
-            .block
-            .as_ref()
-            .expect("Block should exist")
-            .txdata
-            .len()
-            > 1
-        {
-            tracing::warn!(
-                "Block tx count: {}",
-                _block_cache
-                    .block
-                    .as_ref()
-                    .expect("Block should exist")
-                    .txdata
-                    .len()
-            );
-            tracing::warn!(
-                "Block txs: {:?}",
-                &_block_cache
-                    .block
-                    .as_ref()
-                    .expect("Block should exist")
-                    .txdata[1..]
-                    .iter()
-                    .map(|tx| tx
-                        .input
-                        .iter()
-                        .map(|input| input.previous_output)
-                        .collect::<Vec<_>>())
-                    .collect::<Vec<_>>()
-            );
-        }
+        tracing::debug!("Operator called handle finalized block {}", _block_height);
         Ok(())
     }
 }

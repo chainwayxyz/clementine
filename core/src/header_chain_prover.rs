@@ -398,7 +398,7 @@ impl HeaderChainProver {
             .await?
             .ok_or(eyre::eyre!("No tip block found"))?;
 
-        tracing::warn!(
+        tracing::debug!(
             "Tip height: {}, non proven block height: {}, {}",
             tip_height,
             non_proven_block.2,

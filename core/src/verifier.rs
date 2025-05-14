@@ -1362,7 +1362,7 @@ where
         block_cache: Arc<block_cache::BlockCache>,
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
-        tracing::warn!(
+        tracing::debug!(
             "Verifier Handling finalized block height: {:?} and block cache height: {:?}",
             block_height,
             block_cache.block_height
