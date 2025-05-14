@@ -1081,10 +1081,32 @@ where
             &[wt_derive_path],
             self.config.protocol_paramset(),
         )?;
+
         let latest_blockhash = commits
             .first()
-            .ok_or_eyre("Failed to get latest blockhash in send_asserts")?;
-        let latest_blockhash = BlockHash::from_slice(latest_blockhash).wrap_err("Failed to convert latest blockhash received from latest blockhash tx Witness to BlockHash in send_asserts")?;
+            .ok_or_eyre("Failed to get latest blockhash in send_asserts")?
+            .to_owned();
+
+        let current_height = self
+            .db
+            .get_latest_finalized_block_height(None)
+            .await?
+            .ok_or_eyre("Failed to get current finalized block height")?;
+
+        let block_hashes = self
+            .db
+            .get_block_info_from_range(None, 0, current_height)
+            .await?;
+
+        // find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
+        let latest_blockhash_index = block_hashes
+            .iter()
+            .position(|(block_hash, _)| {
+                block_hash.to_byte_array()[12..].to_vec() == latest_blockhash
+            })
+            .ok_or_eyre("Failed to find latest blockhash in send_asserts")?;
+
+        let latest_blockhash = block_hashes[latest_blockhash_index].0;
 
         let (current_hcp, hcp_height) = self
             .header_chain_prover
@@ -1092,13 +1114,9 @@ where
             .await?;
         tracing::warn!("Got header chain proof in send_asserts");
 
-        let block_hashes = self
-            .db
-            .get_block_info_from_range(None, 0, hcp_height)
-            .await?;
-
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
             .iter()
+            .take(hcp_height as usize + 1) // height 0 included
             .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
 
