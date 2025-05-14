@@ -43,10 +43,21 @@ async fn main() {
         cli::Actors::Aggregator => {
             println!("Starting aggregator server...");
 
-            create_aggregator_grpc_server(config.clone())
-                .await
-                .expect("Can't create aggregator server")
-                .1
+            let result = create_aggregator_grpc_server(config.clone()).await;
+
+            match result {
+                Ok(server) => server.1,
+                Err(e) => {
+                    eprintln!("Error creating aggregator server: {}", e);
+                    eprintln!("Error creating aggregator server: {:?}", e);
+                    println!("Error creating aggregator server: {}", e);
+                    println!("Error creating aggregator server: {:?}", e);
+                    tracing::error!("Error creating aggregator server: {}", e);
+                    tracing::error!("Error creating aggregator server: {}", e.to_string());
+                    tracing::error!("Error creating aggregator server: {:?}", e);
+                    return;
+                }
+            }
         }
     };
     println!("Server has started successfully.");
