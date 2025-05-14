@@ -199,13 +199,27 @@ pub async fn parse_next_deposit_finalize_param_schnorr_sig(
     Ok(Some(final_sig))
 }
 
-pub async fn parse_deposit_finalize_param_agg_nonce(
+pub async fn parse_deposit_finalize_param_move_tx_agg_nonce(
     stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
 ) -> Result<MusigAggNonce, Status> {
     let sig = fetch_next_message_from_stream!(stream, params)?;
 
     match sig {
         verifier_deposit_finalize_params::Params::MoveTxAggNonce(aggnonce) => {
+            Ok(MusigAggNonce::from_slice(&aggnonce)
+                .map_err(invalid_argument("MusigAggNonce", "failed to parse"))?)
+        }
+        _ => Err(Status::internal("Expected FinalSig 2")),
+    }
+}
+
+pub async fn parse_deposit_finalize_param_emergency_stop_agg_nonce(
+    stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
+) -> Result<MusigAggNonce, Status> {
+    let sig = fetch_next_message_from_stream!(stream, params)?;
+
+    match sig {
+        verifier_deposit_finalize_params::Params::EmergencyStopAggNonce(aggnonce) => {
             Ok(MusigAggNonce::from_slice(&aggnonce)
                 .map_err(invalid_argument("MusigAggNonce", "failed to parse"))?)
         }

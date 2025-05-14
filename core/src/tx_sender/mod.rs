@@ -314,7 +314,7 @@ impl TxSender {
         new_fee_rate: FeeRate,
         current_tip_height: u32,
     ) -> Result<()> {
-        tracing::info!("Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}");
+        // tracing::info!("Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}");
         let txs = self
             .db
             .get_sendable_txs(None, new_fee_rate, current_tip_height)

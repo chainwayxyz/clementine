@@ -27,9 +27,12 @@ use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::transaction::Version;
-use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{
+    Address, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+};
 use eyre::Context;
 use hex;
+use input::UtxoVout;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
@@ -340,6 +343,7 @@ pub enum TransactionType {
     Round,
     Kickoff,
     MoveToVault,
+    EmergencyStop,
     Payout,
     Challenge,
     UnspentKickoff(usize),
@@ -516,6 +520,9 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::YieldKickoffTxid => {
                     NormalTransaction(Normal::YieldKickoffTxid as i32)
                 }
+                TransactionType::EmergencyStop => {
+                    NormalTransaction(Normal::UnspecifiedTransactionType as i32)
+                }
             }),
         }
     }
@@ -637,6 +644,60 @@ pub fn create_move_to_vault_txhandler(
         ))
         .add_output(UnspentTxOut::from_partial(anchor_output()))
         .finalize())
+}
+
+/// Creates a [`TxHandlerBuilder`] for the `emergency_stop_tx`. This transaction will move
+/// the funds to a the address controlled by the security council from the move to vault txout
+/// This transaction will be used to stop malicious activities if there is a security issue.
+pub fn create_emergency_stop_txhandler(
+    deposit_data: &mut DepositData,
+    move_to_vault_txhandler: &TxHandler,
+    paramset: &'static ProtocolParamset,
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    // Hand calculated, total tx size is 11 + 126 * NUM_EMERGENCY_STOPS
+    const EACH_EMERGENCY_STOP_VBYTES: Amount = Amount::from_sat(126);
+    let security_council = deposit_data.security_council.clone();
+
+    let builder = TxHandlerBuilder::new(TransactionType::EmergencyStop)
+        .add_input(
+            NormalSignatureKind::NotStored,
+            move_to_vault_txhandler.get_spendable_output(UtxoVout::DepositInMove)?,
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_scripts(
+            paramset.bridge_amount - ANCHOR_AMOUNT - EACH_EMERGENCY_STOP_VBYTES * 3,
+            vec![Arc::new(Multisig::from_security_council(security_council))],
+            None,
+            paramset.network,
+        ))
+        .finalize();
+
+    Ok(builder)
+}
+
+/// We assume that the vector of (Txid, Transaction) includes input-output pairs which are signed
+/// using Sighash Single | AnyoneCanPay. This function will combine the inputs and outputs of the
+/// transactions into a single transaction. Beware, this may be dangerous, as there are no checks.
+pub fn combine_emergency_stop_txhandler(
+    txs: Vec<(Txid, Transaction)>,
+    add_anchor: bool,
+) -> Transaction {
+    let (inputs, mut outputs): (Vec<TxIn>, Vec<TxOut>) = txs
+        .into_iter()
+        .map(|(_, tx)| (tx.input[0].clone(), tx.output[0].clone()))
+        .unzip();
+
+    if add_anchor {
+        outputs.push(anchor_output());
+    }
+
+    Transaction {
+        version: Version::non_standard(2),
+        lock_time: bitcoin::absolute::LockTime::ZERO,
+        input: inputs,
+        output: outputs,
+    }
 }
 
 /// Creates a [`TxHandlerBuilder`] for the `move_to_vault_tx`. This transaction will move

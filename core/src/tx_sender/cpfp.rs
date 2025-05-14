@@ -506,7 +506,15 @@ impl TxSender {
         let mut early_exit = false;
         for (_txid, result) in submit_package_result.tx_results {
             if let PackageTransactionResult::Failure { error, .. } = result {
-                tracing::error!(try_to_send_id, "Error submitting package: {:?}", error);
+                tracing::error!(
+                    try_to_send_id,
+                    "Error submitting package: {:?}, package: {:?}",
+                    error,
+                    package_refs
+                        .iter()
+                        .map(|tx| hex::encode(bitcoin::consensus::serialize(tx)))
+                        .collect::<Vec<_>>()
+                );
 
                 // TODO: implement txid checking so we can save the correct error.
 
