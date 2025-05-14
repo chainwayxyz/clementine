@@ -1081,24 +1081,25 @@ where
             &[wt_derive_path],
             self.config.protocol_paramset(),
         )?;
-        let _latest_blockhash = commits
+        let latest_blockhash = commits
             .first()
             .ok_or_eyre("Failed to get latest blockhash in send_asserts")?;
+        let latest_blockhash = BlockHash::from_slice(latest_blockhash).wrap_err("Failed to convert latest blockhash received from latest blockhash tx Witness to BlockHash in send_asserts")?;
 
         let (current_hcp, hcp_height) = self
             .header_chain_prover
-            .get_tip_header_chain_proof()
+            .prove_till_hash(latest_blockhash)
             .await?;
         tracing::warn!("Got header chain proof in send_asserts");
 
         let block_hashes = self
             .db
-            .get_blockhashes_until_height(None, hcp_height)
+            .get_block_info_from_range(None, 0, hcp_height)
             .await?;
 
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
             .iter()
-            .map(|bh| bh.to_byte_array())
+            .map(|(block_hash, _)| block_hash.to_byte_array())
             .collect::<Vec<_>>();
 
         let spv = create_spv(

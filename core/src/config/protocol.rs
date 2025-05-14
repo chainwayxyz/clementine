@@ -229,6 +229,6 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
     latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 1,
-    start_height: 201,
+    start_height: 190,
     header_chain_proof_batch_size: 100,
 };

@@ -80,6 +80,15 @@ impl ExtendedRpc {
             .map_err(Into::into)
     }
 
+    pub async fn get_current_chain_height(&self) -> Result<u32> {
+        let height = self
+            .client
+            .get_block_count()
+            .await
+            .wrap_err("Failed to get block count")?;
+        Ok(u32::try_from(height).wrap_err("Failed to convert block count to u32")?)
+    }
+
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_blockhash_of_tx(&self, txid: &bitcoin::Txid) -> Result<bitcoin::BlockHash> {
         let raw_transaction_results = self

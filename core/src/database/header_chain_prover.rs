@@ -66,6 +66,7 @@ impl Database {
                 )
                 .await?;
             }
+            tracing::warn!("Committing batch from {} to {}", batch_start, batch_end);
             db_tx.commit().await?;
         }
         Ok(())
@@ -82,13 +83,14 @@ impl Database {
         if until_height == 0 {
             return Ok(());
         }
-        let max_height = self.get_max_height_hcp(None).await?;
+        let max_height = self.get_latest_finalized_block_height(None).await?;
         if let Some(max_height) = max_height {
-            if max_height < until_height {
-                self.save_block_infos_within_range(rpc, max_height + 1, until_height - 1)
+            if max_height < until_height as u64 {
+                self.save_block_infos_within_range(rpc, max_height as u32 + 1, until_height - 1)
                     .await?;
             }
         } else {
+            tracing::warn!("Saving blocks from start until {}", until_height);
             self.save_block_infos_within_range(rpc, 0, until_height - 1)
                 .await?;
         }
@@ -121,6 +123,34 @@ impl Database {
             .collect::<Vec<_>>();
 
         Ok(result)
+    }
+
+    /// Returns the previous block hash and header for a given block hash.
+    ///
+    /// # Returns
+    ///
+    /// Returns `None` if the block hash is not found.
+    ///
+    /// - [`BlockHash`] - Previous block's hash
+    /// - [`Header`] - Block's header
+    /// - [`u32`] - Block's height
+    pub async fn get_block_info_from_hash_hcp(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_hash: BlockHash,
+    ) -> Result<Option<(BlockHash, Header, u32)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT prev_block_hash, block_header, height FROM header_chain_proofs WHERE block_hash = $1",
+        )
+        .bind(BlockHashDB(block_hash));
+        let result: Option<(BlockHashDB, BlockHeaderDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        result
+            .map(|result| -> Result<(BlockHash, Header, u32), BridgeError> {
+                let height = result.2.try_into().wrap_err("Can't convert i64 to u32")?;
+                Ok((result.0 .0, result.1 .0, height))
+            })
+            .transpose()
     }
 
     /// Returns latest finalized blocks height from the database.
@@ -276,23 +306,40 @@ impl Database {
         Ok(result)
     }
 
-    /// Gets all block hashes until a given height(inclusive).
+    /// Gets the latest block's info that it's proven and has height less than or equal to the given height.
     ///
     /// # Returns
     ///
-    /// - [`Vec<BlockHash>`] - Block hashes of the blocks
-    pub async fn get_blockhashes_until_height(
+    /// Returns `None` if no block is proven.
+    ///
+    /// - [`BlockHash`] - Hash of the block
+    /// - [`Header`] - Header of the block
+    /// - [`u64`] - Height of the block
+    pub async fn get_latest_proven_block_info_until_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        height: u64,
-    ) -> Result<Vec<BlockHash>, BridgeError> {
+        height: u32,
+    ) -> Result<Option<(BlockHash, Header, u64)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT block_hash FROM header_chain_proofs WHERE height <= $1 ORDER BY height ASC;",
+            "SELECT block_hash, block_header, height
+            FROM header_chain_proofs
+            WHERE proof IS NOT NULL AND height <= $1
+            ORDER BY height DESC
+            LIMIT 1;",
         )
         .bind(height as i64);
-        let result: Vec<(BlockHashDB,)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-        let result = result.iter().map(|result| result.0 .0).collect::<Vec<_>>();
+
+        let result: Option<(BlockHashDB, BlockHeaderDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        let result = match result {
+            Some(result) => {
+                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+                Some((result.0 .0, result.1 .0, height))
+            }
+            None => None,
+        };
+
         Ok(result)
     }
 
@@ -334,26 +381,6 @@ impl Database {
         let receipt: Receipt = borsh::from_slice(&receipt).wrap_err(BridgeError::BorshError)?;
 
         Ok(Some(receipt))
-    }
-
-    /// Returns the maximum height present in the header_chain_proofs table.
-    /// Returns None if the table is empty.
-    async fn get_max_height_hcp(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<Option<u32>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT MAX(height) as max_height 
-            FROM header_chain_proofs;",
-        );
-
-        let result: (Option<i64>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-
-        result
-            .0
-            .map(|max| u32::try_from(max).wrap_err("Failed to convert max height to u32"))
-            .transpose()
-            .map_err(Into::into)
     }
 }
 
