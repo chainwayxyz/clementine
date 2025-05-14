@@ -110,9 +110,13 @@ where
             let client_ca = Certificate::from_pem(client_ca_cert);
 
             // Build TLS configuration
-            let tls_config = ServerTlsConfig::new()
-                .identity(server_identity)
-                .client_ca_root(client_ca);
+            let tls_config = if config.client_verification {
+                ServerTlsConfig::new()
+                    .identity(server_identity)
+                    .client_ca_root(client_ca)
+            } else {
+                ServerTlsConfig::new().identity(server_identity)
+            };
 
             let service = InterceptedService::new(
                 service,
