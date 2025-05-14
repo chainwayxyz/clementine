@@ -78,44 +78,54 @@ where
 
     let client_ca = Certificate::from_pem(client_ca_cert);
 
-    let tls_config = if use_client_cert {
-        // Get certificate paths from config or use defaults
-        let client_cert_path = &config.client_cert_path.clone();
-        let client_key_path = &config.client_key_path.clone();
+    // Get certificate paths from config or use defaults
+    let client_cert_path = &config.client_cert_path.clone();
+    let client_key_path = &config.client_key_path.clone();
 
-        // Load client certificate and key
-        let client_cert = tokio::fs::read(&client_cert_path).await.map_err(|e| {
-            BridgeError::ConfigError(format!(
-                "Failed to read client certificate from {}: {}",
-                client_cert_path.display(),
-                e
-            ))
-        })?;
+    // Load client certificate and key
+    let client_cert = tokio::fs::read(&client_cert_path).await.map_err(|e| {
+        BridgeError::ConfigError(format!(
+            "Failed to read client certificate from {}: {}",
+            client_cert_path.display(),
+            e
+        ))
+    })?;
 
-        let client_key = tokio::fs::read(&client_key_path).await.map_err(|e| {
-            BridgeError::ConfigError(format!(
-                "Failed to read client key from {}: {}",
-                client_key_path.display(),
-                e
-            ))
-        })?;
-
-        let client_identity = Identity::from_pem(client_cert, client_key);
-        ClientTlsConfig::new()
-            .domain_name("localhost")
-            .identity(client_identity)
-            .ca_certificate(client_ca)
-    } else {
-        ClientTlsConfig::new()
-            .domain_name("localhost")
-            .ca_certificate(client_ca)
-    };
+    let client_key = tokio::fs::read(&client_key_path).await.map_err(|e| {
+        BridgeError::ConfigError(format!(
+            "Failed to read client key from {}: {}",
+            client_key_path.display(),
+            e
+        ))
+    })?;
 
     futures::future::try_join_all(
         endpoints
             .into_iter()
             .map(|endpoint| {
-                let tls_config = tls_config.clone();
+                let client_cert = client_cert.clone();
+                let client_key = client_key.clone();
+                let client_ca = client_ca.clone();
+
+                let domain_name = endpoint
+                    .split("://")
+                    .nth(1)
+                    .unwrap_or("localhost")
+                    .split(':')
+                    .next()
+                    .unwrap_or("localhost");
+                let tls_config = if use_client_cert {
+                    let client_identity = Identity::from_pem(client_cert, client_key);
+                    ClientTlsConfig::new()
+                        .domain_name(domain_name)
+                        .identity(client_identity)
+                        .ca_certificate(client_ca)
+                } else {
+                    ClientTlsConfig::new()
+                        .domain_name(domain_name)
+                        .ca_certificate(client_ca)
+                };
+
                 async move {
                     let channel = if endpoint.starts_with("unix://") {
                         #[cfg(unix)]
