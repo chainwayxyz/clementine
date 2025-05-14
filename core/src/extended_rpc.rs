@@ -80,6 +80,10 @@ impl ExtendedRpc {
             .map_err(Into::into)
     }
 
+    /// Retrieves the current blockchain height (number of blocks).
+    ///
+    /// # Returns
+    /// The current block height as a `u32`, or an error if it cannot be retrieved or converted.
     pub async fn get_current_chain_height(&self) -> Result<u32> {
         let height = self
             .client
@@ -102,6 +106,14 @@ impl ExtendedRpc {
         Ok(blockhash)
     }
 
+    /// Retrieves the block header for a given block height.
+    ///
+    /// # Arguments
+    /// * `height` - The block height for which to retrieve the header.
+    ///
+    /// # Returns
+    /// A tuple containing the `bitcoin::BlockHash` and `bitcoin::block::Header`,
+    /// or an error if the block or header cannot be retrieved.
     pub async fn get_block_header_by_height(
         &self,
         height: u64,

@@ -92,7 +92,7 @@ pub async fn send_tx(
 
     dbtx.commit().await?;
 
-    if tx_type == TxType::Challenge || matches!(tx_type, TxType::WatchtowerChallenge(_)) {
+    if matches!(tx_type, TxType::Challenge | TxType::WatchtowerChallenge(_)) {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
     } else {
         ensure_tx_onchain(rpc, tx.compute_txid()).await?;

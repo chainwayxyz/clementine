@@ -26,7 +26,8 @@ impl Database {
         block_height: u64,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4)",
+                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4)
+                ON CONFLICT (block_hash) DO NOTHING",
             )
             .bind(BlockHashDB(block_hash)).bind(BlockHeaderDB(block_header)).bind(BlockHashDB(block_header.prev_blockhash)).bind(block_height as i64);
 
@@ -66,7 +67,6 @@ impl Database {
                 )
                 .await?;
             }
-            tracing::warn!("Committing batch from {} to {}", batch_start, batch_end);
             db_tx.commit().await?;
         }
         Ok(())
@@ -90,7 +90,7 @@ impl Database {
                     .await?;
             }
         } else {
-            tracing::warn!("Saving blocks from start until {}", until_height);
+            tracing::debug!("Saving blocks from start until {}", until_height);
             self.save_block_infos_within_range(rpc, 0, until_height - 1)
                 .await?;
         }

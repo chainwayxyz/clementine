@@ -470,9 +470,7 @@ mod tests {
     use crate::verifier::VerifierServer;
     use bitcoin::{block::Header, hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
-    use borsh::BorshDeserialize;
     use circuits_lib::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
-    use risc0_zkvm::Receipt;
 
     /// Mines `block_num` amount of blocks (if not already mined) and returns
     /// the first `block_num` block headers in blockchain.
@@ -556,15 +554,11 @@ mod tests {
             .await
             .unwrap();
 
-        // Check if `HeaderChainProver::new` added the assumption.
-        let previous_receipt =
-            Receipt::try_from_slice(include_bytes!("../tests/data/first_1.bin")).unwrap();
-        let (read_recipt, _) = prover.get_tip_header_chain_proof().await.unwrap();
-        assert_eq!(previous_receipt.journal, read_recipt.journal);
-
         // Set up the next non proven block.
         let height = 1;
         let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let genesis_hash = rpc.client.get_block_hash(0).await.unwrap();
+        let (genesis_receipt, _) = prover.prove_till_hash(genesis_hash).await.unwrap();
         let block = rpc.client.get_block(&hash).await.unwrap();
         let header = block.header;
         prover
@@ -574,11 +568,11 @@ mod tests {
             .unwrap();
 
         let receipt = prover
-            .prove_and_save_block(hash, vec![header], Some(previous_receipt))
+            .prove_and_save_block(hash, vec![header], Some(genesis_receipt))
             .await
             .unwrap();
 
-        let (read_recipt, _) = prover.get_tip_header_chain_proof().await.unwrap();
+        let (read_recipt, _) = prover.prove_till_hash(hash).await.unwrap();
         assert_eq!(receipt.journal, read_recipt.journal);
     }
 

@@ -3,14 +3,18 @@ use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
+use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
+use crate::builder::transaction::{
+    KickoffData, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
+};
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::constants::CITREA_LCP_START_HEIGHT;
 use crate::database::Database;
 use crate::rpc::clementine::{
-    FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
+    FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx, SendTxRequest,
+    TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
@@ -138,11 +142,11 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let (
             _verifiers,
             mut operators,
-            _aggregator,
+            mut aggregator,
             _cleanup,
-            _deposit_params,
+            deposit_params,
             move_txid,
-            _deposit_blockhash,
+            deposit_blockhash,
             verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
         tracing::debug!(
@@ -373,7 +377,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         let reimburse_connector = OutPoint {
             txid: kickoff_txid,
-            vout: 2,
+            vout: UtxoVout::ReimburseInKickoff.get_vout(),
         };
 
         // wait 3 seconds so fee payer txs are sent to mempool
@@ -391,6 +395,60 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         lc_prover
             .wait_for_l1_height(kickoff_block_height as u64, None)
             .await?;
+
+        // wrongfully challenge operator
+        let kickoff_idx = get_kickoff_utxos_to_sign(
+            config.protocol_paramset(),
+            op0_xonly_pk,
+            deposit_blockhash,
+            deposit_params.deposit_outpoint,
+        )[0] as u32;
+        let base_tx_req = TransactionRequest {
+            kickoff_id: Some(
+                KickoffData {
+                    operator_xonly_pk: op0_xonly_pk,
+                    round_idx: 0,
+                    kickoff_idx,
+                }
+                .into(),
+            ),
+            deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
+        };
+        let all_txs = operators[0]
+            .internal_create_signed_txs(base_tx_req.clone())
+            .await?
+            .into_inner();
+
+        let challenge_tx = all_txs
+            .signed_txs
+            .iter()
+            .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+            .unwrap();
+
+        aggregator
+            .internal_send_tx(SendTxRequest {
+                raw_tx: Some(RawSignedTx {
+                    raw_tx: challenge_tx.raw_tx.clone(),
+                }),
+                fee_type: FeeType::Rbf as i32,
+            })
+            .await?;
+
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // I don't know why following code cant be here, some errors about Send trait
+        // let challenge_utxo = OutPoint {
+        //     txid: kickoff_txid,
+        //     vout: UtxoVout::Challenge.get_vout(),
+        // };
+        // let challenge_txid = get_txid_where_utxo_is_spent(&rpc, challenge_utxo)
+        //     .await
+        //     .unwrap();
+        // let challenge_tx = rpc.get_tx_of_txid(&challenge_txid).await.unwrap();
+        // check if its actually challenge
+        // assert!(
+        //     challenge_tx.output[0].value == config.protocol_paramset().operator_challenge_amount,
+        // );
 
         // Ensure the reimburse connector is spent
         ensure_outpoint_spent_while_waiting_for_light_client_sync(

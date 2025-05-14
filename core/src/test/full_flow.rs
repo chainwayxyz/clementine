@@ -66,8 +66,7 @@ async fn base_setup(
         let tx_sender_db = Database::new(&verifier_config)
             .await
             .expect("failed to create database");
-        let tx_sender =
-            TxSenderClient::new(tx_sender_db.clone(), format!("run_happy_path_2_{}", i));
+        let tx_sender = TxSenderClient::new(tx_sender_db.clone(), format!("full_flow_{}", i));
         tx_senders.push(tx_sender);
     }
     let evm_address = EVMAddress([1u8; 20]);

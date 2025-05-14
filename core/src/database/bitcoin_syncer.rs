@@ -105,11 +105,12 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let block_bytes = bitcoin::consensus::serialize(block);
         let query = sqlx::query(
-            "INSERT INTO bitcoin_blocks (height, block_data) VALUES ($1, $2)
+            "INSERT INTO bitcoin_blocks (height, block_data, block_hash) VALUES ($1, $2, $3)
              ON CONFLICT (height) DO UPDATE SET block_data = $2",
         )
         .bind(i32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?)
-        .bind(&block_bytes);
+        .bind(&block_bytes)
+        .bind(BlockHashDB(block.header.block_hash()));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
