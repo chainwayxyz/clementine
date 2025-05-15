@@ -88,6 +88,8 @@ pub async fn create_and_sign_txs(
         transaction_data.kickoff_data,
         deposit_data.clone(),
         config.protocol_paramset(),
+        None,
+        None,
     );
 
     let txhandlers = builder::transaction::create_txhandlers(

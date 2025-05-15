@@ -286,6 +286,8 @@ pub struct ContractContext {
     kickoff_idx: Option<u32>,
     deposit_data: Option<DepositData>,
     signer: Option<Actor>,
+    additional_disprove_script: Option<Vec<u8>>,
+    replacement_index: Option<usize>,
     // TODO: why different winternitz_secret_key???
 }
 
@@ -303,6 +305,8 @@ impl ContractContext {
             kickoff_idx: None,
             deposit_data: None,
             signer: None,
+            additional_disprove_script: None,
+            replacement_index: None,
         }
     }
 
@@ -311,6 +315,8 @@ impl ContractContext {
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
+        additional_disprove_script: Option<Vec<u8>>,
+        replacement_index: Option<usize>,
     ) -> Self {
         Self {
             operator_xonly_pk: kickoff_data.operator_xonly_pk,
@@ -319,6 +325,8 @@ impl ContractContext {
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: None,
+            additional_disprove_script,
+            replacement_index,
         }
     }
 
@@ -337,6 +345,8 @@ impl ContractContext {
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: Some(signer),
+            additional_disprove_script: None,
+            replacement_index: None,
         }
     }
 }
@@ -412,6 +422,12 @@ pub async fn create_txhandlers(
     let operator_data = db_cache.get_operator_data().await?.clone();
     let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?;
 
+
+    let additional_disprove_script = context
+        .additional_disprove_script
+        .clone()
+        .unwrap_or_default();
+
     let ContractContext {
         operator_xonly_pk,
         round_idx,
@@ -473,6 +489,7 @@ pub async fn create_txhandlers(
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
     let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
 
+    let additional_disprove_script = context.additional_disprove_script.unwrap_or_default(); // Change this later it should always be set
     let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
 
@@ -505,6 +522,7 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             &disprove_root_hash,
+            additional_disprove_script,
             AssertScripts::AssertSpendableScript(vec![latest_blockhash_script]),
             &public_hashes,
             paramset,
@@ -534,6 +552,7 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
+            additional_disprove_script,
             AssertScripts::AssertScriptTapNodeHash(&[latest_blockhash_root_hash]),
             &public_hashes,
             paramset,
