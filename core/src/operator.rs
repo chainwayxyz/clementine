@@ -44,7 +44,8 @@ use bitcoincore_rpc::RpcApi;
 use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
 use bridge_circuit_host::bridge_circuit_host::{
-    create_spv, prove_bridge_circuit, REGTEST_BRIDGE_CIRCUIT_ELF,
+    create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
+    SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
 };
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
 use bridge_circuit_host::utils::get_ark_verifying_key;
@@ -1052,7 +1053,7 @@ where
                 payout_txid, payout_op_xonly_pk, payout_block_hash
             ))?;
         let payout_tx = &payout_block.txdata[payout_tx_index];
-        tracing::warn!("Calculated payout tx in send_asserts");
+        tracing::warn!("Calculated payout tx in send_asserts: {:?}", payout_tx);
 
         let (light_client_proof, lcp_receipt, l2_height) = self
             .citrea_client
@@ -1069,7 +1070,8 @@ where
                 "Failed to get storage proof for move txid {:?}, l2 height {}, deposit_idx {}",
                 move_txid, l2_height, deposit_idx
             ))?;
-        tracing::warn!("Got storage proof in send_asserts");
+
+        tracing::warn!("Got storage proof in send_asserts {:?}", storage_proof);
 
         // get committed latest blockhash
         let wt_derive_path = ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
@@ -1107,6 +1109,8 @@ where
             .ok_or_eyre("Failed to find latest blockhash in send_asserts")?;
 
         let latest_blockhash = block_hashes[latest_blockhash_index].0;
+
+        tracing::warn!("Latest blockhash height: {:?}", latest_blockhash_index);
 
         let (current_hcp, hcp_height) = self
             .header_chain_prover
@@ -1158,8 +1162,22 @@ where
             )
         })?;
 
+        let bridge_circuit_elf = match self.config.protocol_paramset().network {
+            bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Regtest => REGTEST_BRIDGE_CIRCUIT_ELF,
+            _ => {
+                return Err(eyre::eyre!(
+                    "Unsupported network {:?} in send_asserts",
+                    self.config.protocol_paramset().network
+                )
+                .into())
+            }
+        };
+
         let (g16_proof, g16_output, public_inputs) =
-            prove_bridge_circuit(bridge_circuit_host_params, REGTEST_BRIDGE_CIRCUIT_ELF); // TODO: change to network specific elf
+            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
         tracing::warn!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 

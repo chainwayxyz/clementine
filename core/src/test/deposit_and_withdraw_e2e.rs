@@ -13,19 +13,19 @@ use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::constants::CITREA_LCP_START_HEIGHT;
 use crate::database::Database;
 use crate::rpc::clementine::{
-    FeeType, FinalizedPayoutParams, KickoffId, NormalSignatureKind, RawSignedTx, SendTxRequest,
-    TransactionRequest, WithdrawParams,
+    FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
-    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
-    get_txid_where_utxo_is_spent,
+    create_tx_sender, ensure_outpoint_spent,
+    ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
 use crate::test::full_flow::get_tx_from_signed_txs_with_type;
+use crate::tx_sender::FeePayingType;
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -142,7 +142,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let (
             _verifiers,
             mut operators,
-            mut aggregator,
+            _aggregator,
             _cleanup,
             deposit_params,
             move_txid,
@@ -380,22 +380,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             vout: UtxoVout::ReimburseInKickoff.get_vout(),
         };
 
-        // wait 3 seconds so fee payer txs are sent to mempool
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        // mine 1 block to make sure the fee payer txs are in the next block
-        rpc.mine_blocks(1).await.unwrap();
-
-        // Wait for the kickoff tx to be onchain
-        let kickoff_block_height =
-            mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
-
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
-        // wait until the light client prover is synced to the same height
-        lc_prover
-            .wait_for_l1_height(kickoff_block_height as u64, None)
-            .await?;
-
         // wrongfully challenge operator
         let kickoff_idx = get_kickoff_utxos_to_sign(
             config.protocol_paramset(),
@@ -419,22 +403,52 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await?
             .into_inner();
 
-        let challenge_tx = all_txs
-            .signed_txs
-            .iter()
-            .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-            .unwrap();
+        let challenge_tx = bitcoin::consensus::deserialize(
+            &all_txs
+                .signed_txs
+                .iter()
+                .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+                .unwrap()
+                .raw_tx,
+        )
+        .unwrap();
 
-        aggregator
-            .internal_send_tx(SendTxRequest {
-                raw_tx: Some(RawSignedTx {
-                    raw_tx: challenge_tx.raw_tx.clone(),
-                }),
-                fee_type: FeeType::Rbf as i32,
-            })
-            .await?;
+        // send wrong challenge tx
+        let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
+        let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
+        tx_sender
+            .insert_try_to_send(
+                &mut db_commit,
+                None,
+                &challenge_tx,
+                FeePayingType::RBF,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .unwrap();
+        db_commit.commit().await.unwrap();
 
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // wait 3 seconds so fee payer txs are sent to mempool
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // mine 1 block to make sure the fee payer txs are in the next block
+        rpc.mine_blocks(1).await.unwrap();
+
+        // Wait for the kickoff tx to be onchain
+        let kickoff_block_height =
+            mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
+
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+        // wait until the light client prover is synced to the same height
+        lc_prover
+            .wait_for_l1_height(kickoff_block_height as u64, None)
+            .await?;
 
         // I don't know why following code cant be here, some errors about Send trait
         // let challenge_utxo = OutPoint {

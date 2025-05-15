@@ -322,7 +322,7 @@ impl HeaderChainProver {
             .await?
             .ok_or(eyre::eyre!("No proven block found"))?;
         let receipt = self
-            .prove_and_save_block(latest_proven_block.0, block_headers, Some(previous_proof))
+            .prove_and_save_block(block_hash, block_headers, Some(previous_proof))
             .await?;
         tracing::info!("Generated new proof for height {}", height);
         Ok((receipt, height as u64))
@@ -624,6 +624,39 @@ mod tests {
         println!("Proof journal output: {:?}", output);
 
         assert_eq!(output.chain_state.block_height, 1);
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn prove_till_hash_intermediate_blocks() {
+        // this test does assume config start height is bigger than 3
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        let db = Database::new(&config).await.unwrap();
+
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
+
+        for i in (0..3).rev() {
+            let hash = rpc.client.get_block_hash(i).await.unwrap();
+            let (proof, _) = prover.prove_till_hash(hash).await.unwrap();
+            let db_proof = db
+                .get_block_proof_by_hash(None, hash)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(proof.journal, db_proof.journal);
+        }
+        let hash = rpc.client.get_block_hash(5).await.unwrap();
+        let (proof, _) = prover.prove_till_hash(hash).await.unwrap();
+        let db_proof = db
+            .get_block_proof_by_hash(None, hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(proof.journal, db_proof.journal);
     }
 
     #[tokio::test]

@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 use crate::builder::transaction::TransactionType as TxType;
+use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::SignedTxsWithType;
 use crate::tx_sender::{FeePayingType, RbfSigningInfo, TxMetadata, TxSenderClient};
@@ -191,4 +193,18 @@ pub async fn send_tx_with_type(
         .await
         .context(format!("failed to send {:?} transaction", tx_type))?;
     Ok(())
+}
+
+pub async fn create_tx_sender(
+    config: &BridgeConfig,
+    verifier_index: u32,
+) -> Result<(TxSenderClient, Database)> {
+    let verifier_config = {
+        let mut config = config.clone();
+        config.db_name += &verifier_index.to_string();
+        config
+    };
+    let db = Database::new(&verifier_config).await?;
+    let tx_sender = TxSenderClient::new(db.clone(), format!("tx_sender_test_{}", verifier_index));
+    Ok((tx_sender, db))
 }

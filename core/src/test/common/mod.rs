@@ -25,8 +25,9 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::{Deposit, Empty, FeeType, RawSignedTx, SendTxRequest};
+use crate::rpc::clementine::{Deposit, Empty};
 use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
+use crate::tx_sender::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
@@ -41,7 +42,7 @@ use secp256k1::rand;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
-use tx_utils::get_txid_where_utxo_is_spent;
+use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 pub mod citrea;
 mod setup_utils;
@@ -592,13 +593,23 @@ pub async fn run_replacement_deposit(
         config.security_council.clone(),
     );
 
-    aggregator
-        .internal_send_tx(SendTxRequest {
-            raw_tx: Some(RawSignedTx::from(&replacement_deposit_tx)),
-            fee_type: FeeType::Cpfp as i32,
-        })
-        .await?;
-
+    let (tx_sender, tx_sender_db) = create_tx_sender(config, 0).await?;
+    let mut db_commit = tx_sender_db.begin_transaction().await?;
+    tx_sender
+        .insert_try_to_send(
+            &mut db_commit,
+            None,
+            &replacement_deposit_tx,
+            FeePayingType::CPFP,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .await
+        .unwrap();
+    db_commit.commit().await?;
     // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
