@@ -1,7 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use crate::common::hashes::calculate_double_sha256;
+use crate::common::hashes::{calculate_double_sha256, calculate_sha256};
+
+use super::transaction::CircuitTransaction;
 
 /// Code is taken from Clementine
 /// https://github.com/chainwayxyz/clementine/blob/b600ea18df72bdc60015ded01b78131b4c9121d7/operator/src/bitcoin_merkle.rs
@@ -67,6 +69,59 @@ impl BitcoinMerkleTree {
         self.nodes[self.nodes.len() - 1][0]
     }
 
+    /// This will be used to generate SPV securely. All the nodes here are the first digests of the preimages.
+    pub fn new_mid_state(transactions: &[CircuitTransaction]) -> Self {
+        if transactions.len() == 1 {
+            // root is the coinbase mid-state txid
+            return BitcoinMerkleTree {
+                nodes: vec![vec![transactions[0].mid_state_txid()]],
+            };
+        }
+
+        let mid_state_txids: Vec<[u8; 32]> =
+            transactions.iter().map(|tx| tx.mid_state_txid()).collect();
+
+        let mut tree = BitcoinMerkleTree {
+            nodes: vec![mid_state_txids],
+        };
+
+        // Construct the tree
+        let mut curr_level_offset: usize = 1;
+        let mut prev_level_size = tree.nodes[0].len();
+        let mut prev_level_index_offset = 0;
+        let mut preimage: [u8; 64] = [0; 64];
+        while prev_level_size > 1 {
+            tree.nodes.push(vec![]);
+            for i in 0..(prev_level_size / 2) {
+                preimage[..32].copy_from_slice(&calculate_sha256(
+                    &tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2],
+                ));
+                preimage[32..].copy_from_slice(&calculate_sha256(
+                    &tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2 + 1],
+                ));
+                let combined_mid_state_hash = calculate_sha256(&preimage);
+                tree.nodes[curr_level_offset].push(combined_mid_state_hash);
+            }
+            if prev_level_size % 2 == 1 {
+                let mut preimage: [u8; 64] = [0; 64];
+                preimage[..32].copy_from_slice(&calculate_sha256(
+                    &tree.nodes[curr_level_offset - 1]
+                        [prev_level_index_offset + prev_level_size - 1],
+                ));
+                preimage[32..].copy_from_slice(&calculate_sha256(
+                    &tree.nodes[curr_level_offset - 1]
+                        [prev_level_index_offset + prev_level_size - 1],
+                ));
+                let combined_mid_state_hash = calculate_sha256(&preimage);
+                tree.nodes[curr_level_offset].push(combined_mid_state_hash);
+            }
+            curr_level_offset += 1;
+            prev_level_size = prev_level_size.div_ceil(2);
+            prev_level_index_offset = 0;
+        }
+        tree
+    }
+
     fn get_idx_path(&self, index: u32) -> Vec<[u8; 32]> {
         assert!(index < self.nodes[0].len() as u32, "Index out of bounds");
         let mut path = vec![];
@@ -92,10 +147,10 @@ impl BitcoinMerkleTree {
     }
 
     pub fn calculate_root_with_merkle_proof(
-        txid: [u8; 32],
+        mid_state_txid: [u8; 32],
         inclusion_proof: BlockInclusionProof,
     ) -> [u8; 32] {
-        inclusion_proof.get_root(txid)
+        inclusion_proof.get_root(mid_state_txid)
     }
 }
 
@@ -118,10 +173,12 @@ impl BlockInclusionProof {
         while level < self.merkle_proof.len() as u32 {
             if index % 2 == 0 {
                 preimage[..32].copy_from_slice(&combined_hash);
-                preimage[32..].copy_from_slice(&self.merkle_proof[level as usize]);
+                preimage[32..]
+                    .copy_from_slice(&calculate_sha256(&self.merkle_proof[level as usize]));
                 combined_hash = calculate_double_sha256(&preimage);
             } else {
-                preimage[..32].copy_from_slice(&self.merkle_proof[level as usize]);
+                preimage[..32]
+                    .copy_from_slice(&calculate_sha256(&self.merkle_proof[level as usize]));
                 preimage[32..].copy_from_slice(&combined_hash);
                 combined_hash = calculate_double_sha256(&preimage);
             }
@@ -133,11 +190,11 @@ impl BlockInclusionProof {
 }
 
 pub fn verify_merkle_proof(
-    txid: [u8; 32],
+    mid_state_txid: [u8; 32],
     inclusion_proof: &BlockInclusionProof,
     root: [u8; 32],
 ) -> bool {
-    let calculated_root = inclusion_proof.get_root(txid);
+    let calculated_root = inclusion_proof.get_root(mid_state_txid);
     calculated_root == root
 }
 
@@ -167,7 +224,13 @@ mod tests {
             merkle_root,
             block.header.merkle_root.as_raw_hash().to_byte_array()
         );
-        let merkle_proof_0 = merkle_tree.generate_proof(0);
+        let mid_state_merkle_tree = BitcoinMerkleTree::new_mid_state(&tx_vec);
+        let merkle_root = calculate_sha256(&mid_state_merkle_tree.root());
+        assert_eq!(
+            merkle_root,
+            block.header.merkle_root.as_raw_hash().to_byte_array()
+        );
+        let merkle_proof_0 = mid_state_merkle_tree.generate_proof(0);
         assert!(verify_merkle_proof(txid_0, &merkle_proof_0, merkle_root));
     }
 
@@ -187,8 +250,14 @@ mod tests {
             merkle_root,
             block.header.merkle_root.as_raw_hash().to_byte_array()
         );
+        let mid_state_merkle_tree: BitcoinMerkleTree = BitcoinMerkleTree::new_mid_state(&tx_vec);
+        let mid_state_merkle_root = calculate_sha256(&mid_state_merkle_tree.root());
+        assert_eq!(
+            mid_state_merkle_root,
+            block.header.merkle_root.as_raw_hash().to_byte_array()
+        );
         for (i, txid) in txid_vec_clone.into_iter().enumerate() {
-            let merkle_proof_i = merkle_tree.generate_proof(i as u32);
+            let merkle_proof_i = mid_state_merkle_tree.generate_proof(i as u32);
             assert!(verify_merkle_proof(txid, &merkle_proof_i, merkle_root));
         }
     }
