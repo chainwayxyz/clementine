@@ -119,6 +119,8 @@ pub struct ProtocolParamset {
     pub start_height: u32,
     /// Batch size of the header chain proofs
     pub header_chain_proof_batch_size: u32,
+    /// Bridge circuit method id
+    pub bridge_circuit_method_id_constant: [u8; 32],
 }
 
 impl ProtocolParamset {
@@ -189,10 +191,23 @@ impl ProtocolParamset {
             latest_blockhash_timeout_timelock: read_string_from_env_then_parse::<u16>(
                 "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
             )?,
+            bridge_circuit_method_id_constant: convert_hex_string_to_bytes(
+                &read_string_from_env_then_parse::<String>("BRIDGE_CIRCUIT_METHOD_ID_CONSTANT")?,
+            )?,
         };
 
         Ok(config)
     }
+}
+
+fn convert_hex_string_to_bytes(hex: &str) -> Result<[u8; 32], BridgeError> {
+    let hex_decode = hex::decode(hex)
+        .map_err(|e| BridgeError::Error(format!("Failed to decode hex string: {}", e)))?;
+    let hex_bytes: [u8; 32] = hex_decode
+        .as_slice()
+        .try_into()
+        .map_err(|_| BridgeError::Error("Hex string is not 32 bytes".to_string()))?;
+    Ok(hex_bytes)
 }
 
 impl Default for ProtocolParamset {
@@ -231,4 +246,5 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     finality_depth: 1,
     start_height: 201,
     header_chain_proof_batch_size: 100,
+    bridge_circuit_method_id_constant: [255u8; 32],
 };

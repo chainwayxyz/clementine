@@ -150,13 +150,15 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     let round_txid = input.kickoff_tx.input[0].previous_output.txid;
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
+    let operator_id = operator_id_from_op_return(last_output);
+
     let deposit_constant = deposit_constant(
-        last_output,
+        operator_id,
         input.watchtower_challenge_connector_start_idx,
         &input.all_tweaked_watchtower_pubkeys,
         *move_txid,
         round_txid,
-        kickoff_round_vout
+        kickoff_round_vout,
     );
 
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
@@ -494,6 +496,27 @@ pub fn total_work_and_watchtower_flags(
     )
 }
 
+pub fn operator_id_from_op_return(last_output: &TxOut) -> [u8; 32] {
+    let last_output_script = last_output.script_pubkey.to_bytes();
+
+    // OP_RETURN check
+    assert!(last_output_script[0] == 0x6a);
+
+    if last_output_script.len() < 3 {
+        panic!("OP_RETURN script too short");
+    }
+
+    let len: usize = last_output_script[1] as usize;
+
+    if len > 32 {
+        panic!("Invalid operator id length");
+    }
+
+    let mut operator_id = [0u8; 32];
+    operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
+    operator_id
+}
+
 fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
     let mut instructions = script.instructions();
     if let Some(Ok(Instruction::Op(opcodes::all::OP_RETURN))) = instructions.next() {
@@ -523,31 +546,13 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
 /// - If the `script_pubkey` of `last_output` does not start with `OP_RETURN` (`0x6a`).
 /// - If the length of the operator ID (extracted from `script_pubkey`) exceeds 32 bytes.
 pub fn deposit_constant(
-    last_output: &TxOut,
+    operator_id: [u8; 32],
     watchtower_challenge_connector_start_idx: u16,
     watchtower_pubkeys: &[[u8; 32]],
-    move_txid_hex: [u8; 32],
+    move_txid: [u8; 32],
     round_txid: Txid,
     kickoff_round_vout: u32,
 ) -> DepositConstant {
-    let last_output_script = last_output.script_pubkey.to_bytes();
-
-    // OP_RETURN check
-    assert!(last_output_script[0] == 0x6a);
-
-    if last_output_script.len() < 3 {
-        panic!("OP_RETURN script too short");
-    }
-
-    let len: usize = last_output_script[1] as usize;
-
-    if len > 32 {
-        panic!("Invalid operator id length");
-    }
-
-    let mut operator_id = [0u8; 32];
-    operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
-
     // pubkeys are 32 bytes long
     let pubkey_concat = watchtower_pubkeys
         .iter()
@@ -557,7 +562,7 @@ pub fn deposit_constant(
     let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
 
     let pre_deposit_constant = [
-        &move_txid_hex,
+        &move_txid,
         &watchtower_pubkeys_digest,
         &operator_id,
         &watchtower_challenge_connector_start_idx.to_be_bytes()[..],

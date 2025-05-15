@@ -183,6 +183,67 @@ impl Database {
     }
 
     /// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
+    pub async fn set_operator_bitvm_keys(
+        &self,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        operator_xonly_pk: XOnlyPublicKey,
+        deposit_outpoint: OutPoint,
+        winternitz_public_key: Vec<WinternitzPublicKey>,
+        operator_challenge_ack_hashes: Vec<[u8; 20]>,
+    ) -> Result<(), BridgeError> {
+        let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
+        let hashes =
+            borsh::to_vec(&operator_challenge_ack_hashes).wrap_err(BridgeError::BorshError)?;
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
+        let query = sqlx::query(
+                "INSERT INTO operator_bitvm_winternitz_public_keys (xonly_pk, deposit_id, bitvm_winternitz_public_keys, operator_challenge_ack_hashes) VALUES ($1, $2, $3, $4)
+                ON CONFLICT DO NOTHING;",
+            )
+            .bind(XOnlyPublicKeyDB(operator_xonly_pk))
+            .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
+            .bind(wpk)
+            .bind(hashes);
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
+    /// Gets Winternitz public keys for every sequential collateral tx of an
+    /// operator and a watchtower.
+    pub async fn get_operator_bitvm_keys(
+        &self,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
+        operator_xonly_pk: XOnlyPublicKey,
+        deposit_outpoint: OutPoint,
+    ) -> Result<(Vec<winternitz::PublicKey>, Vec<[u8; 20]>), BridgeError> {
+        let deposit_id = self
+            .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
+            .await?;
+        let query = sqlx::query_as(
+                "SELECT bitvm_winternitz_public_keys, operator_challenge_ack_hashes FROM operator_bitvm_winternitz_public_keys WHERE xonly_pk = $1 AND deposit_id = $2;"
+            )
+            .bind(XOnlyPublicKeyDB(operator_xonly_pk))
+            .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
+
+        let result: (Vec<u8>, Vec<u8>) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        match result {
+            (winternitz_pks, operator_challenge_ack_hashes) => {
+                let operator_winternitz_pks: Vec<winternitz::PublicKey> =
+                    borsh::from_slice(&winternitz_pks).wrap_err(BridgeError::BorshError)?;
+                let operator_challenge_ack_hashes: Vec<[u8; 20]> =
+                    borsh::from_slice(&operator_challenge_ack_hashes)
+                        .wrap_err(BridgeError::BorshError)?;
+                Ok((operator_winternitz_pks, operator_challenge_ack_hashes))
+            }
+        }
+    }
+
+    /// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
     pub async fn set_operator_kickoff_winternitz_public_keys(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

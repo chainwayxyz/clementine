@@ -35,6 +35,7 @@ use bitcoin::secp256k1::Message;
 use bitcoin::OutPoint;
 use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use core::hash;
 use eyre::{Context, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -855,6 +856,15 @@ where
             .to_raw_hash()
             .to_byte_array();
 
+        self.db
+            .set_operator_bitvm_keys(
+                None,
+                operator_xonly_pk,
+                deposit_data.get_deposit_outpoint(),
+                bitvm_pks.to_flattened_vec(),
+                hashes,
+            )
+            .await?;
         // Save the public input wots to db along with the root hash
         self.db
             .set_bitvm_setup(

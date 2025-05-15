@@ -683,6 +683,7 @@ pub fn create_replacement_deposit_txhandler(
 /// Helper function to create a taproot output that combines a script and a root hash
 pub fn create_taproot_output_with_hidden_node(
     script: Arc<dyn SpendableScript>,
+    additioanl_disprove_script: ScriptBuf,
     root_hash: &[u8; 32],
     amount: Amount,
     network: bitcoin::Network,
@@ -692,6 +693,8 @@ pub fn create_taproot_output_with_hidden_node(
 
     let taproot_spend_info = TaprootBuilder::new()
         .add_leaf(1, script.to_script_buf())
+        .expect("taptree with one node at depth 1 will accept a script node")
+        .add_leaf(1, additioanl_disprove_script)
         .expect("taptree with one node at depth 1 will accept a script node")
         .add_hidden_node(1, TapNodeHash::from_byte_array(*root_hash))
         .expect("empty taptree will accept a node at depth 1")
