@@ -6,12 +6,12 @@
 //! https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types
 
 use super::transaction::DepositData;
-use crate::bitvm_client;
+use crate::bitvm_client::{self, ClementineBitVMPublicKeys};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    create_txhandlers, ContractContext, KickoffData, ReimburseDbCache, TransactionType,
-    TxHandlerCache,
+    create_move_to_vault_txhandler, create_txhandlers, ContractContext, KickoffData,
+    ReimburseDbCache, TransactionType, TxHandlerCache,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -21,6 +21,9 @@ use crate::rpc::clementine::NormalSignatureKind;
 use async_stream::try_stream;
 use bitcoin::hashes::Hash;
 use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
+use bitvm::clementine::additional_disprove::create_additional_replacable_disprove_script_with_dummy;
+use circuits_lib::bridge_circuit::deposit_constant;
+use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use futures_core::stream::Stream;
 
 impl BridgeConfig {
@@ -173,6 +176,39 @@ pub fn create_nofn_sighash_stream(
             // need to create new TxHandlerDbData for each operator
             let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
+            let (bitvm_wpks, operator_challenge_ack_hashes) = db.get_operator_bitvm_keys(
+                None,
+                *op_xonly_pk,
+                deposit_data.get_deposit_outpoint(),
+            ).await?;
+
+
+            if operator_challenge_ack_hashes.len() != config.get_num_challenge_ack_hashes(&deposit_data) {
+                return Err(BridgeError::InvalidChallengeAckHashes)?;
+            }
+
+            if bitvm_wpks.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
+            tracing::error!(
+                "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
+                op_xonly_pk,
+                bitvm_wpks.len(),
+                ClementineBitVMPublicKeys::number_of_flattened_wpks()
+            );
+                return Err(BridgeError::InvalidBitVMPublicKeys)?;
+            }
+
+
+            let bitvm_wpks = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
+
+            let (additional_disprove_script, replacement_index) = create_additional_replacable_disprove_script_with_dummy(
+                config.protocol_paramset().bridge_circuit_method_id_constant,
+                bitvm_wpks.deposit_constant,    // This needs to be replaceble. When script is updated, this will be removed.
+                bitvm_wpks.bitvm_pks.0[0].to_vec(),
+                bitvm_wpks.latest_blockhash_pk.to_vec(),
+                bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
+                operator_challenge_ack_hashes.try_into().expect("Should not fail since the length is checked"),
+            );
+
             let mut txhandler_cache = TxHandlerCache::new();
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
@@ -194,6 +230,8 @@ pub fn create_nofn_sighash_stream(
                         },
                         deposit_data.clone(),
                         config.protocol_paramset(),
+                        Some(additional_disprove_script.clone()),
+                        Some(replacement_index),
                     );
 
                     let mut txhandlers = create_txhandlers(
@@ -287,6 +325,8 @@ pub fn create_operator_sighash_stream(
                     },
                     deposit_data.clone(),
                     config.protocol_paramset(),
+                    None,
+                    None,
                 );
 
                 let mut txhandlers = create_txhandlers(

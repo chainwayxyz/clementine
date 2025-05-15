@@ -37,6 +37,16 @@ create table if not exists operator_winternitz_public_keys (
     xonly_pk text primary key not null,
     winternitz_public_keys bytea not null
 );
+
+-- Verifier table of operators Winternitz public keys for every kickoff utxo for committing bitvm inputs
+create table if not exists operator_bitvm_winternitz_public_keys (
+    xonly_pk text not null,
+    deposit_id int not null,
+    bitvm_winternitz_public_keys bytea not null,
+    hashes bytea not null,
+    primary key (xonly_pk, deposit_id)
+);
+
 create table if not exists deposits (
     deposit_id serial primary key,
     deposit_outpoint text unique not null check (
