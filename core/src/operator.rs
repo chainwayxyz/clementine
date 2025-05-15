@@ -1028,6 +1028,8 @@ where
                 move_txid
             ))?;
 
+        tracing::warn!("Sending asserts for deposit_idx: {:?}", deposit_idx);
+
         if payout_op_xonly_pk != kickoff_data.operator_xonly_pk {
             return Err(eyre::eyre!(
                 "Payout operator xonly pk does not match kickoff operator xonly pk in send_asserts"
@@ -1109,8 +1111,6 @@ where
             .ok_or_eyre("Failed to find latest blockhash in send_asserts")?;
 
         let latest_blockhash = block_hashes[latest_blockhash_index].0;
-
-        tracing::warn!("Latest blockhash height: {:?}", latest_blockhash_index);
 
         let (current_hcp, hcp_height) = self
             .header_chain_prover
@@ -1239,6 +1239,7 @@ where
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
     ) -> Result<(), BridgeError> {
+        tracing::warn!("Operator sending latest blockhash");
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let (tx_type, tx) = self
             .create_latest_blockhash_tx(

@@ -49,6 +49,7 @@ pub enum KickoffEvent {
     // ChallengeTimeoutNotSent,
     TimeToSendWatchtowerChallenge,
     TimeToSendVerifierDisprove,
+    TimeToSendOperatorAsserts,
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
     SavedToDb,
 }
@@ -304,7 +305,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
-            | KickoffEvent::SavedToDb => Super,
+            | KickoffEvent::SavedToDb
+            | KickoffEvent::TimeToSendOperatorAsserts => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;
                 Handled
@@ -390,7 +392,19 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Latest blockhash outpoint that got matched should be in block");
                 // save latest blockhash witness
                 self.latest_blockhash = witness;
-                // send operator asserts if all watchtower challenges are spent + latest blockhash is committed
+                // After sending latest blockhash, wait a bit for operator's verifier's state manager to catch up
+                // and include the block that has the latest blockhash tx in it so header chain provers's db tables have it included
+                // Waiting for hcp batch size blocks should be fine, if it didnt catch up by then, it might never catch up to tip
+                // anyway
+                self.matchers.insert(
+                    Matcher::BlockHeight(
+                        self.kickoff_height + context.paramset.header_chain_proof_batch_size,
+                    ),
+                    KickoffEvent::TimeToSendOperatorAsserts,
+                );
+                Handled
+            }
+            KickoffEvent::TimeToSendOperatorAsserts => {
                 self.send_operator_asserts(context).await;
                 Handled
             }
@@ -420,7 +434,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
-            | KickoffEvent::SavedToDb => Super,
+            | KickoffEvent::SavedToDb
+            | KickoffEvent::TimeToSendOperatorAsserts => Super,
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled

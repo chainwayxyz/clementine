@@ -113,7 +113,7 @@ impl BridgeCircuitHostParams {
             serde_json::from_str(&storage_proof.storage_proof_utxo)
                 .expect("Failed to deserialize UTXO storage proof");
 
-        let wd_txid_bytes: [u8; 32] = storage_proof_utxo.value.to_le_bytes();
+        let wd_txid_bytes: [u8; 32] = storage_proof_utxo.value.to_be_bytes();
 
         let wd_txid: Txid = bitcoin::consensus::deserialize(&wd_txid_bytes)
             .map_err(|_| BridgeCircuitHostParamsError::InvalidStorageProof)?;
