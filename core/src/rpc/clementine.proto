@@ -416,7 +416,13 @@ message VerifierDepositFinalizeParams {
     DepositSignSession deposit_sign_first_param = 1;
     bytes schnorr_sig = 2;
     bytes move_tx_agg_nonce = 3;
+    bytes emergency_stop_agg_nonce = 4;
   }
+}
+
+message VerifierDepositFinalizeResponse {
+  bytes move_to_vault_partial_sig = 1;
+  bytes emergency_stop_partial_sig = 2;
 }
 
 message VerifierPublicKeys {
@@ -506,10 +512,11 @@ service ClementineVerifier {
   //
   // Used by aggregator inside new_deposit
   rpc DepositFinalize(stream VerifierDepositFinalizeParams)
-    returns (PartialSig) {}
+    returns (VerifierDepositFinalizeResponse) {}
 
   // Debug a transaction by retrieving its current state and history
   rpc DebugTx(TxDebugRequest) returns (TxDebugInfo) {}
+
 
   // Checks if the kickoff tx is malicious and if so, try to send all necessary txs to punish the operator
   rpc InternalHandleKickoff(Txid) returns (Empty) {}
@@ -568,6 +575,11 @@ message AggregatorWithdrawResponse {
   repeated WithdrawResult withdraw_responses = 1;
 }
 
+message CreateEmergencyStopTxRequest {
+  repeated Txid txids = 1;
+  bool add_anchor = 2;
+}
+
 service ClementineAggregator {
   rpc GetNofnAggregatedXonlyPk(Empty) returns (NofnResponse) {}
 
@@ -599,4 +611,9 @@ service ClementineAggregator {
   // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
+
+  // Creates an emergency stop tx that won't be broadcasted.
+  // Tx will have around 3 sats/vbyte fee.
+  // Set add_anchor to true to add an anchor output for cpfp..
+  rpc InternalCreateEmergencyStopTx(CreateEmergencyStopTxRequest) returns (SignedTxWithType) {}
 }

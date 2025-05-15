@@ -353,7 +353,7 @@ pub mod verifier_deposit_sign_params {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierDepositFinalizeParams {
-    #[prost(oneof = "verifier_deposit_finalize_params::Params", tags = "1, 2, 3")]
+    #[prost(oneof = "verifier_deposit_finalize_params::Params", tags = "1, 2, 3, 4")]
     pub params: ::core::option::Option<verifier_deposit_finalize_params::Params>,
 }
 /// Nested message and enum types in `VerifierDepositFinalizeParams`.
@@ -366,7 +366,16 @@ pub mod verifier_deposit_finalize_params {
         SchnorrSig(::prost::alloc::vec::Vec<u8>),
         #[prost(bytes, tag = "3")]
         MoveTxAggNonce(::prost::alloc::vec::Vec<u8>),
+        #[prost(bytes, tag = "4")]
+        EmergencyStopAggNonce(::prost::alloc::vec::Vec<u8>),
     }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VerifierDepositFinalizeResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub move_to_vault_partial_sig: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub emergency_stop_partial_sig: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierPublicKeys {
@@ -491,6 +500,13 @@ pub struct RawTxWithRbfInfo {
 pub struct AggregatorWithdrawResponse {
     #[prost(message, repeated, tag = "1")]
     pub withdraw_responses: ::prost::alloc::vec::Vec<WithdrawResult>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateEmergencyStopTxRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub txids: ::prost::alloc::vec::Vec<Txid>,
+    #[prost(bool, tag = "2")]
+    pub add_anchor: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1440,7 +1456,10 @@ pub mod clementine_verifier_client {
             request: impl tonic::IntoStreamingRequest<
                 Message = super::VerifierDepositFinalizeParams,
             >,
-        ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::VerifierDepositFinalizeResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1808,6 +1827,38 @@ pub mod clementine_aggregator_client {
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new("clementine.ClementineAggregator", "InternalSendTx"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Creates an emergency stop tx that won't be broadcasted.
+        /// Tx will have around 3 sats/vbyte fee.
+        /// Set add_anchor to true to add an anchor output for cpfp..
+        pub async fn internal_create_emergency_stop_tx(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CreateEmergencyStopTxRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxWithType>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/InternalCreateEmergencyStopTx",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineAggregator",
+                        "InternalCreateEmergencyStopTx",
+                    ),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -2627,7 +2678,10 @@ pub mod clementine_verifier_server {
             request: tonic::Request<
                 tonic::Streaming<super::VerifierDepositFinalizeParams>,
             >,
-        ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::VerifierDepositFinalizeResponse>,
+            tonic::Status,
+        >;
         /// Debug a transaction by retrieving its current state and history
         async fn debug_tx(
             &self,
@@ -2984,7 +3038,7 @@ pub mod clementine_verifier_server {
                     > tonic::server::ClientStreamingService<
                         super::VerifierDepositFinalizeParams,
                     > for DepositFinalizeSvc<T> {
-                        type Response = super::PartialSig;
+                        type Response = super::VerifierDepositFinalizeResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -3313,6 +3367,16 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::SendTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        /// Creates an emergency stop tx that won't be broadcasted.
+        /// Tx will have around 3 sats/vbyte fee.
+        /// Set add_anchor to true to add an anchor output for cpfp..
+        async fn internal_create_emergency_stop_tx(
+            &self,
+            request: tonic::Request<super::CreateEmergencyStopTxRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignedTxWithType>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct ClementineAggregatorServer<T> {
@@ -3610,6 +3674,57 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalSendTxSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/InternalCreateEmergencyStopTx" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalCreateEmergencyStopTxSvc<T: ClementineAggregator>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::CreateEmergencyStopTxRequest>
+                    for InternalCreateEmergencyStopTxSvc<T> {
+                        type Response = super::SignedTxWithType;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CreateEmergencyStopTxRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::internal_create_emergency_stop_tx(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalCreateEmergencyStopTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
