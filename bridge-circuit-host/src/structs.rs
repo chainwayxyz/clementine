@@ -113,7 +113,7 @@ impl BridgeCircuitHostParams {
             serde_json::from_str(&storage_proof.storage_proof_utxo)
                 .expect("Failed to deserialize UTXO storage proof");
 
-        let wd_txid_bytes: [u8; 32] = storage_proof_utxo.value.to_le_bytes();
+        let wd_txid_bytes: [u8; 32] = storage_proof_utxo.value.to_be_bytes();
 
         let wd_txid: Txid = bitcoin::consensus::deserialize(&wd_txid_bytes)
             .map_err(|_| BridgeCircuitHostParamsError::InvalidStorageProof)?;
@@ -197,7 +197,7 @@ fn get_wt_inputs(
             WatchtowerInput::from_txs(
                 kickoff_tx_id,
                 context.watchtower_tx.clone(),
-                context.prevout_txs,
+                &context.prevout_txs,
                 watchtower_challenge_connector_start_idx,
             )
             .map_err(|_| BridgeCircuitHostParamsError::InvalidWatchtowerInputs)
@@ -231,9 +231,9 @@ fn get_all_pubkeys(
     Ok(all_tweaked_watchtower_pubkeys)
 }
 
-pub struct WatchtowerContext<'a> {
+pub struct WatchtowerContext {
     pub watchtower_tx: Transaction,
-    pub prevout_txs: &'a [Transaction],
+    pub prevout_txs: Vec<Transaction>,
 }
 
 #[derive(Debug, Clone)]

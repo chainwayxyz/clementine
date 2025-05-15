@@ -593,7 +593,11 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
         // let height = u32::try_from(rpc.client.get_block_count().await.unwrap()).unwrap();
-        let hash = rpc.client.get_block_hash(201).await.unwrap();
+        let hash = rpc
+            .client
+            .get_block_hash(config.protocol_paramset().start_height as u64)
+            .await
+            .unwrap();
         let block = rpc.client.get_block(&hash).await.unwrap();
 
         assert!(super::_get_block_info_from_hash(&db, &mut dbtx, &rpc, hash)
@@ -608,7 +612,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(block_info.hash, hash);
-        assert_eq!(block_info.height, 201);
+        assert_eq!(block_info.height, config.protocol_paramset().start_height);
 
         for (tx_index, tx) in block.txdata.iter().enumerate() {
             for (txin_index, txin) in tx.input.iter().enumerate() {

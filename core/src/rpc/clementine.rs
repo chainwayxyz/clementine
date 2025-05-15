@@ -459,13 +459,6 @@ pub struct RawSignedTx {
     pub raw_tx: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SendTxRequest {
-    #[prost(message, optional, tag = "1")]
-    pub raw_tx: ::core::option::Option<RawSignedTx>,
-    #[prost(enumeration = "FeeType", tag = "2")]
-    pub fee_type: i32,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedTxs {
     #[prost(message, repeated, tag = "1")]
     pub raw_txs: ::prost::alloc::vec::Vec<RawSignedTx>,
@@ -481,6 +474,20 @@ pub struct SignedTxWithType {
 pub struct SignedTxsWithType {
     #[prost(message, repeated, tag = "1")]
     pub signed_txs: ::prost::alloc::vec::Vec<SignedTxWithType>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RbfSigningInfoRpc {
+    #[prost(bytes = "vec", tag = "1")]
+    pub merkle_root: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "2")]
+    pub vout: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RawTxWithRbfInfo {
+    #[prost(bytes = "vec", tag = "1")]
+    pub raw_tx: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "2")]
+    pub rbf_info: ::core::option::Option<RbfSigningInfoRpc>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatorWithdrawResponse {
@@ -1554,13 +1561,12 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Signs the verifiers own watchtower challenge tx in the corresponding
-        /// kickoff and returns the signed raw tx
+        /// Signs the verifiers own watchtower challenge tx in the corresponding kickoff and returns the signed raw tx
         pub async fn internal_create_watchtower_challenge(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::RawTxWithRbfInfo>,
             tonic::Status,
         > {
             self.inner
@@ -1791,30 +1797,6 @@ pub mod clementine_aggregator_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineAggregator", "Withdraw"));
-            self.inner.unary(req, path, codec).await
-        }
-        /// Send a pre-signed tx to the network
-        pub async fn internal_send_tx(
-            &mut self,
-            request: impl tonic::IntoRequest<super::SendTxRequest>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineAggregator/InternalSendTx",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("clementine.ClementineAggregator", "InternalSendTx"),
-                );
             self.inner.unary(req, path, codec).await
         }
         /// Creates an emergency stop tx that won't be broadcasted.
@@ -2697,13 +2679,12 @@ pub mod clementine_verifier_server {
             tonic::Response<super::SignedTxsWithType>,
             tonic::Status,
         >;
-        /// Signs the verifiers own watchtower challenge tx in the corresponding
-        /// kickoff and returns the signed raw tx
+        /// Signs the verifiers own watchtower challenge tx in the corresponding kickoff and returns the signed raw tx
         async fn internal_create_watchtower_challenge(
             &self,
             request: tonic::Request<super::TransactionRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::RawTxWithRbfInfo>,
             tonic::Status,
         >;
     }
@@ -3217,7 +3198,7 @@ pub mod clementine_verifier_server {
                         T: ClementineVerifier,
                     > tonic::server::UnaryService<super::TransactionRequest>
                     for InternalCreateWatchtowerChallengeSvc<T> {
-                        type Response = super::SignedTxWithType;
+                        type Response = super::RawTxWithRbfInfo;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -3350,11 +3331,6 @@ pub mod clementine_aggregator_server {
             tonic::Response<super::AggregatorWithdrawResponse>,
             tonic::Status,
         >;
-        /// Send a pre-signed tx to the network
-        async fn internal_send_tx(
-            &self,
-            request: tonic::Request<super::SendTxRequest>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Creates an emergency stop tx that won't be broadcasted.
         /// Tx will have around 3 sats/vbyte fee.
         /// Set add_anchor to true to add an anchor output for cpfp..
@@ -3613,55 +3589,6 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = WithdrawSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/clementine.ClementineAggregator/InternalSendTx" => {
-                    #[allow(non_camel_case_types)]
-                    struct InternalSendTxSvc<T: ClementineAggregator>(pub Arc<T>);
-                    impl<
-                        T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::SendTxRequest>
-                    for InternalSendTxSvc<T> {
-                        type Response = super::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::SendTxRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ClementineAggregator>::internal_send_tx(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = InternalSendTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

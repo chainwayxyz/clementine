@@ -3,24 +3,29 @@ use crate::actor::Actor;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
+use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
+use crate::builder::transaction::{
+    KickoffData, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
+};
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
+use crate::constants::CITREA_LCP_START_HEIGHT;
 use crate::database::Database;
 use crate::rpc::clementine::{
     FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
-    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
-    get_txid_where_utxo_is_spent,
+    create_tx_sender, ensure_outpoint_spent,
+    ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
 use crate::test::full_flow::get_tx_from_signed_txs_with_type;
+use crate::tx_sender::FeePayingType;
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -92,7 +97,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     fn light_client_prover_config() -> LightClientProverConfig {
         LightClientProverConfig {
             enable_recovery: false,
-            initial_da_height: 60,
+            initial_da_height: CITREA_LCP_START_HEIGHT,
             ..Default::default()
         }
     }
@@ -139,9 +144,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             mut operators,
             _aggregator,
             _cleanup,
-            _deposit_params,
+            deposit_params,
             move_txid,
-            _deposit_blockhash,
+            deposit_blockhash,
             verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
         tracing::debug!(
@@ -345,6 +350,60 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await
             .expect("failed to create database");
 
+        // // wrongfully challenge operator
+        // let kickoff_idx = get_kickoff_utxos_to_sign(
+        //     config.protocol_paramset(),
+        //     op0_xonly_pk,
+        //     deposit_blockhash,
+        //     deposit_params.deposit_outpoint,
+        // )[0] as u32;
+        // let base_tx_req = TransactionRequest {
+        //     kickoff_id: Some(
+        //         KickoffData {
+        //             operator_xonly_pk: op0_xonly_pk,
+        //             round_idx: 0,
+        //             kickoff_idx,
+        //         }
+        //         .into(),
+        //     ),
+        //     deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
+        // };
+        // let all_txs = operators[0]
+        //     .internal_create_signed_txs(base_tx_req.clone())
+        //     .await?
+        //     .into_inner();
+
+        // let challenge_tx = bitcoin::consensus::deserialize(
+        //     &all_txs
+        //         .signed_txs
+        //         .iter()
+        //         .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+        //         .unwrap()
+        //         .raw_tx,
+        // )
+        // .unwrap();
+
+        // // send wrong challenge tx
+        // let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
+        // let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
+        // tx_sender
+        //     .insert_try_to_send(
+        //         &mut db_commit,
+        //         None,
+        //         &challenge_tx,
+        //         FeePayingType::RBF,
+        //         None,
+        //         &[],
+        //         &[],
+        //         &[],
+        //         &[],
+        //     )
+        //     .await
+        //     .unwrap();
+        // db_commit.commit().await.unwrap();
+
+        // tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
         // wait until payout part is not null
         while db
             .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
@@ -372,7 +431,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         let reimburse_connector = OutPoint {
             txid: kickoff_txid,
-            vout: 2,
+            vout: UtxoVout::ReimburseInKickoff.get_vout(),
         };
 
         // wait 3 seconds so fee payer txs are sent to mempool

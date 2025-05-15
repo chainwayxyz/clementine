@@ -780,6 +780,7 @@ impl TxSender {
                     sent_txid
                 }
                 Err(e) => {
+                    tracing::error!("RBF failed for: {:?}", final_tx);
                     let err_msg = format!("send_raw_transaction error for initial RBF tx: {}", e);
                     log_error_for_tx!(self.db, try_to_send_id, err_msg);
                     let _ = self

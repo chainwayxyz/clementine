@@ -72,11 +72,7 @@ pub fn create_watchtower_challenge_txhandler(
         builder = builder.add_output(UnspentTxOut::from_partial(op_return_txout(remaining_data)));
     }
 
-    Ok(builder
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
+    Ok(builder.finalize())
 }
 
 /// Creates the watchtower challenge timeout txhandler.

@@ -533,21 +533,14 @@ service ClementineVerifier {
   // # Returns
   // - Raw signed transactions that the entity can sign (no asserts and watchtower challenge)
   rpc InternalCreateSignedTxs(TransactionRequest) returns (SignedTxsWithType) {}
-
-  // Signs the verifiers own watchtower challenge tx in the corresponding
-  // kickoff and returns the signed raw tx
-  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (SignedTxWithType) {}
+  // Signs the verifiers own watchtower challenge tx in the corresponding kickoff and returns the signed raw tx
+  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (RawTxWithRbfInfo) {}
 }
 
 // Aggregator ------------------------------------------------------------------
 
 message RawSignedTx {
   bytes raw_tx = 1;
-}
-
-message SendTxRequest {
-  RawSignedTx raw_tx = 1;
-  FeeType fee_type = 2;
 }
 
 message RawSignedTxs {
@@ -561,6 +554,16 @@ message SignedTxWithType {
 
 message SignedTxsWithType {
   repeated SignedTxWithType signed_txs = 1;
+}
+
+message RbfSigningInfoRpc {
+  bytes merkle_root = 1;
+  uint32 vout = 2;
+}
+
+message RawTxWithRbfInfo {
+  bytes raw_tx = 1;
+  RbfSigningInfoRpc rbf_info = 2;
 }
 
 message AggregatorWithdrawResponse {
@@ -599,9 +602,6 @@ service ClementineAggregator {
   // Used by the clementine-backend service to initiate a withdrawal
   rpc Withdraw(WithdrawParams)
     returns (AggregatorWithdrawResponse) {}
-
-  // Send a pre-signed tx to the network
-  rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
 
   // Creates an emergency stop tx that won't be broadcasted.

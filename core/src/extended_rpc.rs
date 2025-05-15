@@ -80,6 +80,19 @@ impl ExtendedRpc {
             .map_err(Into::into)
     }
 
+    /// Retrieves the current blockchain height (number of blocks).
+    ///
+    /// # Returns
+    /// The current block height as a `u32`, or an error if it cannot be retrieved or converted.
+    pub async fn get_current_chain_height(&self) -> Result<u32> {
+        let height = self
+            .client
+            .get_block_count()
+            .await
+            .wrap_err("Failed to get block count")?;
+        Ok(u32::try_from(height).wrap_err("Failed to convert block count to u32")?)
+    }
+
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_blockhash_of_tx(&self, txid: &bitcoin::Txid) -> Result<bitcoin::BlockHash> {
         let raw_transaction_results = self
@@ -91,6 +104,53 @@ impl ExtendedRpc {
             return Err(eyre::eyre!("Transaction not confirmed: {0}", txid).into());
         };
         Ok(blockhash)
+    }
+
+    /// Retrieves the block header for a given block height.
+    ///
+    /// # Arguments
+    /// * `height` - The block height for which to retrieve the header.
+    ///
+    /// # Returns
+    /// A tuple containing the `bitcoin::BlockHash` and `bitcoin::block::Header`,
+    /// or an error if the block or header cannot be retrieved.
+    pub async fn get_block_header_by_height(
+        &self,
+        height: u64,
+    ) -> Result<(bitcoin::BlockHash, bitcoin::block::Header)> {
+        let block_hash = self.client.get_block_hash(height).await.wrap_err(format!(
+            "Couldn't retrieve block hash from height {} from rpc",
+            height
+        ))?;
+        let block_header = self
+            .client
+            .get_block_header(&block_hash)
+            .await
+            .wrap_err(format!(
+                "Couldn't retrieve block header with block hash {} from rpc",
+                block_hash
+            ))?;
+        Ok((block_hash, block_header))
+    }
+
+    /// Gets the transactions that created the inputs of a given transaction.
+    ///
+    /// # Arguments
+    /// * `tx` - The transaction to get the previous transactions for
+    ///
+    /// # Returns
+    /// A vector of transactions that created the inputs of the given transaction.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_prevout_txs(
+        &self,
+        tx: &bitcoin::Transaction,
+    ) -> Result<Vec<bitcoin::Transaction>> {
+        let mut prevout_txs = Vec::new();
+        for input in &tx.input {
+            let txid = input.previous_output.txid;
+            prevout_txs.push(self.get_tx_of_txid(&txid).await?);
+        }
+        Ok(prevout_txs)
     }
 
     /// Gets the transaction data for a given transaction ID.

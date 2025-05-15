@@ -11,7 +11,7 @@ use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
-use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
+use bitcoin::{absolute, OutPoint, Script, Sequence, TapNodeHash, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
@@ -63,6 +63,18 @@ impl<T: State> TxHandler<T> {
             txout.scripts().clone(),
             txout.spendinfo().clone(),
         )) // TODO: Can we get rid of clones?
+    }
+
+    pub fn get_merkle_root_of_txin(&self, idx: usize) -> Result<Option<TapNodeHash>, BridgeError> {
+        let txin = self
+            .txins
+            .get(idx)
+            .ok_or(TxError::TxInputNotFound)?
+            .get_spendable();
+        let spend_info = txin.get_spend_info().clone().ok_or(eyre::eyre!(
+            "Spend info not found for requested txin in get_merkle_root_of_txin"
+        ))?;
+        Ok(spend_info.merkle_root())
     }
 
     pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {

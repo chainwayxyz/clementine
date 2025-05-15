@@ -1,6 +1,6 @@
 use super::clementine::{
-    self, DepositParams, FeeType, Outpoint, RawSignedTx, SchnorrSig, TransactionRequest,
-    WinternitzPubkey,
+    self, DepositParams, FeeType, Outpoint, RawSignedTx, RbfSigningInfoRpc, SchnorrSig,
+    TransactionRequest, WinternitzPubkey,
 };
 use super::error;
 use crate::builder::transaction::sign::TransactionRequestData;
@@ -9,10 +9,10 @@ use crate::builder::transaction::{
     SecurityCouncil,
 };
 use crate::errors::BridgeError;
-use crate::tx_sender::FeePayingType;
+use crate::tx_sender::{FeePayingType, RbfSigningInfo};
 use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use eyre::Context;
 use std::fmt::{Debug, Display};
@@ -100,6 +100,36 @@ macro_rules! fetch_next_optional_message_from_stream {
             .ok_or($crate::rpc::error::input_ended_prematurely())?
             .$field
     };
+}
+
+impl From<RbfSigningInfo> for RbfSigningInfoRpc {
+    fn from(value: RbfSigningInfo) -> Self {
+        RbfSigningInfoRpc {
+            merkle_root: value
+                .tweak_merkle_root
+                .map_or(vec![], |root| root.to_byte_array().to_vec()),
+            vout: value.vout,
+        }
+    }
+}
+
+impl TryFrom<RbfSigningInfoRpc> for RbfSigningInfo {
+    type Error = BridgeError;
+
+    fn try_from(value: RbfSigningInfoRpc) -> Result<Self, Self::Error> {
+        Ok(RbfSigningInfo {
+            tweak_merkle_root: if value.merkle_root.is_empty() {
+                None
+            } else {
+                Some(
+                    TapNodeHash::from_slice(&value.merkle_root).wrap_err(eyre::eyre!(
+                        "Failed to convert merkle root bytes from rpc to TapNodeHash"
+                    ))?,
+                )
+            },
+            vout: value.vout,
+        })
+    }
 }
 
 impl TryFrom<Outpoint> for OutPoint {

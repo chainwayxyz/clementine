@@ -1,9 +1,11 @@
 use std::time::Duration;
 
 use crate::builder::transaction::TransactionType as TxType;
+use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::SignedTxsWithType;
-use crate::tx_sender::{FeePayingType, TxMetadata, TxSenderClient};
+use crate::tx_sender::{FeePayingType, RbfSigningInfo, TxMetadata, TxSenderClient};
 use bitcoin::consensus::{self};
 use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
@@ -59,13 +61,10 @@ pub async fn send_tx(
     rpc: &ExtendedRpc,
     raw_tx: &[u8],
     tx_type: TxType,
+    rbf_info: Option<RbfSigningInfo>,
 ) -> Result<()> {
     let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
     let mut dbtx = tx_sender.test_dbtx().await.unwrap();
-    if let TxType::WatchtowerChallenge(_) = tx_type {
-        // Please manually insert it with the correct RBF spending info.
-        tracing::error!("Attempting to send watchtower challenge tx with send_tx which does not support RBF with PSBT");
-    }
 
     // Try to send the transaction with CPFP first
     tx_sender
@@ -79,12 +78,12 @@ pub async fn send_tx(
                 round_idx: None,
             }),
             &tx,
-            if tx_type == TxType::Challenge {
+            if tx_type == TxType::Challenge || matches!(tx_type, TxType::WatchtowerChallenge(_)) {
                 FeePayingType::RBF
             } else {
                 FeePayingType::CPFP
             },
-            None,
+            rbf_info,
             &[],
             &[],
             &[],
@@ -95,7 +94,7 @@ pub async fn send_tx(
 
     dbtx.commit().await?;
 
-    if tx_type == TxType::Challenge {
+    if matches!(tx_type, TxType::Challenge | TxType::WatchtowerChallenge(_)) {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
     } else {
         ensure_tx_onchain(rpc, tx.compute_txid()).await?;
@@ -190,8 +189,22 @@ pub async fn send_tx_with_type(
         .iter()
         .find(|tx| tx.transaction_type == Some(tx_type.into()))
         .unwrap();
-    send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type)
+    send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type, None)
         .await
         .context(format!("failed to send {:?} transaction", tx_type))?;
     Ok(())
+}
+
+pub async fn create_tx_sender(
+    config: &BridgeConfig,
+    verifier_index: u32,
+) -> Result<(TxSenderClient, Database)> {
+    let verifier_config = {
+        let mut config = config.clone();
+        config.db_name += &verifier_index.to_string();
+        config
+    };
+    let db = Database::new(&verifier_config).await?;
+    let tx_sender = TxSenderClient::new(db.clone(), format!("tx_sender_test_{}", verifier_index));
+    Ok((tx_sender, db))
 }
