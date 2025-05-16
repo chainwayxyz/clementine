@@ -12,6 +12,7 @@ use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitvm::clementine::additional_disprove::replace_placeholders_in_script;
 use eyre::Context;
 use eyre::OptionExt;
 use std::collections::BTreeMap;
@@ -287,7 +288,6 @@ pub struct ContractContext {
     deposit_data: Option<DepositData>,
     signer: Option<Actor>,
     additional_disprove_script: Option<Vec<u8>>,
-    replacement_index: Option<usize>,
     // TODO: why different winternitz_secret_key???
 }
 
@@ -306,7 +306,6 @@ impl ContractContext {
             deposit_data: None,
             signer: None,
             additional_disprove_script: None,
-            replacement_index: None,
         }
     }
 
@@ -316,7 +315,6 @@ impl ContractContext {
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
         additional_disprove_script: Option<Vec<u8>>,
-        replacement_index: Option<usize>,
     ) -> Self {
         Self {
             operator_xonly_pk: kickoff_data.operator_xonly_pk,
@@ -326,7 +324,6 @@ impl ContractContext {
             deposit_data: Some(deposit_data),
             signer: None,
             additional_disprove_script,
-            replacement_index,
         }
     }
 
@@ -346,7 +343,6 @@ impl ContractContext {
             deposit_data: Some(deposit_data),
             signer: Some(signer),
             additional_disprove_script: None,
-            replacement_index: None,
         }
     }
 }
@@ -420,13 +416,8 @@ pub async fn create_txhandlers(
     let ReimburseDbCache { paramset, .. } = db_cache.clone();
 
     let operator_data = db_cache.get_operator_data().await?.clone();
+    let challenge_ack_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
     let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?;
-
-
-    let additional_disprove_script = context
-        .additional_disprove_script
-        .clone()
-        .unwrap_or_default();
 
     let ContractContext {
         operator_xonly_pk,
@@ -487,9 +478,18 @@ pub async fn create_txhandlers(
     }
 
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
-    let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
+    let public_hashes = challenge_ack_hashes;
 
+    let deposit_constant = [0u8; 32];
+    let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)
+        [kickoff_data.kickoff_idx as usize]
+        .clone();
     let additional_disprove_script = context.additional_disprove_script.unwrap_or_default(); // Change this later it should always be set
+    let additional_disprove_script = replace_placeholders_in_script(
+        additional_disprove_script,
+        payout_tx_blockhash_pk,
+        deposit_constant,
+    );
     let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
 
