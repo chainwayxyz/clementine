@@ -925,7 +925,6 @@ where
                 operator_xonly_pk,
                 deposit_data.get_deposit_outpoint(),
                 bitvm_pks.to_flattened_vec(),
-                hashes,
             )
             .await?;
         // Save the public input wots to db along with the root hash

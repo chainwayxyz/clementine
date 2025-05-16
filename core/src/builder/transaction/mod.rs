@@ -744,7 +744,7 @@ pub fn create_replacement_deposit_txhandler(
 /// Helper function to create a taproot output that combines a script and a root hash
 pub fn create_taproot_output_with_hidden_node(
     script: Arc<dyn SpendableScript>,
-    additioanl_disprove_script: ScriptBuf,
+    additional_disprove_script: ScriptBuf,
     root_hash: &[u8; 32],
     amount: Amount,
     network: bitcoin::Network,
@@ -753,14 +753,14 @@ pub fn create_taproot_output_with_hidden_node(
     use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
 
     let taproot_spend_info = TaprootBuilder::new()
-        .add_leaf(2, script.to_script_buf())
-        .expect("taptree with one node at depth 1 will accept a script node")
-        .add_leaf(2, additioanl_disprove_script)
-        .expect("taptree with one node at depth 1 will accept a script node")
-        .add_hidden_node(1, TapNodeHash::from_byte_array(*root_hash))
-        .expect("empty taptree will accept a node at depth 1")
+        .add_leaf(1, script.to_script_buf())
+        .expect("Cannot put one leaf for operator disprove timeout script in depth 1")
+        .add_leaf(2, additional_disprove_script)
+        .expect("Cannot put one leaf for additional disprove script in depth 2")
+        .add_hidden_node(2, TapNodeHash::from_byte_array(*root_hash))
+        .expect("Cannot put hidden node for BitVM disprove scripts in depth 2")
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
-        .expect("Taproot with 2 nodes at depth 1 should be valid");
+        .expect("Taproot with 3 nodes at depths 1, 2, 2 should be valid");
 
     let address = Address::p2tr(
         &SECP,

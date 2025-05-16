@@ -14,6 +14,7 @@ use crate::operator::Operator;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
+use bitvm::clementine::additional_disprove::create_additional_replacable_disprove_script_with_dummy;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha12Rng;
 use secp256k1::rand::seq::SliceRandom;
@@ -84,11 +85,55 @@ pub async fn create_and_sign_txs(
         ))?
         .1;
 
+    let bitvm_wpks = db
+        .get_operator_bitvm_keys(
+            None,
+            transaction_data.kickoff_data.operator_xonly_pk,
+            deposit_data.get_deposit_outpoint(),
+        )
+        .await?;
+
+    let operator_challenge_ack_hashes = db
+        .get_operators_challenge_ack_hashes(
+            None,
+            transaction_data.kickoff_data.operator_xonly_pk,
+            transaction_data.deposit_outpoint,
+        )
+        .await?
+        .expect("Should not err"); // TODO: handle error
+
+    if operator_challenge_ack_hashes.len() != config.get_num_challenge_ack_hashes(&deposit_data) {
+        return Err(BridgeError::InvalidChallengeAckHashes)?;
+    }
+
+    if bitvm_wpks.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
+        tracing::error!(
+            "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
+            transaction_data.kickoff_data.operator_xonly_pk,
+            bitvm_wpks.len(),
+            ClementineBitVMPublicKeys::number_of_flattened_wpks()
+        );
+        return Err(BridgeError::InvalidBitVMPublicKeys)?;
+    }
+
+    let bitvm_wpks = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
+
+    let replacable_additional_disprove_script =
+        create_additional_replacable_disprove_script_with_dummy(
+            config.protocol_paramset().bridge_circuit_method_id_constant,
+            bitvm_wpks.bitvm_pks.0[0].to_vec(),
+            bitvm_wpks.latest_blockhash_pk.to_vec(),
+            bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
+            operator_challenge_ack_hashes
+                .try_into()
+                .expect("Should not fail since the length is checked"),
+        );
+
     let context = ContractContext::new_context_for_kickoffs(
         transaction_data.kickoff_data,
         deposit_data.clone(),
         config.protocol_paramset(),
-        None,
+        Some(replacable_additional_disprove_script),
     );
 
     let txhandlers = builder::transaction::create_txhandlers(
