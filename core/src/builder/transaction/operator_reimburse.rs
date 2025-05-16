@@ -24,7 +24,6 @@ use bitcoin::transaction::Version;
 use bitcoin::ScriptBuf;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{TxOut, Txid};
-use bitvm::clementine::additional_disprove;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]

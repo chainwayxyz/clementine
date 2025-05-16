@@ -437,7 +437,6 @@ impl<T: Owner> KickoffStateMachine<T> {
             self.deposit_data.clone(),
             context.paramset,
             None,
-            None,
         );
         let mut txhandlers = context
             .owner

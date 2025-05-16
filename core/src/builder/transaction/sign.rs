@@ -89,7 +89,6 @@ pub async fn create_and_sign_txs(
         deposit_data.clone(),
         config.protocol_paramset(),
         None,
-        None,
     );
 
     let txhandlers = builder::transaction::create_txhandlers(
