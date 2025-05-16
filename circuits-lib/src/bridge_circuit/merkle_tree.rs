@@ -35,6 +35,11 @@ impl BitcoinMerkleTree {
         while prev_level_size > 1 {
             tree.nodes.push(vec![]);
             for i in 0..(prev_level_size / 2) {
+                if tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2]
+                    == tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2 + 1]
+                {
+                    panic!("Duplicate hashes in the Merkle tree, indicating mutation");
+                }
                 preimage[..32].copy_from_slice(
                     &tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2],
                 );
@@ -93,6 +98,11 @@ impl BitcoinMerkleTree {
         while prev_level_size > 1 {
             tree.nodes.push(vec![]);
             for i in 0..(prev_level_size / 2) {
+                if tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2]
+                    == tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2 + 1]
+                {
+                    panic!("Duplicate hashes in the Merkle tree, indicating mutation");
+                }
                 preimage[..32].copy_from_slice(&calculate_sha256(
                     &tree.nodes[curr_level_offset - 1][prev_level_index_offset + i * 2],
                 ));
@@ -260,5 +270,30 @@ mod tests {
             let merkle_proof_i = mid_state_merkle_tree.generate_proof(i as u32);
             assert!(verify_merkle_proof(txid, &merkle_proof_i, merkle_root));
         }
+    }
+
+    // Should panic
+    #[test]
+    #[should_panic(expected = "Duplicate hashes in the Merkle tree, indicating mutation")]
+    fn test_malicious_merkle_tree_1() {
+        let txid_vec = vec![[1u8; 32], [2u8; 32], [3u8; 32]];
+        let _merkle_tree = BitcoinMerkleTree::new(txid_vec);
+        let malicious_tx_vec = vec![[1u8; 32], [2u8; 32], [3u8; 32], [3u8; 32]];
+        let _malicious_merkle_tree = BitcoinMerkleTree::new(malicious_tx_vec);
+    }
+
+    // Should panic
+    #[test]
+    #[should_panic(expected = "Duplicate hashes in the Merkle tree, indicating mutation")]
+    fn test_malicious_merkle_tree_2() {
+        let txid_vec = vec![
+            [1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32], [5u8; 32], [6u8; 32],
+        ];
+        let _merkle_tree = BitcoinMerkleTree::new(txid_vec);
+        let malicious_tx_vec = vec![
+            [1u8; 32], [2u8; 32], [3u8; 32], [3u8; 32], [4u8; 32], [5u8; 32], [6u8; 32], [5u8; 32],
+            [6u8; 32],
+        ];
+        let _malicious_merkle_tree = BitcoinMerkleTree::new(malicious_tx_vec);
     }
 }
