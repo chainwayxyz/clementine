@@ -230,15 +230,14 @@ impl Database {
         let result: (Vec<u8>, Vec<u8>) =
             execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        match result {
-            (winternitz_pks, operator_challenge_ack_hashes) => {
-                let operator_winternitz_pks: Vec<winternitz::PublicKey> =
-                    borsh::from_slice(&winternitz_pks).wrap_err(BridgeError::BorshError)?;
-                let operator_challenge_ack_hashes: Vec<[u8; 20]> =
-                    borsh::from_slice(&operator_challenge_ack_hashes)
-                        .wrap_err(BridgeError::BorshError)?;
-                Ok((operator_winternitz_pks, operator_challenge_ack_hashes))
-            }
+        let (winternitz_pks, operator_challenge_ack_hashes) = result;
+        {
+            let operator_winternitz_pks: Vec<winternitz::PublicKey> =
+                borsh::from_slice(&winternitz_pks).wrap_err(BridgeError::BorshError)?;
+            let operator_challenge_ack_hashes: Vec<[u8; 20]> =
+                borsh::from_slice(&operator_challenge_ack_hashes)
+                    .wrap_err(BridgeError::BorshError)?;
+            Ok((operator_winternitz_pks, operator_challenge_ack_hashes))
         }
     }
 
