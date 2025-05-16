@@ -87,7 +87,7 @@ mod tests {
             payout_tx_block_hash_pk,
             latest_block_hash_pk,
             challenge_sending_watchtowers_pk,
-            dummy_challenge_hashes,
+            dummy_challenge_hashes.to_vec(),
         );
 
         (
@@ -154,7 +154,7 @@ mod tests {
             payout_tx_block_hash_witness,
             latest_block_hash_witness,
             challenge_sending_watchtowers_witness,
-            dummy_challenge_preimages_final,
+            dummy_challenge_preimages_final.to_vec(),
         );
 
         assert!(resulting_witness.is_none(), "Witness is invalid");
@@ -212,7 +212,7 @@ mod tests {
             payout_tx_block_hash_witness,
             latest_block_hash_witness,
             challenge_sending_watchtowers_witness,
-            dummy_challenge_preimages_final,
+            dummy_challenge_preimages_final.to_vec(),
         );
 
         assert!(
@@ -271,7 +271,7 @@ mod tests {
             payout_tx_block_hash_witness,
             latest_block_hash_witness,
             challenge_sending_watchtowers_witness,
-            dummy_challenge_preimages_final,
+            dummy_challenge_preimages_final.to_vec(),
         );
 
         assert!(

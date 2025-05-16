@@ -514,7 +514,11 @@ pub async fn create_txhandlers(
     let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)
         [kickoff_data.kickoff_idx as usize]
         .clone();
-    let additional_disprove_script = context.additional_disprove_script.unwrap_or_default(); // Change this later it should always be set
+
+    let additional_disprove_script = context
+        .additional_disprove_script
+        .ok_or(TxError::InsufficientContext)?;
+
     let additional_disprove_script = replace_placeholders_in_script(
         additional_disprove_script,
         payout_tx_blockhash_pk,

@@ -373,8 +373,6 @@ async fn get_replaceable_additional_disprove_script_with_checks(
         bitvm_wpks.bitvm_pks.0[0].to_vec(),
         bitvm_wpks.latest_blockhash_pk.to_vec(),
         bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
-        operator_challenge_ack_hashes
-            .try_into()
-            .expect("Should not fail since the length is checked"),
+        operator_challenge_ack_hashes,
     ))
 }
