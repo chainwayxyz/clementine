@@ -530,6 +530,22 @@ impl Database {
         Ok(())
     }
 
+    /// Returns sendable transactions that are not in the non-active list and
+    /// not in the cancelled list. The transactions must not be already
+    /// confirmed. The transactions must have a fee rate lower than the
+    /// provided fee rate or null. Transaction and UTXO timelocks must be also
+    /// passed.
+    ///
+    /// # Parameters
+    ///
+    /// - `tx`: Optional database transaction
+    /// - `fee_rate`: Maximum fee rate for the transactions to be sendable
+    /// - `current_tip_height`: The current tip height of the Bitcoin blockchain
+    ///   for checking timelocks
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<u32>`]: A vector of transaction ids (db id) that are sendable.
     pub async fn get_sendable_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

@@ -324,17 +324,15 @@ impl TxSender {
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
 
-    /// The main loop for processing transactions requiring fee bumps or initial sending.
-    ///
-    /// Fetches transactions from the database that are eligible to be sent or bumped
-    /// based on the `new_fee_rate` and `current_tip_height`.
+    /// Fetches transactions that are eligible to be sent or bumped from
+    /// database based on the given fee rate and tip height. Than, places a send
+    /// transaction request to the Bitcoin based on the fee strategy.
     ///
     /// For each eligible transaction (`id`):
-    /// 1.  **Bump Fee Payers:** Calls `bump_fees_of_fee_payer_txs` to ensure any associated,
-    ///     unconfirmed fee payer UTXOs (used for CPFP) are themselves confirmed.
-    /// 2.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
+    ///
+    /// 1.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
     ///     transaction (`id`) using the `new_fee_rate`.
-    /// 3.  **Handle Errors:**
+    /// 2.  **Handle Errors:**
     ///     - `UnconfirmedFeePayerUTXOsLeft`: Skips the current tx, waiting for fee payers to confirm.
     ///     - `InsufficientFeePayerAmount`: Calls `create_fee_payer_utxo` to provision more funds
     ///       for a future CPFP attempt.
@@ -349,7 +347,6 @@ impl TxSender {
         new_fee_rate: FeeRate,
         current_tip_height: u32,
     ) -> Result<()> {
-        // tracing::info!("Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}");
         let txs = self
             .db
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
@@ -380,7 +377,7 @@ impl TxSender {
             if let Some(block_id) = seen_block_id {
                 tracing::debug!(
                     try_to_send_id = id,
-                    "Transaction confirmed in block {}",
+                    "Transaction already confirmed in block with block id of {}",
                     block_id
                 );
 
