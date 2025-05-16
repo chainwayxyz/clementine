@@ -82,6 +82,8 @@ enum OperatorCommands {
         #[arg(long)]
         output_amount: u64,
     },
+    /// Get vergen build information
+    Vergen,
     // Add other operator commands as needed
 }
 
@@ -94,6 +96,8 @@ enum VerifierCommands {
         #[arg(long)]
         num_nonces: u32,
     },
+    /// Get vergen build information
+    Vergen,
     // /// Set verifier public keys
     // SetVerifiers {
     //     #[arg(long, num_args = 1.., value_delimiter = ',')]
@@ -172,6 +176,8 @@ enum AggregatorCommands {
         #[arg(long)]
         output_amount: u64,
     },
+    /// Get vergen build information
+    Vergen,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -433,6 +439,14 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .await
                 .expect("Failed to make a request");
         }
+        OperatorCommands::Vergen => {
+            let params = Empty {};
+            let response = operator
+                .vergen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Vergen response:\n{}", response.into_inner().response);
+        }
     }
 }
 
@@ -460,6 +474,14 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .await
                 .expect("Failed to make a request");
             println!("Noncegen response: {:?}", response);
+        }
+        VerifierCommands::Vergen => {
+            let params = Empty {};
+            let response = verifier
+                .vergen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Vergen response:\n{}", response.into_inner().response);
         }
     }
 }
@@ -870,6 +892,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     }
                 }
             }
+        }
+        AggregatorCommands::Vergen => {
+            let params = Empty {};
+            let response = aggregator
+                .vergen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Vergen response:\n{}", response.into_inner().response);
         }
     }
 }

@@ -240,7 +240,8 @@ where
                         )
                         .map_err(|e| {
                             eyre::eyre!(
-                                "Unspent kickoff signature verification failed for num sig {}: {}",
+                                "Verifier{}: Unspent kickoff signature verification failed for num sig {}: {}",
+                                self.signer.xonly_public_key.to_string(),
                                 cur_sig_index + 1,
                                 e
                             )
