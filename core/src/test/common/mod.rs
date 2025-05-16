@@ -225,7 +225,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 
     let verifiers_public_keys: Vec<PublicKey> = aggregator
         .setup(Request::new(Empty {}))
-        .await?
+        .await
+        .wrap_err("Can't setup aggregator")?
         .into_inner()
         .try_into()?;
 
@@ -252,7 +253,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 
         let move_txid: Txid = aggregator
             .new_deposit(deposit)
-            .await?
+            .await
+            .wrap_err("Error while making a deposit")?
             .into_inner()
             .try_into()?;
         rpc.mine_blocks(1).await?;
@@ -333,41 +335,6 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     mine_once_after_in_mempool(&rpc, deposit_outpoint.txid, Some("Deposit outpoint"), None).await?;
     let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
 
-    // print the tp of deposit tx
-    let deposit_txid = deposit_outpoint.txid;
-    let transaction = rpc
-        .client
-        .get_raw_transaction(&deposit_txid, None)
-        .await
-        .expect("a");
-    let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
-        .client
-        .get_raw_transaction_info(&deposit_txid, None)
-        .await
-        .expect("a");
-    let block: bitcoincore_rpc::json::GetBlockResult = rpc
-        .client
-        .get_block_info(&tx_info.blockhash.unwrap())
-        .await
-        .expect("a");
-    let block_height = block.height;
-    let block = rpc
-        .client
-        .get_block(&tx_info.blockhash.unwrap())
-        .await
-        .expect("a");
-    let transaction_params = get_transaction_params(
-        transaction.clone(),
-        block,
-        block_height as u32,
-        deposit_txid,
-    );
-    println!("Deposit tx Transaction params: {:?}", transaction_params);
-    println!(
-        "Deposit tx: {:?}",
-        hex::encode(bitcoin::consensus::serialize(&transaction))
-    );
-
     let deposit_info = DepositInfo {
         deposit_outpoint,
         deposit_type: DepositType::BaseDeposit(BaseDepositData {
@@ -380,7 +347,8 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     let move_txid: Txid = aggregator
         .new_deposit(deposit)
-        .await?
+        .await
+        .wrap_err("Error while making a deposit")?
         .into_inner()
         .try_into()?;
 
@@ -632,7 +600,8 @@ pub async fn run_replacement_deposit(
             raw_tx: Some(RawSignedTx::from(&replacement_deposit_tx)),
             fee_type: FeeType::Cpfp as i32,
         })
-        .await?;
+        .await
+        .wrap_err("Error while sending replacement deposit tx")?;
 
     // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -666,7 +635,8 @@ pub async fn run_replacement_deposit(
 
     let move_txid: Txid = aggregator
         .new_deposit(deposit)
-        .await?
+        .await
+        .wrap_err("Error while making a deposit")?
         .into_inner()
         .try_into()?;
 
@@ -746,10 +716,10 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 eprintln!("Failed to generate certificates: {}", stderr);
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Certificate generation failed: {}", stderr),
-                ));
+                return Err(std::io::Error::other(format!(
+                    "Certificate generation failed: {}",
+                    stderr
+                )));
             }
 
             println!("TLS certificates generated successfully");

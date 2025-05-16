@@ -538,7 +538,10 @@ impl Database {
 
         match result {
             Some((deposit_params, operator_xonly_pk, round_idx, kickoff_idx)) => Ok(Some((
-                deposit_params.0.try_into()?,
+                deposit_params
+                    .0
+                    .try_into()
+                    .wrap_err("Can't convert deposit params")?,
                 KickoffData {
                     operator_xonly_pk: operator_xonly_pk.0,
                     round_idx: u32::try_from(round_idx)

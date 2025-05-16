@@ -61,6 +61,7 @@ confirmation_threshold = 1
 
 citrea_rpc_url = ""
 citrea_light_client_prover_url = ""
+citrea_chain_id = 5655
 bridge_contract_address = "3100000000000000000000000000000000000002"
 
 # Header chain prover's assumption to start with.

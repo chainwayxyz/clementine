@@ -124,6 +124,7 @@ impl From<MusigPartialSignature> for PartialSig {
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
     verifier_pk: &PublicKey,
@@ -143,6 +144,7 @@ pub fn parse_deposit_sign_session(
     Ok((deposit_data, session_id))
 }
 
+#[allow(clippy::result_large_err)]
 pub fn parse_partial_sigs(
     partial_sigs: Vec<Vec<u8>>,
 ) -> Result<Vec<MusigPartialSignature>, Status> {
@@ -160,6 +162,7 @@ pub fn parse_partial_sigs(
         .collect::<Result<Vec<_>, _>>()
 }
 
+#[allow(clippy::result_large_err)]
 pub fn parse_op_keys_with_deposit(
     data: OperatorKeysWithDeposit,
 ) -> Result<(DepositData, OperatorKeys, XOnlyPublicKey), Status> {
@@ -199,13 +202,27 @@ pub async fn parse_next_deposit_finalize_param_schnorr_sig(
     Ok(Some(final_sig))
 }
 
-pub async fn parse_deposit_finalize_param_agg_nonce(
+pub async fn parse_deposit_finalize_param_move_tx_agg_nonce(
     stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
 ) -> Result<MusigAggNonce, Status> {
     let sig = fetch_next_message_from_stream!(stream, params)?;
 
     match sig {
         verifier_deposit_finalize_params::Params::MoveTxAggNonce(aggnonce) => {
+            Ok(MusigAggNonce::from_slice(&aggnonce)
+                .map_err(invalid_argument("MusigAggNonce", "failed to parse"))?)
+        }
+        _ => Err(Status::internal("Expected FinalSig 2")),
+    }
+}
+
+pub async fn parse_deposit_finalize_param_emergency_stop_agg_nonce(
+    stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
+) -> Result<MusigAggNonce, Status> {
+    let sig = fetch_next_message_from_stream!(stream, params)?;
+
+    match sig {
+        verifier_deposit_finalize_params::Params::EmergencyStopAggNonce(aggnonce) => {
             Ok(MusigAggNonce::from_slice(&aggnonce)
                 .map_err(invalid_argument("MusigAggNonce", "failed to parse"))?)
         }

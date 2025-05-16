@@ -381,4 +381,11 @@ CREATE TABLE IF NOT EXISTS tx_sender_debug_sending_state (
 -- Index for faster queries
 CREATE INDEX IF NOT EXISTS tx_sender_debug_submission_errors_tx_id_idx ON tx_sender_debug_submission_errors(tx_id);
 
+-- Table to store emergency stop signatures
+CREATE TABLE IF NOT EXISTS emergency_stop_sigs (
+    move_txid text primary key not null check (move_txid ~ '^[a-fA-F0-9]{64}'),
+    emergency_stop_tx bytea not null,
+    created_at timestamp not null default now()
+);
+
 COMMIT;

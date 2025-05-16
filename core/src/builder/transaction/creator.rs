@@ -457,10 +457,10 @@ pub async fn create_txhandlers(
     // get the next round txhandler (because reimburse connectors will be in it)
     let next_round_txhandler = create_round_txhandler(
         operator_data.xonly_pk,
-        RoundTxInput::Prevout(
+        RoundTxInput::Prevout(Box::new(
             get_txhandler(&txhandlers, TransactionType::ReadyToReimburse)?
                 .get_spendable_output(UtxoVout::BurnConnector)?,
-        ),
+        )),
         kickoff_winternitz_keys.get_keys_for_round(round_idx as usize + 1),
         paramset,
     )?;
@@ -754,10 +754,10 @@ pub fn create_round_txhandlers(
             }
             let round_txhandler = builder::transaction::create_round_txhandler(
                 operator_data.xonly_pk,
-                RoundTxInput::Prevout(
+                RoundTxInput::Prevout(Box::new(
                     prev_ready_to_reimburse_txhandler
                         .get_spendable_output(UtxoVout::BurnConnector)?,
-                ),
+                )),
                 kickoff_winternitz_keys.get_keys_for_round(round_idx),
                 paramset,
             )?;
