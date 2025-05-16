@@ -350,7 +350,7 @@ async fn get_replaceable_additional_disprove_script_with_checks(
             deposit_data.get_deposit_outpoint(),
         )
         .await?
-        .unwrap(); // TODO: Handle this better
+        .expect("Should not err"); // TODO: Handle this better
 
     if operator_challenge_ack_hashes.len() != config.get_num_challenge_ack_hashes(&deposit_data) {
         return Err(BridgeError::InvalidChallengeAckHashes)?;

@@ -100,7 +100,7 @@ pub async fn create_and_sign_txs(
             transaction_data.deposit_outpoint,
         )
         .await?
-        .unwrap(); // TODO: handle error
+        .expect("Should not err"); // TODO: handle error
 
     if operator_challenge_ack_hashes.len() != config.get_num_challenge_ack_hashes(&deposit_data) {
         return Err(BridgeError::InvalidChallengeAckHashes)?;
