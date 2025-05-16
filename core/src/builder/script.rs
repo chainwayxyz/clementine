@@ -68,7 +68,7 @@ pub async fn get_replaceable_additional_disprove_script_with_checks(
         .expect("Should not err"); // TODO: Handle this better
 
     let expected_challenge_ack_count = match &config {
-        Some(cfg) => cfg.get_num_challenge_ack_hashes(&deposit_data),
+        Some(cfg) => cfg.get_num_challenge_ack_hashes(deposit_data),
         None => deposit_data.get_num_watchtowers(),
     };
 

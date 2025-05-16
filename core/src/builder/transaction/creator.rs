@@ -345,7 +345,7 @@ impl ContractContext {
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: Some(signer),
-            additional_disprove_script: additional_disprove_script,
+            additional_disprove_script,
         }
     }
 }
