@@ -136,7 +136,7 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) config: BridgeConfig,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub tx_sender: TxSenderClient,
-    pub header_chain_prover: HeaderChainProver,
+    pub header_chain_prover: Option<HeaderChainProver>,
     pub citrea_client: C,
 }
 
@@ -176,7 +176,11 @@ where
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
-        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
+        let header_chain_prover = if std::env::var("ENABLE_HEADER_CHAIN_PROVER").is_ok() {
+            Some(HeaderChainProver::new(&config, rpc.clone()).await?)
+        } else {
+            None
+        };
 
         let verifier = Verifier {
             rpc,
@@ -1459,10 +1463,12 @@ where
         self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
             .await?;
 
-        self.header_chain_prover
-            .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
-            .await?;
-        self.header_chain_prover.prove_if_ready().await?;
+        if let Some(header_chain_prover) = &self.header_chain_prover {
+            header_chain_prover
+                .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
+                .await?;
+            header_chain_prover.prove_if_ready().await?;
+        }
 
         Ok(())
     }
