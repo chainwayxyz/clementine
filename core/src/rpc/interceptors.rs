@@ -21,6 +21,7 @@ fn is_internal(req: &Request<()>) -> bool {
 }
 
 impl Interceptor for Interceptors {
+    #[allow(clippy::result_large_err)]
     fn call(&mut self, req: Request<()>) -> Result<Request<()>, Status> {
         match self {
             Interceptors::OnlyAggregatorAndSelf {
@@ -32,6 +33,7 @@ impl Interceptor for Interceptors {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn only_aggregator_and_self(
     req: Request<()>,
     our_cert: &CertificateDer<'static>,
