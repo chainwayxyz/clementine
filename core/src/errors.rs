@@ -132,6 +132,8 @@ pub enum BridgeError {
     InvalidChallengeAckHashes,
     #[error("Invalid operator index")]
     InvalidOperatorIndex,
+    #[error("Invalid protocal paramset")]
+    InvalidProtocolParamset,
 
     // External crate error wrappers
     #[error("Failed to call database: {0}")]

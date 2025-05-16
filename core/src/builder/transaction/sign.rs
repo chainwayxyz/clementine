@@ -3,6 +3,7 @@ use super::{ContractContext, KickoffData, TxHandlerCache};
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
+use crate::builder::script::get_replaceable_additional_disprove_script_with_checks;
 use crate::builder::transaction::creator::ReimburseDbCache;
 use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
@@ -124,9 +125,7 @@ pub async fn create_and_sign_txs(
             bitvm_wpks.bitvm_pks.0[0].to_vec(),
             bitvm_wpks.latest_blockhash_pk.to_vec(),
             bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
-            operator_challenge_ack_hashes
-                .try_into()
-                .expect("Should not fail since the length is checked"),
+            operator_challenge_ack_hashes,
         );
 
     let context = ContractContext::new_context_for_kickoffs(
@@ -243,11 +242,21 @@ where
             ))?
             .1;
 
+        let additional_disprove_script = get_replaceable_additional_disprove_script_with_checks(
+            self.db.clone(),
+            Some(self.config.clone()),
+            &deposit_data,
+            transaction_data.kickoff_data.operator_xonly_pk,
+            None,
+        )
+        .await?;
+
         let context = ContractContext::new_context_for_asserts(
             transaction_data.kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),
             self.signer.clone(),
+            Some(additional_disprove_script),
         );
 
         let mut txhandlers = builder::transaction::create_txhandlers(
@@ -370,11 +379,22 @@ where
             .await?
             .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
             .1;
+
+        let additional_disprove_script = get_replaceable_additional_disprove_script_with_checks(
+            self.db.clone(),
+            Some(self.config.clone()),
+            &deposit_data,
+            assert_data.kickoff_data.operator_xonly_pk,
+            None,
+        )
+        .await?;
+
         let context = ContractContext::new_context_for_asserts(
             assert_data.kickoff_data,
             deposit_data.clone(),
             self.config.protocol_paramset(),
             self.signer.clone(),
+            Some(additional_disprove_script),
         );
 
         let mut txhandlers = builder::transaction::create_txhandlers(
@@ -438,11 +458,21 @@ where
             .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
             .1;
 
+        let additional_disprove_script = get_replaceable_additional_disprove_script_with_checks(
+            self.db.clone(),
+            Some(self.config.clone()),
+            &deposit_data,
+            assert_data.kickoff_data.operator_xonly_pk,
+            None,
+        )
+        .await?;
+
         let context = ContractContext::new_context_for_asserts(
             assert_data.kickoff_data,
             deposit_data,
             self.config.protocol_paramset(),
             self.signer.clone(),
+            Some(additional_disprove_script),
         );
 
         let mut txhandlers = builder::transaction::create_txhandlers(

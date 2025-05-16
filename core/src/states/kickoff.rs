@@ -6,9 +6,12 @@ use serde_with::serde_as;
 use statig::prelude::*;
 
 use crate::{
-    builder::transaction::{
-        input::UtxoVout, remove_txhandler_from_map, ContractContext, DepositData, KickoffData,
-        TransactionType,
+    builder::{
+        script::get_replaceable_additional_disprove_script_with_checks,
+        transaction::{
+            input::UtxoVout, remove_txhandler_from_map, ContractContext, DepositData, KickoffData,
+            TransactionType,
+        },
     },
     errors::BridgeError,
 };
@@ -432,11 +435,20 @@ impl<T: Owner> KickoffStateMachine<T> {
         &mut self,
         context: &mut StateContext<T>,
     ) -> Result<(), BridgeError> {
+        let additional_disprove_script = get_replaceable_additional_disprove_script_with_checks(
+            context.db.clone(),
+            None,
+            &self.deposit_data,
+            self.kickoff_data.operator_xonly_pk,
+            Some(context.paramset.clone()),
+        )
+        .await?;
+
         let contract_context = ContractContext::new_context_for_kickoffs(
             self.kickoff_data,
             self.deposit_data.clone(),
             context.paramset,
-            None,
+            Some(additional_disprove_script),
         );
         let mut txhandlers = context
             .owner

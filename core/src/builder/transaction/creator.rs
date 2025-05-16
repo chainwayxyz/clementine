@@ -336,6 +336,7 @@ impl ContractContext {
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
         signer: Actor,
+        additional_disprove_script: Option<Vec<u8>>,
     ) -> Self {
         Self {
             operator_xonly_pk: kickoff_data.operator_xonly_pk,
@@ -344,7 +345,7 @@ impl ContractContext {
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: Some(signer),
-            additional_disprove_script: None,
+            additional_disprove_script: additional_disprove_script,
         }
     }
 }
