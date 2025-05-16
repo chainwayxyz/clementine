@@ -10,8 +10,8 @@ use crate::bitvm_client::{self, ClementineBitVMPublicKeys};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
-    create_move_to_vault_txhandler, create_txhandlers, ContractContext, KickoffData,
-    ReimburseDbCache, TransactionType, TxHandlerCache,
+    create_txhandlers, ContractContext, KickoffData, ReimburseDbCache, TransactionType,
+    TxHandlerCache,
 };
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -23,7 +23,6 @@ use bitcoin::hashes::Hash;
 use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
 use bitvm::clementine::additional_disprove::create_additional_replacable_disprove_script_with_dummy;
 use circuits_lib::bridge_circuit::deposit_constant;
-use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use futures_core::stream::Stream;
 
 impl BridgeConfig {
@@ -200,9 +199,8 @@ pub fn create_nofn_sighash_stream(
 
             let bitvm_wpks = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
 
-            let (additional_disprove_script, replacement_index) = create_additional_replacable_disprove_script_with_dummy(
+            let replacable_additional_disprove_script = create_additional_replacable_disprove_script_with_dummy(
                 config.protocol_paramset().bridge_circuit_method_id_constant,
-                bitvm_wpks.deposit_constant,    // This needs to be replaceble. When script is updated, this will be removed.
                 bitvm_wpks.bitvm_pks.0[0].to_vec(),
                 bitvm_wpks.latest_blockhash_pk.to_vec(),
                 bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
@@ -230,8 +228,7 @@ pub fn create_nofn_sighash_stream(
                         },
                         deposit_data.clone(),
                         config.protocol_paramset(),
-                        Some(additional_disprove_script.clone()),
-                        Some(replacement_index),
+                        Some(replacable_additional_disprove_script.clone()),
                     );
 
                     let mut txhandlers = create_txhandlers(
@@ -325,7 +322,6 @@ pub fn create_operator_sighash_stream(
                     },
                     deposit_data.clone(),
                     config.protocol_paramset(),
-                    None,
                     None,
                 );
 
