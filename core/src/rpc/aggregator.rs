@@ -1041,7 +1041,8 @@ impl ClementineAggregator for Aggregator {
             .rpc
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await
-            .map_to_status()?;
+            .map_to_status()
+            .map_err(|e| *e)?;
 
         let verifiers_public_keys = deposit_data.get_verifiers();
 
