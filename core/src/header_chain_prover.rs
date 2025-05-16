@@ -111,13 +111,19 @@ impl HeaderChainProver {
                 .client
                 .get_block_header(&block_hash)
                 .await
-                .wrap_err("Failed to get block header")?;
+                .wrap_err(format!(
+                "Failed to get block header with block hash {} (retrieved from assumption file)",
+                block_hash
+            ))?;
             let block_height = rpc
                 .client
                 .get_block_info(&block_hash)
                 .await
                 .map(|info| info.height)
-                .wrap_err("Failed to get block info")?;
+                .wrap_err(format!(
+                    "Failed to get block info with block hash {} (retrieved from assumption file)",
+                    block_hash
+                ))?;
             tracing::info!(
                 "Adding proof assumption for a block with hash of {:?}, header of {:?} and height of {}",
                 block_hash,
