@@ -20,7 +20,7 @@ use bitcoin::{
     opcodes,
     script::Instruction,
     sighash::{Prevouts, SighashCache, TaprootError},
-    Script, TapSighash, TapSighashType, Transaction, TxOut
+    Script, TapSighash, TapSighashType, Transaction, TxOut,
 };
 
 use core::panic;
@@ -627,7 +627,7 @@ mod tests {
         absolute::Height,
         consensus::{Decodable, Encodable},
         transaction::Version,
-        ScriptBuf, Transaction, TxIn, Witness,
+        ScriptBuf, Transaction, TxIn, Txid, Witness,
     };
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;
