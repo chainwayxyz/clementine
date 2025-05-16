@@ -143,9 +143,6 @@ pub enum BridgeError {
     #[error("{0}")]
     CLIDisplayAndExit(StyledStr),
 
-    #[error("Tonic status: {0}")]
-    TonicStatus(#[from] tonic::Status),
-
     // Base wrapper for eyre
     #[error(transparent)]
     Eyre(#[from] eyre::Report),
