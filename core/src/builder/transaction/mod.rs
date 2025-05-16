@@ -753,9 +753,9 @@ pub fn create_taproot_output_with_hidden_node(
     use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
 
     let taproot_spend_info = TaprootBuilder::new()
-        .add_leaf(1, script.to_script_buf())
+        .add_leaf(2, script.to_script_buf())
         .expect("taptree with one node at depth 1 will accept a script node")
-        .add_leaf(1, additioanl_disprove_script)
+        .add_leaf(2, additioanl_disprove_script)
         .expect("taptree with one node at depth 1 will accept a script node")
         .add_hidden_node(1, TapNodeHash::from_byte_array(*root_hash))
         .expect("empty taptree will accept a node at depth 1")

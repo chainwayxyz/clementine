@@ -612,7 +612,7 @@ mod tests {
     use super::{
         merkle_tree::BlockInclusionProof,
         spv::SPV,
-        structs::{CircuitTxOut, CircuitTxid, CircuitWitness, WatchtowerInput},
+        structs::{CircuitTxOut, CircuitWitness, WatchtowerInput},
         transaction::CircuitTransaction,
         *,
     };
