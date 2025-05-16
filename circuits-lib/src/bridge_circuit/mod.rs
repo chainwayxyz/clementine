@@ -20,7 +20,7 @@ use bitcoin::{
     opcodes,
     script::Instruction,
     sighash::{Prevouts, SighashCache, TaprootError},
-    Script, TapSighash, TapSighashType, Transaction, TxOut, Txid,
+    Script, TapSighash, TapSighashType, Transaction, TxOut
 };
 
 use core::panic;
@@ -147,7 +147,10 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
     let last_output = input.payout_spv.transaction.output.last().unwrap();
 
-    let round_txid = input.kickoff_tx.input[0].previous_output.txid;
+    let round_txid = input.kickoff_tx.input[0]
+        .previous_output
+        .txid
+        .to_byte_array();
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_id = operator_id_from_op_return(last_output);
@@ -550,7 +553,7 @@ pub fn deposit_constant(
     watchtower_challenge_connector_start_idx: u16,
     watchtower_pubkeys: &[[u8; 32]],
     move_txid: [u8; 32],
-    round_txid: Txid,
+    round_txid: [u8; 32],
     kickoff_round_vout: u32,
 ) -> DepositConstant {
     // pubkeys are 32 bytes long
@@ -566,7 +569,7 @@ pub fn deposit_constant(
         &watchtower_pubkeys_digest,
         &operator_id,
         &watchtower_challenge_connector_start_idx.to_be_bytes()[..],
-        round_txid.as_byte_array(),
+        &round_txid,
         &kickoff_round_vout.to_be_bytes()[..],
     ]
     .concat();

@@ -211,8 +211,7 @@ impl Database {
         Ok(())
     }
 
-    /// Gets Winternitz public keys for every sequential collateral tx of an
-    /// operator and a watchtower.
+    /// Gets Winternitz public keys for bitvm related inputs of an operator.
     pub async fn get_operator_bitvm_keys(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
