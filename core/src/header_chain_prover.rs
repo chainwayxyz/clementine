@@ -767,6 +767,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Header chain prover is ignored"]
     async fn verifier_new_check_header_chain_proof() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -802,6 +803,8 @@ mod tests {
                 Ok(verifier
                     .verifier
                     .header_chain_prover
+                    .as_ref()
+                    .unwrap()
                     .db
                     .get_block_proof_by_hash(None, hash)
                     .await
