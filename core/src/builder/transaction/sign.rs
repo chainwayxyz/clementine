@@ -85,13 +85,22 @@ pub async fn create_and_sign_txs(
         ))?
         .1;
 
-    let (bitvm_wpks, operator_challenge_ack_hashes) = db
+    let bitvm_wpks = db
         .get_operator_bitvm_keys(
             None,
             transaction_data.kickoff_data.operator_xonly_pk,
             deposit_data.get_deposit_outpoint(),
         )
         .await?;
+
+    let operator_challenge_ack_hashes = db
+        .get_operators_challenge_ack_hashes(
+            None,
+            transaction_data.kickoff_data.operator_xonly_pk,
+            transaction_data.deposit_outpoint,
+        )
+        .await?
+        .unwrap(); // TODO: handle error
 
     if operator_challenge_ack_hashes.len() != config.get_num_challenge_ack_hashes(&deposit_data) {
         return Err(BridgeError::InvalidChallengeAckHashes)?;

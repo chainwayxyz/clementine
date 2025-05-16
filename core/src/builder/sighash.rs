@@ -174,37 +174,12 @@ pub fn create_nofn_sighash_stream(
             // need to create new TxHandlerDbData for each operator
             let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
-            let (bitvm_wpks, operator_challenge_ack_hashes) = db.get_operator_bitvm_keys(
-                None,
+            let replacable_additional_disprove_script = get_replaceable_additional_disprove_script_with_checks(
+                db.clone(),
+                config.clone(),
+                deposit_data.clone(),
                 *op_xonly_pk,
-                deposit_data.get_deposit_outpoint(),
             ).await?;
-
-
-            if operator_challenge_ack_hashes.len() != config.get_num_challenge_ack_hashes(&deposit_data) {
-                return Err(BridgeError::InvalidChallengeAckHashes)?;
-            }
-
-            if bitvm_wpks.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
-            tracing::error!(
-                "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
-                op_xonly_pk,
-                bitvm_wpks.len(),
-                ClementineBitVMPublicKeys::number_of_flattened_wpks()
-            );
-                return Err(BridgeError::InvalidBitVMPublicKeys)?;
-            }
-
-
-            let bitvm_wpks = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
-
-            let replacable_additional_disprove_script = create_additional_replacable_disprove_script_with_dummy(
-                config.protocol_paramset().bridge_circuit_method_id_constant,
-                bitvm_wpks.bitvm_pks.0[0].to_vec(),
-                bitvm_wpks.latest_blockhash_pk.to_vec(),
-                bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
-                operator_challenge_ack_hashes.try_into().expect("Should not fail since the length is checked"),
-            );
 
             let mut txhandler_cache = TxHandlerCache::new();
 
@@ -308,21 +283,12 @@ pub fn create_operator_sighash_stream(
         let mut txhandler_cache = TxHandlerCache::new();
         let operator_idx = deposit_data.get_operator_index(operator_xonly_pk)?;
 
-        let (bitvm_wpks, operator_challenge_ack_hashes) = db.get_operator_bitvm_keys(
-            None,
-            operator_xonly_pk,
-            deposit_data.get_deposit_outpoint(),
+        let replacable_additional_disprove_script = get_replaceable_additional_disprove_script_with_checks(
+            db.clone(),
+            config.clone(),
+            deposit_data.clone(),
+            operator.xonly_pk,
         ).await?;
-
-        let bitvm_wpks = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
-
-        let replacable_additional_disprove_script = create_additional_replacable_disprove_script_with_dummy(
-            config.protocol_paramset().bridge_circuit_method_id_constant,
-            bitvm_wpks.bitvm_pks.0[0].to_vec(),
-            bitvm_wpks.latest_blockhash_pk.to_vec(),
-            bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
-            operator_challenge_ack_hashes.try_into().expect("Should not fail since the length is checked"),
-        );
 
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
         for round_idx in 0..paramset.num_round_txs {
@@ -365,4 +331,50 @@ pub fn create_operator_sighash_stream(
             txhandler_cache.store_for_next_round()?;
         }
     }
+}
+
+async fn get_replaceable_additional_disprove_script_with_checks(
+    db: Database,
+    config: BridgeConfig,
+    deposit_data: DepositData,
+    operator_xonly_pk: XOnlyPublicKey,
+) -> Result<Vec<u8>, BridgeError> {
+    let bitvm_wpks = db
+        .get_operator_bitvm_keys(None, operator_xonly_pk, deposit_data.get_deposit_outpoint())
+        .await?;
+
+    let operator_challenge_ack_hashes = db
+        .get_operators_challenge_ack_hashes(
+            None,
+            operator_xonly_pk,
+            deposit_data.get_deposit_outpoint(),
+        )
+        .await?
+        .unwrap(); // TODO: Handle this better
+
+    if operator_challenge_ack_hashes.len() != config.get_num_challenge_ack_hashes(&deposit_data) {
+        return Err(BridgeError::InvalidChallengeAckHashes)?;
+    }
+
+    if bitvm_wpks.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
+        tracing::error!(
+            "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
+            operator_xonly_pk,
+            bitvm_wpks.len(),
+            ClementineBitVMPublicKeys::number_of_flattened_wpks()
+        );
+        return Err(BridgeError::InvalidBitVMPublicKeys)?;
+    }
+
+    let bitvm_wpks = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
+
+    Ok(create_additional_replacable_disprove_script_with_dummy(
+        config.protocol_paramset().bridge_circuit_method_id_constant,
+        bitvm_wpks.bitvm_pks.0[0].to_vec(),
+        bitvm_wpks.latest_blockhash_pk.to_vec(),
+        bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
+        operator_challenge_ack_hashes
+            .try_into()
+            .expect("Should not fail since the length is checked"),
+    ))
 }

@@ -43,7 +43,6 @@ create table if not exists operator_bitvm_winternitz_public_keys (
     xonly_pk text not null,
     deposit_id int not null,
     bitvm_winternitz_public_keys bytea not null,
-    hashes bytea not null,
     primary key (xonly_pk, deposit_id)
 );
 

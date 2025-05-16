@@ -189,22 +189,18 @@ impl Database {
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
         winternitz_public_key: Vec<WinternitzPublicKey>,
-        operator_challenge_ack_hashes: Vec<[u8; 20]>,
     ) -> Result<(), BridgeError> {
         let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
-        let hashes =
-            borsh::to_vec(&operator_challenge_ack_hashes).wrap_err(BridgeError::BorshError)?;
         let deposit_id = self
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
         let query = sqlx::query(
-                "INSERT INTO operator_bitvm_winternitz_public_keys (xonly_pk, deposit_id, bitvm_winternitz_public_keys, operator_challenge_ack_hashes) VALUES ($1, $2, $3, $4)
+                "INSERT INTO operator_bitvm_winternitz_public_keys (xonly_pk, deposit_id, bitvm_winternitz_public_keys) VALUES ($1, $2, $3)
                 ON CONFLICT DO NOTHING;",
             )
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
-            .bind(wpk)
-            .bind(hashes);
+            .bind(wpk);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -217,27 +213,23 @@ impl Database {
         mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: OutPoint,
-    ) -> Result<(Vec<winternitz::PublicKey>, Vec<[u8; 20]>), BridgeError> {
+    ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let deposit_id = self
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
         let query = sqlx::query_as(
-                "SELECT bitvm_winternitz_public_keys, operator_challenge_ack_hashes FROM operator_bitvm_winternitz_public_keys WHERE xonly_pk = $1 AND deposit_id = $2;"
+                "SELECT bitvm_winternitz_public_keys FROM operator_bitvm_winternitz_public_keys WHERE xonly_pk = $1 AND deposit_id = $2;"
             )
             .bind(XOnlyPublicKeyDB(operator_xonly_pk))
             .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?);
 
-        let result: (Vec<u8>, Vec<u8>) =
+        let winternitz_pks: (Vec<u8>,) =
             execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        let (winternitz_pks, operator_challenge_ack_hashes) = result;
         {
             let operator_winternitz_pks: Vec<winternitz::PublicKey> =
-                borsh::from_slice(&winternitz_pks).wrap_err(BridgeError::BorshError)?;
-            let operator_challenge_ack_hashes: Vec<[u8; 20]> =
-                borsh::from_slice(&operator_challenge_ack_hashes)
-                    .wrap_err(BridgeError::BorshError)?;
-            Ok((operator_winternitz_pks, operator_challenge_ack_hashes))
+                borsh::from_slice(&winternitz_pks.0).wrap_err(BridgeError::BorshError)?;
+            Ok(operator_winternitz_pks)
         }
     }
 
@@ -1043,6 +1035,42 @@ mod tests {
 
         let result = database
             .get_operator_kickoff_winternitz_public_keys(None, op_xonly_pk)
+            .await
+            .unwrap();
+        assert_eq!(result, wpks);
+
+        let non_existent = database
+            .get_operator_kickoff_winternitz_public_keys(None, *UNSPENDABLE_XONLY_PUBKEY)
+            .await;
+        assert!(non_existent.is_err());
+    }
+
+    #[tokio::test]
+    async fn set_get_operator_bitvm_wpks() {
+        let mut config = create_test_config_with_thread_name().await;
+        let database = Database::new(&config).await.unwrap();
+        let _regtest = create_regtest_rpc(&mut config).await;
+
+        let operator = Operator::<MockCitreaClient>::new(config.clone())
+            .await
+            .unwrap();
+        let op_xonly_pk =
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &config.secret_key)).0;
+        let deposit_outpoint = OutPoint {
+            txid: Txid::from_slice(&[0x45; 32]).unwrap(),
+            vout: 0x1F,
+        };
+        let wpks = operator
+            .generate_assert_winternitz_pubkeys(deposit_outpoint)
+            .unwrap();
+
+        database
+            .set_operator_bitvm_keys(None, op_xonly_pk, deposit_outpoint, wpks.clone())
+            .await
+            .unwrap();
+
+        let result = database
+            .get_operator_bitvm_keys(None, op_xonly_pk, deposit_outpoint)
             .await
             .unwrap();
         assert_eq!(result, wpks);
