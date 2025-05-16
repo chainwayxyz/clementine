@@ -514,7 +514,8 @@ impl Aggregator {
             .deposit_params
             .clone()
             .ok_or_else(|| eyre::eyre!("No deposit params found in deposit sign session"))?
-            .try_into()?;
+            .try_into()
+            .wrap_err("Failed to convert deposit params to deposit data")?;
 
         // calculate number of signatures needed from each operator
         let needed_sigs = config.get_num_required_operator_sigs(&deposit_data);
@@ -626,9 +627,11 @@ impl Aggregator {
         emergency_stop_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -> Result<(), BridgeError> {
-        let mut deposit_data: crate::builder::transaction::DepositData =
-            deposit_params.try_into()?;
-        let musig_partial_sigs = parser::verifier::parse_partial_sigs(emergency_stop_sigs)?;
+        let mut deposit_data: crate::builder::transaction::DepositData = deposit_params
+            .try_into()
+            .wrap_err("Failed to convert deposit params to deposit data")?;
+        let musig_partial_sigs = parser::verifier::parse_partial_sigs(emergency_stop_sigs)
+            .wrap_err("Failed to parse emergency stop signatures")?;
 
         // create move tx and calculate sighash
         let move_txhandler =
@@ -1045,7 +1048,8 @@ impl ClementineAggregator for Aggregator {
             .rpc
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await
-            .map_to_status()?;
+            .map_to_status()
+            .map_err(|e| *e)?;
 
         let verifiers_public_keys = deposit_data.get_verifiers();
 
