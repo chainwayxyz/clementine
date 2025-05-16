@@ -2,8 +2,9 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::Empty;
 use crate::rpc::get_clients;
 use crate::servers::create_operator_grpc_server;
+use crate::test::common::citrea::MockCitreaClient;
+use crate::test::common::create_regtest_rpc;
 use crate::test::common::create_test_config_with_thread_name;
-use crate::{citrea::mock::MockCitreaClient, test::common::create_regtest_rpc};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use tokio::net::TcpListener;
