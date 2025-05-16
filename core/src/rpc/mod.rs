@@ -107,23 +107,13 @@ where
                 let client_key = client_key.clone();
                 let client_ca = client_ca.clone();
 
-                let domain_name = endpoint
-                    .split("://")
-                    .nth(1)
-                    .unwrap_or("localhost")
-                    .split(':')
-                    .next()
-                    .unwrap_or("localhost");
                 let tls_config = if use_client_cert {
                     let client_identity = Identity::from_pem(client_cert, client_key);
                     ClientTlsConfig::new()
-                        .domain_name(domain_name)
                         .identity(client_identity)
                         .ca_certificate(client_ca)
                 } else {
-                    ClientTlsConfig::new()
-                        .domain_name(domain_name)
-                        .ca_certificate(client_ca)
+                    ClientTlsConfig::new().ca_certificate(client_ca)
                 };
 
                 async move {
