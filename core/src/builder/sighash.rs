@@ -308,6 +308,22 @@ pub fn create_operator_sighash_stream(
         let mut txhandler_cache = TxHandlerCache::new();
         let operator_idx = deposit_data.get_operator_index(operator_xonly_pk)?;
 
+        let (bitvm_wpks, operator_challenge_ack_hashes) = db.get_operator_bitvm_keys(
+            None,
+            operator_xonly_pk,
+            deposit_data.get_deposit_outpoint(),
+        ).await?;
+
+        let bitvm_wpks = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
+
+        let replacable_additional_disprove_script = create_additional_replacable_disprove_script_with_dummy(
+            config.protocol_paramset().bridge_circuit_method_id_constant,
+            bitvm_wpks.bitvm_pks.0[0].to_vec(),
+            bitvm_wpks.latest_blockhash_pk.to_vec(),
+            bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
+            operator_challenge_ack_hashes.try_into().expect("Should not fail since the length is checked"),
+        );
+
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
         for round_idx in 0..paramset.num_round_txs {
             for &kickoff_idx in &utxo_idxs {
@@ -321,7 +337,7 @@ pub fn create_operator_sighash_stream(
                     },
                     deposit_data.clone(),
                     config.protocol_paramset(),
-                    None,
+                    Some(replacable_additional_disprove_script.clone()),
                 );
 
                 let mut txhandlers = create_txhandlers(
