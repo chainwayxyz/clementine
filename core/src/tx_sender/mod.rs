@@ -1,11 +1,40 @@
-use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::TapNodeHash;
-use bitcoin::XOnlyPublicKey;
-use eyre::OptionExt;
-
-use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
-use bitcoincore_rpc::{json::EstimateMode, RpcApi};
-use serde::{Deserialize, Serialize};
+//! # Transaction Sender
+//!
+//! Transaction sender is responsible for sending Bitcoin transactions, bumping
+//! fees and making sure that transactions are finalized until the deadline, all
+//! in background.
+//!
+//! ## Concepts
+//!
+//! ### Transaction/UTXO Activation and Cancelation
+//!
+//! Transactions and UTXOs can be marked as active, non-active or cancelled.
+//!
+//! Transactions/UTXOS that are marked as active are candidate transactions for
+//! transaction sender. Non-active transactions/UTXOS on the other hand are, not
+//! yet processed by the transaction sender.
+//!
+//! If a transaction/UTXO is marked as cancelled, it can't be used in
+//! transaction sender anymore. Spent transactions/UTXOs are examples for that.
+//!
+//! An active transaction can be send if its UTXOs are also marked as active
+//! and doesn't have any cancelled UTXO bounds which is specified when the send
+//! transaction call is issued.
+//!
+//! ### Confirmed and Unconfirmed Blocks
+//!
+//! Blocks are marked as confirmed when they are confirmed in the Bitcoin. And
+//! if a reorg happens, the blocks are marked as unconfirmed.
+//!
+//! After a block is confirmed, all of the transactions and UTXOs in that block
+//! gets assigned with the corresponding block id. Similarly, when a block is
+//! unconfirmed, all of the transactions and UTXOs in that block gets their
+//! block id removed.
+//!
+//! ## Debugging Transaction Sender
+//!
+//! There are several database tables that saves the transaction states. Please
+//! look for [`core/src/database/tx_sender.rs`] for more information.
 
 use crate::errors::ResultExt;
 use crate::{
@@ -14,6 +43,13 @@ use crate::{
     database::Database,
     extended_rpc::ExtendedRpc,
 };
+use bitcoin::taproot::TaprootSpendInfo;
+use bitcoin::TapNodeHash;
+use bitcoin::XOnlyPublicKey;
+use bitcoin::{Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight};
+use bitcoincore_rpc::{json::EstimateMode, RpcApi};
+use eyre::OptionExt;
+use serde::{Deserialize, Serialize};
 
 mod client;
 mod cpfp;
@@ -265,8 +301,7 @@ impl TxSender {
     }
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
-        output.value == builder::transaction::anchor_output().value
-            && output.script_pubkey == builder::transaction::anchor_output().script_pubkey
+        *output == builder::transaction::anchor_output()
     }
 
     fn find_p2a_vout(&self, tx: &Transaction) -> Result<usize> {
@@ -289,17 +324,15 @@ impl TxSender {
         FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
     }
 
-    /// The main loop for processing transactions requiring fee bumps or initial sending.
-    ///
-    /// Fetches transactions from the database that are eligible to be sent or bumped
-    /// based on the `new_fee_rate` and `current_tip_height`.
+    /// Fetches transactions that are eligible to be sent or bumped from
+    /// database based on the given fee rate and tip height. Than, places a send
+    /// transaction request to the Bitcoin based on the fee strategy.
     ///
     /// For each eligible transaction (`id`):
-    /// 1.  **Bump Fee Payers:** Calls `bump_fees_of_fee_payer_txs` to ensure any associated,
-    ///     unconfirmed fee payer UTXOs (used for CPFP) are themselves confirmed.
-    /// 2.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
+    ///
+    /// 1.  **Send/Bump Main Tx:** Calls `send_tx` to either perform RBF or CPFP on the main
     ///     transaction (`id`) using the `new_fee_rate`.
-    /// 3.  **Handle Errors:**
+    /// 2.  **Handle Errors:**
     ///     - `UnconfirmedFeePayerUTXOsLeft`: Skips the current tx, waiting for fee payers to confirm.
     ///     - `InsufficientFeePayerAmount`: Calls `create_fee_payer_utxo` to provision more funds
     ///       for a future CPFP attempt.
@@ -314,7 +347,6 @@ impl TxSender {
         new_fee_rate: FeeRate,
         current_tip_height: u32,
     ) -> Result<()> {
-        // tracing::info!("Trying to send unconfirmed txs with new fee rate: {new_fee_rate:?}, current tip height: {current_tip_height:?}");
         let txs = self
             .db
             .get_sendable_txs(None, new_fee_rate, current_tip_height)
@@ -345,7 +377,7 @@ impl TxSender {
             if let Some(block_id) = seen_block_id {
                 tracing::debug!(
                     try_to_send_id = id,
-                    "Transaction confirmed in block {}",
+                    "Transaction already confirmed in block with block id of {}",
                     block_id
                 );
 
@@ -383,25 +415,17 @@ impl TxSender {
 mod tests {
     use super::*;
     use crate::actor::TweakCache;
-    use crate::bitcoin_syncer::BitcoinSyncer;
     use crate::bitvm_client::SECP;
     use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
-    use crate::constants::MIN_TAPROOT_AMOUNT;
     use crate::errors::BridgeError;
-    use crate::rpc::clementine::tagged_signature::SignatureId;
-    use crate::rpc::clementine::{NormalSignatureKind, NumberedSignatureKind};
-    use crate::task::{IntoTask, TaskExt};
+    use crate::rpc::clementine::NormalSignatureKind;
     use crate::{database::Database, test::common::*};
-    use bitcoin::secp256k1::SecretKey;
-    use bitcoin::transaction::Version;
-    use secp256k1::rand;
     use std::result::Result;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::oneshot;
 
     impl TxSenderClient {
         pub async fn test_dbtx(
@@ -409,136 +433,6 @@ mod tests {
         ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
             self.db.begin_transaction().await
         }
-    }
-
-    pub(super) async fn create_tx_sender(
-        rpc: ExtendedRpc,
-    ) -> (
-        TxSender,
-        BitcoinSyncer,
-        ExtendedRpc,
-        Database,
-        Actor,
-        bitcoin::Network,
-    ) {
-        let sk = SecretKey::new(&mut rand::thread_rng());
-        let network = bitcoin::Network::Regtest;
-        let actor = Actor::new(sk, None, network);
-
-        let config = create_test_config_with_thread_name().await;
-
-        let db = Database::new(&config).await.unwrap();
-
-        let tx_sender = TxSender::new(
-            actor.clone(),
-            rpc.clone(),
-            db.clone(),
-            "tx_sender".into(),
-            network,
-        );
-
-        (
-            tx_sender,
-            BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
-                .await
-                .unwrap(),
-            rpc,
-            db,
-            actor,
-            network,
-        )
-    }
-
-    pub(super) async fn create_bg_tx_sender(
-        rpc: ExtendedRpc,
-    ) -> (
-        TxSenderClient,
-        TxSender,
-        Vec<oneshot::Sender<()>>,
-        ExtendedRpc,
-        Database,
-        Actor,
-        bitcoin::Network,
-    ) {
-        let (tx_sender, syncer, rpc, db, actor, network) = create_tx_sender(rpc).await;
-
-        let sender_task = tx_sender.clone().into_task().cancelable_loop();
-        sender_task.0.into_bg();
-
-        let syncer_task = syncer.into_task().cancelable_loop();
-        syncer_task.0.into_bg();
-
-        (
-            tx_sender.client(),
-            tx_sender,
-            vec![sender_task.1, syncer_task.1],
-            rpc,
-            db,
-            actor,
-            network,
-        )
-    }
-
-    async fn create_bumpable_tx(
-        rpc: &ExtendedRpc,
-        signer: &Actor,
-        network: bitcoin::Network,
-        fee_paying_type: FeePayingType,
-        requires_rbf_signing_info: bool,
-    ) -> Result<Transaction, BridgeError> {
-        let (address, spend_info) =
-            builder::address::create_taproot_address(&[], Some(signer.xonly_public_key), network);
-
-        let amount = Amount::from_sat(100000);
-        let outpoint = rpc.send_to_address(&address, amount).await?;
-        rpc.mine_blocks(1).await?;
-
-        let version = match fee_paying_type {
-            FeePayingType::CPFP => Version::non_standard(3),
-            FeePayingType::RBF => Version::TWO,
-        };
-
-        let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
-            .with_version(version)
-            .add_input(
-                match fee_paying_type {
-                    FeePayingType::CPFP => {
-                        SignatureId::from(NormalSignatureKind::OperatorSighashDefault)
-                    }
-                    FeePayingType::RBF if !requires_rbf_signing_info => {
-                        NormalSignatureKind::Challenge.into()
-                    }
-                    FeePayingType::RBF => (NumberedSignatureKind::WatchtowerChallenge, 0i32).into(),
-                },
-                SpendableTxIn::new(
-                    outpoint,
-                    TxOut {
-                        value: amount,
-                        script_pubkey: address.script_pubkey(),
-                    },
-                    vec![],
-                    Some(spend_info),
-                ),
-                SpendPath::KeySpend,
-                DEFAULT_SEQUENCE,
-            )
-            .add_output(UnspentTxOut::from_partial(TxOut {
-                value: amount
-                    - builder::transaction::anchor_output().value
-                    - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
-                script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
-            }))
-            .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
-            ))
-            .finalize();
-
-        signer
-            .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
-            .unwrap();
-
-        let tx = txhandler.get_cached_tx().clone();
-        Ok(tx)
     }
 
     #[tokio::test]
@@ -552,7 +446,7 @@ mod tests {
         let (client, _tx_sender, _cancel_txs, rpc, db, signer, network) =
             create_bg_tx_sender(rpc).await;
 
-        let tx = create_bumpable_tx(&rpc, &signer, network, FeePayingType::CPFP, false)
+        let tx = create_bumpable_tx(&rpc, &signer, network, FeePayingType::CPFP, false, None)
             .await
             .unwrap();
 

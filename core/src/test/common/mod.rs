@@ -2,20 +2,24 @@
 use std::path::Path;
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use crate::actor::Actor;
+use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::{CheckSig, Multisig, SpendPath, SpendableScript};
 use crate::builder::transaction::input::SpendableTxIn;
+use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{
     create_replacement_deposit_txhandler, BaseDepositData, DepositInfo, DepositType,
-    ReplacementDepositData, SecurityCouncil, TxHandler, DEFAULT_SEQUENCE,
+    ReplacementDepositData, SecurityCouncil, TransactionType, TxHandler, TxHandlerBuilder,
+    DEFAULT_SEQUENCE,
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::constants::MIN_TAPROOT_AMOUNT;
+use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
@@ -25,20 +29,28 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::{Deposit, Empty, FeeType, RawSignedTx, SendTxRequest};
-use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
-use crate::EVMAddress;
+use crate::rpc::clementine::tagged_signature::SignatureId;
+use crate::rpc::clementine::{
+    Deposit, Empty, FeeType, NormalSignatureKind, RawSignedTx, SendTxRequest,
+};
+use crate::rpc::clementine::{NumberedSignatureKind, TaggedSignature};
+use crate::task::{IntoTask, TaskExt};
+use crate::tx_sender::{FeePayingType, TxSender, TxSenderClient};
+use crate::{builder, EVMAddress};
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
-use bitcoin::secp256k1::Message;
 use bitcoin::secp256k1::PublicKey;
+use bitcoin::secp256k1::{Message, SecretKey};
+use bitcoin::transaction::Version;
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{taproot, Amount, BlockHash, OutPoint, Transaction, Txid, Witness};
+use bitcoin::{taproot, Amount, BlockHash, OutPoint, Transaction, TxOut, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
 use citrea::get_transaction_params;
 use eyre::Context;
 use secp256k1::rand;
 pub use setup_utils::*;
+use std::time::Duration;
+use tokio::sync::oneshot;
 use tonic::transport::Channel;
 use tonic::Request;
 use tx_utils::get_txid_where_utxo_is_spent;
@@ -149,18 +161,24 @@ pub async fn mine_once_after_in_mempool(
     let tx_name = tx_name.unwrap_or("Unnamed tx");
 
     loop {
+        let mempool_result = rpc.client.get_mempool_entry(&txid).await;
+        tracing::debug!("Waiting for {} transaction to hit mempool...", tx_name,);
+
+        if mempool_result.is_ok() {
+            tracing::debug!(
+                "{} transaction hit the mempool: {:?}",
+                tx_name,
+                mempool_result.unwrap()
+            );
+            break;
+        };
+
         if start.elapsed() > std::time::Duration::from_secs(timeout) {
             return Err(BridgeError::Error(format!(
                 "{} did not land onchain within {} seconds",
                 tx_name, timeout
             )));
         }
-
-        if rpc.client.get_mempool_entry(&txid).await.is_ok() {
-            break;
-        };
-
-        tracing::info!("Waiting for {} transaction to hit mempool...", tx_name);
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
@@ -171,23 +189,12 @@ pub async fn mine_once_after_in_mempool(
         .get_raw_transaction_info(&txid, None)
         .await
         .map_err(|e| {
-            BridgeError::Error(format!(
-            "{} did not land onchain after in mempool and mining 1 block and rpc gave error: {}",
-            tx_name,
-            e
-        ))
+            BridgeError::Error(format!("Failed to get raw transaction {}: {}", tx_name, e))
         })?;
+    tracing::debug!("{} raw transaction: {:?}", tx_name, tx);
 
     if tx.blockhash.is_none() {
-        tracing::error!(
-            "{} did not land onchain after in mempool and mining 1 block",
-            tx_name
-        );
-
-        return Err(BridgeError::Error(format!(
-            "{} did not land onchain after in mempool and mining 1 block",
-            tx_name
-        )));
+        return Err(BridgeError::Error(format!("{} did not get mined", tx_name)));
     }
 
     let tx_block_height = rpc
@@ -197,6 +204,137 @@ pub async fn mine_once_after_in_mempool(
         .wrap_err("Failed to get block info")?;
 
     Ok(tx_block_height.height)
+}
+
+pub async fn create_tx_sender(
+    rpc: ExtendedRpc,
+) -> (
+    TxSender,
+    BitcoinSyncer,
+    ExtendedRpc,
+    Database,
+    Actor,
+    bitcoin::Network,
+) {
+    let sk = SecretKey::new(&mut rand::thread_rng());
+    let network = bitcoin::Network::Regtest;
+    let actor = Actor::new(sk, None, network);
+
+    let config = create_test_config_with_thread_name().await;
+
+    let db = Database::new(&config).await.unwrap();
+
+    let tx_sender = TxSender::new(
+        actor.clone(),
+        rpc.clone(),
+        db.clone(),
+        "tx_sender".into(),
+        network,
+    );
+
+    (
+        tx_sender,
+        BitcoinSyncer::new(db.clone(), rpc.clone(), config.protocol_paramset())
+            .await
+            .unwrap(),
+        rpc,
+        db,
+        actor,
+        network,
+    )
+}
+
+pub async fn create_bg_tx_sender(
+    rpc: ExtendedRpc,
+) -> (
+    TxSenderClient,
+    TxSender,
+    Vec<oneshot::Sender<()>>,
+    ExtendedRpc,
+    Database,
+    Actor,
+    bitcoin::Network,
+) {
+    let (tx_sender, syncer, rpc, db, actor, network) = create_tx_sender(rpc).await;
+
+    let sender_task = tx_sender.clone().into_task().cancelable_loop();
+    sender_task.0.into_bg();
+
+    let syncer_task = syncer.into_task().cancelable_loop();
+    syncer_task.0.into_bg();
+
+    (
+        tx_sender.client(),
+        tx_sender,
+        vec![sender_task.1, syncer_task.1],
+        rpc,
+        db,
+        actor,
+        network,
+    )
+}
+
+pub async fn create_bumpable_tx(
+    rpc: &ExtendedRpc,
+    signer: &Actor,
+    network: bitcoin::Network,
+    fee_paying_type: FeePayingType,
+    requires_rbf_signing_info: bool,
+    fee: Option<Amount>,
+) -> Result<Transaction, BridgeError> {
+    let (address, spend_info) =
+        builder::address::create_taproot_address(&[], Some(signer.xonly_public_key), network);
+
+    let amount = Amount::from_sat(100000);
+    let outpoint = rpc.send_to_address(&address, amount).await?;
+    rpc.mine_blocks(1).await?;
+
+    let version = match fee_paying_type {
+        FeePayingType::CPFP => Version::non_standard(3),
+        FeePayingType::RBF => Version::TWO,
+    };
+
+    let fee = fee.unwrap_or(MIN_TAPROOT_AMOUNT * 3);
+
+    let mut txhandler = TxHandlerBuilder::new(TransactionType::Dummy)
+        .with_version(version)
+        .add_input(
+            match fee_paying_type {
+                FeePayingType::CPFP => {
+                    SignatureId::from(NormalSignatureKind::OperatorSighashDefault)
+                }
+                FeePayingType::RBF if !requires_rbf_signing_info => {
+                    NormalSignatureKind::Challenge.into()
+                }
+                FeePayingType::RBF => (NumberedSignatureKind::WatchtowerChallenge, 0i32).into(),
+            },
+            SpendableTxIn::new(
+                outpoint,
+                TxOut {
+                    value: amount,
+                    script_pubkey: address.script_pubkey(),
+                },
+                vec![],
+                Some(spend_info),
+            ),
+            SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: amount - builder::transaction::anchor_output().value - fee, // buffer so that rbf works without adding inputs
+            script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
+        }))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize();
+
+    signer
+        .tx_sign_and_fill_sigs(&mut txhandler, &[], None)
+        .unwrap();
+
+    let tx = txhandler.get_cached_tx().clone();
+    Ok(tx)
 }
 
 pub async fn run_multiple_deposits<C: CitreaClientT>(

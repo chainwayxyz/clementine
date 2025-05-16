@@ -74,18 +74,16 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
     async fn run_once(&mut self) -> Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
 
-        // Poll for the next bitcoin syncer event
         let Some(event) = self
             .db
             .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.queue_name)
             .await?
         else {
-            // No event found, we can safely commit the transaction and return
             dbtx.commit().await?;
             return Ok(false);
         };
+        tracing::debug!("Received event from BitcoinSyncer: {:?}", event);
 
-        // Process the event
         let did_find_new_block = match event {
             BitcoinSyncerEvent::NewBlock(block_id) => {
                 let current_tip_height = self
@@ -147,11 +145,31 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
 
                 new_tip
             }
-            BitcoinSyncerEvent::ReorgedBlock(_) => false,
+            BitcoinSyncerEvent::ReorgedBlock(block_id) => {
+                // tracing::info!("Reorged block with id {}", id);
+                let txs = self
+                    .db
+                    .get_block_info_from_id(Some(&mut dbtx), block_id)
+                    .await?;
+                let txids = self.db.get_block_txids(Some(&mut dbtx), block_id).await?;
+                let txs = for txid in txids {
+                    // let tx = self
+                    //     .db
+                    //     .get_transaction(Some(&mut dbtx), txid)
+                    //     .await?
+                    //     .ok_or(BridgeError::Error(format!(
+                    //         "Transaction with id {} not found in BlockFetcherTask",
+                    //         txid
+                    //     )))?;
+                    // tracing::debug!("Transaction: {:?}", tx);
+                };
+                tracing::debug!("Reorged block with id {}: {:?}", block_id, txs);
+
+                false
+            }
         };
 
         dbtx.commit().await?;
-        // Return whether we found new blocks
         Ok(did_find_new_block)
     }
 }
