@@ -1,7 +1,7 @@
 use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
-use bitcoin::{Network, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
 use circuits_lib::{
     bridge_circuit::{
         deposit_constant, journal_hash, operator_id_from_op_return,
@@ -291,7 +291,10 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
         serde_json::from_str(&input.sp.storage_proof_deposit_txid)
             .expect("Failed to deserialize deposit storage proof");
 
-    let round_txid = input.kickoff_tx.input[0].previous_output.txid;
+    let round_txid = input.kickoff_tx.input[0]
+        .previous_output
+        .txid
+        .to_byte_array();
     let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_id = operator_id_from_op_return(last_output);

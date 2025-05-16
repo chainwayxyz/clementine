@@ -22,7 +22,6 @@ use async_stream::try_stream;
 use bitcoin::hashes::Hash;
 use bitcoin::{TapNodeHash, TapSighash, XOnlyPublicKey};
 use bitvm::clementine::additional_disprove::create_additional_replacable_disprove_script_with_dummy;
-use circuits_lib::bridge_circuit::deposit_constant;
 use futures_core::stream::Stream;
 
 impl BridgeConfig {

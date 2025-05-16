@@ -80,7 +80,7 @@ mod tests {
             dummy_challenge_hashes[idx] = *hash160::Hash::hash(preimage.as_ref()).as_byte_array();
         }
 
-        let (script, _) = create_additional_replacable_disprove_script(
+        let script = create_additional_replacable_disprove_script(
             BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.combined_method_id,
             BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.deposit_constant,
             groth16_public_input_pk,

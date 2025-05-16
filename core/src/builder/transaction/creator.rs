@@ -1,3 +1,8 @@
+use super::input::UtxoVout;
+use super::operator_assert::{
+    create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
+};
+use super::{remove_txhandler_from_map, DepositData, KickoffData, RoundTxInput};
 use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -11,18 +16,15 @@ use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
+use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, XOnlyPublicKey};
 use bitvm::clementine::additional_disprove::replace_placeholders_in_script;
+use circuits_lib::bridge_circuit::deposit_constant;
+use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::Context;
 use eyre::OptionExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-
-use super::input::UtxoVout;
-use super::operator_assert::{
-    create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
-};
-use super::{remove_txhandler_from_map, DepositData, KickoffData, RoundTxInput};
 
 // helper function to get a txhandler from a hashmap
 fn get_txhandler(
@@ -480,7 +482,35 @@ pub async fn create_txhandlers(
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
     let public_hashes = challenge_ack_hashes;
 
-    let deposit_constant = [0u8; 32];
+    let move_txid = txhandlers
+        .get(&TransactionType::MoveToVault)
+        .ok_or(TxError::TxHandlerNotFound(TransactionType::MoveToVault))?
+        .get_txid()
+        .to_byte_array();
+
+    let round_txid = txhandlers
+        .get(&TransactionType::Round)
+        .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
+        .get_txid()
+        .to_byte_array();
+
+    let vout = kickoff_data.kickoff_idx;
+    let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+    let watchtower_xonly_pk = deposit_data.get_watchtowers();
+    let watchtower_pubkeys = watchtower_xonly_pk
+        .iter()
+        .map(|xonly_pk| xonly_pk.serialize())
+        .collect::<Vec<_>>();
+
+    let deposit_constant = deposit_constant(
+        operator_xonly_pk.serialize(),
+        watchtower_challenge_start_idx,
+        &watchtower_pubkeys,
+        move_txid,
+        round_txid,
+        vout,
+    );
+
     let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)
         [kickoff_data.kickoff_idx as usize]
         .clone();
@@ -488,7 +518,7 @@ pub async fn create_txhandlers(
     let additional_disprove_script = replace_placeholders_in_script(
         additional_disprove_script,
         payout_tx_blockhash_pk,
-        deposit_constant,
+        deposit_constant.0,
     );
     let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
