@@ -2,7 +2,9 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
-use super::clementine::{AggregatorWithdrawResponse, Deposit, VerifierPublicKeys, WithdrawParams};
+use super::clementine::{
+    AggregatorWithdrawResponse, Deposit, VergenResponse, VerifierPublicKeys, WithdrawParams,
+};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
@@ -17,6 +19,7 @@ use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
 use crate::tx_sender::{FeePayingType, TxMetadata};
+use crate::utils::get_vergen_response;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -800,6 +803,10 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for Aggregator {
+    async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
+        Ok(Response::new(get_vergen_response()))
+    }
+
     async fn internal_send_tx(
         &self,
         request: Request<clementine::SendTxRequest>,
