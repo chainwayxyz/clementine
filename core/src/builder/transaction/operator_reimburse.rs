@@ -102,7 +102,7 @@ pub fn create_kickoff_txhandler(
     builder = builder.add_output(super::create_taproot_output(
         operator_5week,
         Some(additional_disprove_script.clone()),
-        &disprove_root_hash,
+        disprove_root_hash,
         MIN_TAPROOT_AMOUNT,
         paramset.network,
     ));

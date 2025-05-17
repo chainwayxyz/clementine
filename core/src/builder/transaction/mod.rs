@@ -741,7 +741,6 @@ pub fn create_replacement_deposit_txhandler(
         .add_output(UnspentTxOut::from_partial(anchor_output())))
 }
 
-
 pub fn create_taproot_output(
     script: Arc<dyn SpendableScript>,
     additional_script: Option<ScriptBuf>,
