@@ -420,8 +420,7 @@ pub async fn create_txhandlers(
     let ReimburseDbCache { paramset, .. } = db_cache.clone();
 
     let operator_data = db_cache.get_operator_data().await?.clone();
-    let challenge_ack_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
-    let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?;
+    let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?.clone();
 
     let ContractContext {
         operator_xonly_pk,
@@ -437,7 +436,7 @@ pub async fn create_txhandlers(
             paramset,
             round_idx as usize,
             &operator_data,
-            kickoff_winternitz_keys,
+            &kickoff_winternitz_keys,
             txhandler_cache.get_prev_ready_to_reimburse(),
         )?;
         for round_txhandler in round_txhandlers.into_iter() {
@@ -455,6 +454,7 @@ pub async fn create_txhandlers(
         // do not continue as we might not have the necessary context for the remaining tx's
         return Ok(txhandlers);
     }
+
 
     // get the next round txhandler (because reimburse connectors will be in it)
     let next_round_txhandler = create_round_txhandler(
@@ -480,6 +480,8 @@ pub async fn create_txhandlers(
             builder::transaction::create_move_to_vault_txhandler(&mut deposit_data, paramset)?;
         txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
     }
+
+    let challenge_ack_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
 
     let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
     let public_hashes = challenge_ack_hashes;
