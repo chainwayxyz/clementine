@@ -98,6 +98,9 @@ pub async fn send_tx(
     if tx_type == TxType::Challenge {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
     } else {
+        println!("Tx type: {:?}", tx_type);
+        println!("Tx: {:?}", tx);
+        println!("Txid: {:?}", tx.compute_txid());
         ensure_tx_onchain(rpc, tx.compute_txid()).await?;
     }
 

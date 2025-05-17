@@ -23,6 +23,7 @@ use circuits_lib::bridge_circuit::deposit_constant;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::Context;
 use eyre::OptionExt;
+use sha2::Digest;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -557,11 +558,22 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             &disprove_root_hash,
-            additional_disprove_script,
+            additional_disprove_script.clone(),
             AssertScripts::AssertSpendableScript(vec![latest_blockhash_script]),
             &public_hashes,
             paramset,
         )?;
+
+        println!(
+            "kickoff txid asset: {:?}",
+            kickoff_txhandler.get_cached_tx()
+        );
+        println!("Deposit constant: {:?}", deposit_constant);
+        println!(
+            "additional disprove script: {:?}",
+            sha2::Sha256::digest(additional_disprove_script.clone())
+        );
+        println!("xonly pk: {:?}", operator_data.xonly_pk);
 
         // Create and insert mini_asserts into return Vec
         let mini_asserts = create_mini_asserts(&kickoff_txhandler, num_asserts)?;
@@ -587,12 +599,21 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
-            additional_disprove_script,
+            additional_disprove_script.clone(),
             AssertScripts::AssertScriptTapNodeHash(&[latest_blockhash_root_hash]),
             &public_hashes,
             paramset,
         )?
     };
+    if transaction_type == TransactionType::AllNeededForDeposit {
+        println!("kickoff tx: {:?}", kickoff_txhandler.get_cached_tx());
+        println!("Deposit constant kickoff: {:?}", deposit_constant);
+        println!(
+            "additional disprove script: {:?}",
+            sha2::Sha256::digest(additional_disprove_script.clone())
+        );
+        println!("xonly pk: {:?}", operator_data.xonly_pk);
+    }
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
 
     // Creates the challenge_tx handler.
