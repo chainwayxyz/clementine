@@ -422,7 +422,10 @@ mod tests {
         env::set_var("FINALITY_DEPTH", "1");
         env::set_var("START_HEIGHT", "8148");
         env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
-        env::set_var("BRIDGE_CIRCUIT_METHOD_ID_CONSTANT", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        env::set_var(
+            "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        );
     }
 
     // Helper to clean up all environment variables
