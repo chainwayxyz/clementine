@@ -455,7 +455,6 @@ pub async fn create_txhandlers(
         return Ok(txhandlers);
     }
 
-
     // get the next round txhandler (because reimburse connectors will be in it)
     let next_round_txhandler = create_round_txhandler(
         operator_data.xonly_pk,
