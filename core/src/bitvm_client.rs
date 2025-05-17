@@ -154,7 +154,7 @@ fn generate_fresh_data() -> BitvmCache {
 
     let scripts = partial_scripts
         .iter()
-        .map(|s| s.clone().compile().to_bytes())
+        .map(|s| s.clone().to_bytes())
         .collect::<Vec<_>>();
 
     for (script_idx, script) in scripts.iter().enumerate() {
@@ -172,7 +172,7 @@ fn generate_fresh_data() -> BitvmCache {
 
     let scripts: Vec<Vec<u8>> = disprove_scripts
         .iter()
-        .map(|s| s.clone().compile().to_bytes())
+        .map(|s| s.clone().to_bytes())
         .collect();
 
     // Build mapping of dummy keys to their positions

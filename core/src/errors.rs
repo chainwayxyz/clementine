@@ -126,6 +126,14 @@ pub enum BridgeError {
     VerifierNotFound(PublicKey),
     #[error("Deposit not found in DB: {0:?}")]
     DepositNotFound(OutPoint),
+    #[error("Invalid BitVM public keys")]
+    InvalidBitVMPublicKeys,
+    #[error("Invalid challenge ack hashes")]
+    InvalidChallengeAckHashes,
+    #[error("Invalid operator index")]
+    InvalidOperatorIndex,
+    #[error("Invalid protocal paramset")]
+    InvalidProtocolParamset,
 
     // External crate error wrappers
     #[error("Failed to call database: {0}")]

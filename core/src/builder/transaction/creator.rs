@@ -1,3 +1,8 @@
+use super::input::UtxoVout;
+use super::operator_assert::{
+    create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
+};
+use super::{remove_txhandler_from_map, DepositData, KickoffData, RoundTxInput};
 use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
@@ -11,17 +16,16 @@ use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
+use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitvm::clementine::additional_disprove::replace_placeholders_in_script;
+use circuits_lib::bridge_circuit::deposit_constant;
+use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::Context;
 use eyre::OptionExt;
+use sha2::Digest;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-
-use super::input::UtxoVout;
-use super::operator_assert::{
-    create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
-};
-use super::{remove_txhandler_from_map, DepositData, KickoffData, RoundTxInput};
 
 // helper function to get a txhandler from a hashmap
 fn get_txhandler(
@@ -286,6 +290,7 @@ pub struct ContractContext {
     kickoff_idx: Option<u32>,
     deposit_data: Option<DepositData>,
     signer: Option<Actor>,
+    additional_disprove_script: Option<Vec<u8>>,
     // TODO: why different winternitz_secret_key???
 }
 
@@ -303,6 +308,7 @@ impl ContractContext {
             kickoff_idx: None,
             deposit_data: None,
             signer: None,
+            additional_disprove_script: None,
         }
     }
 
@@ -311,6 +317,7 @@ impl ContractContext {
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
+        additional_disprove_script: Option<Vec<u8>>,
     ) -> Self {
         Self {
             operator_xonly_pk: kickoff_data.operator_xonly_pk,
@@ -319,6 +326,7 @@ impl ContractContext {
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: None,
+            additional_disprove_script,
         }
     }
 
@@ -329,6 +337,7 @@ impl ContractContext {
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
         signer: Actor,
+        additional_disprove_script: Option<Vec<u8>>,
     ) -> Self {
         Self {
             operator_xonly_pk: kickoff_data.operator_xonly_pk,
@@ -337,6 +346,7 @@ impl ContractContext {
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: Some(signer),
+            additional_disprove_script,
         }
     }
 }
@@ -410,7 +420,7 @@ pub async fn create_txhandlers(
     let ReimburseDbCache { paramset, .. } = db_cache.clone();
 
     let operator_data = db_cache.get_operator_data().await?.clone();
-    let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?;
+    let kickoff_winternitz_keys = db_cache.get_kickoff_winternitz_keys().await?.clone();
 
     let ContractContext {
         operator_xonly_pk,
@@ -426,7 +436,7 @@ pub async fn create_txhandlers(
             paramset,
             round_idx as usize,
             &operator_data,
-            kickoff_winternitz_keys,
+            &kickoff_winternitz_keys,
             txhandler_cache.get_prev_ready_to_reimburse(),
         )?;
         for round_txhandler in round_txhandlers.into_iter() {
@@ -470,9 +480,53 @@ pub async fn create_txhandlers(
         txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
     }
 
-    let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
-    let public_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
+    let challenge_ack_hashes = db_cache.get_challenge_ack_hashes().await?.to_vec();
 
+    let num_asserts = ClementineBitVMPublicKeys::number_of_assert_txs();
+    let public_hashes = challenge_ack_hashes;
+
+    let move_txid = txhandlers
+        .get(&TransactionType::MoveToVault)
+        .ok_or(TxError::TxHandlerNotFound(TransactionType::MoveToVault))?
+        .get_txid()
+        .to_byte_array();
+
+    let round_txid = txhandlers
+        .get(&TransactionType::Round)
+        .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
+        .get_txid()
+        .to_byte_array();
+
+    let vout = kickoff_data.kickoff_idx;
+    let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+    let watchtower_xonly_pk = deposit_data.get_watchtowers();
+    let watchtower_pubkeys = watchtower_xonly_pk
+        .iter()
+        .map(|xonly_pk| xonly_pk.serialize())
+        .collect::<Vec<_>>();
+
+    let deposit_constant = deposit_constant(
+        operator_xonly_pk.serialize(),
+        watchtower_challenge_start_idx,
+        &watchtower_pubkeys,
+        move_txid,
+        round_txid,
+        vout,
+    );
+
+    let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)
+        [kickoff_data.kickoff_idx as usize]
+        .clone();
+
+    let additional_disprove_script = context
+        .additional_disprove_script
+        .ok_or(TxError::InsufficientContext)?;
+
+    let additional_disprove_script = replace_placeholders_in_script(
+        additional_disprove_script,
+        payout_tx_blockhash_pk,
+        deposit_constant.0,
+    );
     let disprove_root_hash = *db_cache.get_bitvm_disprove_root_hash().await?;
     let latest_blockhash_root_hash = *db_cache.get_latest_blockhash_root_hash().await?;
 
@@ -505,10 +559,22 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertSpendableScript(assert_scripts),
             &disprove_root_hash,
+            additional_disprove_script.clone(),
             AssertScripts::AssertSpendableScript(vec![latest_blockhash_script]),
             &public_hashes,
             paramset,
         )?;
+
+        println!(
+            "kickoff txid asset: {:?}",
+            kickoff_txhandler.get_cached_tx()
+        );
+        println!("Deposit constant: {:?}", deposit_constant);
+        println!(
+            "additional disprove script: {:?}",
+            sha2::Sha256::digest(additional_disprove_script.clone())
+        );
+        println!("xonly pk: {:?}", operator_data.xonly_pk);
 
         // Create and insert mini_asserts into return Vec
         let mini_asserts = create_mini_asserts(&kickoff_txhandler, num_asserts)?;
@@ -534,11 +600,21 @@ pub async fn create_txhandlers(
             operator_data.xonly_pk,
             AssertScripts::AssertScriptTapNodeHash(db_cache.get_bitvm_assert_hash().await?),
             &disprove_root_hash,
+            additional_disprove_script.clone(),
             AssertScripts::AssertScriptTapNodeHash(&[latest_blockhash_root_hash]),
             &public_hashes,
             paramset,
         )?
     };
+    if transaction_type == TransactionType::AllNeededForDeposit {
+        println!("kickoff tx: {:?}", kickoff_txhandler.get_cached_tx());
+        println!("Deposit constant kickoff: {:?}", deposit_constant);
+        println!(
+            "additional disprove script: {:?}",
+            sha2::Sha256::digest(additional_disprove_script.clone())
+        );
+        println!("xonly pk: {:?}", operator_data.xonly_pk);
+    }
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
 
     // Creates the challenge_tx handler.

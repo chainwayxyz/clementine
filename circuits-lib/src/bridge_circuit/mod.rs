@@ -20,7 +20,7 @@ use bitcoin::{
     opcodes,
     script::Instruction,
     sighash::{Prevouts, SighashCache, TaprootError},
-    Script, TapSighash, TapSighashType, Transaction, TxOut, Txid,
+    Script, TapSighash, TapSighashType, Transaction, TxOut,
 };
 
 use core::panic;
@@ -95,8 +95,6 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
     // Verify the HCP
     guest.verify(input.hcp.method_id, &input.hcp);
 
-    let kickoff_txid = input.kickoff_tx_id; // TODO: Maybe use `txid` instead of `compute_txid`
-
     let (max_total_work, challenge_sending_watchtowers) =
         total_work_and_watchtower_flags(&input, &work_only_image_id);
 
@@ -149,12 +147,21 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
 
     let last_output = input.payout_spv.transaction.output.last().unwrap();
 
+    let round_txid = input.kickoff_tx.input[0]
+        .previous_output
+        .txid
+        .to_byte_array();
+    let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
+
+    let operator_id = operator_id_from_op_return(last_output);
+
     let deposit_constant = deposit_constant(
-        last_output,
-        &kickoff_txid,
+        operator_id,
         input.watchtower_challenge_connector_start_idx,
         &input.all_tweaked_watchtower_pubkeys,
         *move_txid,
+        round_txid,
+        kickoff_round_vout,
     );
 
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
@@ -235,6 +242,8 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
     let mut challenge_sending_watchtowers: [u8; 20] = [0u8; 20];
     let mut watchtower_challenges_outputs: Vec<[TxOut; 3]> = vec![];
 
+    let kickoff_txid = circuit_input.kickoff_tx.compute_txid();
+
     if circuit_input.watchtower_inputs.len() > NUMBER_OF_WATCHTOWERS {
         panic!("Invalid number of watchtower challenge transactions");
     }
@@ -298,10 +307,10 @@ pub fn verify_watchtower_challenges(circuit_input: &BridgeCircuitInput) -> Watch
             );
         };
 
-        if input.previous_output.txid != *circuit_input.kickoff_tx_id {
+        if input.previous_output.txid != kickoff_txid {
             panic!(
                 "Invalid input: expected input to reference an output from the kickoff transaction (txid: {}), but got txid: {}, vout: {}, watchtower index: {}",
-                *circuit_input.kickoff_tx_id,
+                kickoff_txid,
                 input.previous_output.txid,
                 input.previous_output.vout,
                 watchtower_input.watchtower_idx
@@ -490,6 +499,27 @@ pub fn total_work_and_watchtower_flags(
     )
 }
 
+pub fn operator_id_from_op_return(last_output: &TxOut) -> [u8; 32] {
+    let last_output_script = last_output.script_pubkey.to_bytes();
+
+    // OP_RETURN check
+    assert!(last_output_script[0] == 0x6a);
+
+    if last_output_script.len() < 3 {
+        panic!("OP_RETURN script too short");
+    }
+
+    let len: usize = last_output_script[1] as usize;
+
+    if len > 32 {
+        panic!("Invalid operator id length");
+    }
+
+    let mut operator_id = [0u8; 32];
+    operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
+    operator_id
+}
+
 fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
     let mut instructions = script.instructions();
     if let Some(Ok(Instruction::Op(opcodes::all::OP_RETURN))) = instructions.next() {
@@ -519,30 +549,13 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
 /// - If the `script_pubkey` of `last_output` does not start with `OP_RETURN` (`0x6a`).
 /// - If the length of the operator ID (extracted from `script_pubkey`) exceeds 32 bytes.
 pub fn deposit_constant(
-    last_output: &TxOut,
-    kickoff_txid: &Txid,
+    operator_id: [u8; 32],
     watchtower_challenge_connector_start_idx: u16,
     watchtower_pubkeys: &[[u8; 32]],
-    move_txid_hex: [u8; 32],
+    move_txid: [u8; 32],
+    round_txid: [u8; 32],
+    kickoff_round_vout: u32,
 ) -> DepositConstant {
-    let last_output_script = last_output.script_pubkey.to_bytes();
-
-    // OP_RETURN check
-    assert!(last_output_script[0] == 0x6a);
-
-    if last_output_script.len() < 3 {
-        panic!("OP_RETURN script too short");
-    }
-
-    let len: usize = last_output_script[1] as usize;
-
-    if len > 32 {
-        panic!("Invalid operator id length");
-    }
-
-    let mut operator_id = [0u8; 32];
-    operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
-
     // pubkeys are 32 bytes long
     let pubkey_concat = watchtower_pubkeys
         .iter()
@@ -552,11 +565,12 @@ pub fn deposit_constant(
     let watchtower_pubkeys_digest: [u8; 32] = Sha256::digest(&pubkey_concat).into();
 
     let pre_deposit_constant = [
-        &kickoff_txid.as_byte_array()[..],
-        &move_txid_hex,
+        &move_txid,
         &watchtower_pubkeys_digest,
         &operator_id,
         &watchtower_challenge_connector_start_idx.to_be_bytes()[..],
+        &round_txid,
+        &kickoff_round_vout.to_be_bytes()[..],
     ]
     .concat();
 
@@ -598,7 +612,7 @@ mod tests {
     use super::{
         merkle_tree::BlockInclusionProof,
         spv::SPV,
-        structs::{CircuitTxOut, CircuitTxid, CircuitWitness, WatchtowerInput},
+        structs::{CircuitTxOut, CircuitWitness, WatchtowerInput},
         transaction::CircuitTransaction,
         *,
     };
@@ -613,7 +627,7 @@ mod tests {
         absolute::Height,
         consensus::{Decodable, Encodable},
         transaction::Version,
-        ScriptBuf, Transaction, TxIn, Witness,
+        ScriptBuf, Transaction, TxIn, Txid, Witness,
     };
     use lazy_static::lazy_static;
     use risc0_zkvm::compute_image_id;
@@ -670,7 +684,7 @@ mod tests {
             (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
 
         let input = BridgeCircuitInput {
-            kickoff_tx_id: CircuitTxid::from(kickoff_tx.compute_txid()),
+            kickoff_tx: CircuitTransaction(kickoff_tx),
             watchtower_inputs: vec![WatchtowerInput {
                 watchtower_idx: operator_idx,
                 watchtower_challenge_witness: CircuitWitness(witness),

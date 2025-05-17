@@ -80,14 +80,14 @@ mod tests {
             dummy_challenge_hashes[idx] = *hash160::Hash::hash(preimage.as_ref()).as_byte_array();
         }
 
-        let (script, _) = create_additional_replacable_disprove_script(
+        let script = create_additional_replacable_disprove_script(
             BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.combined_method_id,
             BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.deposit_constant,
             groth16_public_input_pk,
             payout_tx_block_hash_pk,
             latest_block_hash_pk,
             challenge_sending_watchtowers_pk,
-            dummy_challenge_hashes,
+            dummy_challenge_hashes.to_vec(),
         );
 
         (
@@ -154,7 +154,7 @@ mod tests {
             payout_tx_block_hash_witness,
             latest_block_hash_witness,
             challenge_sending_watchtowers_witness,
-            dummy_challenge_preimages_final,
+            dummy_challenge_preimages_final.to_vec(),
         );
 
         assert!(resulting_witness.is_none(), "Witness is invalid");
@@ -212,7 +212,7 @@ mod tests {
             payout_tx_block_hash_witness,
             latest_block_hash_witness,
             challenge_sending_watchtowers_witness,
-            dummy_challenge_preimages_final,
+            dummy_challenge_preimages_final.to_vec(),
         );
 
         assert!(
@@ -271,7 +271,7 @@ mod tests {
             payout_tx_block_hash_witness,
             latest_block_hash_witness,
             challenge_sending_watchtowers_witness,
-            dummy_challenge_preimages_final,
+            dummy_challenge_preimages_final.to_vec(),
         );
 
         assert!(

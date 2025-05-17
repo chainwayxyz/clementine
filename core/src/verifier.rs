@@ -924,6 +924,14 @@ where
             .to_raw_hash()
             .to_byte_array();
 
+        self.db
+            .set_operator_bitvm_keys(
+                None,
+                operator_xonly_pk,
+                deposit_data.get_deposit_outpoint(),
+                bitvm_pks.to_flattened_vec(),
+            )
+            .await?;
         // Save the public input wots to db along with the root hash
         self.db
             .set_bitvm_setup(
