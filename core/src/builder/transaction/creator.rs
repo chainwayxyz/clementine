@@ -565,17 +565,6 @@ pub async fn create_txhandlers(
             paramset,
         )?;
 
-        println!(
-            "kickoff txid asset: {:?}",
-            kickoff_txhandler.get_cached_tx()
-        );
-        println!("Deposit constant: {:?}", deposit_constant);
-        println!(
-            "additional disprove script: {:?}",
-            sha2::Sha256::digest(additional_disprove_script.clone())
-        );
-        println!("xonly pk: {:?}", operator_data.xonly_pk);
-
         // Create and insert mini_asserts into return Vec
         let mini_asserts = create_mini_asserts(&kickoff_txhandler, num_asserts)?;
 
@@ -606,15 +595,7 @@ pub async fn create_txhandlers(
             paramset,
         )?
     };
-    if transaction_type == TransactionType::AllNeededForDeposit {
-        println!("kickoff tx: {:?}", kickoff_txhandler.get_cached_tx());
-        println!("Deposit constant kickoff: {:?}", deposit_constant);
-        println!(
-            "additional disprove script: {:?}",
-            sha2::Sha256::digest(additional_disprove_script.clone())
-        );
-        println!("xonly pk: {:?}", operator_data.xonly_pk);
-    }
+
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
 
     // Creates the challenge_tx handler.
