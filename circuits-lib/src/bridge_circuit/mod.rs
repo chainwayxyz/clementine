@@ -153,10 +153,11 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .to_byte_array();
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
-    let operator_id = operator_id_from_op_return(last_output);
+    let operator_xonlypk =
+        operator_xonlypk_from_op_return(last_output).expect("Invalid operator xonlypk");
 
     let deposit_constant = deposit_constant(
-        operator_id,
+        operator_xonlypk,
         input.watchtower_challenge_connector_start_idx,
         &input.all_tweaked_watchtower_pubkeys,
         *move_txid,
@@ -499,25 +500,27 @@ pub fn total_work_and_watchtower_flags(
     )
 }
 
-pub fn operator_id_from_op_return(last_output: &TxOut) -> [u8; 32] {
-    let last_output_script = last_output.script_pubkey.to_bytes();
+pub fn operator_xonlypk_from_op_return(last_output: &TxOut) -> Result<[u8; 32], String> {
+    let script = &last_output.script_pubkey;
 
-    // OP_RETURN check
-    assert!(last_output_script[0] == 0x6a);
+    let mut instructions = script.instructions();
 
-    if last_output_script.len() < 3 {
-        panic!("OP_RETURN script too short");
+    match (
+        instructions.next(),
+        instructions.next(),
+        instructions.next(),
+    ) {
+        (
+            Some(Ok(Instruction::Op(bitcoin::opcodes::all::OP_RETURN))),
+            Some(Ok(Instruction::PushBytes(pk_bytes))),
+            None,
+        ) if pk_bytes.len() == 32 => {
+            let mut operator_xonlypk = [0u8; 32];
+            operator_xonlypk.copy_from_slice(pk_bytes.as_bytes());
+            Ok(operator_xonlypk)
+        }
+        _ => Err("Invalid OP_RETURN script for operator xonlypk".into()),
     }
-
-    let len: usize = last_output_script[1] as usize;
-
-    if len > 32 {
-        panic!("Invalid operator id length");
-    }
-
-    let mut operator_id = [0u8; 32];
-    operator_id[..len].copy_from_slice(&last_output_script[2..2 + len]);
-    operator_id
 }
 
 fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
@@ -530,26 +533,22 @@ fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
     None
 }
 
-/// Computes a deposit constant hash using transaction output data, kickoff transaction ID,
-/// tweaked watchtower public keys, and a move transaction ID.
+/// Computes a deposit constant hash using various transaction and cryptographic components.
 ///
 /// # Parameters
 ///
-/// - `last_output`: A reference to the last transaction output (`TxOut`).
-/// - `kickoff_txid`: A reference to the kickoff transaction ID (`Txid`).
+/// - `operator_xonlypk`: A 32-byte array representing the operator's X-only public key.
+/// - `watchtower_challenge_connector_start_idx`: A 16-bit unsigned integer marking the start index of the watchtower challenge connector.
 /// - `watchtower_pubkeys`: A slice of 32-byte arrays representing tweaked watchtower public keys.
-/// - `move_txid_hex`: A 32-byte array representing the move transaction ID.
+/// - `move_txid`: A 32-byte array representing the transaction ID of the move transaction.
+/// - `round_txid`: A 32-byte array representing the transaction ID of the round transaction.
+/// - `kickoff_round_vout`: A 32-bit unsigned integer indicating the vout of the kickoff round transaction.
 ///
 /// # Returns
 ///
-/// A 32-byte array (`[u8; 32]`) representing the SHA-256 hash of the concatenated input components.
-///
-/// # Panics
-///
-/// - If the `script_pubkey` of `last_output` does not start with `OP_RETURN` (`0x6a`).
-/// - If the length of the operator ID (extracted from `script_pubkey`) exceeds 32 bytes.
+/// A `DepositConstant` containing a 32-byte SHA-256 hash of the concatenated input components.
 pub fn deposit_constant(
-    operator_id: [u8; 32],
+    operator_xonlypk: [u8; 32],
     watchtower_challenge_connector_start_idx: u16,
     watchtower_pubkeys: &[[u8; 32]],
     move_txid: [u8; 32],
@@ -567,7 +566,7 @@ pub fn deposit_constant(
     let pre_deposit_constant = [
         &move_txid,
         &watchtower_pubkeys_digest,
-        &operator_id,
+        &operator_xonlypk,
         &watchtower_challenge_connector_start_idx.to_be_bytes()[..],
         &round_txid,
         &kickoff_round_vout.to_be_bytes()[..],
@@ -936,5 +935,28 @@ mod tests {
         assert!(script.is_op_return(), "Script is not OP_RETURN");
         let parsed_data = parse_op_return_data(&script).expect("Failed to parse OP_RETURN data");
         assert_ne!(parsed_data, [0u8; 80], "Parsed data should not be correct");
+    }
+
+    #[test]
+    fn test_operator_xonlypk_from_op_return() {
+        let payout_tx = include_bytes!("../../../bridge-circuit-host/bin-files/payout_tx.bin");
+        let mut payout_tx: Transaction =
+            Decodable::consensus_decode(&mut Cursor::new(&payout_tx)).unwrap();
+
+        // since this is old payout tx I'll manually change the output. Later replace it with the new one
+        let last_output_idx = payout_tx.output.len() - 1;
+        payout_tx.output[last_output_idx].script_pubkey = ScriptBuf::from(
+            hex::decode("6a204f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa")
+                .unwrap(),
+        );
+        let last_output = payout_tx.output.last().unwrap();
+        let operator_id = operator_xonlypk_from_op_return(last_output).unwrap();
+
+        let expected_pk = "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa";
+        assert_eq!(
+            hex::encode(operator_id),
+            expected_pk,
+            "Operator xonlypk is not correct"
+        );
     }
 }
