@@ -741,9 +741,9 @@ pub fn create_replacement_deposit_txhandler(
         .add_output(UnspentTxOut::from_partial(anchor_output())))
 }
 
-pub fn create_taproot_output(
+pub fn create_disprove_taproot_output(
     script: Arc<dyn SpendableScript>,
-    additional_script: Option<ScriptBuf>,
+    additional_script: ScriptBuf,
     hidden_node: &[u8; 32],
     amount: Amount,
     network: bitcoin::Network,
@@ -751,23 +751,49 @@ pub fn create_taproot_output(
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
 
-    let builder = TaprootBuilder::new();
+    let builder = TaprootBuilder::new()
+        .add_leaf(1, script.to_script_buf())
+        .expect("Cannot add main script leaf at depth 1")
+        .add_leaf(2, additional_script)
+        .expect("Cannot add additional script leaf at depth 2")
+        .add_hidden_node(2, TapNodeHash::from_byte_array(*hidden_node))
+        .expect("Cannot add hidden node at depth 2");
 
-    let builder = if let Some(add_script) = additional_script {
-        builder
-            .add_leaf(1, script.to_script_buf())
-            .expect("Cannot add main script leaf at depth 1")
-            .add_leaf(2, add_script)
-            .expect("Cannot add additional script leaf at depth 2")
-            .add_hidden_node(2, TapNodeHash::from_byte_array(*hidden_node))
-            .expect("Cannot add hidden node at depth 2")
-    } else {
-        builder
-            .add_leaf(1, script.to_script_buf())
-            .expect("Cannot add main script leaf at depth 1")
-            .add_hidden_node(1, TapNodeHash::from_byte_array(*hidden_node))
-            .expect("Cannot add hidden node at depth 1")
-    };
+    let taproot_spend_info = builder
+        .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+        .expect("Taproot finalization failed");
+
+    let address = Address::p2tr(
+        &SECP,
+        *UNSPENDABLE_XONLY_PUBKEY,
+        taproot_spend_info.merkle_root(),
+        network,
+    );
+
+    UnspentTxOut::new(
+        TxOut {
+            value: amount,
+            script_pubkey: address.script_pubkey(),
+        },
+        vec![script.clone()],
+        Some(taproot_spend_info),
+    )
+}
+
+pub fn create_taproot_output_with_hidden_node(
+    script: Arc<dyn SpendableScript>,
+    hidden_node: &[u8; 32],
+    amount: Amount,
+    network: bitcoin::Network,
+) -> UnspentTxOut {
+    use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
+    use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
+
+    let builder = TaprootBuilder::new()
+        .add_leaf(1, script.to_script_buf())
+        .expect("Cannot add main script leaf at depth 1")
+        .add_hidden_node(1, TapNodeHash::from_byte_array(*hidden_node))
+        .expect("Cannot add hidden node at depth 1");
 
     let taproot_spend_info = builder
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)

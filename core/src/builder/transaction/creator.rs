@@ -23,7 +23,6 @@ use circuits_lib::bridge_circuit::deposit_constant;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::Context;
 use eyre::OptionExt;
-use sha2::Digest;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

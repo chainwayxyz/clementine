@@ -99,9 +99,9 @@ pub fn create_kickoff_txhandler(
     let additional_disprove_script = ScriptBuf::from_bytes(additional_disprove_script);
 
     // disprove utxo
-    builder = builder.add_output(super::create_taproot_output(
+    builder = builder.add_output(super::create_disprove_taproot_output(
         operator_5week,
-        Some(additional_disprove_script.clone()),
+        additional_disprove_script.clone(),
         disprove_root_hash,
         MIN_TAPROOT_AMOUNT,
         paramset.network,
@@ -119,9 +119,8 @@ pub fn create_kickoff_txhandler(
             }
             let latest_blockhash_root_hash = latest_blockhash_root_hash[0];
             // latest blockhash utxo
-            builder = builder.add_output(super::create_taproot_output(
+            builder = builder.add_output(super::create_taproot_output_with_hidden_node(
                 nofn_latest_blockhash,
-                None,
                 &latest_blockhash_root_hash,
                 MIN_TAPROOT_AMOUNT,
                 paramset.network,
@@ -151,9 +150,8 @@ pub fn create_kickoff_txhandler(
         AssertScripts::AssertScriptTapNodeHash(assert_script_hashes) => {
             for script_hash in assert_script_hashes.iter() {
                 // Add N-of-N in 4 week script to taproot, that connects to assert timeout
-                builder = builder.add_output(super::create_taproot_output(
+                builder = builder.add_output(super::create_taproot_output_with_hidden_node(
                     nofn_4week.clone(),
-                    None,
                     script_hash,
                     MIN_TAPROOT_AMOUNT,
                     paramset.network,
