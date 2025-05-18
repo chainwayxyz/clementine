@@ -182,7 +182,7 @@ impl Database {
         }
     }
 
-    /// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
+    /// Sets Winternitz public keys for bitvm related inputs of an operator.
     pub async fn set_operator_bitvm_keys(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
