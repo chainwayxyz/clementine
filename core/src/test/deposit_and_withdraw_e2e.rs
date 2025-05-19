@@ -856,7 +856,7 @@ async fn mock_citrea_run_truthful_opt_payout() {
     .wrap_err("Withdrawal took too long")
     .unwrap();
 
-    tracing::warn!("Optimistic payout tx: {:?}", opt_payout_tx);
+    tracing::info!("Optimistic payout tx: {:?}", opt_payout_tx);
 
     tracing::info!("Ensuring move txid bridge deposit is spent");
     ensure_outpoint_spent(
