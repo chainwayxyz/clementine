@@ -1,6 +1,7 @@
 use crate::config::env::read_string_from_env_then_parse;
 use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
+use eyre::Context;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::fs;
@@ -202,11 +203,11 @@ impl ProtocolParamset {
 
 fn convert_hex_string_to_bytes(hex: &str) -> Result<[u8; 32], BridgeError> {
     let hex_decode = hex::decode(hex)
-        .map_err(|e| BridgeError::Error(format!("Failed to decode hex string: {}", e)))?;
+        .wrap_err("Failed to decode hex string")?;
     let hex_bytes: [u8; 32] = hex_decode
         .as_slice()
         .try_into()
-        .map_err(|_| BridgeError::Error("Hex string is not 32 bytes".to_string()))?;
+        .wrap_err("Hex string is not 32 bytes")?;
     Ok(hex_bytes)
 }
 
