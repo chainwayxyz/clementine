@@ -249,6 +249,14 @@ To run all tests:
 cargo test
 ```
 
+#### Helper Scripts
+
+There are handful amount of scripts in [scripts](scripts) directory. Most of
+them are for testing but still can be used for setting up the environment. They
+can change quite frequently. So, please check for useful ones.
+
+Each script should have a name and comment inside that explain its purpose.
+
 ## Security Considerations
 
 ### TLS Certificates
