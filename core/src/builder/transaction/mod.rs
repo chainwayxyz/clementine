@@ -742,9 +742,9 @@ pub fn create_replacement_deposit_txhandler(
 }
 
 pub fn create_disprove_taproot_output(
-    script: Arc<dyn SpendableScript>,
+    operator_timeout_script: Arc<dyn SpendableScript>,
     additional_script: ScriptBuf,
-    hidden_node: &[u8; 32],
+    disprove_root_hash: &[u8; 32],
     amount: Amount,
     network: bitcoin::Network,
 ) -> UnspentTxOut {
@@ -752,16 +752,16 @@ pub fn create_disprove_taproot_output(
     use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
 
     let builder = TaprootBuilder::new()
-        .add_leaf(1, script.to_script_buf())
-        .expect("Cannot add main script leaf at depth 1")
+        .add_leaf(1, operator_timeout_script.to_script_buf())
+        .expect("empty taptree will accept a script node")
         .add_leaf(2, additional_script)
-        .expect("Cannot add additional script leaf at depth 2")
-        .add_hidden_node(2, TapNodeHash::from_byte_array(*hidden_node))
-        .expect("Cannot add hidden node at depth 2");
+        .expect("taptree with one node will accept a node at depth 2")
+        .add_hidden_node(2, TapNodeHash::from_byte_array(*disprove_root_hash))
+        .expect("taptree with two nodes will accept a node at depth 2");
 
     let taproot_spend_info = builder
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
-        .expect("Taproot finalization failed");
+        .expect("cannot fail since it is a valid taptree");
 
     let address = Address::p2tr(
         &SECP,
@@ -775,11 +775,12 @@ pub fn create_disprove_taproot_output(
             value: amount,
             script_pubkey: address.script_pubkey(),
         },
-        vec![script.clone()],
+        vec![operator_timeout_script.clone()],
         Some(taproot_spend_info),
     )
 }
 
+/// Helper function to create a taproot output that combines a script and a root hash
 pub fn create_taproot_output_with_hidden_node(
     script: Arc<dyn SpendableScript>,
     hidden_node: &[u8; 32],
@@ -791,13 +792,13 @@ pub fn create_taproot_output_with_hidden_node(
 
     let builder = TaprootBuilder::new()
         .add_leaf(1, script.to_script_buf())
-        .expect("Cannot add main script leaf at depth 1")
+        .expect("empty taptree will accept a script node")
         .add_hidden_node(1, TapNodeHash::from_byte_array(*hidden_node))
-        .expect("Cannot add hidden node at depth 1");
+        .expect("taptree with one node will accept a node at depth 1");
 
     let taproot_spend_info = builder
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
-        .expect("Taproot finalization failed");
+        .expect("cannot fail since it is a valid taptree");
 
     let address = Address::p2tr(
         &SECP,
