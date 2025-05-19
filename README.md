@@ -109,7 +109,8 @@ Before running the servers, you need to generate certificates. A script is provi
 ```
 
 This will create certificates in the following structure:
-```
+
+```text
 certs/
 ├── ca/
 │   ├── ca.key     # CA private key
