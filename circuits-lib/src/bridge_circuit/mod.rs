@@ -153,8 +153,10 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         .to_byte_array();
     let kickoff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
-    let operator_xonlypk =
-        operator_xonlypk_from_op_return(last_output).expect("Invalid operator xonlypk");
+    let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+        .expect("Invalid operator xonlypk")
+        .try_into()
+        .expect("Invalid xonlypk");
 
     let deposit_constant = deposit_constant(
         operator_xonlypk,
@@ -500,34 +502,11 @@ pub fn total_work_and_watchtower_flags(
     )
 }
 
-pub fn operator_xonlypk_from_op_return(last_output: &TxOut) -> Result<[u8; 32], String> {
-    let script = &last_output.script_pubkey;
-
-    let mut instructions = script.instructions();
-
-    match (
-        instructions.next(),
-        instructions.next(),
-        instructions.next(),
-    ) {
-        (
-            Some(Ok(Instruction::Op(bitcoin::opcodes::all::OP_RETURN))),
-            Some(Ok(Instruction::PushBytes(pk_bytes))),
-            None,
-        ) if pk_bytes.len() == 32 => {
-            let mut operator_xonlypk = [0u8; 32];
-            operator_xonlypk.copy_from_slice(pk_bytes.as_bytes());
-            Ok(operator_xonlypk)
-        }
-        _ => Err("Invalid OP_RETURN script for operator xonlypk".into()),
-    }
-}
-
-fn parse_op_return_data(script: &Script) -> Option<Vec<u8>> {
+pub fn parse_op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
     if let Some(Ok(Instruction::Op(opcodes::all::OP_RETURN))) = instructions.next() {
         if let Some(Ok(Instruction::PushBytes(data))) = instructions.next() {
-            return Some(data.as_bytes().to_vec());
+            return Some(data.as_bytes());
         }
     }
     None
@@ -950,7 +929,10 @@ mod tests {
                 .unwrap(),
         );
         let last_output = payout_tx.output.last().unwrap();
-        let operator_id = operator_xonlypk_from_op_return(last_output).unwrap();
+        let operator_id: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+            .expect("Invalid operator xonlypk")
+            .try_into()
+            .expect("Invalid xonlypk");
 
         let expected_pk = "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa";
         assert_eq!(

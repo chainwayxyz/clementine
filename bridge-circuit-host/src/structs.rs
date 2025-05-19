@@ -4,7 +4,7 @@ use ark_ff::PrimeField;
 use bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
 use circuits_lib::{
     bridge_circuit::{
-        deposit_constant, journal_hash, operator_xonlypk_from_op_return,
+        deposit_constant, journal_hash, parse_op_return_data,
         spv::SPV,
         structs::{
             BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
@@ -297,8 +297,10 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
         .to_byte_array();
     let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
-    let operator_xonlypk =
-        operator_xonlypk_from_op_return(last_output).expect("Failed to get operator xonlypk");
+    let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+        .expect("Failed to get operator xonlypk")
+        .try_into()
+        .expect("Invalid operator xonlypk");
 
     deposit_constant(
         operator_xonlypk,
