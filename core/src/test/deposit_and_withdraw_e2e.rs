@@ -350,57 +350,57 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await
             .expect("failed to create database");
 
-        // // wrongfully challenge operator
-        // let kickoff_idx = get_kickoff_utxos_to_sign(
-        //     config.protocol_paramset(),
-        //     op0_xonly_pk,
-        //     deposit_blockhash,
-        //     deposit_params.deposit_outpoint,
-        // )[0] as u32;
-        // let base_tx_req = TransactionRequest {
-        //     kickoff_id: Some(
-        //         KickoffData {
-        //             operator_xonly_pk: op0_xonly_pk,
-        //             round_idx: 0,
-        //             kickoff_idx,
-        //         }
-        //         .into(),
-        //     ),
-        //     deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
-        // };
-        // let all_txs = operators[0]
-        //     .internal_create_signed_txs(base_tx_req.clone())
-        //     .await?
-        //     .into_inner();
+        // wrongfully challenge operator
+        let kickoff_idx = get_kickoff_utxos_to_sign(
+            config.protocol_paramset(),
+            op0_xonly_pk,
+            deposit_blockhash,
+            deposit_params.deposit_outpoint,
+        )[0] as u32;
+        let base_tx_req = TransactionRequest {
+            kickoff_id: Some(
+                KickoffData {
+                    operator_xonly_pk: op0_xonly_pk,
+                    round_idx: 0,
+                    kickoff_idx,
+                }
+                .into(),
+            ),
+            deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
+        };
+        let all_txs = operators[0]
+            .internal_create_signed_txs(base_tx_req.clone())
+            .await?
+            .into_inner();
 
-        // let challenge_tx = bitcoin::consensus::deserialize(
-        //     &all_txs
-        //         .signed_txs
-        //         .iter()
-        //         .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-        //         .unwrap()
-        //         .raw_tx,
-        // )
-        // .unwrap();
+        let challenge_tx = bitcoin::consensus::deserialize(
+            &all_txs
+                .signed_txs
+                .iter()
+                .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+                .unwrap()
+                .raw_tx,
+        )
+        .unwrap();
 
-        // // send wrong challenge tx
-        // let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
-        // let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
-        // tx_sender
-        //     .insert_try_to_send(
-        //         &mut db_commit,
-        //         None,
-        //         &challenge_tx,
-        //         FeePayingType::RBF,
-        //         None,
-        //         &[],
-        //         &[],
-        //         &[],
-        //         &[],
-        //     )
-        //     .await
-        //     .unwrap();
-        // db_commit.commit().await.unwrap();
+        // send wrong challenge tx
+        let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
+        let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
+        tx_sender
+            .insert_try_to_send(
+                &mut db_commit,
+                None,
+                &challenge_tx,
+                FeePayingType::RBF,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .unwrap();
+        db_commit.commit().await.unwrap();
 
         // tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 

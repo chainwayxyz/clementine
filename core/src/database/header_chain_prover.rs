@@ -75,7 +75,7 @@ impl Database {
     /// This function assumes there are no blocks or some contiguous blocks starting from 0 already in the table.
     /// Saves the block hashes and headers until given height(exclusive)
     /// as they are needed for spv and hcp proofs.
-    pub async fn save_initial_block_infos(
+    pub async fn fetch_and_save_missing_blocks(
         &self,
         rpc: &ExtendedRpc,
         until_height: u32,

@@ -97,7 +97,7 @@ impl HeaderChainProver {
             ))
             .into());
         }
-        db.save_initial_block_infos(&rpc, config.protocol_paramset().start_height)
+        db.fetch_and_save_missing_blocks(&rpc, config.protocol_paramset().start_height)
             .await
             .wrap_err("Failed to save initial block infos")?;
 

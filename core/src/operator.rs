@@ -1091,6 +1091,17 @@ where
             .ok_or_eyre("Failed to get latest blockhash in send_asserts")?
             .to_owned();
 
+        let rpc_current_finalized_height = self
+            .rpc
+            .get_current_chain_height()
+            .await?
+            .saturating_sub(self.config.protocol_paramset().finality_depth);
+
+        // update headers in case the sync (state machine handle_finalized_block) is behind
+        self.db
+            .fetch_and_save_missing_blocks(&self.rpc, rpc_current_finalized_height + 1)
+            .await?;
+
         let current_height = self
             .db
             .get_latest_finalized_block_height(None)
@@ -1383,7 +1394,7 @@ where
         _block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
-        tracing::debug!("Operator called handle finalized block {}", _block_height);
+        tracing::warn!("Operator called handle finalized block {}", _block_height);
         Ok(())
     }
 }
