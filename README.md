@@ -62,7 +62,7 @@ Clementine supports two primary configuration methods:
 
 Running the binary as a verifier, aggregator, operator or watchtower requires a
 configuration file. An example configuration file is located at
-[`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
+[`core/src/config/bridge_config.toml`](core/src/config/bridge_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
 
