@@ -92,7 +92,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     // Create temporary directory for bitcoin data
     let data_dir = TempDir::new()
         .expect("Failed to create temporary directory")
-        .into_path();
+        .keep();
     let bitcoin_rpc_debug = std::env::var("BITCOIN_RPC_DEBUG").map(|d| !d.is_empty()) == Ok(true);
 
     // Get available ports for RPC
