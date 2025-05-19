@@ -844,7 +844,7 @@ where
         if withdrawal.is_none() {
             return Err(eyre::eyre!("Withdrawal not found for id: {}", withdrawal_id).into());
         }
-        if output_amount >= self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT {
+        if output_amount > self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT {
             return Err(eyre::eyre!(
                 "Output amount is greater than the bridge amount: {} > {}",
                 output_amount,
