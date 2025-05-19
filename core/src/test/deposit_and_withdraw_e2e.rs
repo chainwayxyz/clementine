@@ -454,7 +454,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:287189a716644ebbb8a6f3324dff35722e477ce9",
+        "chainwayxyz/citrea-test:9f88a775e9467303d960b6cc9f975ff00f1f1290",
     );
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
