@@ -9,20 +9,19 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_emergency_stop_txhandler, create_move_to_vault_txhandler, create_txhandlers,
-    ContractContext, DepositData, KickoffData, OperatorData, ReimburseDbCache, TransactionType,
-    TxHandler, TxHandlerCache,
+    create_emergency_stop_txhandler, create_move_to_vault_txhandler,
+    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, DepositData,
+    KickoffData, OperatorData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::TEN_MINUTES_IN_SECS;
+use crate::constants::{ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
-use crate::musig2;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::context::DutyResult;
 use crate::states::{block_cache, StateManager};
@@ -30,11 +29,12 @@ use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
+use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
-use bitcoin::OutPoint;
-use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
+use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
+use bitcoin::{OutPoint, TxOut};
 use bitvm::signatures::winternitz;
 use eyre::{Context, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
@@ -824,6 +824,103 @@ where
         dbtx.commit().await?;
 
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
+    }
+
+    pub async fn sign_optimistic_payout(
+        &self,
+        nonce_session_id: u32,
+        agg_nonce: MusigAggNonce,
+        withdrawal_id: u32,
+        input_signature: Signature,
+        input_outpoint: OutPoint,
+        output_script_pubkey: ScriptBuf,
+        output_amount: Amount,
+    ) -> Result<MusigPartialSignature, BridgeError> {
+        // check if withdrawal is valid first
+        let withdrawal = self
+            .db
+            .get_move_to_vault_txid_from_citrea_deposit(None, withdrawal_id)
+            .await?;
+        if withdrawal.is_none() {
+            return Err(eyre::eyre!("Withdrawal not found for id: {}", withdrawal_id).into());
+        }
+        if output_amount >= self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT {
+            return Err(eyre::eyre!(
+                "Output amount is greater than the bridge amount: {} > {}",
+                output_amount,
+                self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT
+            )
+            .into());
+        }
+
+        // check if withdrawal utxo is correct
+        let withdrawal_utxo = self
+            .db
+            .get_withdrawal_utxo_from_citrea_withdrawal(None, withdrawal_id)
+            .await?
+            .ok_or_eyre("Withdrawal utxo not found")?;
+        if withdrawal_utxo != input_outpoint {
+            return Err(eyre::eyre!(
+                "Withdrawal utxo is not correct: {:?} != {:?}",
+                withdrawal_utxo,
+                input_outpoint
+            )
+            .into());
+        }
+
+        let move_txid = withdrawal.expect("Withdrawal must be Some");
+        let mut deposit_data = self
+            .db
+            .get_deposit_data_with_move_tx(None, move_txid)
+            .await?
+            .ok_or_eyre("Deposit data corresponding to move txid not found")?;
+
+        let withdrawal_prevout = self.rpc.get_txout_from_outpoint(&input_outpoint).await?;
+        let withdrawal_utxo = UTXO {
+            outpoint: input_outpoint,
+            txout: withdrawal_prevout,
+        };
+        let output_txout = TxOut {
+            value: output_amount,
+            script_pubkey: output_script_pubkey,
+        };
+
+        let opt_payout_txhandler = create_optimistic_payout_txhandler(
+            &mut deposit_data,
+            withdrawal_utxo,
+            output_txout,
+            input_signature,
+            self.config.protocol_paramset(),
+        )?;
+        // txin at index 1 is deposited utxo in movetx
+        let sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
+            1,
+            0,
+            bitcoin::TapSighashType::Default,
+        )?;
+
+        let opt_payout_secnonce = {
+            let mut session_map = self.nonces.lock().await;
+            let session = session_map
+                .sessions
+                .get_mut(&nonce_session_id)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {nonce_session_id}"))?;
+            session
+                .nonces
+                .pop()
+                .ok_or_eyre("No move tx secnonce in session")?
+        };
+
+        let opt_payout_partial_sig = musig2::partial_sign(
+            deposit_data.get_verifiers(),
+            None,
+            opt_payout_secnonce,
+            agg_nonce,
+            self.signer.keypair,
+            Message::from_digest(sighash.to_byte_array()),
+        )?;
+
+        Ok(opt_payout_partial_sig)
     }
 
     pub async fn set_operator_keys(

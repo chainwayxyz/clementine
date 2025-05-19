@@ -1,3 +1,4 @@
+use super::create_move_to_vault_txhandler;
 use super::input::SpendableTxIn;
 use super::input::UtxoVout;
 use super::op_return_txout;
@@ -319,4 +320,43 @@ pub fn create_payout_txhandler(
         .finalize();
     txhandler.set_p2tr_key_spend_witness(&user_sig_wrapped, 0)?;
     txhandler.promote()
+}
+
+/// Creates a [`TxHandler`] for the `optimistic_payout_tx`. This transaction will be signed by all verifiers that participated in the corresponding deposit to directly payout without any kickoff.
+pub fn create_optimistic_payout_txhandler(
+    deposit_data: &mut DepositData,
+    input_utxo: UTXO,
+    output_txout: TxOut,
+    user_sig: Signature,
+    paramset: &'static ProtocolParamset,
+) -> Result<TxHandler, BridgeError> {
+    let move_txhandler: TxHandler = create_move_to_vault_txhandler(deposit_data, paramset)?;
+    let user_sig_wrapped = bitcoin::taproot::Signature {
+        signature: user_sig,
+        sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+    };
+    let txin = SpendableTxIn::new_partial(input_utxo.outpoint, input_utxo.txout);
+
+    let output_txout = UnspentTxOut::from_partial(output_txout.clone());
+
+    let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
+        .add_input(
+            NormalSignatureKind::NotStored,
+            txin,
+            SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        )
+        .add_input(
+            NormalSignatureKind::NotStored,
+            move_txhandler.get_spendable_output(UtxoVout::DepositInMove)?,
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(output_txout)
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize();
+    txhandler.set_p2tr_key_spend_witness(&user_sig_wrapped, 0)?;
+    Ok(txhandler)
 }

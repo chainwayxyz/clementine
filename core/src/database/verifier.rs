@@ -63,6 +63,24 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_move_to_vault_txid_from_citrea_deposit(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        citrea_idx: u32,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (Option<TxidDB>,)>(
+            "SELECT move_to_vault_txid FROM withdrawals WHERE idx = $1",
+        )
+        .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?);
+
+        let result: Option<(Option<TxidDB>,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(result.map(|(move_to_vault_txid,)| {
+            move_to_vault_txid.expect("move_to_vault_txid must exist").0
+        }))
+    }
+
     pub async fn set_replacement_deposit_move_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
