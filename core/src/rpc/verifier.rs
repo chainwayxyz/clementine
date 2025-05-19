@@ -1,8 +1,7 @@
-use super::clementine::RawTxWithRbfInfo;
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, PartialSig, SignedTxWithType, SignedTxsWithType, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams,
+    OperatorParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType, SignedTxsWithType,
+    VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
 };
 use super::error;
 use super::parser::ParserError;
@@ -11,6 +10,7 @@ use crate::citrea::CitreaClientT;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::VerifierDepositFinalizeResponse;
 use crate::rpc::parser::parse_transaction_request;
+use crate::utils::get_vergen_response;
 use crate::verifier::VerifierServer;
 use crate::{
     fetch_next_message_from_stream,
@@ -28,6 +28,10 @@ impl<C> ClementineVerifier for VerifierServer<C>
 where
     C: CitreaClientT,
 {
+    async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
+        Ok(Response::new(get_vergen_response()))
+    }
+
     async fn internal_create_watchtower_challenge(
         &self,
         request: tonic::Request<super::TransactionRequest>,

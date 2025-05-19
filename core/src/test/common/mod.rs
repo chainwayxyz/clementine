@@ -226,7 +226,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 
     let verifiers_public_keys: Vec<PublicKey> = aggregator
         .setup(Request::new(Empty {}))
-        .await?
+        .await
+        .wrap_err("Can't setup aggregator")?
         .into_inner()
         .try_into()?;
 
@@ -253,7 +254,8 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 
         let move_txid: Txid = aggregator
             .new_deposit(deposit)
-            .await?
+            .await
+            .wrap_err("Error while making a deposit")?
             .into_inner()
             .try_into()?;
         rpc.mine_blocks(1).await?;
@@ -346,7 +348,8 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     let move_txid: Txid = aggregator
         .new_deposit(deposit)
-        .await?
+        .await
+        .wrap_err("Error while making a deposit")?
         .into_inner()
         .try_into()?;
 
@@ -642,7 +645,8 @@ pub async fn run_replacement_deposit(
 
     let move_txid: Txid = aggregator
         .new_deposit(deposit)
-        .await?
+        .await
+        .wrap_err("Error while making a deposit")?
         .into_inner()
         .try_into()?;
 
@@ -722,10 +726,10 @@ pub fn ensure_test_certificates() -> Result<(), std::io::Error> {
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 eprintln!("Failed to generate certificates: {}", stderr);
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Certificate generation failed: {}", stderr),
-                ));
+                return Err(std::io::Error::other(format!(
+                    "Certificate generation failed: {}",
+                    stderr
+                )));
             }
 
             println!("TLS certificates generated successfully");

@@ -143,9 +143,6 @@ pub enum BridgeError {
     #[error("{0}")]
     CLIDisplayAndExit(StyledStr),
 
-    #[error("Tonic status: {0}")]
-    TonicStatus(#[from] tonic::Status),
-
     // Base wrapper for eyre
     #[error(transparent)]
     Eyre(#[from] eyre::Report),
@@ -176,7 +173,7 @@ pub trait ResultExt: Sized {
     type Output;
 
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
-    fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
+    fn map_to_status(self) -> Result<Self::Output, Box<tonic::Status>>;
 }
 
 impl<T: Into<BridgeError>> ErrorExt for T {
@@ -198,8 +195,8 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
         self.map_err(ErrorExt::into_eyre)
     }
 
-    fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
-        self.map_err(ErrorExt::into_status)
+    fn map_to_status(self) -> Result<Self::Output, Box<tonic::Status>> {
+        Ok(self.map_err(ErrorExt::into_status)?)
     }
 }
 

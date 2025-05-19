@@ -110,6 +110,8 @@ hex-literal = "0.4.1"
 rustls-pki-types = "1.11.0"
 
 base64 = "0.22.1"
+vergen-git2 = { version = "1.0.0", features = ["build", "cargo", "rustc", "si"] }
+
 
 [patch.crates-io]
 bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "9ff580e1d520379d21a4bdeacdb7ca6c60dcb8ae" }

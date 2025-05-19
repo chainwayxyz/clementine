@@ -2,7 +2,9 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
-use super::clementine::{AggregatorWithdrawResponse, Deposit, VerifierPublicKeys, WithdrawParams};
+use super::clementine::{
+    AggregatorWithdrawResponse, Deposit, VergenResponse, VerifierPublicKeys, WithdrawParams,
+};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
@@ -17,6 +19,7 @@ use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
 use crate::tx_sender::{FeePayingType, TxMetadata};
+use crate::utils::get_vergen_response;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -511,7 +514,8 @@ impl Aggregator {
             .deposit_params
             .clone()
             .ok_or_else(|| eyre::eyre!("No deposit params found in deposit sign session"))?
-            .try_into()?;
+            .try_into()
+            .wrap_err("Failed to convert deposit params to deposit data")?;
 
         // calculate number of signatures needed from each operator
         let needed_sigs = config.get_num_required_operator_sigs(&deposit_data);
@@ -622,9 +626,11 @@ impl Aggregator {
         emergency_stop_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
     ) -> Result<(), BridgeError> {
-        let mut deposit_data: crate::builder::transaction::DepositData =
-            deposit_params.try_into()?;
-        let musig_partial_sigs = parser::verifier::parse_partial_sigs(emergency_stop_sigs)?;
+        let mut deposit_data: crate::builder::transaction::DepositData = deposit_params
+            .try_into()
+            .wrap_err("Failed to convert deposit params to deposit data")?;
+        let musig_partial_sigs = parser::verifier::parse_partial_sigs(emergency_stop_sigs)
+            .wrap_err("Failed to parse emergency stop signatures")?;
 
         // create move tx and calculate sighash
         let move_txhandler =
@@ -799,6 +805,10 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for Aggregator {
+    async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
+        Ok(Response::new(get_vergen_response()))
+    }
+
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn setup(
         &self,
@@ -1006,7 +1016,8 @@ impl ClementineAggregator for Aggregator {
             .rpc
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await
-            .map_to_status()?;
+            .map_to_status()
+            .map_err(|e| *e)?;
 
         let verifiers_public_keys = deposit_data.get_verifiers();
 
