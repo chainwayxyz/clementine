@@ -2,6 +2,7 @@ use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::taproot_builder_with_scripts;
+use crate::builder::block_cache;
 use crate::builder::script::{extract_winternitz_commits, SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
@@ -9,27 +10,23 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_emergency_stop_txhandler, create_move_to_vault_txhandler, create_txhandlers,
-    ContractContext, DepositData, KickoffData, OperatorData, ReimburseDbCache, TransactionType,
-    TxHandler, TxHandlerCache,
+    create_emergency_stop_txhandler, create_move_to_vault_txhandler, DepositData, KickoffData,
+    OperatorData, TransactionType, TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
 use crate::musig2;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
-use crate::states::context::DutyResult;
-use crate::states::{block_cache, StateManager};
-use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
+use crate::utils::NamedEntity;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
@@ -38,13 +35,12 @@ use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use eyre::{Context, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
-use tonic::async_trait;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -91,23 +87,30 @@ where
         background_tasks.loop_and_monitor(tx_sender.into_task());
 
         // initialize and run state manager
-        let state_manager =
-            StateManager::new(db.clone(), verifier.clone(), config.protocol_paramset()).await?;
+        #[cfg(feature = "state-machine")]
+        {
+            let state_manager = crate::states::StateManager::new(
+                db.clone(),
+                verifier.clone(),
+                config.protocol_paramset(),
+            )
+            .await?;
 
-        let should_run_state_mgr = {
-            #[cfg(test)]
-            {
-                config.test_params.should_run_state_manager
-            }
-            #[cfg(not(test))]
-            {
-                true
-            }
-        };
+            let should_run_state_mgr = {
+                #[cfg(test)]
+                {
+                    config.test_params.should_run_state_manager
+                }
+                #[cfg(not(test))]
+                {
+                    true
+                }
+            };
 
-        if should_run_state_mgr {
-            background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
-            background_tasks.loop_and_monitor(state_manager.into_task());
+            if should_run_state_mgr {
+                background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
+                background_tasks.loop_and_monitor(state_manager.into_task());
+            }
         }
 
         let syncer = BitcoinSyncer::new(db, rpc, config.protocol_paramset()).await?;
@@ -318,15 +321,21 @@ where
                 .await?;
         }
 
-        let operator_data = OperatorData {
-            xonly_pk: operator_xonly_pk,
-            collateral_funding_outpoint,
-            reimburse_addr: wallet_reimburse_address,
-        };
+        #[cfg(feature = "state-machine")]
+        {
+            let operator_data = OperatorData {
+                xonly_pk: operator_xonly_pk,
+                collateral_funding_outpoint,
+                reimburse_addr: wallet_reimburse_address,
+            };
 
-        StateManager::<Self>::dispatch_new_round_machine(self.db.clone(), &mut dbtx, operator_data)
+            crate::states::StateManager::<Self>::dispatch_new_round_machine(
+                self.db.clone(),
+                &mut dbtx,
+                operator_data,
+            )
             .await?;
-
+        }
         dbtx.commit().await?;
 
         Ok(())
@@ -1300,176 +1309,200 @@ where
     }
 }
 
-#[async_trait]
-impl<C> Owner for Verifier<C>
+impl<C> NamedEntity for Verifier<C>
 where
     C: CitreaClientT,
 {
-    const OWNER_TYPE: &'static str = "verifier";
+    const ENTITY_NAME: &'static str = "verifier";
+}
 
-    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
-        let verifier_xonly_pk = &self.signer.xonly_public_key;
-        match duty {
-            Duty::NewReadyToReimburse {
-                round_idx,
-                operator_xonly_pk,
-                used_kickoffs,
-            } => {
-                tracing::info!(
+#[cfg(feature = "state-machine")]
+mod states {
+    use super::*;
+    use crate::builder::transaction::{
+        create_txhandlers, ContractContext, ReimburseDbCache, TxHandlerCache,
+    };
+    use crate::states::context::DutyResult;
+    use crate::states::{block_cache, StateManager};
+    use crate::states::{Duty, Owner};
+    use std::collections::BTreeMap;
+    use tonic::async_trait;
+
+    #[async_trait]
+    impl<C> Owner for Verifier<C>
+    where
+        C: CitreaClientT,
+    {
+        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+            let verifier_xonly_pk = &self.signer.xonly_public_key;
+            match duty {
+                Duty::NewReadyToReimburse {
+                    round_idx,
+                    operator_xonly_pk,
+                    used_kickoffs,
+                } => {
+                    tracing::info!(
                     "Verifier {:?} called new ready to reimburse with round_idx: {:?}, operator_idx: {}, used_kickoffs: {:?}",
                     verifier_xonly_pk, round_idx, operator_xonly_pk, used_kickoffs
                 );
-                self.send_unspent_kickoff_connectors(round_idx, operator_xonly_pk, used_kickoffs)
+                    self.send_unspent_kickoff_connectors(
+                        round_idx,
+                        operator_xonly_pk,
+                        used_kickoffs,
+                    )
                     .await?;
-                Ok(DutyResult::Handled)
-            }
-            Duty::WatchtowerChallenge {
-                kickoff_data,
-                deposit_data,
-            } => {
-                tracing::warn!(
+                    Ok(DutyResult::Handled)
+                }
+                Duty::WatchtowerChallenge {
+                    kickoff_data,
+                    deposit_data,
+                } => {
+                    tracing::warn!(
                     "Verifier {:?} called watchtower challenge with kickoff_data: {:?}, deposit_data: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data
                 );
-                self.send_watchtower_challenge(kickoff_data, deposit_data)
-                    .await?;
-                Ok(DutyResult::Handled)
-            }
-            Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
-            Duty::VerifierDisprove {
-                kickoff_data,
-                deposit_data,
-                operator_asserts,
-                operator_acks,
-                payout_blockhash,
-                latest_blockhash,
-            } => {
-                tracing::warn!(
-                    "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?}, 
+                    self.send_watchtower_challenge(kickoff_data, deposit_data)
+                        .await?;
+                    Ok(DutyResult::Handled)
+                }
+                Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
+                Duty::VerifierDisprove {
+                    kickoff_data,
+                    deposit_data,
+                    operator_asserts,
+                    operator_acks,
+                    payout_blockhash,
+                    latest_blockhash,
+                } => {
+                    tracing::warn!(
+                    "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?},
                     operator_acks: {:?}, payout_blockhash: {:?}, latest_blockhash: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(),
                     payout_blockhash.len(), latest_blockhash.len()
                 );
-                Ok(DutyResult::Handled)
-            }
-            Duty::SendLatestBlockhash { .. } => Ok(DutyResult::Handled),
-            Duty::CheckIfKickoff {
-                txid,
-                block_height,
-                witness,
-                challenged_before,
-            } => {
-                tracing::debug!(
-                    "Verifier {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
-                    verifier_xonly_pk,
+                    Ok(DutyResult::Handled)
+                }
+                Duty::SendLatestBlockhash { .. } => Ok(DutyResult::Handled),
+                Duty::CheckIfKickoff {
                     txid,
                     block_height,
-                );
-                let db_kickoff_data = self
-                    .db
-                    .get_deposit_data_with_kickoff_txid(None, txid)
-                    .await?;
-                let mut challenged = false;
-                if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
+                    witness,
+                    challenged_before,
+                } => {
                     tracing::debug!(
-                        "New kickoff found {:?}, for deposit: {:?}",
-                        kickoff_data,
-                        deposit_data.get_deposit_outpoint()
-                    );
-                    // add kickoff machine if there is a new kickoff
-                    let mut dbtx = self.db.begin_transaction().await?;
-                    StateManager::<Self>::dispatch_new_kickoff_machine(
-                        self.db.clone(),
-                        &mut dbtx,
-                        kickoff_data,
+                        "Verifier {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
+                        verifier_xonly_pk,
+                        txid,
                         block_height,
-                        deposit_data.clone(),
-                        witness.clone(),
-                    )
-                    .await?;
-                    challenged = self
-                        .handle_kickoff(
-                            &mut dbtx,
-                            witness,
-                            deposit_data,
+                    );
+                    let db_kickoff_data = self
+                        .db
+                        .get_deposit_data_with_kickoff_txid(None, txid)
+                        .await?;
+                    let mut challenged = false;
+                    if let Some((deposit_data, kickoff_data)) = db_kickoff_data {
+                        tracing::debug!(
+                            "New kickoff found {:?}, for deposit: {:?}",
                             kickoff_data,
-                            challenged_before,
+                            deposit_data.get_deposit_outpoint()
+                        );
+                        // add kickoff machine if there is a new kickoff
+                        let mut dbtx = self.db.begin_transaction().await?;
+                        StateManager::<Self>::dispatch_new_kickoff_machine(
+                            self.db.clone(),
+                            &mut dbtx,
+                            kickoff_data,
+                            block_height,
+                            deposit_data.clone(),
+                            witness.clone(),
                         )
                         .await?;
-                    dbtx.commit().await?;
+                        challenged = self
+                            .handle_kickoff(
+                                &mut dbtx,
+                                witness,
+                                deposit_data,
+                                kickoff_data,
+                                challenged_before,
+                            )
+                            .await?;
+                        dbtx.commit().await?;
+                    }
+                    Ok(DutyResult::CheckIfKickoff { challenged })
                 }
-                Ok(DutyResult::CheckIfKickoff { challenged })
             }
         }
-    }
 
-    async fn create_txhandlers(
-        &self,
-        tx_type: TransactionType,
-        contract_context: ContractContext,
-    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
-        let txhandlers = create_txhandlers(
-            tx_type,
-            contract_context,
-            &mut TxHandlerCache::new(),
-            &mut db_cache,
-        )
-        .await?;
-        Ok(txhandlers)
-    }
-
-    async fn handle_finalized_block(
-        &self,
-        mut dbtx: DatabaseTransaction<'_, '_>,
-        block_id: u32,
-        block_height: u32,
-        block_cache: Arc<block_cache::BlockCache>,
-        light_client_proof_wait_interval_secs: Option<u32>,
-    ) -> Result<(), BridgeError> {
-        tracing::info!(
-            "Handling finalized block height: {:?} and block cache height: {:?}",
-            block_height,
-            block_cache.block_height
-        );
-        let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
-        let timeout = Duration::from_secs(max_attempts as u64);
-
-        let l2_range_result = self
-            .citrea_client
-            .get_citrea_l2_height_range(block_height.into(), timeout)
-            .await;
-        if let Err(e) = l2_range_result {
-            tracing::error!("Error getting citrea l2 height range: {:?}", e);
-            return Err(e);
+        async fn create_txhandlers(
+            &self,
+            tx_type: TransactionType,
+            contract_context: ContractContext,
+        ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+            let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &contract_context);
+            let txhandlers = create_txhandlers(
+                tx_type,
+                contract_context,
+                &mut TxHandlerCache::new(),
+                &mut db_cache,
+            )
+            .await?;
+            Ok(txhandlers)
         }
-        let (l2_height_start, l2_height_end) =
-            l2_range_result.expect("Failed to get citrea l2 height range");
 
-        tracing::info!(
-            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
-            l2_height_start,
-            l2_height_end
-        );
-        self.update_citrea_deposit_and_withdrawals(
-            &mut dbtx,
-            l2_height_start,
-            l2_height_end,
-            block_height,
-        )
-        .await?;
+        async fn handle_finalized_block(
+            &self,
+            mut dbtx: DatabaseTransaction<'_, '_>,
+            block_id: u32,
+            block_height: u32,
+            block_cache: Arc<block_cache::BlockCache>,
+            light_client_proof_wait_interval_secs: Option<u32>,
+        ) -> Result<(), BridgeError> {
+            tracing::info!(
+                "Handling finalized block height: {:?} and block cache height: {:?}",
+                block_height,
+                block_cache.block_height
+            );
+            let max_attempts = light_client_proof_wait_interval_secs
+                .unwrap_or(crate::constants::TEN_MINUTES_IN_SECS);
+            let timeout = Duration::from_secs(max_attempts as u64);
 
-        tracing::info!("Getting payout txids for block height: {:?}", block_height);
-        self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
+            let l2_range_result = self
+                .citrea_client
+                .get_citrea_l2_height_range(block_height.into(), timeout)
+                .await;
+            if let Err(e) = l2_range_result {
+                tracing::error!("Error getting citrea l2 height range: {:?}", e);
+                return Err(e);
+            }
+            let (l2_height_start, l2_height_end) =
+                l2_range_result.expect("Failed to get citrea l2 height range");
+
+            tracing::info!(
+                "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+                l2_height_start,
+                l2_height_end
+            );
+            self.update_citrea_deposit_and_withdrawals(
+                &mut dbtx,
+                l2_height_start,
+                l2_height_end,
+                block_height,
+            )
             .await?;
 
-        if let Some(header_chain_prover) = &self.header_chain_prover {
-            header_chain_prover
+            if let Some(header_chain_prover) = &self.header_chain_prover {
+                header_chain_prover
+                    .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
+                    .await?;
+                header_chain_prover.prove_if_ready().await?;
+            }
+
+            self.header_chain_prover
                 .save_unproven_block_cache(Some(&mut dbtx), &block_cache)
                 .await?;
-            header_chain_prover.prove_if_ready().await?;
-        }
+            self.header_chain_prover.prove_if_ready().await?;
 
-        Ok(())
+            Ok(())
+        }
     }
 }

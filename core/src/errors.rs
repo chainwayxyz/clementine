@@ -60,13 +60,14 @@
 //! }
 //! ```
 
+#[cfg(feature = "state-machine")]
+use crate::states::StateMachineError;
 use crate::{
     actor::VerificationError,
     builder::transaction::input::SpendableTxInError,
     extended_rpc::BitcoinRPCError,
     header_chain_prover::HeaderChainProverError,
     rpc::{aggregator::AggregatorError, ParserError},
-    states::StateMachineError,
     tx_sender::SendTxError,
 };
 use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
@@ -101,6 +102,7 @@ pub enum BridgeError {
     SpendableTxIn(#[from] SpendableTxInError),
     #[error("Bitcoin RPC error: {0}")]
     BitcoinRPC(#[from] BitcoinRPCError),
+    #[cfg(feature = "state-machine")]
     #[error("State machine error: {0}")]
     StateMachine(#[from] StateMachineError),
     #[error("RPC authentication error: {0}")]

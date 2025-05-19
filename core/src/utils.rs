@@ -304,3 +304,15 @@ where
         })
     }
 }
+
+/// A trait for entities that have a name, operator, watchtower, verifier, etc.
+/// Used to distinguish between state machines with different owners in the database,
+/// and to provide a human-readable name for the entity for task names.
+pub trait NamedEntity {
+    /// A string identifier for this owner type used to distinguish between
+    /// state machines with different owners in the database.
+    ///
+    /// ## Example
+    /// "operator", "watchtower", "verifier", "user"
+    const ENTITY_NAME: &'static str;
+}

@@ -2,9 +2,8 @@
 
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+use crate::builder::transaction::TransactionType;
 use crate::citrea::CitreaClientT;
-use crate::database::DatabaseTransaction;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -13,20 +12,17 @@ use crate::rpc::get_clients;
 use crate::servers::{
     create_aggregator_unix_server, create_operator_unix_server, create_verifier_unix_server,
 };
-use crate::states::context::DutyResult;
-use crate::states::{block_cache, Duty, Owner};
 use crate::utils::initialize_logger;
+use crate::utils::NamedEntity;
 use crate::{
     actor::Actor, builder, config::BridgeConfig, database::Database, errors::BridgeError,
     extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
 };
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::schnorr;
-use std::collections::BTreeMap;
 use std::net::TcpListener;
-use std::sync::Arc;
-use tokio::sync::{oneshot, Mutex};
-use tonic::async_trait;
+
+use tokio::sync::oneshot;
 use tonic::transport::Channel;
 
 /// TODO: This won't block `let _ =`.
@@ -586,6 +582,7 @@ pub fn get_available_port() -> u16 {
 // Mock implementation of the Owner trait for testing
 #[derive(Debug, Clone, Default)]
 pub struct MockOwner {
+    #[cfg(feature = "state-machine")]
     cached_duties: Arc<Mutex<Vec<Duty>>>,
 }
 
@@ -596,32 +593,48 @@ impl PartialEq for MockOwner {
     }
 }
 
-// Implement the Owner trait for MockOwner
-#[async_trait]
-impl Owner for MockOwner {
-    const OWNER_TYPE: &'static str = "test_owner";
+impl NamedEntity for MockOwner {
+    const ENTITY_NAME: &'static str = "test_owner";
+}
 
-    async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
-        self.cached_duties.lock().await.push(duty);
-        Ok(DutyResult::Handled)
-    }
+#[cfg(feature = "state-machine")]
+mod states {
+    use super::*;
+    use crate::builder::block_cache;
+    use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
+    use crate::database::DatabaseTransaction;
+    use crate::states::context::DutyResult;
+    use crate::states::{Duty, Owner};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tonic::async_trait;
 
-    async fn create_txhandlers(
-        &self,
-        _tx_type: TransactionType,
-        _contract_context: ContractContext,
-    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        Ok(BTreeMap::new())
-    }
+    // Implement the Owner trait for MockOwner
+    #[async_trait]
+    impl Owner for MockOwner {
+        async fn handle_duty(&self, duty: Duty) -> Result<DutyResult, BridgeError> {
+            self.cached_duties.lock().await.push(duty);
+            Ok(DutyResult::Handled)
+        }
 
-    async fn handle_finalized_block(
-        &self,
-        _dbtx: DatabaseTransaction<'_, '_>,
-        _block_id: u32,
-        _block_height: u32,
-        _block_cache: Arc<block_cache::BlockCache>,
-        _light_client_proof_wait_interval_secs: Option<u32>,
-    ) -> Result<(), BridgeError> {
-        Ok(())
+        async fn create_txhandlers(
+            &self,
+            _tx_type: TransactionType,
+            _contract_context: ContractContext,
+        ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+            Ok(BTreeMap::new())
+        }
+
+        async fn handle_finalized_block(
+            &self,
+            _dbtx: DatabaseTransaction<'_, '_>,
+            _block_id: u32,
+            _block_height: u32,
+            _block_cache: Arc<block_cache::BlockCache>,
+            _light_client_proof_wait_interval_secs: Option<u32>,
+        ) -> Result<(), BridgeError> {
+            Ok(())
+        }
     }
 }
