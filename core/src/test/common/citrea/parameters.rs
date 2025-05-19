@@ -162,7 +162,7 @@ async fn get_transaction_sha_script_pubkeys_for_citrea(
     Ok(sha_script_pubkeys)
 }
 
-/// Returns [`TransactionParams`] for a given transaction, which can be later
+/// Returns [`CitreaTransaction`] for a given transaction, which can be later
 /// used for deposit and withdrawal operations.
 pub async fn get_citrea_deposit_params(
     rpc: &ExtendedRpc,
