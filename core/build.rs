@@ -1,5 +1,7 @@
 use std::{env, path::Path, process::Command};
 
+use vergen_git2::{BuildBuilder, CargoBuilder, Emitter, Git2Builder, RustcBuilder, SysinfoBuilder};
+
 fn trim_ascii_end(s: &str) -> &str {
     let trimmed_len = s
         .as_bytes()
@@ -60,4 +62,23 @@ fn compile_protobuf() {
 
 fn main() {
     compile_protobuf();
+    let build = BuildBuilder::all_build().expect("Failed to build build instructions");
+    let cargo = CargoBuilder::all_cargo().expect("Failed to build cargo instructions");
+    let git2 = Git2Builder::all_git().expect("Failed to build git instructions");
+    let rustc = RustcBuilder::all_rustc().expect("Failed to build rustc instructions");
+    let si = SysinfoBuilder::all_sysinfo().expect("Failed to build sysinfo instructions");
+
+    Emitter::default()
+        .add_instructions(&build)
+        .expect("Failed to add build instructions")
+        .add_instructions(&cargo)
+        .expect("Failed to add cargo instructions")
+        .add_instructions(&git2)
+        .expect("Failed to add git instructions")
+        .add_instructions(&rustc)
+        .expect("Failed to add rustc instructions")
+        .add_instructions(&si)
+        .expect("Failed to add sysinfo instructions")
+        .emit()
+        .expect("Failed to emit vergen");
 }

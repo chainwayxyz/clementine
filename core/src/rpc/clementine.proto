@@ -375,6 +375,8 @@ service ClementineOperator {
   rpc InternalFinalizedPayout(FinalizedPayoutParams) returns (Txid) {}
 
   rpc InternalEndRound(Empty) returns (Empty) {}
+
+  rpc Vergen(Empty) returns (VergenResponse) {}
 }
 
 // Verifier --------------------------------------------------------------------
@@ -475,6 +477,11 @@ message XOnlyPublicKeys {
   repeated bytes xonly_public_keys = 1;
 }
 
+
+message VergenResponse {
+  string response = 1;
+}
+
 service ClementineVerifier {
   // Returns verifiers' metadata. Needs to be called once per setup.
   //
@@ -537,6 +544,8 @@ service ClementineVerifier {
   // Signs the verifiers own watchtower challenge tx in the corresponding
   // kickoff and returns the signed raw tx
   rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (SignedTxWithType) {}
+
+  rpc Vergen(Empty) returns (VergenResponse) {}
 }
 
 // Aggregator ------------------------------------------------------------------
@@ -608,4 +617,6 @@ service ClementineAggregator {
   // Tx will have around 3 sats/vbyte fee.
   // Set add_anchor to true to add an anchor output for cpfp..
   rpc InternalCreateEmergencyStopTx(CreateEmergencyStopTxRequest) returns (SignedTxWithType) {}
+
+  rpc Vergen(Empty) returns (VergenResponse) {}
 }
