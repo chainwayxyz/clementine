@@ -524,10 +524,19 @@ pub async fn generate_withdrawal_transaction_and_signature(
 
     const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);
 
-    let dust_outpoint = rpc
+    // because of the issue with endianness in bridge conract, we enforece vout to be 0
+    // see: https://github.com/chainwayxyz/citrea/issues/2375
+    let mut dust_outpoint = rpc
         .send_to_address(&signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)
         .await
         .expect("Failed to send to address");
+
+    while dust_outpoint.vout != 0 {
+        dust_outpoint = rpc
+            .send_to_address(&signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)
+            .await
+            .expect("Failed to send to address");
+    }
     let dust_utxo = UTXO {
         outpoint: dust_outpoint,
         txout: bitcoin::TxOut {

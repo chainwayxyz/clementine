@@ -50,7 +50,6 @@ fn get_block_merkle_proof(
         .collect::<Vec<_>>();
 
     let merkle_tree = BitcoinMerkleTree::new(txids.clone());
-    let _witness_root = block.witness_root().unwrap();
     let witness_idx_path = merkle_tree.get_idx_path(txid_index.try_into().unwrap());
 
     let _root = merkle_tree.calculate_root_with_merkle_proof(
@@ -65,55 +64,34 @@ fn get_block_merkle_proof(
 fn get_transaction_details_for_citrea(
     transaction: &Transaction,
 ) -> Result<CitreaTransaction, BridgeError> {
-    // Version is in little endian format in Bitcoin.
     let version = (transaction.version.0 as u32).to_le_bytes();
-    // TODO: Flag should be 0 if no witness elements. Do this in the future if
-    // needed.
     let flag: u16 = 1;
 
-    let vin: Vec<u8> = transaction
-        .input
-        .iter()
-        .map(|input| {
-            let mut encoded_input = Vec::new();
-            let mut previous_output = Vec::new();
-            input
-                .previous_output
-                .consensus_encode(&mut previous_output)
-                .unwrap();
-            let mut script_sig = Vec::new();
-            input.script_sig.consensus_encode(&mut script_sig).unwrap();
-            let mut sequence = Vec::new();
-            input.sequence.consensus_encode(&mut sequence).unwrap();
+    let vin = [
+        vec![transaction.input.len() as u8],
+        transaction
+            .input
+            .iter()
+            .map(|x| bitcoin::consensus::serialize(&x))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<u8>>(),
+    ]
+    .concat();
 
-            encoded_input.extend(previous_output);
-            encoded_input.extend(script_sig);
-            encoded_input.extend(sequence);
-
-            Ok::<Vec<u8>, BridgeError>(encoded_input)
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect();
-    let vin = [vec![transaction.input.len() as u8], vin].concat();
-
-    let vout: Vec<u8> = transaction
-        .output
-        .iter()
-        .map(|param| {
-            let mut raw = Vec::new();
-            param
-                .consensus_encode(&mut raw)
-                .map_err(|e| BridgeError::Error(format!("Can't encode param: {}", e)))?;
-
-            Ok::<Vec<u8>, BridgeError>(raw)
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<u8>>();
-    let vout = [vec![transaction.output.len() as u8], vout].concat();
+    let vout = [
+        vec![transaction.output.len() as u8],
+        transaction
+            .output
+            .iter()
+            .map(|x| bitcoin::consensus::serialize(&x))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<u8>>(),
+    ]
+    .concat();
 
     let witness: Vec<u8> = transaction
         .input
@@ -132,8 +110,8 @@ fn get_transaction_details_for_citrea(
         .flatten()
         .collect::<Vec<u8>>();
 
-    let locktime: u32 = transaction.lock_time.to_consensus_u32();
-
+    let locktime = bitcoin::consensus::serialize(&transaction.lock_time);
+    let locktime: [u8; 4] = locktime.try_into().unwrap();
     Ok(CitreaTransaction {
         version: FixedBytes::from(version),
         flag: FixedBytes::from(flag),
@@ -282,9 +260,16 @@ pub async fn get_citrea_safe_withdraw_params(
     let block_header_bytes =
         Bytes::copy_from_slice(&bitcoin::consensus::serialize(&prepare_tx_block_header));
 
-    let output_script_pk_bytes = Bytes::copy_from_slice(&bitcoin::consensus::serialize(
-        &payout_transaction.output[0].script_pubkey,
-    ));
+    let output_script_pk_bytes = Bytes::copy_from_slice(
+        &bitcoin::consensus::serialize(
+            &prepare_tx.output[payout_transaction.input[0].previous_output.vout as usize]
+                .script_pubkey,
+        )
+        .iter()
+        .skip(1)
+        .copied()
+        .collect::<Vec<u8>>(),
+    );
 
     Ok((
         prepare_tx_struct,
