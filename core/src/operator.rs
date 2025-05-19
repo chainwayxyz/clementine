@@ -1394,7 +1394,7 @@ where
         _block_cache: Arc<block_cache::BlockCache>,
         _light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
-        tracing::warn!("Operator called handle finalized block {}", _block_height);
+        tracing::info!("Operator called handle finalized block {}", _block_height);
         Ok(())
     }
 }

@@ -304,39 +304,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
-        let payout_txid = loop {
-            let withdrawal_response = operators[0]
-                .withdraw(WithdrawParams {
-                    withdrawal_id: 0,
-                    input_signature: sig.serialize().to_vec(),
-                    input_outpoint: Some(withdrawal_utxo.into()),
-                    output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
-                    output_amount: payout_txout.txout().value.to_sat(),
-                })
-                .await;
-
-            tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-
-            match withdrawal_response {
-                Ok(withdrawal_response) => {
-                    tracing::info!("Withdrawal response: {:?}", withdrawal_response);
-                    break Txid::from_byte_array(
-                        withdrawal_response.into_inner().txid.try_into().unwrap(),
-                    );
-                }
-                Err(e) => {
-                    tracing::info!("Withdrawal error: {:?}", e);
-                }
-            }
-
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        };
-        tracing::info!("Payout txid: {:?}", payout_txid);
-
-        mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None).await?;
-
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
-
         // Setup tx_sender for sending transactions
         let verifier_0_config = {
             let mut config = config.clone();
@@ -402,7 +369,38 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .unwrap();
         db_commit.commit().await.unwrap();
 
-        // tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let payout_txid = loop {
+            let withdrawal_response = operators[0]
+                .withdraw(WithdrawParams {
+                    withdrawal_id: 0,
+                    input_signature: sig.serialize().to_vec(),
+                    input_outpoint: Some(withdrawal_utxo.into()),
+                    output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
+                    output_amount: payout_txout.txout().value.to_sat(),
+                })
+                .await;
+
+            tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+
+            match withdrawal_response {
+                Ok(withdrawal_response) => {
+                    tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+                    break Txid::from_byte_array(
+                        withdrawal_response.into_inner().txid.try_into().unwrap(),
+                    );
+                }
+                Err(e) => {
+                    tracing::info!("Withdrawal error: {:?}", e);
+                }
+            }
+
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        };
+        tracing::info!("Payout txid: {:?}", payout_txid);
+
+        mine_once_after_in_mempool(&rpc, payout_txid, Some("Payout tx"), None).await?;
+
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         // wait until payout part is not null
         while db
