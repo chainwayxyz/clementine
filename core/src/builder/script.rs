@@ -6,11 +6,7 @@
 #![allow(dead_code)]
 
 use crate::actor::WinternitzDerivationPath;
-use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::config::protocol::ProtocolParamset;
-use crate::config::BridgeConfig;
-use crate::database::Database;
-use crate::errors::BridgeError;
 use crate::EVMAddress;
 use bitcoin::hashes::{hash160, Hash};
 use bitcoin::opcodes::OP_TRUE;
@@ -20,13 +16,12 @@ use bitcoin::{
     ScriptBuf, XOnlyPublicKey,
 };
 use bitcoin::{taproot, Txid, Witness};
-use bitvm::clementine::additional_disprove::create_additional_replacable_disprove_script_with_dummy;
 use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
 use eyre::{Context, Result};
 use std::any::Any;
 use std::fmt::Debug;
 
-use super::transaction::{DepositData, SecurityCouncil};
+use super::transaction::SecurityCouncil;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SpendPath {
@@ -43,66 +38,6 @@ fn from_minimal_to_u32_le_bytes(minimal: &[u8]) -> Result<[u8; 4]> {
     let mut bytes = [0u8; 4];
     bytes[..minimal.len()].copy_from_slice(minimal);
     Ok(bytes)
-}
-
-pub async fn get_replaceable_additional_disprove_script_with_checks(
-    db: Database,
-    config: Option<BridgeConfig>,
-    deposit_data: &DepositData,
-    operator_xonly_pk: XOnlyPublicKey,
-    protocol_paramset: Option<ProtocolParamset>,
-) -> Result<Vec<u8>, BridgeError> {
-    // if config is none, use protocal_paramset
-
-    let bitvm_wpks = db
-        .get_operator_bitvm_keys(None, operator_xonly_pk, deposit_data.get_deposit_outpoint())
-        .await?;
-
-    let operator_challenge_ack_hashes = db
-        .get_operators_challenge_ack_hashes(
-            None,
-            operator_xonly_pk,
-            deposit_data.get_deposit_outpoint(),
-        )
-        .await?
-        .expect("Should not err"); // TODO: Handle this better
-
-    let expected_challenge_ack_count = match &config {
-        Some(cfg) => cfg.get_num_challenge_ack_hashes(deposit_data),
-        None => deposit_data.get_num_watchtowers(),
-    };
-
-    if operator_challenge_ack_hashes.len() != expected_challenge_ack_count {
-        return Err(BridgeError::InvalidChallengeAckHashes);
-    }
-
-    if bitvm_wpks.len() != ClementineBitVMPublicKeys::number_of_flattened_wpks() {
-        tracing::error!(
-            "Invalid number of winternitz keys received from operator {:?}: got: {} expected: {}",
-            operator_xonly_pk,
-            bitvm_wpks.len(),
-            ClementineBitVMPublicKeys::number_of_flattened_wpks()
-        );
-        return Err(BridgeError::InvalidBitVMPublicKeys)?;
-    }
-
-    let bitvm_wpks = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
-
-    let paramset = match &config {
-        Some(cfg) => cfg.protocol_paramset(),
-        None => protocol_paramset.as_ref().ok_or_else(|| {
-            tracing::error!("No protocol paramset found");
-            BridgeError::InvalidProtocolParamset
-        })?,
-    };
-
-    Ok(create_additional_replacable_disprove_script_with_dummy(
-        paramset.bridge_circuit_method_id_constant,
-        bitvm_wpks.bitvm_pks.0[0].to_vec(),
-        bitvm_wpks.latest_blockhash_pk.to_vec(),
-        bitvm_wpks.challenge_sending_watchtowers_pk.to_vec(),
-        operator_challenge_ack_hashes,
-    ))
 }
 
 /// Extracts the committed data from the witness.

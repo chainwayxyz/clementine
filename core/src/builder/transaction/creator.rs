@@ -18,7 +18,9 @@ use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, XOnlyPublicKey};
-use bitvm::clementine::additional_disprove::replace_placeholders_in_script;
+use bitvm::clementine::additional_disprove::{
+    create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
+};
 use circuits_lib::bridge_circuit::deposit_constant;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::Context;
@@ -84,6 +86,8 @@ pub struct ReimburseDbCache {
     operator_data: Option<OperatorData>,
     /// latest blockhash root hash
     latest_blockhash_root_hash: Option<[u8; 32]>,
+    /// replaceable additional disprove script
+    replaceable_additional_disprove_script: Option<Vec<u8>>,
 }
 
 impl ReimburseDbCache {
@@ -105,6 +109,7 @@ impl ReimburseDbCache {
             challenge_ack_hashes: None,
             operator_data: None,
             latest_blockhash_root_hash: None,
+            replaceable_additional_disprove_script: None,
         }
     }
 
@@ -125,6 +130,7 @@ impl ReimburseDbCache {
             challenge_ack_hashes: None,
             operator_data: None,
             latest_blockhash_root_hash: None,
+            replaceable_additional_disprove_script: None,
         }
     }
 
@@ -215,6 +221,43 @@ impl ReimburseDbCache {
         }
     }
 
+    pub async fn get_replaceable_additional_disprove_script(
+        &mut self,
+    ) -> Result<&Vec<u8>, BridgeError> {
+        if let Some(ref script) = self.replaceable_additional_disprove_script {
+            return Ok(script);
+        }
+
+        let deposit_outpoint = self.deposit_outpoint.ok_or(TxError::InsufficientContext)?;
+
+        let bitvm_wpks = self
+            .db
+            .get_operator_bitvm_keys(None, self.operator_xonly_pk, deposit_outpoint)
+            .await?;
+
+        let challenge_ack_hashes = self
+            .db
+            .get_operators_challenge_ack_hashes(None, self.operator_xonly_pk, deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::InvalidChallengeAckHashes)?;
+
+        let bitvm_keys = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
+
+        let script = create_additional_replacable_disprove_script_with_dummy(
+            self.paramset.bridge_circuit_method_id_constant,
+            bitvm_keys.bitvm_pks.0[0].to_vec(),
+            bitvm_keys.latest_blockhash_pk.to_vec(),
+            bitvm_keys.challenge_sending_watchtowers_pk.to_vec(),
+            challenge_ack_hashes,
+        );
+
+        self.replaceable_additional_disprove_script = Some(script);
+        Ok(self
+            .replaceable_additional_disprove_script
+            .as_ref()
+            .expect("Cached above"))
+    }
+
     pub async fn get_challenge_ack_hashes(&mut self) -> Result<&[PublicHash], BridgeError> {
         if let Some(deposit_outpoint) = &self.deposit_outpoint {
             match self.challenge_ack_hashes {
@@ -289,7 +332,6 @@ pub struct ContractContext {
     kickoff_idx: Option<u32>,
     deposit_data: Option<DepositData>,
     signer: Option<Actor>,
-    additional_disprove_script: Option<Vec<u8>>,
     // TODO: why different winternitz_secret_key???
 }
 
@@ -307,7 +349,6 @@ impl ContractContext {
             kickoff_idx: None,
             deposit_data: None,
             signer: None,
-            additional_disprove_script: None,
         }
     }
 
@@ -316,7 +357,6 @@ impl ContractContext {
         kickoff_data: KickoffData,
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
-        additional_disprove_script: Option<Vec<u8>>,
     ) -> Self {
         Self {
             operator_xonly_pk: kickoff_data.operator_xonly_pk,
@@ -325,7 +365,6 @@ impl ContractContext {
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: None,
-            additional_disprove_script,
         }
     }
 
@@ -336,7 +375,6 @@ impl ContractContext {
         deposit_data: DepositData,
         paramset: &'static ProtocolParamset,
         signer: Actor,
-        additional_disprove_script: Option<Vec<u8>>,
     ) -> Self {
         Self {
             operator_xonly_pk: kickoff_data.operator_xonly_pk,
@@ -345,7 +383,6 @@ impl ContractContext {
             kickoff_idx: Some(kickoff_data.kickoff_idx),
             deposit_data: Some(deposit_data),
             signer: Some(signer),
-            additional_disprove_script,
         }
     }
 }
@@ -517,9 +554,10 @@ pub async fn create_txhandlers(
         [kickoff_data.kickoff_idx as usize]
         .clone();
 
-    let additional_disprove_script = context
-        .additional_disprove_script
-        .ok_or(TxError::InsufficientContext)?;
+    let additional_disprove_script = db_cache
+        .get_replaceable_additional_disprove_script()
+        .await?
+        .clone();
 
     let additional_disprove_script = replace_placeholders_in_script(
         additional_disprove_script,

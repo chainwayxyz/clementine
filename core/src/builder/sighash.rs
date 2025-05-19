@@ -7,7 +7,6 @@
 
 use super::transaction::DepositData;
 use crate::bitvm_client;
-use crate::builder::script::get_replaceable_additional_disprove_script_with_checks;
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
@@ -174,14 +173,6 @@ pub fn create_nofn_sighash_stream(
             // need to create new TxHandlerDbData for each operator
             let mut tx_db_data = ReimburseDbCache::new_for_deposit(db.clone(), *op_xonly_pk, deposit_data.get_deposit_outpoint(), config.protocol_paramset());
 
-            let replacable_additional_disprove_script = get_replaceable_additional_disprove_script_with_checks(
-                db.clone(),
-                Some(config.clone()),
-                &deposit_data,
-                *op_xonly_pk,
-                None,
-            ).await?;
-
             let mut txhandler_cache = TxHandlerCache::new();
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
@@ -203,7 +194,6 @@ pub fn create_nofn_sighash_stream(
                         },
                         deposit_data.clone(),
                         config.protocol_paramset(),
-                        Some(replacable_additional_disprove_script.clone()),
                     );
 
                     let mut txhandlers = create_txhandlers(
@@ -284,14 +274,6 @@ pub fn create_operator_sighash_stream(
         let mut txhandler_cache = TxHandlerCache::new();
         let operator_idx = deposit_data.get_operator_index(operator_xonly_pk)?;
 
-        let replacable_additional_disprove_script = get_replaceable_additional_disprove_script_with_checks(
-            db.clone(),
-            Some(config.clone()),
-            &deposit_data,
-            operator.xonly_pk,
-            None
-        ).await?;
-
         // For each round_tx, we have multiple kickoff_utxos as the connectors.
         for round_idx in 0..paramset.num_round_txs {
             for &kickoff_idx in &utxo_idxs {
@@ -305,7 +287,6 @@ pub fn create_operator_sighash_stream(
                     },
                     deposit_data.clone(),
                     config.protocol_paramset(),
-                    Some(replacable_additional_disprove_script.clone()),
                 );
 
                 let mut txhandlers = create_txhandlers(
