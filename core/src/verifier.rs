@@ -265,6 +265,24 @@ where
         Ok(tagged_sigs)
     }
 
+    /// Checks if the verifier has an operator in the deposit.
+    /// If the verifier does not have an operator, it is a valid deposit.
+    /// If the verifier has an operator, it is a valid deposit if the operator is in the deposit.
+    /// Verifier and operator belonging to same entity should have the same keys for this function to work.
+    async fn is_deposit_valid(&self, deposit_data: &DepositData) -> Result<bool, BridgeError> {
+        let operator_xonly_pks = deposit_data.get_operators();
+        let verifier_xonly_pk = self.signer.xonly_public_key;
+        // check if verifier has an operator by checking operator data in db
+        let operator_data = self.db.get_operator(None, verifier_xonly_pk).await?;
+        if operator_data.is_none() {
+            // verifier does not own an operator, so it is a valid deposit
+            Ok(true)
+        } else {
+            // verifier owns an operator, so it is a valid deposit
+            Ok(operator_xonly_pks.contains(&verifier_xonly_pk))
+        }
+    }
+
     pub async fn set_operator(
         &self,
         collateral_funding_outpoint: OutPoint,
@@ -373,6 +391,10 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
+        if !self.is_deposit_valid(&deposit_data).await? {
+            return Err(BridgeError::InvalidDeposit);
+        }
+
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
         let verifier_index = deposit_data.get_verifier_index(&self.signer.public_key)?;
@@ -471,6 +493,10 @@ where
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
+
+        if !self.is_deposit_valid(deposit_data).await? {
+            return Err(BridgeError::InvalidDeposit);
+        }
 
         let mut tweak_cache = TweakCache::default();
         let deposit_blockhash = self

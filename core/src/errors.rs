@@ -126,6 +126,8 @@ pub enum BridgeError {
     VerifierNotFound(PublicKey),
     #[error("Deposit not found in DB: {0:?}")]
     DepositNotFound(OutPoint),
+    #[error("Invalid deposit, deposit does not include the operator of a verifier")]
+    InvalidDeposit,
 
     // External crate error wrappers
     #[error("Failed to call database: {0}")]
