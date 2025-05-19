@@ -84,7 +84,6 @@ pub async fn create_and_sign_txs(
         ))?
         .1;
 
-
     let context = ContractContext::new_context_for_kickoffs(
         transaction_data.kickoff_data,
         deposit_data.clone(),
