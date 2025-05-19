@@ -1,4 +1,5 @@
 use crate::errors::BridgeError;
+use crate::rpc::clementine::VergenResponse;
 use http::HeaderValue;
 use std::fmt::Debug;
 use std::pin::Pin;
@@ -74,6 +75,120 @@ pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> 
     };
 
     Ok(())
+}
+
+pub fn get_vergen_response() -> VergenResponse {
+    let mut vergen_response = String::new();
+
+    // build info
+    if let Some(date) = option_env!("VERGEN_BUILD_DATE") {
+        vergen_response.push_str(&format!("Build Date: {date}\n"));
+    }
+    if let Some(timestamp) = option_env!("VERGEN_BUILD_TIMESTAMP") {
+        vergen_response.push_str(&format!("Build Timestamp: {timestamp}\n"));
+    }
+
+    // git info
+    if let Some(branch) = option_env!("VERGEN_GIT_BRANCH") {
+        vergen_response.push_str(&format!("git branch: {branch}\n"));
+    }
+    if let Some(commit) = option_env!("VERGEN_GIT_SHA") {
+        vergen_response.push_str(&format!("git commit: {commit}\n"));
+    }
+    if let Some(commit_date) = option_env!("VERGEN_GIT_COMMIT_DATE") {
+        vergen_response.push_str(&format!("git commit date: {commit_date}\n"));
+    }
+    if let Some(commit_timestamp) = option_env!("VERGEN_GIT_COMMIT_TIMESTAMP") {
+        vergen_response.push_str(&format!("git commit timestamp: {commit_timestamp}\n"));
+    }
+    if let Some(commit_author_name) = option_env!("VERGEN_GIT_COMMIT_AUTHOR_NAME") {
+        vergen_response.push_str(&format!("git commit author name: {commit_author_name}\n"));
+    }
+    if let Some(commit_author_email) = option_env!("VERGEN_GIT_COMMIT_AUTHOR_EMAIL") {
+        vergen_response.push_str(&format!("git commit author email: {commit_author_email}\n"));
+    }
+    if let Some(commit_count) = option_env!("VERGEN_GIT_COMMIT_COUNT") {
+        vergen_response.push_str(&format!("git commit count: {commit_count}\n"));
+    }
+    if let Some(commit_message) = option_env!("VERGEN_GIT_COMMIT_MESSAGE") {
+        vergen_response.push_str(&format!("git commit message: {commit_message}\n"));
+    }
+    if let Some(describe) = option_env!("VERGEN_GIT_DESCRIBE") {
+        vergen_response.push_str(&format!("git describe: {describe}\n"));
+    }
+    if let Some(dirty) = option_env!("VERGEN_GIT_DIRTY") {
+        vergen_response.push_str(&format!("git dirty: {dirty}\n"));
+    }
+
+    // cargo info
+    if let Some(debug) = option_env!("VERGEN_CARGO_DEBUG") {
+        vergen_response.push_str(&format!("cargo debug: {debug}\n"));
+    }
+    if let Some(opt_level) = option_env!("VERGEN_CARGO_OPT_LEVEL") {
+        vergen_response.push_str(&format!("cargo opt level: {opt_level}\n"));
+    }
+    if let Some(target_triple) = option_env!("VERGEN_CARGO_TARGET_TRIPLE") {
+        vergen_response.push_str(&format!("cargo target triple: {target_triple}\n"));
+    }
+    if let Some(features) = option_env!("VERGEN_CARGO_FEATURES") {
+        vergen_response.push_str(&format!("cargo features: {features}\n"));
+    }
+    if let Some(dependencies) = option_env!("VERGEN_CARGO_DEPENDENCIES") {
+        vergen_response.push_str(&format!("cargo dependencies: {dependencies}\n"));
+    }
+
+    // rustc info
+    if let Some(channel) = option_env!("VERGEN_RUSTC_CHANNEL") {
+        vergen_response.push_str(&format!("rustc channel: {channel}\n"));
+    }
+    if let Some(version) = option_env!("VERGEN_RUSTC_SEMVER") {
+        vergen_response.push_str(&format!("rustc version: {version}\n"));
+    }
+    if let Some(commit_hash) = option_env!("VERGEN_RUSTC_COMMIT_HASH") {
+        vergen_response.push_str(&format!("rustc commit hash: {commit_hash}\n"));
+    }
+    if let Some(commit_date) = option_env!("VERGEN_RUSTC_COMMIT_DATE") {
+        vergen_response.push_str(&format!("rustc commit date: {commit_date}\n"));
+    }
+    if let Some(host_triple) = option_env!("VERGEN_RUSTC_HOST_TRIPLE") {
+        vergen_response.push_str(&format!("rustc host triple: {host_triple}\n"));
+    }
+    if let Some(llvm_version) = option_env!("VERGEN_RUSTC_LLVM_VERSION") {
+        vergen_response.push_str(&format!("rustc LLVM version: {llvm_version}\n"));
+    }
+
+    // sysinfo
+    if let Some(cpu_brand) = option_env!("VERGEN_SYSINFO_CPU_BRAND") {
+        vergen_response.push_str(&format!("cpu brand: {cpu_brand}\n"));
+    }
+    if let Some(cpu_name) = option_env!("VERGEN_SYSINFO_CPU_NAME") {
+        vergen_response.push_str(&format!("cpu name: {cpu_name}\n"));
+    }
+    if let Some(cpu_vendor) = option_env!("VERGEN_SYSINFO_CPU_VENDOR") {
+        vergen_response.push_str(&format!("cpu vendor: {cpu_vendor}\n"));
+    }
+    if let Some(cpu_core_count) = option_env!("VERGEN_SYSINFO_CPU_CORE_COUNT") {
+        vergen_response.push_str(&format!("cpu core count: {cpu_core_count}\n"));
+    }
+    if let Some(cpu_frequency) = option_env!("VERGEN_SYSINFO_CPU_FREQUENCY") {
+        vergen_response.push_str(&format!("cpu frequency: {cpu_frequency} MHz\n"));
+    }
+    if let Some(memory) = option_env!("VERGEN_SYSINFO_MEMORY") {
+        vergen_response.push_str(&format!("total memory: {memory} KB\n"));
+    }
+    if let Some(name) = option_env!("VERGEN_SYSINFO_NAME") {
+        vergen_response.push_str(&format!("system name: {name}\n"));
+    }
+    if let Some(os_version) = option_env!("VERGEN_SYSINFO_OS_VERSION") {
+        vergen_response.push_str(&format!("OS version: {os_version}\n"));
+    }
+    if let Some(user) = option_env!("VERGEN_SYSINFO_USER") {
+        vergen_response.push_str(&format!("build user: {user}\n"));
+    }
+
+    VergenResponse {
+        response: vergen_response,
+    }
 }
 
 /// Monitors a JoinHandle and aborts the process if the task completes with an error.
