@@ -2,8 +2,8 @@ use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
     self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
-    TransactionRequest, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
-    XOnlyPublicKeyRpc,
+    TransactionRequest, VergenResponse, WithdrawParams, WithdrawResponse,
+    WithdrawalFinalizedParams, XOnlyPublicKeyRpc,
 };
 use super::error::*;
 use super::parser::ParserError;
@@ -13,6 +13,7 @@ use crate::citrea::CitreaClientT;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
 use crate::rpc::parser::parse_transaction_request;
+use crate::utils::get_vergen_response;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
 use futures::TryFutureExt;
@@ -27,6 +28,10 @@ where
 {
     type DepositSignStream = ReceiverStream<Result<SchnorrSig, Status>>;
     type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
+
+    async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
+        Ok(Response::new(get_vergen_response()))
+    }
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(

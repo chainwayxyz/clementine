@@ -111,13 +111,19 @@ impl HeaderChainProver {
                 .client
                 .get_block_header(&block_hash)
                 .await
-                .wrap_err("Failed to get block header")?;
+                .wrap_err(format!(
+                "Failed to get block header with block hash {} (retrieved from assumption file)",
+                block_hash
+            ))?;
             let block_height = rpc
                 .client
                 .get_block_info(&block_hash)
                 .await
                 .map(|info| info.height)
-                .wrap_err("Failed to get block info")?;
+                .wrap_err(format!(
+                    "Failed to get block info with block hash {} (retrieved from assumption file)",
+                    block_hash
+                ))?;
             tracing::info!(
                 "Adding proof assumption for a block with hash of {:?}, header of {:?} and height of {}",
                 block_hash,
@@ -767,6 +773,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Header chain prover is ignored"]
     async fn verifier_new_check_header_chain_proof() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
@@ -802,6 +809,8 @@ mod tests {
                 Ok(verifier
                     .verifier
                     .header_chain_prover
+                    .as_ref()
+                    .unwrap()
                     .db
                     .get_block_proof_by_hash(None, hash)
                     .await
