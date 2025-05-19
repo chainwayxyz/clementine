@@ -202,8 +202,7 @@ impl ProtocolParamset {
 }
 
 fn convert_hex_string_to_bytes(hex: &str) -> Result<[u8; 32], BridgeError> {
-    let hex_decode = hex::decode(hex)
-        .wrap_err("Failed to decode hex string")?;
+    let hex_decode = hex::decode(hex).wrap_err("Failed to decode hex string")?;
     let hex_bytes: [u8; 32] = hex_decode
         .as_slice()
         .try_into()

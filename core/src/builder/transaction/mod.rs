@@ -60,6 +60,8 @@ pub mod output;
 pub mod sign;
 mod txhandler;
 
+type HiddenNode<'a> = &'a [u8; 32];
+
 #[derive(Debug, Error)]
 pub enum TxError {
     /// TxInputNotFound is returned when the input is not found in the transaction
@@ -744,7 +746,7 @@ pub fn create_replacement_deposit_txhandler(
 pub fn create_disprove_taproot_output(
     operator_timeout_script: Arc<dyn SpendableScript>,
     additional_script: ScriptBuf,
-    disprove_root_hash: &[u8; 32],
+    disprove_root_hash: HiddenNode,
     amount: Amount,
     network: bitcoin::Network,
 ) -> UnspentTxOut {
@@ -783,7 +785,7 @@ pub fn create_disprove_taproot_output(
 /// Helper function to create a taproot output that combines a script and a root hash
 pub fn create_taproot_output_with_hidden_node(
     script: Arc<dyn SpendableScript>,
-    hidden_node: &[u8; 32],
+    hidden_node: HiddenNode,
     amount: Amount,
     network: bitcoin::Network,
 ) -> UnspentTxOut {
