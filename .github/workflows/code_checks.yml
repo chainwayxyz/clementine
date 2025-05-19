@@ -35,7 +35,7 @@ jobs:
 
   udeps:
     name: Check unused dependencies
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-30
 
     steps:
       - uses: actions/checkout@v4
