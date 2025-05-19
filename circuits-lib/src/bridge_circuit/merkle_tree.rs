@@ -44,7 +44,8 @@ impl BitcoinMerkleTree {
                     // This check helps prevent certain attacks involving duplicate hashes,
                     // although the primary defense against CVE-2012-2459 and similar issues
                     // in SPV often requires more structural changes or careful proof verification,
-                    // which the `new_mid_state` tree aims to provide.
+                    // which the `new_mid_state` tree aims to provide. For more, please check:
+                    // https://github.com/bitcoin/bitcoin/blob/31d3eebfb92ae0521e18225d69be95e78fb02672/src/consensus/merkle.cpp#L9
                     panic!("Duplicate hashes in the Merkle tree, indicating mutation");
                 }
                 preimage[..32].copy_from_slice(
@@ -84,6 +85,9 @@ impl BitcoinMerkleTree {
     /// Constructs a "mid-state" Merkle tree, designed for generating secure SPV (Simplified Payment Verification) proofs.
     /// This structure, when used with the corresponding `calculate_root_with_merkle_proof` (or `BlockInclusionProof::get_root`) method,
     /// helps mitigate vulnerabilities associated with standard Bitcoin Merkle trees in SPV contexts, such as certain forms of hash duplication or ambiguity attacks (e.g., CVE-2012-2459).
+    /// Also please check:
+    /// https://bitslog.com/2018/06/09/leaf-node-weakness-in-bitcoin-merkle-tree-design/ with the suggested fix:
+    /// https://bitslog.com/2018/08/21/simple-change-to-the-bitcoin-merkleblock-command-to-protect-from-leaf-node-weakness-in-transaction-merkle-tree/
     ///
     /// The leaves of this tree are transaction identifiers (`mid_state_txid()`), typically standard Bitcoin txids (double-SHA256 of the transaction).
     /// The internal nodes of this "mid-state" tree are constructed differently from a standard Bitcoin Merkle tree:
