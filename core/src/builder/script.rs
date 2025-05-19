@@ -56,8 +56,8 @@ pub fn extract_winternitz_commits(
     for wt_path in wt_derive_paths.iter().rev() {
         let wt_params = wt_path.get_params();
         let message_digits =
-            (wt_params.byte_message_length() * 8).div_ceil(paramset.winternitz_log_d) as usize;
-        let checksum_digits = wt_params.total_length() as usize - message_digits;
+            (wt_params.message_byte_len() * 8).div_ceil(paramset.winternitz_log_d) as usize;
+        let checksum_digits = wt_params.total_digit_len() as usize - message_digits;
 
         let mut elements: Vec<&[u8]> = cur_witness_iter
             .by_ref()

@@ -60,6 +60,8 @@ pub mod output;
 pub mod sign;
 mod txhandler;
 
+type HiddenNode<'a> = &'a [u8; 32];
+
 #[derive(Debug, Error)]
 pub enum TxError {
     /// TxInputNotFound is returned when the input is not found in the transaction
@@ -741,23 +743,64 @@ pub fn create_replacement_deposit_txhandler(
         .add_output(UnspentTxOut::from_partial(anchor_output())))
 }
 
-/// Helper function to create a taproot output that combines a script and a root hash
-pub fn create_taproot_output_with_hidden_node(
-    script: Arc<dyn SpendableScript>,
-    root_hash: &[u8; 32],
+pub fn create_disprove_taproot_output(
+    operator_timeout_script: Arc<dyn SpendableScript>,
+    additional_script: ScriptBuf,
+    disprove_root_hash: HiddenNode,
     amount: Amount,
     network: bitcoin::Network,
 ) -> UnspentTxOut {
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
 
-    let taproot_spend_info = TaprootBuilder::new()
-        .add_leaf(1, script.to_script_buf())
-        .expect("taptree with one node at depth 1 will accept a script node")
-        .add_hidden_node(1, TapNodeHash::from_byte_array(*root_hash))
-        .expect("empty taptree will accept a node at depth 1")
+    let builder = TaprootBuilder::new()
+        .add_leaf(1, operator_timeout_script.to_script_buf())
+        .expect("empty taptree will accept a script node")
+        .add_leaf(2, additional_script)
+        .expect("taptree with one node will accept a node at depth 2")
+        .add_hidden_node(2, TapNodeHash::from_byte_array(*disprove_root_hash))
+        .expect("taptree with two nodes will accept a node at depth 2");
+
+    let taproot_spend_info = builder
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
-        .expect("Taproot with 2 nodes at depth 1 should be valid");
+        .expect("cannot fail since it is a valid taptree");
+
+    let address = Address::p2tr(
+        &SECP,
+        *UNSPENDABLE_XONLY_PUBKEY,
+        taproot_spend_info.merkle_root(),
+        network,
+    );
+
+    UnspentTxOut::new(
+        TxOut {
+            value: amount,
+            script_pubkey: address.script_pubkey(),
+        },
+        vec![operator_timeout_script.clone()],
+        Some(taproot_spend_info),
+    )
+}
+
+/// Helper function to create a taproot output that combines a script and a root hash
+pub fn create_taproot_output_with_hidden_node(
+    script: Arc<dyn SpendableScript>,
+    hidden_node: HiddenNode,
+    amount: Amount,
+    network: bitcoin::Network,
+) -> UnspentTxOut {
+    use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
+    use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
+
+    let builder = TaprootBuilder::new()
+        .add_leaf(1, script.to_script_buf())
+        .expect("empty taptree will accept a script node")
+        .add_hidden_node(1, TapNodeHash::from_byte_array(*hidden_node))
+        .expect("taptree with one node will accept a node at depth 1");
+
+    let taproot_spend_info = builder
+        .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+        .expect("cannot fail since it is a valid taptree");
 
     let address = Address::p2tr(
         &SECP,

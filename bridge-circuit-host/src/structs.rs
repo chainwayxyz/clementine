@@ -1,10 +1,10 @@
 use alloy_rpc_types::EIP1186StorageProof;
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
-use bitcoin::{Network, Transaction, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
 use circuits_lib::{
     bridge_circuit::{
-        deposit_constant, journal_hash,
+        deposit_constant, journal_hash, parse_op_return_data,
         spv::SPV,
         structs::{
             BridgeCircuitInput, ChallengeSendingWatchtowers, DepositConstant, LatestBlockhash,
@@ -23,7 +23,7 @@ const ANCHOR_OUTPUT: usize = 1;
 
 #[derive(Debug, Clone)]
 pub struct BridgeCircuitHostParams {
-    pub kickoff_tx_id: Txid,
+    pub kickoff_tx: Transaction,
     pub spv: SPV,
     pub block_header_circuit_output: BlockHeaderCircuitOutput,
     pub headerchain_receipt: Receipt,
@@ -50,12 +50,13 @@ pub enum BridgeCircuitHostParamsError {
     InvalidNumberOfKickoffOutputs,
     PayoutInputIndexNotFound,
     PayoutInputIndexTooLarge(usize),
+    KickOffTxInvalidVout,
 }
 
 impl BridgeCircuitHostParams {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        kickoff_tx_id: Txid,
+        kickoff_tx: Transaction,
         spv: SPV,
         block_header_circuit_output: BlockHeaderCircuitOutput,
         headerchain_receipt: Receipt,
@@ -69,7 +70,7 @@ impl BridgeCircuitHostParams {
         payout_input_index: u16,
     ) -> Self {
         BridgeCircuitHostParams {
-            kickoff_tx_id,
+            kickoff_tx,
             spv,
             block_header_circuit_output,
             headerchain_receipt,
@@ -121,7 +122,7 @@ impl BridgeCircuitHostParams {
         let payout_input_index = get_payout_input_index(wd_txid, &spv.transaction.0)?;
 
         Ok(BridgeCircuitHostParams {
-            kickoff_tx_id: kickoff_tx.compute_txid(),
+            kickoff_tx,
             spv,
             block_header_circuit_output,
             headerchain_receipt,
@@ -138,7 +139,7 @@ impl BridgeCircuitHostParams {
 
     pub fn into_bridge_circuit_input(self) -> BridgeCircuitInput {
         let BridgeCircuitHostParams {
-            kickoff_tx_id,
+            kickoff_tx,
             spv,
             block_header_circuit_output,
             headerchain_receipt: _,
@@ -158,7 +159,7 @@ impl BridgeCircuitHostParams {
             .collect();
 
         BridgeCircuitInput::new(
-            kickoff_tx_id,
+            kickoff_tx,
             watchtower_inputs,
             all_tweaked_watchtower_pubkeys,
             block_header_circuit_output,
@@ -290,12 +291,24 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
         serde_json::from_str(&input.sp.storage_proof_deposit_txid)
             .expect("Failed to deserialize deposit storage proof");
 
+    let round_txid = input.kickoff_tx.input[0]
+        .previous_output
+        .txid
+        .to_byte_array();
+    let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
+
+    let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+        .expect("Failed to get operator xonlypk")
+        .try_into()
+        .expect("Invalid operator xonlypk");
+
     deposit_constant(
-        last_output,
-        &input.kickoff_tx_id,
+        operator_xonlypk,
         input.watchtower_challenge_connector_start_idx,
         &input.all_tweaked_watchtower_pubkeys,
         deposit_storage_proof.value.to_le_bytes(),
+        round_txid,
+        kickff_round_vout,
     )
 }
 

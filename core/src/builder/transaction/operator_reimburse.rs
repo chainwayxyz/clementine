@@ -21,6 +21,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::transaction::Version;
+use bitcoin::ScriptBuf;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{TxOut, Txid};
 use std::sync::Arc;
@@ -41,6 +42,7 @@ pub fn create_kickoff_txhandler(
     // either actual SpendableScripts or scriptpubkeys from db
     assert_scripts: AssertScripts,
     disprove_root_hash: &[u8; 32],
+    additional_disprove_script: Vec<u8>,
     latest_blockhash_script: AssertScripts,
     operator_unlock_hashes: &[[u8; 20]],
     paramset: &'static ProtocolParamset,
@@ -94,9 +96,12 @@ pub fn create_kickoff_txhandler(
         paramset.disprove_timeout_timelock,
     ));
 
+    let additional_disprove_script = ScriptBuf::from_bytes(additional_disprove_script);
+
     // disprove utxo
-    builder = builder.add_output(super::create_taproot_output_with_hidden_node(
+    builder = builder.add_output(super::create_disprove_taproot_output(
         operator_5week,
+        additional_disprove_script.clone(),
         disprove_root_hash,
         MIN_TAPROOT_AMOUNT,
         paramset.network,

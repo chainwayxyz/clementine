@@ -327,6 +327,7 @@ where
             .await?
             .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
             .1;
+
         let context = ContractContext::new_context_for_asserts(
             assert_data.kickoff_data,
             deposit_data.clone(),
