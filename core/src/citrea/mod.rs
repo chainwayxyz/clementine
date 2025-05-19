@@ -438,27 +438,23 @@ impl CitreaClientT for CitreaClient {
         Ok(replacement_move_txids)
     }
 
-    /// TODO: This is not the best way to do this, but it's a quick fix for now
     async fn check_nofn_correctness(
         &self,
-        _nofn_xonly_pk: XOnlyPublicKey,
+        nofn_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
-        // let script_prefix = self
-        //     .contract
-        //     .scriptPrefix()
-        //     .call()
-        //     .await
-        //     .wrap_err("Failed to get script prefix")?
-        //     ._0;
-        // if script_prefix.len() < 34 {
-        //     return Err(eyre::eyre!("script_prefix is too short").into());
-        // }
-        // let script_nofn_bytes = &script_prefix[2..2 + 32];
-        // let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(script_nofn_bytes)
-        //     .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
-        // if contract_nofn_xonly_pk != nofn_xonly_pk {
-        //     return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
-        // }
+        let contract_nofn_xonly_pk = self
+            .contract
+            .getAggregatedKey()
+            .call()
+            .await
+            .wrap_err("Failed to get script prefix")?
+            ._0;
+
+        let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(contract_nofn_xonly_pk.as_ref())
+            .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
+        if contract_nofn_xonly_pk != nofn_xonly_pk {
+            return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
+        }
         Ok(())
     }
 }
