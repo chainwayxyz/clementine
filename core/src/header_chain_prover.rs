@@ -570,7 +570,7 @@ mod tests {
 
         // Check if `HeaderChainProver::new` added the assumption.
         let previous_receipt =
-            Receipt::try_from_slice(include_bytes!("../tests/data/first_1.bin")).unwrap();
+            Receipt::try_from_slice(include_bytes!("test/data/first_1.bin")).unwrap();
         let read_recipt = prover.get_tip_header_chain_proof().await.unwrap();
         assert_eq!(previous_receipt.journal, read_recipt.journal);
 

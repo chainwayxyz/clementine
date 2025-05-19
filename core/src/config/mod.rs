@@ -207,7 +207,7 @@ impl Default for BridgeConfig {
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
 
             header_chain_proof_path: Some(
-                PathBuf::from_str("../core/tests/data/first_1.bin").expect("known valid input"),
+                PathBuf::from_str("../core/src/test/data/first_1.bin").expect("known valid input"),
             ),
 
             security_council: SecurityCouncil {
@@ -296,7 +296,7 @@ mod tests {
 
         // Read first example test file use for this test.
         let base_path = env!("CARGO_MANIFEST_DIR");
-        let config_path = format!("{}/src/config/bridge_config.toml", base_path);
+        let config_path = format!("{}/src/test/data/bridge_config.toml", base_path);
         let content = fs::read_to_string(config_path).unwrap();
         let mut file = File::create(file_name).unwrap();
         file.write_all(content.as_bytes()).unwrap();
@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_test_config_parseable() {
-        let content = include_str!("bridge_config.toml");
+        let content = include_str!("../test/data/bridge_config.toml");
         BridgeConfig::try_parse_from(content.to_string()).unwrap();
     }
 
