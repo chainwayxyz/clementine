@@ -34,8 +34,11 @@ use eyre::OptionExt;
 use std::str::FromStr;
 use std::sync::Arc;
 
+type Result<T> = std::result::Result<T, BitcoinRPCError>;
+
 /// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
-/// common operations, as well as direct access to Bitcoin RPC.
+/// common operations, as well as direct access to Bitcoin RPC. Bitcoin RPC can
+/// be directly accessed via `client` member.
 #[derive(Debug, Clone)]
 pub struct ExtendedRpc {
     pub url: String,
@@ -57,10 +60,8 @@ pub enum BitcoinRPCError {
     Other(#[from] eyre::Report),
 }
 
-type Result<T> = std::result::Result<T, BitcoinRPCError>;
-
 impl ExtendedRpc {
-    /// Connects to Bitcoin RPC and returns a new `ExtendedRpc`.
+    /// Connects to Bitcoin RPC and returns a new [`ExtendedRpc`].
     pub async fn connect(url: String, user: String, password: String) -> Result<Self> {
         let auth = Auth::UserPass(user, password);
 
@@ -77,12 +78,13 @@ impl ExtendedRpc {
 
     /// Returns the number of confirmations for a transaction.
     ///
-    /// # Arguments
-    /// * `txid` - The transaction ID to check
+    /// # Parameters
+    ///
+    /// * `txid`: TXID of the transaction to check.
     ///
     /// # Returns
-    /// The number of confirmations for the transaction, or an error if the transaction cannot be found.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    ///
+    /// - [`u32`]: The number of confirmations for the transaction.
     pub async fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32> {
         let raw_transaction_results = self
             .client
@@ -96,27 +98,38 @@ impl ExtendedRpc {
             .map_err(Into::into)
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    /// Returns block hash of a transaction, if confirmed.
+    ///
+    /// # Parameters
+    ///
+    /// * `txid`: TXID of the transaction to check.
+    ///
+    /// # Returns
+    ///
+    /// - [`bitcoin::BlockHash`]: Block hash of the block that the transaction is in.
     pub async fn get_blockhash_of_tx(&self, txid: &bitcoin::Txid) -> Result<bitcoin::BlockHash> {
         let raw_transaction_results = self
             .client
             .get_raw_transaction_info(txid, None)
             .await
             .wrap_err("Failed to get transaction info")?;
+
         let Some(blockhash) = raw_transaction_results.blockhash else {
             return Err(eyre::eyre!("Transaction not confirmed: {0}", txid).into());
         };
+
         Ok(blockhash)
     }
 
     /// Gets the transaction data for a given transaction ID.
     ///
-    /// # Arguments
-    /// * `txid` - The transaction ID to retrieve
+    /// # Parameters
+    ///
+    /// * `txid`: TXID of the transaction to check.
     ///
     /// # Returns
-    /// The transaction data, or an error if the transaction cannot be found.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    ///
+    /// - [`bitcoin::Transaction`]: Transaction itself.
     pub async fn get_tx_of_txid(&self, txid: &bitcoin::Txid) -> Result<bitcoin::Transaction> {
         let raw_transaction = self
             .client
@@ -126,7 +139,16 @@ impl ExtendedRpc {
         Ok(raw_transaction)
     }
 
-    pub async fn is_txid_in_chain(&self, txid: &bitcoin::Txid) -> Result<bool> {
+    /// Checks if a transaction is on-chain.
+    ///
+    /// # Parameters
+    ///
+    /// * `txid`: TXID of the transaction to check.
+    ///
+    /// # Returns
+    ///
+    /// - [`bool`]: `true` if the transaction is on-chain, `false` otherwise.
+    pub async fn is_tx_on_chain(&self, txid: &bitcoin::Txid) -> Result<bool> {
         Ok(self
             .client
             .get_raw_transaction_info(txid, None)
@@ -136,16 +158,17 @@ impl ExtendedRpc {
             .is_some())
     }
 
-    /// Checks if a UTXO has the expected address and amount.
+    /// Checks if a transaction UTXO has expected address and amount.
     ///
-    /// # Arguments
+    /// # Parameters
+    ///
     /// * `outpoint` - The outpoint to check
-    /// * `address` - The expected script pubkey
-    /// * `amount_sats` - The expected amount in satoshis
+    /// * `address` - Expected script pubkey
+    /// * `amount_sats` - Expected amount in satoshis
     ///
     /// # Returns
-    /// `true` if the UTXO has the expected address and amount, `false` otherwise.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    ///
+    /// - [`bool`]: `true` if the UTXO has the expected address and amount, `false` otherwise.
     pub async fn check_utxo_address_and_amount(
         &self,
         outpoint: &OutPoint,
@@ -168,7 +191,15 @@ impl ExtendedRpc {
         Ok(expected_output == current_output)
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    /// Checks if an UTXO is spent.
+    ///
+    /// # Parameters
+    ///
+    /// * `outpoint`: The outpoint to check
+    ///
+    /// # Returns
+    ///
+    /// - [`bool`]: `true` if the UTXO is spent, `false` otherwise.
     pub async fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool> {
         let res = self
             .client
@@ -183,12 +214,13 @@ impl ExtendedRpc {
     ///
     /// This is primarily for testing purposes in regtest mode.
     ///
-    /// # Arguments
-    /// * `block_num` - The number of blocks to mine
+    /// # Parameters
+    ///
+    /// * `block_num`: The number of blocks to mine
     ///
     /// # Returns
-    /// A vector of block hashes for the newly mined blocks.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    ///
+    /// - [`Vec<BlockHash>`]: A vector of block hashes for the newly mined blocks.
     #[cfg(test)]
     pub async fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>> {
         let new_address = self
@@ -207,13 +239,14 @@ impl ExtendedRpc {
 
     /// Sends a specified amount of bitcoin to a given address.
     ///
-    /// # Arguments
+    /// # Parameters
+    ///
     /// * `address` - The recipient address
     /// * `amount_sats` - The amount to send in satoshis
     ///
     /// # Returns
-    /// The outpoint (txid and vout) of the newly created output.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    ///
+    /// - [`OutPoint`]: The outpoint (txid and vout) of the newly created output.
     pub async fn send_to_address(
         &self,
         address: &Address,
@@ -238,11 +271,12 @@ impl ExtendedRpc {
     /// Retrieves the transaction output for a given outpoint.
     ///
     /// # Arguments
+    ///
     /// * `outpoint` - The outpoint (txid and vout) to retrieve
     ///
     /// # Returns
-    /// The transaction output at the specified outpoint.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    ///
+    /// - [`TxOut`]: The transaction output at the specified outpoint.
     pub async fn get_txout_from_outpoint(&self, outpoint: &OutPoint) -> Result<TxOut> {
         let tx = self
             .client
@@ -271,10 +305,12 @@ impl ExtendedRpc {
     /// * `fee_rate` - The target fee rate to achieve
     ///
     /// # Returns
-    /// The txid of the bumped transaction (which may be the same as the input txid if no bump was needed).
+    ///
+    /// - [`Txid`]: The txid of the bumped transaction (which may be the same as the input txid if no bump was needed).
     ///
     /// # Errors
-    /// * `TransactionAlreadyInBlock` - If the transaction is already confirmed
+    ///
+    ///  * `TransactionAlreadyInBlock` - If the transaction is already confirmed
     /// * `BumpFeeUTXOSpent` - If the UTXO being spent by the transaction is already spent
     /// * `BumpFeeError` - For other errors with fee bumping
     pub async fn bump_fee_with_fee_rate(&self, txid: Txid, fee_rate: FeeRate) -> Result<Txid> {
@@ -385,12 +421,13 @@ impl ExtendedRpc {
             .ok_or_eyre("Failed to get Txid from bump_fee_result")?)
     }
 
-    /// Creates a new instance of the ExtendedRpc with a new client connection.
-    ///
-    /// This is useful when you need a separate connection to the Bitcoin RPC server.
+    /// Creates a new instance of the [`ExtendedRpc`] with a new client
+    /// connection for cloning. This is needed when you need a separate
+    /// connection to the Bitcoin RPC server.
     ///
     /// # Returns
-    /// A new `ExtendedRpc` instance on success, or an error if the connection fails.
+    ///
+    /// - [`ExtendedRpc`]: A new instance of ExtendedRpc with a new client connection.
     pub async fn clone_inner(&self) -> std::result::Result<Self, bitcoincore_rpc::Error> {
         let new_client = Client::new(&self.url, self.auth.clone()).await?;
 
@@ -399,9 +436,5 @@ impl ExtendedRpc {
             auth: self.auth.clone(),
             client: Arc::new(new_client),
         })
-    }
-
-    pub fn url(&self) -> &str {
-        &self.url
     }
 }
