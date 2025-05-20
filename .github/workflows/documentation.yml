@@ -1,0 +1,48 @@
+name: Generate Documentation
+
+on:
+  push:
+    # branches:
+    #   - master
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGOFLAGS: --workspace --all-targets --all-features
+  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
+  RISC0_DEV_MODE: 1
+  RUST_MIN_STACK: 33554432
+
+jobs:
+  docs:
+    name: Documentation
+    runs-on: ubicloud-standard-30
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build documentation
+        run: cargo doc --no-deps
+
+      - name: Finalize documentation
+        run: |
+          CRATE_NAME=$(echo '${{ github.repository }}-lib' | tr '[:upper:]' '[:lower:]' | cut -f2 -d"/")
+          echo "<meta http-equiv=\"refresh\" content=\"0; url=${CRATE_NAME/-/_}\">" > target/doc/index.html
+          touch target/doc/.nojekyll
+
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: Documentation
+          path: target/doc
+
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          #   ACCESS_TOKEN: ${{ secrets.GH_PAT }}
+          #   BRANCH: gh-pages
+          folder: target/doc
