@@ -21,16 +21,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - name: Clean documentation directory
+        run: cargo clean --doc
       - name: Build documentation
         run: cargo doc --no-deps
       - name: Finalize documentation
-        run: touch target/doc/.nojekyll
+        run: |
+          echo '<meta http-equiv="refresh" content="0;url=clementine_core/index.html">' > target/doc/index.html
+          touch target/doc/.nojekyll
       - name: Upload as artifact
         uses: actions/upload-artifact@v4
         with:
           name: Documentation
           path: ./target/doc
-      - name: Deploy to gh-pages branch
+      - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           #   ACCESS_TOKEN: ${{ secrets.GH_PAT }}
