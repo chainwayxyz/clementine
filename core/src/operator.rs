@@ -42,6 +42,8 @@ use bitcoin::{
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::chunk::api::generate_assertions;
+#[cfg(test)]
+use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use bitvm::signatures::winternitz;
 use bridge_circuit_host::bridge_circuit_host::{
     create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
@@ -1154,6 +1156,57 @@ where
 
         let watchtower_challenge_connector_start_idx =
             (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+
+        #[cfg(test)]
+        {
+            // if in test environment and risc0 dev mode is enabled, post dummy asserts as bridge circuit is
+            // not supported in risc0 dev mode
+            let risc0_dev_mode = std::env::var("RISC0_DEV_MODE")
+                .map(|val| val.to_lowercase() == "true" || val == "1")
+                .unwrap_or(false);
+            tracing::info!("RISC0 dev mode: {}", risc0_dev_mode);
+            if risc0_dev_mode {
+                let assert_txs = self
+                    .create_assert_commitment_txs(
+                        TransactionRequestData {
+                            kickoff_data,
+                            deposit_outpoint: deposit_data.get_deposit_outpoint(),
+                        },
+                        ClementineBitVMPublicKeys::get_assert_commit_data(
+                            (
+                                [[0u8; 32]; NUM_PUBS],
+                                [[0u8; 32]; NUM_U256],
+                                [[0u8; 16]; NUM_HASH],
+                            ),
+                            &[0u8; 20],
+                        ),
+                    )
+                    .await?;
+
+                let mut dbtx = self.db.begin_transaction().await?;
+                for (tx_type, tx) in assert_txs {
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            &mut dbtx,
+                            tx_type,
+                            &tx,
+                            &[],
+                            Some(TxMetadata {
+                                tx_type,
+                                operator_xonly_pk: Some(self.signer.xonly_public_key),
+                                round_idx: Some(kickoff_data.round_idx),
+                                kickoff_idx: Some(kickoff_data.kickoff_idx),
+                                deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                            }),
+                            &self.config,
+                            None,
+                        )
+                        .await?;
+                }
+                dbtx.commit().await?;
+                return Ok(());
+            }
+        }
 
         let bridge_circuit_host_params = BridgeCircuitHostParams::new_with_wt_tx(
             kickoff_tx.clone(),

@@ -487,12 +487,18 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .await
         .unwrap();
 
+        // Create assert transactions for operator 0
+        let assert_txs = operators[0]
+            .internal_create_assert_commitment_txs(base_tx_req)
+            .await?
+            .into_inner();
+
         // check if asserts were sent due to challenge
         let operator_assert_txids = (0
             ..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
             .map(|i| {
                 let assert_tx =
-                    get_tx_from_signed_txs_with_type(&all_txs, TransactionType::MiniAssert(i))
+                    get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
                         .unwrap();
                 assert_tx.compute_txid()
             })
