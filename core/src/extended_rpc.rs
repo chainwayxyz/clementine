@@ -85,6 +85,11 @@ impl ExtendedRpc {
     /// # Returns
     ///
     /// - [`u32`]: The number of confirmations for the transaction.
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If the transaction is not confirmed (0) or if
+    ///   there was an error retrieving the transaction info.
     pub async fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32> {
         let raw_transaction_results = self
             .client
@@ -106,7 +111,13 @@ impl ExtendedRpc {
     ///
     /// # Returns
     ///
-    /// - [`bitcoin::BlockHash`]: Block hash of the block that the transaction is in.
+    /// - [`bitcoin::BlockHash`]: Block hash of the block that the transaction
+    ///   is in.
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If the transaction is not confirmed (0) or if
+    ///   there was an error retrieving the transaction info.
     pub async fn get_blockhash_of_tx(&self, txid: &bitcoin::Txid) -> Result<bitcoin::BlockHash> {
         let raw_transaction_results = self
             .client
@@ -212,7 +223,8 @@ impl ExtendedRpc {
 
     /// Mines a specified number of blocks to a new address.
     ///
-    /// This is primarily for testing purposes in regtest mode.
+    /// This is a test-only function that generates blocks and it will only work
+    /// on regtest.
     ///
     /// # Parameters
     ///
@@ -237,7 +249,7 @@ impl ExtendedRpc {
             .wrap_err("Failed to generate to address")?)
     }
 
-    /// Sends a specified amount of bitcoin to a given address.
+    /// Sends a specified amount of Bitcoins to the given address.
     ///
     /// # Parameters
     ///
@@ -436,5 +448,71 @@ impl ExtendedRpc {
             auth: self.auth.clone(),
             client: Arc::new(new_client),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        bitvm_client::SECP,
+        test::common::{create_regtest_rpc, create_test_config_with_thread_name},
+    };
+    use bitcoin::{amount, key::Keypair, Address, XOnlyPublicKey};
+    use bitcoincore_rpc::RpcApi;
+
+    #[tokio::test]
+    async fn new_extended_rpc() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let _should_not_panic = regtest.rpc();
+    }
+
+    #[tokio::test]
+    async fn tx_checks_in_mempool_and_on_chain() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+
+        // Clear mempool.
+        rpc.mine_blocks(1).await.unwrap();
+
+        let keypair = Keypair::from_secret_key(&SECP, &config.secret_key);
+        let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
+        let address = Address::p2tr(&SECP, xonly, None, config.protocol_paramset.network);
+
+        let amount = amount::Amount::from_sat(10000);
+
+        // Prepare a transaction.
+        let utxo = rpc.send_to_address(&address, amount).await.unwrap();
+        let tx = rpc.get_tx_of_txid(&utxo.txid).await.unwrap();
+        let txid = tx.compute_txid();
+        tracing::debug!("TXID: {}", txid);
+
+        assert_eq!(tx.output[utxo.vout as usize].value, amount);
+        assert_eq!(utxo.txid, txid);
+
+        // In mempool.
+        assert!(rpc.confirmation_blocks(&utxo.txid).await.is_err());
+        assert!(rpc.get_blockhash_of_tx(&utxo.txid).await.is_err());
+        assert_eq!(rpc.is_tx_on_chain(&txid).await.unwrap(), false);
+        assert_eq!(rpc.is_utxo_spent(&utxo).await.unwrap(), false);
+
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let blockhash = rpc.client.get_block_hash(height).await.unwrap();
+
+        // On chain.
+        assert_eq!(rpc.confirmation_blocks(&utxo.txid).await.unwrap(), 1);
+        assert_eq!(
+            rpc.get_blockhash_of_tx(&utxo.txid).await.unwrap(),
+            blockhash
+        );
+        assert_eq!(rpc.get_tx_of_txid(&txid).await.unwrap(), tx);
+        assert_eq!(rpc.is_tx_on_chain(&txid).await.unwrap(), true);
+
+        // Doesn't matter if in mempool or on chain.
+        let txout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
+        assert_eq!(txout.value, amount);
+        assert_eq!(rpc.get_tx_of_txid(&txid).await.unwrap(), tx);
     }
 }
