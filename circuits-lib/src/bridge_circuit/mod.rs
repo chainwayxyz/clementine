@@ -929,14 +929,14 @@ mod tests {
                 .unwrap(),
         );
         let last_output = payout_tx.output.last().unwrap();
-        let operator_id: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
+        let operator_pk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
             .expect("Invalid operator xonlypk")
             .try_into()
             .expect("Invalid xonlypk");
 
         let expected_pk = "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa";
         assert_eq!(
-            hex::encode(operator_id),
+            hex::encode(operator_pk),
             expected_pk,
             "Operator xonlypk is not correct"
         );
