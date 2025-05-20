@@ -1,9 +1,9 @@
-name: Generate Documentation
+name: Build and Deploy Documentation
 
 on:
   push:
-    # branches:
-    #   - master
+    branches:
+      - master
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,7 +14,7 @@ env:
 
 jobs:
   build:
-    name: Build documentation
+    name: Build and deploy documentation
     runs-on: ubicloud-standard-30
     permissions:
       contents: write
