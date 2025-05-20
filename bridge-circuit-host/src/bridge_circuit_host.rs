@@ -216,15 +216,15 @@ pub fn create_spv(
         mmr_native.append(*block_hash);
     }
 
-    let block_txids: Vec<[u8; 32]> = payment_block
+    let block_txids: Vec<CircuitTransaction> = payment_block
         .txdata
         .iter()
-        .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
+        .map(|tx| CircuitTransaction(tx.clone()))
         .collect();
 
     let mmr_inclusion_proof = mmr_native.generate_proof(payment_block_height);
 
-    let block_mt = BitcoinMerkleTree::new(block_txids);
+    let block_mt = BitcoinMerkleTree::new_mid_state(&block_txids);
 
     let payout_tx_proof = block_mt.generate_proof(payment_tx_index);
 
