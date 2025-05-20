@@ -110,10 +110,9 @@ pub fn verify_storage_proofs(
 
     storage_verify(&vout_storage_proof, state_root);
 
-    let buf: [u8; 32] = vout_storage_proof.value.to_be_bytes();
+    let buf: [u8; 32] = vout_storage_proof.value.to_le_bytes();
 
     // ENDIANNESS SHOULD BE CHECKED THIS FIELD IS 4 BYTES in the contract
-
     let vout = u32::from_le_bytes(buf[0..4].try_into().expect("Vout value conversion failed"));
 
     let wd_outpoint = WithdrawalOutpointTxid(utxo_storage_proof.value.to_be_bytes());
@@ -180,7 +179,7 @@ mod tests {
         let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
         let state_root: [u8; 32] =
-            hex::decode("fe1dac365fa622b56c128f75080fbdc226ed087551755ca14c4b4b0287555aa5")
+            hex::decode("dc972184163d53507364ffeabe5cf19e654208b3407599ca0a5ffdcee7082a9d")
                 .expect("Valid hex, cannot fail")
                 .try_into()
                 .expect("Valid length, cannot fail");
@@ -191,14 +190,14 @@ mod tests {
         let move_tx_id_hex = hex::encode(*move_tx_id);
 
         let expected_user_wd_outpoint_bytes = [
-            56, 100, 54, 16, 198, 255, 202, 164, 42, 95, 228, 47, 96, 137, 162, 129, 86, 152, 92,
-            12, 189, 174, 150, 201, 50, 195, 11, 80, 234, 171, 122, 29,
+            185, 106, 183, 36, 226, 53, 19, 15, 173, 156, 223, 48, 165, 187, 74, 167, 84, 177, 175,
+            10, 247, 195, 60, 244, 95, 114, 196, 201, 152, 158, 75, 134,
         ];
 
-        let expected_vout: u32 = 0;
+        let expected_vout: u32 = 1;
 
         let expected_move_tx_id_hex =
-            "0778b4ccf0c2e2e37d0d6f634f2acb47b22536b935007a137007f88af86d1755";
+            "5e2f60b89450de4c82b9ef91b486978be45133b0b30f14a2f744b94f85a279c5";
 
         assert_eq!(
             move_tx_id_hex, expected_move_tx_id_hex,
