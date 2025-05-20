@@ -4,7 +4,6 @@ use crate::structs::{
 };
 use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
-use bitcoin::hashes::Hash;
 use bitcoin::Transaction;
 use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
