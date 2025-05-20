@@ -90,13 +90,22 @@ pub fn stark_to_snark(
     println!("Succinct control root a0 dec: {:?}", a0_dec);
     println!("Succinct control root a1 dec: {:?}", a1_dec);
     println!("CONTROL_ID: {:?}", ident_receipt.control_id);
-    let id_bn254_fr_bits: Vec<String> = ident_receipt
+    let mut id_bn254_fr_bits: Vec<String> = ident_receipt
         .control_id
         .as_bytes()
         .iter()
         .flat_map(|&byte| (0..8).rev().map(move |i| ((byte >> i) & 1).to_string()))
         .collect();
     println!("id_bn254_fr_bits: {:?}", id_bn254_fr_bits);
+
+    // remove 248th and 249th bits
+    id_bn254_fr_bits.remove(248);
+    id_bn254_fr_bits.remove(248);
+
+    println!(
+        "id_bn254_fr_bits after removing 2 extra bits: {:?}",
+        id_bn254_fr_bits
+    );
 
     let mut seal_json: Value = {
         let file_content = fs::read_to_string(&seal_path).unwrap();
