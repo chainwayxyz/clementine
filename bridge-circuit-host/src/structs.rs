@@ -295,7 +295,7 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
         .previous_output
         .txid
         .to_byte_array();
-    
+
     let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
