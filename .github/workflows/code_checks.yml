@@ -59,7 +59,7 @@ jobs:
           args: "--workspace --all-features --all-targets"
 
   docs:
-    name: Check documentation generation
+    name: Check documentation build
     runs-on: ubicloud-standard-30
 
     steps:

@@ -3,7 +3,7 @@ name: Build and Deploy Documentation
 on:
   push:
     branches:
-      - master
+      - main
 
 env:
   CARGO_TERM_COLOR: always
@@ -37,6 +37,4 @@ jobs:
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          #   ACCESS_TOKEN: ${{ secrets.GH_PAT }}
-          #   BRANCH: gh-pages
           folder: target/doc
