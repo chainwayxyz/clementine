@@ -325,7 +325,7 @@ impl TxSender {
     }
 
     /// Fetches transactions that are eligible to be sent or bumped from
-    /// database based on the given fee rate and tip height. Than, places a send
+    /// database based on the given fee rate and tip height. Then, places a send
     /// transaction request to the Bitcoin based on the fee strategy.
     ///
     /// For each eligible transaction (`id`):
