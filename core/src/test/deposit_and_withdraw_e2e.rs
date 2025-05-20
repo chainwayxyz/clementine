@@ -4,7 +4,6 @@ use crate::bitvm_client::{self, SECP};
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
-use crate::builder::transaction::sign::get_kickoff_utxos_to_sign;
 use crate::builder::transaction::{
     KickoffData, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
 };
@@ -26,7 +25,7 @@ use crate::test::common::{
     poll_get, poll_until_condition, run_single_deposit,
 };
 use crate::test::full_flow::get_tx_from_signed_txs_with_type;
-use crate::tx_sender::FeePayingType;
+use crate::tx_sender::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -40,7 +39,7 @@ use alloy::primitives::U256;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use bitcoin::{OutPoint, TxOut, Txid};
+use bitcoin::{OutPoint, Transaction, TxOut, Txid};
 use bitcoincore_rpc::RpcApi;
 use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::{BatchProverConfig, LightClientProverConfig};
@@ -147,7 +146,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             _cleanup,
             deposit_params,
             move_txid,
-            deposit_blockhash,
+            _deposit_blockhash,
             verifiers_public_keys,
         ) = run_single_deposit::<CitreaClient>(&mut config, rpc.clone(), None).await?;
         tracing::debug!(
@@ -312,6 +311,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config
         };
 
+        tracing::warn!("Database name: {:?}", verifier_0_config.db_name);
+
         let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
 
         let db = Database::new(&verifier_0_config)
@@ -388,21 +389,18 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         // Wait for the kickoff tx to be onchain
         let kickoff_block_height =
-            mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
+            mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
+
+        let kickoff_tx = rpc.get_tx_of_txid(&kickoff_txid).await?;
 
         // wrongfully challenge operator
-        let kickoff_idx = get_kickoff_utxos_to_sign(
-            config.protocol_paramset(),
-            op0_xonly_pk,
-            deposit_blockhash,
-            deposit_params.deposit_outpoint,
-        )[0] as u32;
+        let kickoff_idx = kickoff_tx.input[0].previous_output.vout - 1;
         let base_tx_req = TransactionRequest {
             kickoff_id: Some(
                 KickoffData {
                     operator_xonly_pk: op0_xonly_pk,
                     round_idx: 0,
-                    kickoff_idx,
+                    kickoff_idx: kickoff_idx as u32,
                 }
                 .into(),
             ),
@@ -423,13 +421,31 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .unwrap();
 
+        let kickoff_tx: Transaction = bitcoin::consensus::deserialize(
+            &all_txs
+                .signed_txs
+                .iter()
+                .find(|tx| tx.transaction_type == Some(TransactionType::Kickoff.into()))
+                .unwrap()
+                .raw_tx,
+        )
+        .unwrap();
+
+        assert_eq!(kickoff_txid, kickoff_tx.compute_txid());
+
         // send wrong challenge tx
         let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
         let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
         tx_sender
             .insert_try_to_send(
                 &mut db_commit,
-                None,
+                Some(TxMetadata {
+                    deposit_outpoint: None,
+                    operator_xonly_pk: None,
+                    round_idx: None,
+                    kickoff_idx: None,
+                    tx_type: TransactionType::Challenge,
+                }),
                 &challenge_tx,
                 FeePayingType::RBF,
                 None,
@@ -442,11 +458,13 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .unwrap();
         db_commit.commit().await.unwrap();
 
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
         let challenge_outpoint = OutPoint {
             txid: kickoff_txid,
             vout: UtxoVout::Challenge.get_vout(),
         };
-        tracing::info!(
+        tracing::warn!(
             "Wait until challenge tx is in mempool, kickoff block height: {:?}",
             kickoff_block_height
         );
@@ -454,9 +472,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         mine_once_after_outpoint_spent_in_mempool(&rpc, challenge_outpoint)
             .await
             .unwrap();
-        tracing::info!("Mined once after challenge tx is in mempool");
-
-        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        tracing::warn!("Mined once after challenge tx is in mempool");
 
         // wait until the light client prover is synced to the same height
         lc_prover
@@ -744,7 +760,7 @@ async fn mock_citrea_run_truthful() {
 
     // Wait for the kickoff tx to be onchain
     let _kickoff_block_height =
-        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
+        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
             .await
             .unwrap();
 
