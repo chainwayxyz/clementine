@@ -1,6 +1,6 @@
 //! # Transaction Sender Client
 //!
-//! This module is provides a client which is reponsible for inserting
+//! This module is provides a client which is responsible for inserting
 //! transactions into the sending queue.
 
 use super::Result;
