@@ -26,7 +26,7 @@
 <a href=#26 id=26 data-nosnippet>26</a><span class="doccomment">/// Aggregator struct.
 <a href=#27 id=27 data-nosnippet>27</a>/// This struct is responsible for aggregating partial signatures from the verifiers.
 <a href=#28 id=28 data-nosnippet>28</a>/// It will have in total 3 * num_operator + 1 aggregated nonces.
-<a href=#29 id=29 data-nosnippet>29</a>/// [0] -&gt; Aggregated nonce for the move transaction.
+<a href=#29 id=29 data-nosnippet>29</a>/// \[0\] -&gt; Aggregated nonce for the move transaction.
 <a href=#30 id=30 data-nosnippet>30</a>/// [1..num_operator + 1] -&gt; Aggregated nonces for the operator_takes transactions.
 <a href=#31 id=31 data-nosnippet>31</a>/// [num_operator + 1..2 * num_operator + 1] -&gt; Aggregated nonces for the slash_or_take transactions.
 <a href=#32 id=32 data-nosnippet>32</a>/// [2 * num_operator + 1..3 * num_operator + 1] -&gt; Aggregated nonces for the burn transactions.
