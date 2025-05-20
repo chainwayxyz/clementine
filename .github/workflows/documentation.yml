@@ -21,10 +21,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build documentation
         run: cargo doc --no-deps
       - name: Finalize documentation
@@ -37,15 +33,6 @@ jobs:
         with:
           name: Documentation
           path: ./target/doc
-
-  deploy:
-    name: Deploy documentation
-    runs-on: ubicloud-standard-30
-    needs: build
-    permissions:
-      contents: write
-
-    steps:
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
