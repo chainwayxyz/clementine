@@ -16,6 +16,8 @@ jobs:
   build:
     name: Build documentation
     runs-on: ubicloud-standard-30
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -40,8 +42,6 @@ jobs:
     name: Deploy documentation
     runs-on: ubicloud-standard-30
     needs: build
-    environment:
-      name: github-pages
     permissions:
       contents: write
 
@@ -49,9 +49,6 @@ jobs:
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
+          #   ACCESS_TOKEN: ${{ secrets.GH_PAT }}
+          #   BRANCH: gh-pages
           folder: target/doc
-      #   ACCESS_TOKEN: ${{ secrets.GH_PAT }}
-      #   BRANCH: gh-pages
-    #   - name: Deploy to GitHub Pages
-    #     id: deployment
-    #     uses: actions/deploy-pages@v4
