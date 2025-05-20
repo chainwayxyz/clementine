@@ -3,7 +3,7 @@
 //! Sighash builder provides useful functions for building related SigHashes.
 //! Sighash is the message that is signed by the private key of the signer. It is used to signal
 //! under which conditions the input is signed. For more, see:
-//! https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types
+//! <https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types>
 
 use super::transaction::DepositData;
 use crate::bitvm_client;
