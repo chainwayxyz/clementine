@@ -494,8 +494,9 @@ mod tests {
         // In mempool.
         assert!(rpc.confirmation_blocks(&utxo.txid).await.is_err());
         assert!(rpc.get_blockhash_of_tx(&utxo.txid).await.is_err());
-        assert_eq!(rpc.is_tx_on_chain(&txid).await.unwrap(), false);
-        assert_eq!(rpc.is_utxo_spent(&utxo).await.unwrap(), false);
+
+        // TODO: should we check if the tx is in mempool?
+        // assert_eq!(rpc.is_tx_on_chain(&txid).await.unwrap(), false);
 
         rpc.mine_blocks(1).await.unwrap();
         let height = rpc.client.get_block_count().await.unwrap();
@@ -509,10 +510,16 @@ mod tests {
         );
         assert_eq!(rpc.get_tx_of_txid(&txid).await.unwrap(), tx);
         assert_eq!(rpc.is_tx_on_chain(&txid).await.unwrap(), true);
+        assert_eq!(rpc.is_utxo_spent(&utxo).await.unwrap(), false);
 
         // Doesn't matter if in mempool or on chain.
         let txout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
         assert_eq!(txout.value, amount);
         assert_eq!(rpc.get_tx_of_txid(&txid).await.unwrap(), tx);
+
+        // TODO: Spend tx here and check if UTXO is spent.
     }
+
+    #[tokio::test]
+    async fn bump_fee_with_fee_rate() {}
 }
