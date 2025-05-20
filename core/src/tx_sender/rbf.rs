@@ -393,10 +393,6 @@ impl TxSender {
             .wrap_err("Failed to get last RBF txid")?;
 
         if let Some(last_rbf_txid) = last_rbf_txid {
-            let Some(rbf_signing_info) = rbf_signing_info else {
-                return Err(eyre!("RBF signing info is required for RBF txs").into());
-            };
-
             tracing::debug!(
                 ?try_to_send_id,
                 "Attempting to bump fee for txid {last_rbf_txid} using psbt_bump_fee"
@@ -497,7 +493,15 @@ impl TxSender {
             let processed_psbt = match process_result {
                 Ok(res) if res.complete => res.psbt,
                 // attempt to sign
-                Ok(res) => self.attempt_sign_psbt(res.psbt, rbf_signing_info).await?,
+                Ok(res) => {
+                    let Some(rbf_signing_info) = rbf_signing_info else {
+                        return Err(eyre!(
+                            "RBF signing info is required for non SighashSingle RBF txs"
+                        )
+                        .into());
+                    };
+                    self.attempt_sign_psbt(res.psbt, rbf_signing_info).await?
+                }
                 Err(e) => {
                     let err_msg = format!("wallet_process_psbt error: {}", e);
                     tracing::warn!(?try_to_send_id, "{}", err_msg);

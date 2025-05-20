@@ -1,6 +1,6 @@
 use super::common::citrea::get_bridge_params;
 use crate::actor::Actor;
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{self, SECP};
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
@@ -19,6 +19,7 @@ use crate::test::common::citrea::SECRET_KEYS;
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
     ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
+    mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
@@ -317,58 +318,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .await
             .expect("failed to create database");
 
-        // wrongfully challenge operator
-        let kickoff_idx = get_kickoff_utxos_to_sign(
-            config.protocol_paramset(),
-            op0_xonly_pk,
-            deposit_blockhash,
-            deposit_params.deposit_outpoint,
-        )[0] as u32;
-        let base_tx_req = TransactionRequest {
-            kickoff_id: Some(
-                KickoffData {
-                    operator_xonly_pk: op0_xonly_pk,
-                    round_idx: 0,
-                    kickoff_idx,
-                }
-                .into(),
-            ),
-            deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
-        };
-        let all_txs = operators[0]
-            .internal_create_signed_txs(base_tx_req.clone())
-            .await?
-            .into_inner();
-
-        let challenge_tx = bitcoin::consensus::deserialize(
-            &all_txs
-                .signed_txs
-                .iter()
-                .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
-                .unwrap()
-                .raw_tx,
-        )
-        .unwrap();
-
-        // send wrong challenge tx
-        let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
-        let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
-        tx_sender
-            .insert_try_to_send(
-                &mut db_commit,
-                None,
-                &challenge_tx,
-                FeePayingType::RBF,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await
-            .unwrap();
-        db_commit.commit().await.unwrap();
-
         let payout_txid = loop {
             let withdrawal_response = operators[0]
                 .withdraw(WithdrawParams {
@@ -441,6 +390,72 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
 
+        // wrongfully challenge operator
+        let kickoff_idx = get_kickoff_utxos_to_sign(
+            config.protocol_paramset(),
+            op0_xonly_pk,
+            deposit_blockhash,
+            deposit_params.deposit_outpoint,
+        )[0] as u32;
+        let base_tx_req = TransactionRequest {
+            kickoff_id: Some(
+                KickoffData {
+                    operator_xonly_pk: op0_xonly_pk,
+                    round_idx: 0,
+                    kickoff_idx,
+                }
+                .into(),
+            ),
+            deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
+        };
+        let all_txs = operators[0]
+            .internal_create_signed_txs(base_tx_req.clone())
+            .await?
+            .into_inner();
+
+        let challenge_tx = bitcoin::consensus::deserialize(
+            &all_txs
+                .signed_txs
+                .iter()
+                .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+                .unwrap()
+                .raw_tx,
+        )
+        .unwrap();
+
+        // send wrong challenge tx
+        let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
+        let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
+        tx_sender
+            .insert_try_to_send(
+                &mut db_commit,
+                None,
+                &challenge_tx,
+                FeePayingType::RBF,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .unwrap();
+        db_commit.commit().await.unwrap();
+
+        let challenge_outpoint = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::Challenge.get_vout(),
+        };
+        tracing::info!(
+            "Wait until challenge tx is in mempool, kickoff block height: {:?}",
+            kickoff_block_height
+        );
+        // wait until challenge tx is in mempool
+        mine_once_after_outpoint_spent_in_mempool(&rpc, challenge_outpoint)
+            .await
+            .unwrap();
+        tracing::info!("Mined once after challenge tx is in mempool");
+
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
         // wait until the light client prover is synced to the same height
@@ -456,6 +471,24 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await
         .unwrap();
+
+        // check if asserts were sent due to challenge
+        let operator_assert_txids = (0
+            ..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
+            .map(|i| {
+                let assert_tx =
+                    get_tx_from_signed_txs_with_type(&all_txs, TransactionType::MiniAssert(i))
+                        .unwrap();
+                assert_tx.compute_txid()
+            })
+            .collect::<Vec<Txid>>();
+        for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
+            assert!(
+                rpc.is_txid_in_chain(&txid).await.unwrap(),
+                "Mini assert {} was not found in the chain",
+                idx
+            );
+        }
         Ok(())
     }
 }

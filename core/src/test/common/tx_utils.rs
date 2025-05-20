@@ -55,6 +55,43 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     Ok(())
 }
 
+// Polls until a tx that spends the outpoint is in the mempool, without mining any blocks
+// After outpoint is spent, mine once to spend the utxo on chain
+pub async fn mine_once_after_outpoint_spent_in_mempool(
+    rpc: &ExtendedRpc,
+    outpoint: OutPoint,
+) -> Result<(), eyre::Error> {
+    let mut timeout_counter = 300;
+    while rpc
+        .client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))
+        .await
+        .unwrap()
+        .is_some()
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        timeout_counter -= 1;
+
+        if timeout_counter == 0 {
+            bail!(
+                "timeout while waiting for outpoint {:?} to be spent in mempool",
+                outpoint
+            );
+        }
+    }
+    rpc.mine_blocks(1).await?;
+    if rpc
+        .client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await?
+        .is_some()
+    {
+        bail!("Outpoint {:?} was not spent after waiting until it was spent in mempool and mining once", outpoint);
+    }
+
+    Ok(())
+}
+
 // Helper function to send a transaction and mine a block
 pub async fn send_tx(
     tx_sender: &TxSenderClient,
