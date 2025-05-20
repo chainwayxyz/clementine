@@ -110,15 +110,15 @@ pub fn verify_storage_proofs(
 
     storage_verify(&vout_storage_proof, state_root);
 
-    let buf: [u8; 32] = vout_storage_proof.value.to_le_bytes();
+    let buf: [u8; 32] = vout_storage_proof.value.to_be_bytes();
 
     // ENDIANNESS SHOULD BE CHECKED THIS FIELD IS 4 BYTES in the contract
 
     let vout = u32::from_le_bytes(buf[0..4].try_into().expect("Vout value conversion failed"));
 
-    let wd_outpoint = WithdrawalOutpointTxid(utxo_storage_proof.value.to_le_bytes());
+    let wd_outpoint = WithdrawalOutpointTxid(utxo_storage_proof.value.to_be_bytes());
 
-    let move_txid = MoveTxid(deposit_storage_proof.value.to_le_bytes());
+    let move_txid = MoveTxid(deposit_storage_proof.value.to_be_bytes());
 
     (wd_outpoint, vout, move_txid)
 }
