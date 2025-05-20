@@ -1,9 +1,22 @@
-//! # Extended Remote Procedure Call
+//! # Bitcoin Extended RPC Interface
 //!
-//! This module provides helpful functions for Bitcoin RPC.
-
-use std::str::FromStr;
-use std::sync::Arc;
+//! Extended RPC interface communicates with the Bitcoin node. It features some
+//! common wrappers around typical RPC operations as well as direct
+//! communication interface with the node.
+//!
+//! ## Tests
+//!
+//! On tests, a new Bitcoin node can be created using [`crate::test::common::create_regtest_rpc`].
+//! This function will create [`ExtendedRpc`] instance. One can use these
+//! functions to create a clean slate for testing.
+//!
+//! ```ignore
+//! // Return value **must not be dropped** while test is alive. If dropped,
+//! // Bitcoin node will be killed.
+//! let regtest = crate::test::common::create_regtest_rpc(&mut config).await;
+//!
+//! let rpc = regtest.rpc();
+//! ```
 
 use bitcoin::Address;
 use bitcoin::Amount;
@@ -18,8 +31,11 @@ use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use eyre::Context;
 use eyre::OptionExt;
+use std::str::FromStr;
+use std::sync::Arc;
 
-/// Extended RPC client that provides additional functionality beyond the standard Bitcoin Core RPC.
+/// Bitcoin RPC wrapper. Extended RPC provides useful wrapper functions for
+/// common operations, as well as direct access to Bitcoin RPC.
 #[derive(Debug, Clone)]
 pub struct ExtendedRpc {
     pub url: String,
