@@ -145,28 +145,7 @@ impl<T: Owner + std::fmt::Debug + 'static> Task for BlockFetcherTask<T> {
 
                 new_tip
             }
-            BitcoinSyncerEvent::ReorgedBlock(block_id) => {
-                // tracing::info!("Reorged block with id {}", id);
-                let txs = self
-                    .db
-                    .get_block_info_from_id(Some(&mut dbtx), block_id)
-                    .await?;
-                let txids = self.db.get_block_txids(Some(&mut dbtx), block_id).await?;
-                let txs = for txid in txids {
-                    // let tx = self
-                    //     .db
-                    //     .get_transaction(Some(&mut dbtx), txid)
-                    //     .await?
-                    //     .ok_or(BridgeError::Error(format!(
-                    //         "Transaction with id {} not found in BlockFetcherTask",
-                    //         txid
-                    //     )))?;
-                    // tracing::debug!("Transaction: {:?}", tx);
-                };
-                tracing::debug!("Reorged block with id {}: {:?}", block_id, txs);
-
-                false
-            }
+            BitcoinSyncerEvent::ReorgedBlock(_) => false,
         };
 
         dbtx.commit().await?;

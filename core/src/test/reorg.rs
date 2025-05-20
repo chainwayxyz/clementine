@@ -253,13 +253,13 @@ impl TestCase for TxSenderReorgBehavior {
                 .client
                 .get_block_hash(rpc.client.get_block_count().await?)
                 .await?;
-            if !rpc
+            if rpc
                 .client
                 .get_raw_transaction_info(&txid, None)
                 .await
                 .unwrap()
                 .blockhash
-                .is_some()
+                .is_none()
             {
                 tracing::debug!("Transaction not in mempool yet");
                 sleep(Duration::from_secs(1));
