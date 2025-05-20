@@ -13,7 +13,7 @@ jobs:
 # Build ------------------------------------------------------------------------
   debug_build:
     name: Compile code with debug profile
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-30
 
     steps:
     - uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
 
   release_build:
     name: Compile code with release profile
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-30
 
     steps:
     - uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
 # Tests ------------------------------------------------------------------------
   debug_build_test:
     name: Test code with debug build
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-30
     needs: debug_build
 
     services:
@@ -126,7 +126,7 @@ jobs:
 
   bridge_circuit_release_build_test:
     name: Test bridge circuit host code with release build
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-30
     needs: release_build
 
     env:

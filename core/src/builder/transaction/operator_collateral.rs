@@ -29,7 +29,7 @@ use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
 use std::sync::Arc;
 
 pub enum RoundTxInput {
-    Prevout(SpendableTxIn),
+    Prevout(Box<SpendableTxIn>),
     Collateral(OutPoint, Amount),
 }
 
@@ -59,7 +59,7 @@ pub fn create_round_txhandler(
             input_amount = prevout.get_prevout().value;
             builder = builder.add_input(
                 NormalSignatureKind::OperatorSighashDefault,
-                prevout,
+                *prevout,
                 SpendPath::KeySpend,
                 Sequence::from_height(paramset.operator_reimburse_timelock),
             );
@@ -193,9 +193,9 @@ pub fn create_round_nth_txhandler(
     for idx in 1..=index {
         round_txhandler = create_round_txhandler(
             operator_xonly_pk,
-            RoundTxInput::Prevout(
+            RoundTxInput::Prevout(Box::new(
                 ready_to_reimburse_txhandler.get_spendable_output(UtxoVout::BurnConnector)?,
-            ),
+            )),
             pubkeys.get_keys_for_round(idx),
             paramset,
         )?;

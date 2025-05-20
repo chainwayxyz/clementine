@@ -82,6 +82,8 @@ enum OperatorCommands {
         #[arg(long)]
         output_amount: u64,
     },
+    /// Get vergen build information
+    Vergen,
     // Add other operator commands as needed
 }
 
@@ -94,6 +96,8 @@ enum VerifierCommands {
         #[arg(long)]
         num_nonces: u32,
     },
+    /// Get vergen build information
+    Vergen,
     // /// Set verifier public keys
     // SetVerifiers {
     //     #[arg(long, num_args = 1.., value_delimiter = ',')]
@@ -172,6 +176,8 @@ enum AggregatorCommands {
         #[arg(long)]
         output_amount: u64,
     },
+    /// Get vergen build information
+    Vergen,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,7 +360,7 @@ fn create_minimal_config() -> BridgeConfig {
 async fn handle_operator_call(url: String, command: OperatorCommands) {
     let config = create_minimal_config();
     let mut operator =
-        clementine_core::rpc::get_clients(vec![url], ClementineOperatorClient::new, &config)
+        clementine_core::rpc::get_clients(vec![url], ClementineOperatorClient::new, &config, true)
             .await
             .expect("Exists")[0]
             .clone();
@@ -433,6 +439,14 @@ async fn handle_operator_call(url: String, command: OperatorCommands) {
                 .await
                 .expect("Failed to make a request");
         }
+        OperatorCommands::Vergen => {
+            let params = Empty {};
+            let response = operator
+                .vergen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Vergen response:\n{}", response.into_inner().response);
+        }
     }
 }
 
@@ -440,7 +454,7 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
     println!("Connecting to verifier at {}", url);
     let config = create_minimal_config();
     let mut verifier =
-        clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config)
+        clementine_core::rpc::get_clients(vec![url], ClementineVerifierClient::new, &config, true)
             .await
             .expect("Exists")[0]
             .clone();
@@ -461,17 +475,29 @@ async fn handle_verifier_call(url: String, command: VerifierCommands) {
                 .expect("Failed to make a request");
             println!("Noncegen response: {:?}", response);
         }
+        VerifierCommands::Vergen => {
+            let params = Empty {};
+            let response = verifier
+                .vergen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Vergen response:\n{}", response.into_inner().response);
+        }
     }
 }
 
 async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
     println!("Connecting to aggregator at {}", url);
     let config = create_minimal_config();
-    let mut aggregator =
-        clementine_core::rpc::get_clients(vec![url], ClementineAggregatorClient::new, &config)
-            .await
-            .expect("Exists")[0]
-            .clone();
+    let mut aggregator = clementine_core::rpc::get_clients(
+        vec![url],
+        ClementineAggregatorClient::new,
+        &config,
+        false,
+    )
+    .await
+    .expect("Exists")[0]
+        .clone();
 
     match command {
         AggregatorCommands::Setup => {
@@ -866,6 +892,14 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                     }
                 }
             }
+        }
+        AggregatorCommands::Vergen => {
+            let params = Empty {};
+            let response = aggregator
+                .vergen(Request::new(params))
+                .await
+                .expect("Failed to make a request");
+            println!("Vergen response:\n{}", response.into_inner().response);
         }
     }
 }
