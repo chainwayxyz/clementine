@@ -24,16 +24,13 @@ jobs:
       - name: Build documentation
         run: cargo doc --no-deps
       - name: Finalize documentation
-        run: |
-          CRATE_NAME=$(echo '${{ github.repository }}-lib' | tr '[:upper:]' '[:lower:]' | cut -f2 -d"/")
-          echo "<meta http-equiv=\"refresh\" content=\"0; url=${CRATE_NAME/-/_}\">" > target/doc/index.html
-          touch target/doc/.nojekyll
+        run: touch target/doc/.nojekyll
       - name: Upload as artifact
         uses: actions/upload-artifact@v4
         with:
           name: Documentation
           path: ./target/doc
-      - name: Deploy
+      - name: Deploy to gh-pages branch
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           #   ACCESS_TOKEN: ${{ secrets.GH_PAT }}
