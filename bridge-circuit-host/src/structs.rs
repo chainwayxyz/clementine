@@ -295,6 +295,7 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
         .previous_output
         .txid
         .to_byte_array();
+    
     let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
@@ -306,7 +307,7 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
         operator_xonlypk,
         input.watchtower_challenge_connector_start_idx,
         &input.all_tweaked_watchtower_pubkeys,
-        deposit_storage_proof.value.to_le_bytes(),
+        deposit_storage_proof.value.to_be_bytes(),
         round_txid,
         kickff_round_vout,
     )
