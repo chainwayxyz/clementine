@@ -408,5 +408,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(withdrawal_utxo, utxo);
+
+        let move_txid = db
+            .get_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(move_txid, txid);
     }
 }

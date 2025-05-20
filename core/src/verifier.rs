@@ -830,19 +830,19 @@ where
         &self,
         nonce_session_id: u32,
         agg_nonce: MusigAggNonce,
-        withdrawal_id: u32,
+        deposit_id: u32,
         input_signature: Signature,
         input_outpoint: OutPoint,
         output_script_pubkey: ScriptBuf,
         output_amount: Amount,
     ) -> Result<MusigPartialSignature, BridgeError> {
         // check if withdrawal is valid first
-        let withdrawal = self
+        let move_txid = self
             .db
-            .get_move_to_vault_txid_from_citrea_deposit(None, withdrawal_id)
+            .get_move_to_vault_txid_from_citrea_deposit(None, deposit_id)
             .await?;
-        if withdrawal.is_none() {
-            return Err(eyre::eyre!("Withdrawal not found for id: {}", withdrawal_id).into());
+        if move_txid.is_none() {
+            return Err(eyre::eyre!("Deposit not found for id: {}", deposit_id).into());
         }
         if output_amount > self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT {
             return Err(eyre::eyre!(
@@ -856,7 +856,7 @@ where
         // check if withdrawal utxo is correct
         let withdrawal_utxo = self
             .db
-            .get_withdrawal_utxo_from_citrea_withdrawal(None, withdrawal_id)
+            .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
             .await?
             .ok_or_eyre("Withdrawal utxo not found")?;
         if withdrawal_utxo != input_outpoint {
@@ -868,7 +868,7 @@ where
             .into());
         }
 
-        let move_txid = withdrawal.expect("Withdrawal must be Some");
+        let move_txid = move_txid.expect("Withdrawal must be Some");
         let mut deposit_data = self
             .db
             .get_deposit_data_with_move_tx(None, move_txid)
