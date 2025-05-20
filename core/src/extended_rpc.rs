@@ -455,9 +455,10 @@ impl ExtendedRpc {
 mod tests {
     use crate::{
         bitvm_client::SECP,
+        extended_rpc::BitcoinRPCError,
         test::common::{create_regtest_rpc, create_test_config_with_thread_name},
     };
-    use bitcoin::{amount, key::Keypair, Address, XOnlyPublicKey};
+    use bitcoin::{amount, key::Keypair, Address, FeeRate, XOnlyPublicKey};
     use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]
@@ -472,9 +473,6 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc();
-
-        // Clear mempool.
-        rpc.mine_blocks(1).await.unwrap();
 
         let keypair = Keypair::from_secret_key(&SECP, &config.secret_key);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
@@ -509,8 +507,8 @@ mod tests {
             blockhash
         );
         assert_eq!(rpc.get_tx_of_txid(&txid).await.unwrap(), tx);
-        assert_eq!(rpc.is_tx_on_chain(&txid).await.unwrap(), true);
-        assert_eq!(rpc.is_utxo_spent(&utxo).await.unwrap(), false);
+        assert!(rpc.is_tx_on_chain(&txid).await.unwrap());
+        assert!(!rpc.is_utxo_spent(&utxo).await.unwrap());
 
         // Doesn't matter if in mempool or on chain.
         let txout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
@@ -521,5 +519,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bump_fee_with_fee_rate() {}
+    async fn bump_fee_with_fee_rate() {
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc();
+
+        let keypair = Keypair::from_secret_key(&SECP, &config.secret_key);
+        let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
+        let address = Address::p2tr(&SECP, xonly, None, config.protocol_paramset.network);
+
+        let amount = amount::Amount::from_sat(10000);
+
+        // Confirmed transaction cannot be fee bumped.
+        let utxo = rpc.send_to_address(&address, amount).await.unwrap();
+        rpc.mine_blocks(1).await.unwrap();
+        assert!(rpc
+            .bump_fee_with_fee_rate(utxo.txid, FeeRate::from_sat_per_vb(1).unwrap())
+            .await
+            .inspect_err(|e| {
+                match e {
+                    BitcoinRPCError::TransactionAlreadyInBlock(_) => {}
+                    _ => panic!("Unexpected error: {:?}", e),
+                }
+            })
+            .is_err());
+
+        // TODO: Calculate this dynamically.
+        let current_fee_rate = FeeRate::from_sat_per_vb_unchecked(1);
+
+        // Trying to bump a transaction with a fee rate that is already enough
+        // should return the original txid.
+        let utxo = rpc.send_to_address(&address, amount).await.unwrap();
+        let txid = rpc
+            .bump_fee_with_fee_rate(utxo.txid, current_fee_rate)
+            .await
+            .unwrap();
+        assert_eq!(txid, utxo.txid);
+
+        // A bigger fee rate should return a different txid.
+        let new_fee_rate = FeeRate::from_sat_per_vb_unchecked(10000);
+        let txid = rpc
+            .bump_fee_with_fee_rate(utxo.txid, new_fee_rate)
+            .await
+            .unwrap();
+        assert_ne!(txid, utxo.txid);
+    }
 }
