@@ -1028,7 +1028,7 @@ where
                 move_txid
             ))?;
 
-        tracing::warn!("Sending asserts for deposit_idx: {:?}", deposit_idx);
+        tracing::info!("Sending asserts for deposit_idx: {:?}", deposit_idx);
 
         if payout_op_xonly_pk != kickoff_data.operator_xonly_pk {
             return Err(eyre::eyre!(
@@ -1055,7 +1055,7 @@ where
                 payout_txid, payout_op_xonly_pk, payout_block_hash
             ))?;
         let payout_tx = &payout_block.txdata[payout_tx_index];
-        tracing::warn!("Calculated payout tx in send_asserts: {:?}", payout_tx);
+        tracing::debug!("Calculated payout tx in send_asserts: {:?}", payout_tx);
 
         let (light_client_proof, lcp_receipt, l2_height) = self
             .citrea_client
@@ -1063,7 +1063,7 @@ where
             .await
             .wrap_err("Failed to get light client proof for payout block height")?
             .ok_or_eyre("Light client proof is not available for payout block height")?;
-        tracing::warn!("Got light client proof in send_asserts");
+        tracing::info!("Got light client proof in send_asserts");
         let storage_proof = self
             .citrea_client
             .get_storage_proof(l2_height, deposit_idx as u32)
@@ -1073,7 +1073,7 @@ where
                 move_txid, l2_height, deposit_idx
             ))?;
 
-        tracing::warn!("Got storage proof in send_asserts {:?}", storage_proof);
+        tracing::debug!("Got storage proof in send_asserts {:?}", storage_proof);
 
         // get committed latest blockhash
         let wt_derive_path = ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
@@ -1127,7 +1127,7 @@ where
             .header_chain_prover
             .prove_till_hash(latest_blockhash)
             .await?;
-        tracing::warn!("Got header chain proof in send_asserts");
+        tracing::info!("Got header chain proof in send_asserts");
 
         let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
             .iter()
@@ -1142,7 +1142,7 @@ where
             payout_block_height,
             payout_tx_index as u32,
         );
-        tracing::warn!("Calculated spv in send_asserts");
+        tracing::info!("Calculated spv in send_asserts");
 
         let mut wt_contexts = Vec::new();
         for (_, tx) in watchtower_challenges.iter() {
@@ -1189,7 +1189,7 @@ where
 
         let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
-        tracing::warn!("Proved bridge circuit in send_asserts");
+        tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
         let asserts = generate_assertions(

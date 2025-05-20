@@ -17,7 +17,7 @@ use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::{CITREA_LCP_START_HEIGHT, TEN_MINUTES_IN_SECS};
+use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -1443,39 +1443,38 @@ where
             block_height,
             block_cache.block_height
         );
-        // before block 60, citrea doesn't produce proofs
-        if block_height as u64 > CITREA_LCP_START_HEIGHT {
-            let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
-            let timeout = Duration::from_secs(max_attempts as u64);
 
-            let l2_range_result = self
-                .citrea_client
-                .get_citrea_l2_height_range(block_height.into(), timeout)
-                .await;
-            if let Err(e) = l2_range_result {
-                tracing::error!("Error getting citrea l2 height range: {:?}", e);
-                return Err(e);
-            }
-            let (l2_height_start, l2_height_end) =
-                l2_range_result.expect("Failed to get citrea l2 height range");
+        // before a certain number of blocks, citrea doesn't produce proofs (defined in citrea config)
+        let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
+        let timeout = Duration::from_secs(max_attempts as u64);
 
-            tracing::info!(
-                "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
-                l2_height_start,
-                l2_height_end
-            );
-            self.update_citrea_deposit_and_withdrawals(
-                &mut dbtx,
-                l2_height_start,
-                l2_height_end,
-                block_height,
-            )
-            .await?;
-
-            tracing::info!("Getting payout txids for block height: {:?}", block_height);
-            self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
-                .await?;
+        let l2_range_result = self
+            .citrea_client
+            .get_citrea_l2_height_range(block_height.into(), timeout)
+            .await;
+        if let Err(e) = l2_range_result {
+            tracing::error!("Error getting citrea l2 height range: {:?}", e);
+            return Err(e);
         }
+        let (l2_height_start, l2_height_end) =
+            l2_range_result.expect("Failed to get citrea l2 height range");
+
+        tracing::info!(
+            "l2_height_start: {:?}, l2_height_end: {:?}, collecting deposits and withdrawals",
+            l2_height_start,
+            l2_height_end
+        );
+        self.update_citrea_deposit_and_withdrawals(
+            &mut dbtx,
+            l2_height_start,
+            l2_height_end,
+            block_height,
+        )
+        .await?;
+
+        tracing::info!("Getting payout txids for block height: {:?}", block_height);
+        self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
+            .await?;
 
         if let Some(header_chain_prover) = &self.header_chain_prover {
             header_chain_prover

@@ -809,6 +809,37 @@ impl ClementineAggregator for Aggregator {
         Ok(Response::new(get_vergen_response()))
     }
 
+    async fn internal_send_tx(
+        &self,
+        request: Request<clementine::SendTxRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        let send_tx_req = request.into_inner();
+        let fee_type = send_tx_req.fee_type();
+        let signed_tx: bitcoin::Transaction = send_tx_req
+            .raw_tx
+            .ok_or(Status::invalid_argument("Missing raw_tx"))?
+            .try_into()?;
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                None,
+                &signed_tx,
+                fee_type.try_into()?,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .map_err(BridgeError::from)?;
+        dbtx.commit()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+        Ok(Response::new(Empty {}))
+    }
+
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn setup(
         &self,

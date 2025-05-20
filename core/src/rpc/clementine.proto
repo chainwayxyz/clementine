@@ -554,6 +554,11 @@ message RawSignedTx {
   bytes raw_tx = 1;
 }
 
+message SendTxRequest {
+  RawSignedTx raw_tx = 1;
+  FeeType fee_type = 2;
+}
+
 message RawSignedTxs {
   repeated RawSignedTx raw_txs = 1;
 }
@@ -613,6 +618,9 @@ service ClementineAggregator {
   // Used by the clementine-backend service to initiate a withdrawal
   rpc Withdraw(WithdrawParams)
     returns (AggregatorWithdrawResponse) {}
+
+  // Send a pre-signed tx to the network
+  rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
 
   // Creates an emergency stop tx that won't be broadcasted.
