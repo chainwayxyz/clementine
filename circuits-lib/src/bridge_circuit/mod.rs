@@ -575,10 +575,7 @@ pub fn journal_hash(
 }
 
 fn is_annex_present(witness: &Witness) -> bool {
-    witness.len() > 1
-        && witness
-            .last()
-            .is_some_and(|last| last.starts_with(&[0x50]))
+    witness.len() > 1 && witness.last().is_some_and(|last| last.starts_with(&[0x50]))
 }
 
 fn sighash(
