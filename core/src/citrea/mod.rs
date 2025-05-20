@@ -310,7 +310,7 @@ impl CitreaClientT for CitreaClient {
                 .call()
                 .await;
             if deposit_txid.is_err() {
-                tracing::info!(
+                tracing::trace!(
                     "Deposit txid not found for index, error: {:?}",
                     deposit_txid
                 );

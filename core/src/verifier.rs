@@ -1137,22 +1137,22 @@ where
         tracing::debug!("Updating citrea deposit and withdrawals");
 
         let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
-        tracing::info!("Last deposit idx: {:?}", last_deposit_idx);
+        tracing::debug!("Last deposit idx: {:?}", last_deposit_idx);
 
         let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
-        tracing::info!("Last withdrawal idx: {:?}", last_withdrawal_idx);
+        tracing::debug!("Last withdrawal idx: {:?}", last_withdrawal_idx);
 
         let new_deposits = self
             .citrea_client
             .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
-        tracing::info!("New deposits: {:?}", new_deposits);
+        tracing::debug!("New deposits: {:?}", new_deposits);
 
         let new_withdrawals = self
             .citrea_client
             .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
-        tracing::info!("New Withdrawals: {:?}", new_withdrawals);
+        tracing::debug!("New Withdrawals: {:?}", new_withdrawals);
 
         for (idx, move_to_vault_txid) in new_deposits {
             tracing::info!(
