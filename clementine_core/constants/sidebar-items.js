@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["ANCHOR_AMOUNT","MIN_TAPROOT_AMOUNT","TEN_MINUTES_IN_SECS"],"struct":["BURN_SCRIPT"]};

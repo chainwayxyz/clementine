@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CancelableResult"],"mod":["manager","payout_checker"],"struct":["BufferedErrors","CancelableLoop","CancelableTask","IgnoreError","Map","WithDelay"],"trait":["IntoTask","Task","TaskExt"]};

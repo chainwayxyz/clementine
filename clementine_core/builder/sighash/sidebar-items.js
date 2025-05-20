@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["TapTweakData"],"fn":["create_nofn_sighash_stream","create_operator_sighash_stream"],"struct":["PartialSignatureInfo","SignatureInfo"]};

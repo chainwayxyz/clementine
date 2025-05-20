@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["create_and_sign_txs","get_kickoff_utxos_to_sign"],"struct":["TransactionRequestData"]};

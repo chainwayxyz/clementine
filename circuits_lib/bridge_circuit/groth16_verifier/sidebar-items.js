@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["create_claim_digest","create_output_digest"],"struct":["CircuitGroth16WithTotalWork"]};

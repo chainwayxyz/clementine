@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["calculate_succinct_output_prefix","get_ark_verifying_key","reverse_bits_and_copy"]};

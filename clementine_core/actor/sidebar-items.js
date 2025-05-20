@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["VerificationError","WinternitzDerivationPath"],"fn":["verify_schnorr"],"struct":["Actor","TweakCache"]};

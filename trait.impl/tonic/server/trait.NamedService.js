@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["clementine_core",[["impl&lt;T&gt; <a class=\"trait\" href=\"https://docs.rs/tonic/0.12.3/tonic/server/trait.NamedService.html\" title=\"trait tonic::server::NamedService\">NamedService</a> for <a class=\"struct\" href=\"clementine_core/rpc/clementine/clementine_aggregator_server/struct.ClementineAggregatorServer.html\" title=\"struct clementine_core::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer\">ClementineAggregatorServer</a>&lt;T&gt;"],["impl&lt;T&gt; <a class=\"trait\" href=\"https://docs.rs/tonic/0.12.3/tonic/server/trait.NamedService.html\" title=\"trait tonic::server::NamedService\">NamedService</a> for <a class=\"struct\" href=\"clementine_core/rpc/clementine/clementine_operator_server/struct.ClementineOperatorServer.html\" title=\"struct clementine_core::rpc::clementine::clementine_operator_server::ClementineOperatorServer\">ClementineOperatorServer</a>&lt;T&gt;"],["impl&lt;T&gt; <a class=\"trait\" href=\"https://docs.rs/tonic/0.12.3/tonic/server/trait.NamedService.html\" title=\"trait tonic::server::NamedService\">NamedService</a> for <a class=\"struct\" href=\"clementine_core/rpc/clementine/clementine_verifier_server/struct.ClementineVerifierServer.html\" title=\"struct clementine_core::rpc::clementine::clementine_verifier_server::ClementineVerifierServer\">ClementineVerifierServer</a>&lt;T&gt;"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[1360]}

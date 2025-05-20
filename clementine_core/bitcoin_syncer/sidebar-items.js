@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BitcoinSyncerEvent"],"fn":["set_initial_block_info_if_not_exists"],"struct":["BitcoinSyncer","BitcoinSyncerTask"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["NETWORK_CONSTANTS","NETWORK_TYPE"],"enum":["HeaderChainPrevProofType"],"fn":["bits_to_target","header_chain_circuit"],"mod":["mmr_guest","mmr_native"],"struct":["BlockHeaderCircuitOutput","ChainState","CircuitBlockHeader","HeaderChainCircuitInput","NetworkConstants"]};

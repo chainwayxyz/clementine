@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["circuits_lib",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.87.0/core/ops/deref/trait.DerefMut.html\" title=\"trait core::ops::deref::DerefMut\">DerefMut</a> for <a class=\"struct\" href=\"circuits_lib/bridge_circuit/structs/struct.CircuitTxOut.html\" title=\"struct circuits_lib::bridge_circuit::structs::CircuitTxOut\">CircuitTxOut</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.87.0/core/ops/deref/trait.DerefMut.html\" title=\"trait core::ops::deref::DerefMut\">DerefMut</a> for <a class=\"struct\" href=\"circuits_lib/bridge_circuit/structs/struct.CircuitTxid.html\" title=\"struct circuits_lib::bridge_circuit::structs::CircuitTxid\">CircuitTxid</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.87.0/core/ops/deref/trait.DerefMut.html\" title=\"trait core::ops::deref::DerefMut\">DerefMut</a> for <a class=\"struct\" href=\"circuits_lib/bridge_circuit/structs/struct.CircuitWitness.html\" title=\"struct circuits_lib::bridge_circuit::structs::CircuitWitness\">CircuitWitness</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.87.0/core/ops/deref/trait.DerefMut.html\" title=\"trait core::ops::deref::DerefMut\">DerefMut</a> for <a class=\"struct\" href=\"circuits_lib/bridge_circuit/transaction/struct.CircuitTransaction.html\" title=\"struct circuits_lib::bridge_circuit::transaction::CircuitTransaction\">CircuitTransaction</a>"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[1411]}

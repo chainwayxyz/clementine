@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BridgeError"],"trait":["ErrorExt","ResultExt"]};

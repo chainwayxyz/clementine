@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["KickoffEvent","State","Superstate"],"struct":["KickoffStateMachine"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["create_checksig_address","create_taproot_address","generate_deposit_address","generate_replacement_deposit_address","taproot_builder_with_scripts"]};
