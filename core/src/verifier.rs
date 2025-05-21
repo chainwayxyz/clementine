@@ -1091,25 +1091,6 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        #[cfg(test)]
-        {
-            // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
-            // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
-            if is_dev_mode() {
-                tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
-                let challenge_bytes = self.config.protocol_paramset().watchtower_challenge_bytes;
-                let mut challenge = vec![0u8; challenge_bytes];
-                for (step, i) in (0..challenge_bytes).step_by(32).enumerate() {
-                    if i < challenge_bytes {
-                        challenge[i] = step as u8;
-                    }
-                }
-                return self
-                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
-                    .await;
-            }
-        }
-
         let hcp_prover = self
             .header_chain_prover
             .as_ref()
@@ -1117,6 +1098,28 @@ where
         let current_tip_hcp = hcp_prover.get_tip_header_chain_proof().await?;
 
         let (work_only_proof, work_output) = hcp_prover.prove_work_only(current_tip_hcp.0)?;
+
+        #[cfg(test)]
+        {
+            // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
+            // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
+            if is_dev_mode() {
+                tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
+                let g16_bytes = 128;
+                let mut challenge = vec![0u8; g16_bytes];
+                for (step, i) in (0..g16_bytes).step_by(32).enumerate() {
+                    if i < g16_bytes {
+                        challenge[i] = step as u8;
+                    }
+                }
+                let total_work = borsh::to_vec(&work_output.work_u128)
+                    .wrap_err("Couldn't serialize total work")?;
+                challenge.extend_from_slice(&total_work);
+                return self
+                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
+                    .await;
+            }
+        }
 
         let g16: [u8; 256] = work_only_proof
             .inner
