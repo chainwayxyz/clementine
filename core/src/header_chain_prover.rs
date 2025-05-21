@@ -573,6 +573,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_fetch_and_save_missing_blocks() {
+        // test these functions:
+        // save_block_infos_within_range
+        // fetch_and_save_missing_blocks
+        // get_block_info_from_hash_hcp
+        // get_latest_proven_block_info_until_height
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
+
+        let current_height = rpc.client.get_block_count().await.unwrap();
+        let current_hcp_height = prover
+            .db
+            .get_latest_finalized_block_height(None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(current_height, current_hcp_height);
+
+        prover
+            .db
+            .fetch_and_save_missing_blocks(&rpc, current_height as u32 + 1)
+            .await
+            .unwrap();
+
+        let current_hcp_height = prover
+            .db
+            .get_latest_finalized_block_height(None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(current_height, current_hcp_height);
+
+        let test_height = current_height as u32 / 2;
+
+        let block_hash = rpc.client.get_block_hash(test_height as u64).await.unwrap();
+        let block_info = prover
+            .db
+            .get_block_info_from_hash_hcp(None, block_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info.2, test_height);
+
+        prover.prove_till_hash(block_hash).await.unwrap();
+        let latest_proven_block = prover
+            .db
+            .get_latest_proven_block_info_until_height(None, current_hcp_height as u32)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest_proven_block.2, test_height as u64);
+    }
+
+    #[tokio::test]
     async fn new() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
