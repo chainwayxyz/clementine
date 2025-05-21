@@ -188,7 +188,7 @@ pub fn aggregate_partial_signatures(
 /// Generates a pair of nonces, one secret and one public. Be careful,
 /// DO NOT REUSE the same pair of nonces for multiple transactions. It will cause
 /// you to leak your secret key. For more information. See:
-/// https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6.
+/// <https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6>.
 pub fn nonce_pair(
     keypair: &Keypair,
     mut rng: &mut impl Rng,
