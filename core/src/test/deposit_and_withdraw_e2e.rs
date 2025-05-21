@@ -112,21 +112,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let lc_prover = lc_prover.unwrap();
         let batch_prover = batch_prover.unwrap();
 
-        // Take first 2 verifiers and first 1 operator from existing secret keys
-        // to make test with proving faster, with risc0_dev_mode disabled
-        let risc0_dev_mode = std::env::var("RISC0_DEV_MODE")
-            .map(|val| val.to_lowercase() == "true" || val == "1")
-            .unwrap_or(false);
-
-        if risc0_dev_mode {
-            if let Some(verifier_keys) = &config.all_verifiers_secret_keys {
-                config.all_verifiers_secret_keys = Some(verifier_keys[..2].to_vec());
-            }
-            if let Some(operator_keys) = &config.all_operators_secret_keys {
-                config.all_operators_secret_keys = Some(operator_keys[..1].to_vec());
-            }
-        }
-
         citrea::update_config_with_citrea_e2e_values(
             &mut config,
             da,
