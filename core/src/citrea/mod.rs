@@ -330,7 +330,7 @@ impl CitreaClientT for CitreaClient {
             let txid =
                 Txid::from_slice(txid.as_ref()).wrap_err("Failed to convert txid to Txid")?;
             let vout = withdrawal_utxo.outputId.0;
-            let vout = u32::from_be_bytes(vout);
+            let vout = u32::from_le_bytes(vout);
             let utxo = OutPoint { txid, vout };
             utxos.push((start_idx as u64, utxo));
             start_idx += 1;
