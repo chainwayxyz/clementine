@@ -1219,12 +1219,7 @@ where
             &wt_contexts,
             watchtower_challenge_connector_start_idx,
         )
-        .map_err(|e| {
-            eyre::eyre!(
-                "Failed to create bridge circuit host params in send_asserts: {:?}",
-                e
-            )
-        })?;
+        .wrap_err("Failed to create bridge circuit host params in send_asserts")?;
 
         let bridge_circuit_elf = match self.config.protocol_paramset().network {
             bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
