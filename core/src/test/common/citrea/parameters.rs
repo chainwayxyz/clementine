@@ -261,14 +261,11 @@ pub async fn get_citrea_safe_withdraw_params(
         Bytes::copy_from_slice(&bitcoin::consensus::serialize(&prepare_tx_block_header));
 
     let output_script_pk_bytes = Bytes::copy_from_slice(
-        &bitcoin::consensus::serialize(
-            &payout_transaction.output[0]
-                .script_pubkey,
-        )
-        .iter()
-        .skip(1)
-        .copied()
-        .collect::<Vec<u8>>(),
+        &bitcoin::consensus::serialize(&payout_transaction.output[0].script_pubkey)
+            .iter()
+            .skip(1)
+            .copied()
+            .collect::<Vec<u8>>(),
     );
 
     Ok((
