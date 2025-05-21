@@ -125,7 +125,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .contract
             .withdraw(
                 FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
-                FixedBytes::from(withdrawal_utxo.vout.to_be_bytes()),
+                FixedBytes::from(withdrawal_utxo.vout.to_le_bytes()),
             )
             .value(U256::from(
                 config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
