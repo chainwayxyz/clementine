@@ -7,7 +7,7 @@
 //! Clementine Core is the backbone of Clementine. As the name suggests,
 //! Clementine Core provides the core functionalities for Clementine to operate.
 //!
-//! ## Binaries and Servers
+//! ### Binaries and Using Clementine
 //!
 //! Clementine's architecture is designed so that every actor is a separate
 //! server. They all communicate with each other via gRPC.
@@ -18,10 +18,47 @@
 //! for communicating with these servers. It is located in
 //! [`bin/cli.rs`](bin/cli.rs).
 //!
-//! ## Testing Considerations
+//! To use Clementine, you need to start the servers.
 //!
-//! There are a few quirks about testing Clementine. Please refer to the
-//! [`test`](test) module before writing or editing tests.
+//! ## Utilizing Actors
+//!
+//! The core behavior of Clementine's actors is defined in the respective modules:
+//!
+//! - [`operator`](operator)
+//! - [`verifier`](verifier)
+//! - [`aggregator`](aggregator)
+//!
+//! For all these modules, [`actor`](actor) provides common utilities.
+//!
+//! ### Servers
+//!
+//! An actor is only meaningful if its server is running. For each actor, there
+//! is a server module, which provides the server implementation.
+//!
+//! The main server architecture is defined in the [`rpc/clementine.proto`](rpc/clementine.proto)
+//! file. It is compiled to Rust code by the `tonic` library. Server logic
+//! for each actor is defined in the respective server module in the [rpc](rpc)
+//! module.
+//!
+//! ## Development Guidelines
+//!
+//! ### Error Handling
+//!
+//! There are rules about error handling in Clementine. Please refer to the
+//! [`errors`](errors) module for more information.
+//!
+//! ### Testing Considerations
+//!
+//! There are a few quirks about testing Clementine. One of the main one is
+//! that there is no `tests` directory for integration tests. Rather, there is a
+//! [`test`](test) module, which is compiled only if `test` is
+//! enabled by Cargo (when running `cargo test`). That module provides
+//! common utilities for unit and integration testing, and integration tests themselves.
+//! This is a workaround for having common test utilities between unit and
+//! integration tests.
+//!
+//! Please refer to the [`test`](test) module for check what utilities are
+//! available for testing and how to use them.
 
 #![allow(clippy::too_many_arguments)]
 
