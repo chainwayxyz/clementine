@@ -499,6 +499,10 @@ mod tests {
 
         assert_eq!(tx.output[utxo.vout as usize].value, amount);
         assert_eq!(utxo.txid, txid);
+        assert!(rpc
+            .check_utxo_address_and_amount(&utxo, &address.script_pubkey(), amount)
+            .await
+            .unwrap());
 
         // In mempool.
         assert!(rpc.confirmation_blocks(&utxo.txid).await.is_err());
@@ -524,8 +528,6 @@ mod tests {
         let txout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
         assert_eq!(txout.value, amount);
         assert_eq!(rpc.get_tx_of_txid(&txid).await.unwrap(), tx);
-
-        // TODO: Spend tx here and check if UTXO is spent.
     }
 
     #[tokio::test]
