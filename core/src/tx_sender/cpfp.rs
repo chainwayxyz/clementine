@@ -489,7 +489,7 @@ impl TxSender {
         let submit_package_result: PackageSubmissionResult = self
             .rpc
             .client
-            .submit_package(&package_refs)
+            .submit_package(&package_refs, Some(Amount::from_sat(0)), None)
             .await
             .wrap_err("Failed to submit package")?;
 

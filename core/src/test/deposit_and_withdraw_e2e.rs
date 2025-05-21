@@ -403,6 +403,24 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
     }
 }
 
+/// Tests the complete deposit and withdrawal flow between Bitcoin and Citrea networks.
+///
+/// # Arrange
+/// * Sets up Citrea infrastructure (sequencer, prover, DA layer)
+/// * Configures bridge parameters and connects to Bitcoin regtest
+///
+/// # Act
+/// * Executes a deposit from Bitcoin to Citrea
+/// * Waits for deposit finalization and batch proof generation
+/// * Executes a withdrawal from Citrea back to Bitcoin
+/// * Processes the payout transaction
+///
+/// # Assert
+/// * Verifies balance is 0 before deposit and non-zero after deposit
+/// * Confirms withdrawal fails without Citrea-side withdrawal
+/// * Verifies payout transaction is successfully processed
+/// * Confirms kickoff transaction is created and mined
+/// * Verifies reimburse connector is spent (proper payout handling)
 #[tokio::test]
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     std::env::set_var(
@@ -412,6 +430,24 @@ async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
 
+/// Tests the deposit and withdrawal flow using a mocked Citrea client in a truthful scenario.
+///
+/// # Arrange
+/// * Sets up mock Citrea client
+/// * Configures bridge parameters
+///
+/// # Act
+/// * Executes a deposit from Bitcoin to mock Citrea
+/// * Registers the deposit in the mock client
+/// * Executes a withdrawal from mock Citrea back to Bitcoin
+/// * Processes the payout transaction
+///
+/// # Assert
+/// * Verifies payout transaction is successfully created and mined
+/// * Confirms payout is properly handled in database (added then removed from unhandled list)
+/// * Verifies kickoff transaction is created and mined
+/// * Confirms challenge output is spent via timeout (no challenge occurred)
+/// * Verifies reimburse connector is spent (proper payout handling)
 #[tokio::test]
 async fn mock_citrea_run_truthful() {
     let mut config = create_test_config_with_thread_name().await;
@@ -686,6 +722,22 @@ async fn mock_citrea_run_truthful() {
     tracing::warn!("Reimburse connector spent");
 }
 
+/// Tests protocol challenge mechanism when a malicious action is detected.
+///
+/// # Arrange
+/// * Sets up mock Citrea client
+/// * Executes deposit and registers it in mock client
+///
+/// # Act
+/// * Registers a withdrawal in mock Citrea
+/// * Operator attempts malicious action by calling internal_finalized_payout
+/// * Operator attempts a second malicious action with another kickoff transaction
+///
+/// # Assert
+/// * Verifies first kickoff transaction is challenged (challenge output has correct amount)
+/// * Confirms second kickoff transaction is not challenged (prevents double-challenge)
+/// * Verifies challenge spent transaction has expected challenge amount for first attempt
+/// * Confirms challenge spent transaction does not have challenge amount for second attempt
 #[tokio::test]
 async fn mock_citrea_run_malicious() {
     let mut config = create_test_config_with_thread_name().await;
@@ -883,6 +935,22 @@ async fn mock_citrea_run_malicious() {
     // TODO: check that operators collateral got burned. It cant be checked right now as we dont have auto disprove implemented.
 }
 
+/// Tests protocol safety when an operator exits before a challenge can be made.
+///
+/// # Arrange
+/// * Sets up mock Citrea client
+/// * Executes deposit and registers it in mock client
+///
+/// # Act
+/// * Registers a withdrawal in mock Citrea
+/// * Operator burns collateral (exits protocol)
+/// * Operator attempts malicious action by calling internal_finalized_payout after exit
+///
+/// # Assert
+/// * Verifies kickoff transaction is created and mined
+/// * Confirms challenge output is not spent on a challenge (operator already exited)
+/// * Verifies challenge spent transaction does not have challenge amount
+/// * Demonstrates protocol safety by preventing challenges after operator exit
 #[tokio::test]
 async fn mock_citrea_run_malicious_after_exit() {
     let mut config = create_test_config_with_thread_name().await;
@@ -1039,7 +1107,6 @@ async fn mock_citrea_run_malicious_after_exit() {
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )
-        .add_burn_output()
         .finalize();
 
     actor
