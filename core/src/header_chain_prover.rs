@@ -220,13 +220,12 @@ impl HeaderChainProver {
             _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
         };
 
-        tracing::warn!("before proving work only");
+        tracing::info!("Starting proving HCP work only proof");
         let receipt = prover
             .prove_with_opts(env, elf, &ProverOpts::groth16())
             .map_err(|e| eyre::eyre!(e))?
             .receipt;
-        tracing::warn!("after proving work only");
-        tracing::warn!("Work only proof receipt generated {:?}", receipt);
+        tracing::info!("HCP work only proof proof generated");
         let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
             .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
 
