@@ -1,7 +1,27 @@
-//! # Clementine Core
+//! # Clementine 🍊
+//!
+//! Clementine is Citrea's BitVM based trust-minimized two-way peg program.
+//! Please refer to the [whitepaper](https://citrea.xyz/clementine_whitepaper.pdf)
+//! for understanding the design of the Clementine.
 //!
 //! Clementine Core is the backbone of Clementine. As the name suggests,
 //! Clementine Core provides core functionalities for Clementine to operate.
+//!
+//! ## Binaries And Servers
+//!
+//! Clementine's architecture is designed so that every actor is a separate
+//! server. They all communicate with each other via gRPC.
+//!
+//! For this reason Clementine Core provides a single main binary,
+//! `clementine-core`, which is a server starter for every actor. There is also
+//! a helper binary, `clementine-core-cli`, which is a command line interface
+//! for communicating with these servers. It is located in
+//! [`in/cli.rs`](bin/cli.rs).
+//!
+//! ## Testing Considierations
+//!
+//! There are a few quirks about testing Clementine. Please refer to the
+//! [`test`](test) module before writing/editing tests.
 
 #![allow(clippy::too_many_arguments)]
 
