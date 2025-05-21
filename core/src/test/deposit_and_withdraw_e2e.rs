@@ -252,6 +252,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .await
         .unwrap();
 
+        tracing::info!("Params: {:?}", params);
+
         let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
         tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
@@ -454,7 +456,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:9f88a775e9467303d960b6cc9f975ff00f1f1290",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
