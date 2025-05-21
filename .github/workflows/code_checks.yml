@@ -27,7 +27,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Install cargo-clippy
         run: rustup component add --toolchain 1.85-x86_64-unknown-linux-gnu clippy
       - name: Run Cargo clippy
@@ -56,6 +55,15 @@ jobs:
         with:
           version: "latest"
           args: "--workspace --all-features --all-targets"
+
+  docs:
+    name: Check documentation build
+    runs-on: ubicloud-standard-30
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build documentation
+        run: cargo doc --no-deps
 
   todo:
     name: Check for TODO statements
