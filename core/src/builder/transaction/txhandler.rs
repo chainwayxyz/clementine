@@ -4,7 +4,6 @@ use crate::builder::script::SpendPath;
 use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
 use crate::builder::transaction::TransactionType;
-use crate::constants::{BURN_SCRIPT, MIN_TAPROOT_AMOUNT};
 use crate::errors::{BridgeError, TxError};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
