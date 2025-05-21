@@ -16,12 +16,13 @@ use crate::{
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
+use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use circuits_lib::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use eyre::{eyre, Context, OptionExt};
 use lazy_static::lazy_static;
-use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
+use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -36,6 +37,15 @@ const TESTNET4_ELF: &[u8] =
 const SIGNET_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/signet-header-chain-guest.bin");
 const REGTEST_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-header-chain-guest.bin");
+
+const MAINNET_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/mainnet-work-only-guest.bin");
+const TESTNET4_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
+const SIGNET_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/signet-work-only-guest.bin");
+const REGTEST_WORK_ONLY_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/regtest-work-only-guest.bin");
 
 lazy_static! {
     static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
@@ -66,6 +76,8 @@ pub enum HeaderChainProverError {
     ProverDeSerializationError,
     #[error("Wait for candidate batch to be ready")]
     BatchNotReady,
+    #[error("Header chain prover not initialized due to config")]
+    HeaderChainProverNotInitialized,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -174,6 +186,51 @@ impl HeaderChainProver {
                 .into(),
             network: config.protocol_paramset().network,
         })
+    }
+
+    /// Proves the work only proof for the given HCP receipt.
+    pub fn prove_work_only(
+        &self,
+        hcp_receipt: Receipt,
+    ) -> Result<(Receipt, WorkOnlyCircuitOutput), HeaderChainProverError> {
+        let block_header_circuit_output: BlockHeaderCircuitOutput =
+            borsh::from_slice(&hcp_receipt.journal.bytes)
+                .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
+        let input = WorkOnlyCircuitInput {
+            header_chain_circuit_output: block_header_circuit_output,
+        };
+        let mut env = ExecutorEnv::builder();
+
+        env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
+
+        env.add_assumption(hcp_receipt);
+
+        let env = env
+            .build()
+            .map_err(|e| eyre::eyre!(e))
+            .wrap_err("Failed to build environment")?;
+
+        let prover = risc0_zkvm::default_prover();
+
+        let elf = match self.network {
+            Network::Bitcoin => MAINNET_WORK_ONLY_ELF,
+            Network::Testnet4 => TESTNET4_WORK_ONLY_ELF,
+            Network::Signet => SIGNET_WORK_ONLY_ELF,
+            Network::Regtest => REGTEST_WORK_ONLY_ELF,
+            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
+        };
+
+        tracing::warn!("before proving work only");
+        let receipt = prover
+            .prove_with_opts(env, elf, &ProverOpts::groth16())
+            .map_err(|e| eyre::eyre!(e))?
+            .receipt;
+        tracing::warn!("after proving work only");
+        tracing::warn!("Work only proof receipt generated {:?}", receipt);
+        let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
+            .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
+
+        Ok((receipt, work_output))
     }
 
     /// Proves blocks till the block with hash `current_block_hash`.

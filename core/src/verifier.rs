@@ -21,7 +21,7 @@ use crate::constants::TEN_MINUTES_IN_SECS;
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::header_chain_prover::HeaderChainProver;
+use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::musig2;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::context::DutyResult;
@@ -36,6 +36,7 @@ use bitcoin::secp256k1::Message;
 use bitcoin::OutPoint;
 use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
+use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use eyre::{Context, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1088,17 +1089,79 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
+        let hcp_prover = self
+            .header_chain_prover
+            .as_ref()
+            .ok_or(HeaderChainProverError::HeaderChainProverNotInitialized)?;
+        let current_tip_hcp = hcp_prover.get_tip_header_chain_proof().await?;
+
+        #[cfg(test)]
+        {
+            let risc0_dev_mode = std::env::var("RISC0_DEV_MODE")
+                .map(|val| val.to_lowercase() == "true" || val == "1")
+                .unwrap_or(false);
+
+            if risc0_dev_mode {
+                let challenge_bytes = self.config.protocol_paramset().watchtower_challenge_bytes;
+                let mut challenge = vec![0u8; challenge_bytes];
+                for (step, i) in (0..challenge_bytes).step_by(32).enumerate() {
+                    if i < challenge_bytes {
+                        challenge[i] = step as u8;
+                    }
+                }
+                return self
+                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
+                    .await;
+            }
+        }
+
+        let (work_only_proof, work_output) = hcp_prover.prove_work_only(current_tip_hcp.0)?;
+
+        let g16: [u8; 256] = work_only_proof
+            .inner
+            .groth16()
+            .wrap_err("Work only receipt is not groth16")?
+            .seal
+            .to_owned()
+            .try_into()
+            .map_err(|e: Vec<u8>| {
+                eyre::eyre!(
+                    "Invalid g16 proof length, expected 256 bytes, got {}",
+                    e.len()
+                )
+            })?;
+
+        let g16_proof = CircuitGroth16Proof::from_seal(&g16);
+        let mut commit_data: Vec<u8> = g16_proof
+            .to_compressed()
+            .wrap_err("Couldn't compress g16 proof")?
+            .to_vec();
+
+        let total_work =
+            borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
+        commit_data.extend_from_slice(&total_work);
+
+        self.queue_watchtower_challenge(kickoff_data, deposit_data, commit_data)
+            .await
+    }
+
+    async fn queue_watchtower_challenge(
+        &self,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        commit_data: Vec<u8>,
+    ) -> Result<(), BridgeError> {
         let (tx_type, challenge_tx, rbf_info) = self
             .create_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
                     kickoff_data,
                 },
-                &vec![0u8; self.config.protocol_paramset().watchtower_challenge_bytes], // dummy challenge
+                &commit_data,
             )
             .await?;
-        let mut dbtx = self.db.begin_transaction().await?;
 
+        let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
                 &mut dbtx,
@@ -1116,11 +1179,11 @@ where
                 Some(rbf_info),
             )
             .await?;
-        dbtx.commit().await?;
 
+        dbtx.commit().await?;
         tracing::info!(
-            "Commited watchtower challenge for watchtower {}",
-            self.signer.xonly_public_key
+            "Commited watchtower challenge, commit data: {:?}",
+            commit_data
         );
 
         Ok(())
