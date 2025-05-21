@@ -36,7 +36,7 @@ jobs:
 
   udeps:
     name: Check unused dependencies
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-30
 
     steps:
       - uses: actions/checkout@v4
@@ -57,3 +57,23 @@ jobs:
         with:
           version: "latest"
           args: "--workspace --all-features --all-targets"
+
+  docs:
+    name: Check documentation build
+    runs-on: ubicloud-standard-30
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build documentation
+        run: cargo doc --no-deps
+
+  todo:
+    name: Check for TODO statements
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run script
+        run: scripts/check_for_todos.sh
+        continue-on-error: true # TODO: This should be removed later
