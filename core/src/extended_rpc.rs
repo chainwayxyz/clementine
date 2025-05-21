@@ -2,21 +2,13 @@
 //!
 //! Extended RPC interface communicates with the Bitcoin node. It features some
 //! common wrappers around typical RPC operations as well as direct
-//! communication interface with the node.
+//! communication interface with the Bitcoin node.
 //!
 //! ## Tests
 //!
-//! On tests, a new Bitcoin node can be created using [`crate::test::common::create_regtest_rpc`].
-//! This function will create [`ExtendedRpc`] instance. One can use these
-//! functions to create a clean slate for testing.
-//!
-//! ```ignore
-//! // Return value **must not be dropped** while test is alive. If dropped,
-//! // Bitcoin node will be killed.
-//! let regtest = crate::test::common::create_regtest_rpc(&mut config).await;
-//!
-//! let rpc = regtest.rpc();
-//! ```
+//! On tests, Bitcoind node and client are usually created using
+//! [`crate::test::common::create_regtest_rpc`]. Please refer to
+//! [`crate::test::common`] for using [`ExtendedRpc`] in tests.
 
 use bitcoin::Address;
 use bitcoin::Amount;
