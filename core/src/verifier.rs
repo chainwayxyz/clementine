@@ -38,6 +38,8 @@ use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use eyre::{Context, OptionExt, Result};
+#[cfg(test)]
+use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::pin;
@@ -1093,11 +1095,7 @@ where
         {
             // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
             // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
-            let risc0_dev_mode = std::env::var("RISC0_DEV_MODE")
-                .map(|val| val.to_lowercase() == "true" || val == "1")
-                .unwrap_or(false);
-
-            if risc0_dev_mode {
+            if is_dev_mode() {
                 tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
                 let challenge_bytes = self.config.protocol_paramset().watchtower_challenge_bytes;
                 let mut challenge = vec![0u8; challenge_bytes];

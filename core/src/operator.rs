@@ -1,5 +1,7 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
+#[cfg(test)]
+use risc0_zkvm::is_dev_mode;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1162,10 +1164,7 @@ where
         {
             // if in test environment and risc0 dev mode is enabled, post dummy asserts as bridge circuit is
             // not supported in risc0 dev mode
-            let risc0_dev_mode = std::env::var("RISC0_DEV_MODE")
-                .map(|val| val.to_lowercase() == "true" || val == "1")
-                .unwrap_or(false);
-            if risc0_dev_mode {
+            if is_dev_mode() {
                 tracing::warn!("Warning, operator was challenged but RISC0_DEV_MODE is enabled, will not generate real proof");
                 let assert_txs = self
                     .create_assert_commitment_txs(
