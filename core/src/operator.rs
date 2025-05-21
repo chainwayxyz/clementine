@@ -1019,7 +1019,7 @@ where
             .get(&TransactionType::Kickoff)
             .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
             .get_cached_tx();
-        tracing::warn!("Calculated move and kickoff tx in send_asserts");
+
         let (payout_op_xonly_pk, payout_block_hash, payout_txid, deposit_idx) = self
             .db
             .get_payout_info_from_move_txid(None, move_txid)
@@ -1066,6 +1066,7 @@ where
             .wrap_err("Failed to get light client proof for payout block height")?
             .ok_or_eyre("Light client proof is not available for payout block height")?;
         tracing::info!("Got light client proof in send_asserts");
+
         let storage_proof = self
             .citrea_client
             .get_storage_proof(l2_height, deposit_idx as u32)
@@ -1144,7 +1145,7 @@ where
             payout_block_height,
             payout_tx_index as u32,
         );
-        tracing::info!("Calculated spv in send_asserts");
+        tracing::info!("Calculated spv proof in send_asserts");
 
         let mut wt_contexts = Vec::new();
         for (_, tx) in watchtower_challenges.iter() {
@@ -1239,10 +1240,10 @@ where
                 .into())
             }
         };
-
+        tracing::warn!("Starting proving bridge circuit to send asserts");
         let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
-        tracing::info!("Proved bridge circuit in send_asserts");
+        tracing::warn!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
         let asserts = generate_assertions(
