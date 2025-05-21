@@ -10,46 +10,46 @@ env:
   RUST_MIN_STACK: 33554432
 
 jobs:
-# Build ------------------------------------------------------------------------
+  # Build ------------------------------------------------------------------------
   debug_build:
     name: Compile code with debug profile
     runs-on: ubicloud-standard-30
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/install-risc0
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: ./.github/actions/build-prerequisites
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
 
-    - name: Save build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "debug-build"
+      - name: Save build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "debug-build"
 
-    - name: Compile in debug mode
-      run: cargo build $CARGOFLAGS --verbose
+      - name: Compile in debug mode
+        run: cargo build $CARGOFLAGS --verbose
 
   release_build:
     name: Compile code with release profile
     runs-on: ubicloud-standard-30
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/install-risc0
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: ./.github/actions/build-prerequisites
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
 
-    - name: Save build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "release-build"
+      - name: Save build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
 
-    - name: Compile in release mode
-      run: cargo build $CARGOFLAGS --verbose --release
+      - name: Compile in release mode
+        run: cargo build $CARGOFLAGS --verbose --release
 
-# Tests ------------------------------------------------------------------------
+  # Tests ------------------------------------------------------------------------
   debug_build_test:
     name: Test code with debug build
     runs-on: ubicloud-standard-30
@@ -72,20 +72,20 @@ jobs:
           --health-retries 5
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/install-risc0
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: ./.github/actions/build-prerequisites
-    - uses: ./.github/actions/test-prerequisites
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
 
-    - name: Restore cached build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "debug-build"
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "debug-build"
 
-    - name: Run tests
-      run: cargo test
+      - name: Run tests
+        run: cargo test
 
   release_build_test:
     name: Test code with release build
@@ -109,20 +109,20 @@ jobs:
           --health-retries 5
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/install-risc0
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: ./.github/actions/build-prerequisites
-    - uses: ./.github/actions/test-prerequisites
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
 
-    - name: Restore cached build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "release-build"
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
 
-    - name: Run tests
-      run: cargo test --release
+      - name: Run tests
+        run: cargo test --release
 
   bridge_circuit_release_build_test:
     name: Test bridge circuit host code with release build
@@ -133,19 +133,19 @@ jobs:
       RISC0_DEV_MODE: 0
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/install-risc0
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Restore cached build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "release-build"
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
 
-    - name: Run tests
-      run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
-  
+      - name: Run tests
+        run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
+
   e2e_with_proving_release_build_test:
     name: Test citrea e2e proving with release build
     runs-on: ubicloud-standard-30
@@ -171,18 +171,20 @@ jobs:
           --health-retries 5
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/install-risc0
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
 
-    - name: Restore cached build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "release-build"
+      - name: Restore cached build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
 
-    - name: Run tests
-      run: cargo test --release citrea_deposit_and_withdraw_e2e
+      - name: Run tests
+        run: cargo test --release citrea_deposit_and_withdraw_e2e
 
   coverage:
     name: Coverage checks with Codecov
