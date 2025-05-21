@@ -1164,8 +1164,8 @@ where
             let risc0_dev_mode = std::env::var("RISC0_DEV_MODE")
                 .map(|val| val.to_lowercase() == "true" || val == "1")
                 .unwrap_or(false);
-            tracing::info!("RISC0 dev mode: {}", risc0_dev_mode);
             if risc0_dev_mode {
+                tracing::warn!("Warning, operator was challenged but RISC0_DEV_MODE is enabled, will not generate real proof");
                 let assert_txs = self
                     .create_assert_commitment_txs(
                         TransactionRequestData {
