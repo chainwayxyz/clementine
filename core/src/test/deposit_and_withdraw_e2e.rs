@@ -1119,8 +1119,6 @@ async fn mock_citrea_run_malicious_after_exit() {
     // mine 1 block to make sure collateral burn tx lands onchain
     rpc.mine_blocks(1).await.unwrap();
 
-    tracing::warn!("here");
-
     let kickoff_txid: bitcoin::Txid = operators[0]
         .internal_finalized_payout(FinalizedPayoutParams {
             payout_blockhash: vec![0u8; 32],
@@ -1134,6 +1132,7 @@ async fn mock_citrea_run_malicious_after_exit() {
 
     // wait 3 seconds so fee payer txs are sent to mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
     // mine 1 block to make sure the fee payer txs are in the next block
     rpc.mine_blocks(1).await.unwrap();
 

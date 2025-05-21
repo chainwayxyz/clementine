@@ -9,6 +9,7 @@ members = [
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]
+ctor = "0.4.2"
 hex = "0.4.3"
 lazy_static = { version = "1.5.0", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
@@ -110,7 +111,13 @@ hex-literal = "0.4.1"
 rustls-pki-types = "1.11.0"
 
 base64 = "0.22.1"
-vergen-git2 = { version = "1.0.0", features = ["build", "cargo", "rustc", "si"] }
+vergen-git2 = { version = "1.0.0", features = [
+  "build",
+  "cargo",
+  "rustc",
+  "si",
+] }
+
 
 
 [patch.crates-io]

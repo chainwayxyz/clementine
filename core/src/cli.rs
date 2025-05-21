@@ -401,7 +401,7 @@ mod tests {
         env::set_var("BRIDGE_AMOUNT", "1000000000");
         env::set_var("KICKOFF_AMOUNT", "55000");
         env::set_var("OPERATOR_CHALLENGE_AMOUNT", "200000000");
-        env::set_var("COLLATERAL_FUNDING_AMOUNT", "200000000");
+        env::set_var("COLLATERAL_FUNDING_AMOUNT", "99000000");
         env::set_var("KICKOFF_BLOCKHASH_COMMIT_LENGTH", "40");
         env::set_var("WATCHTOWER_CHALLENGE_BYTES", "144");
         env::set_var("WINTERNITZ_LOG_D", "4");
