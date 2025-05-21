@@ -55,6 +55,8 @@ pub enum BitcoinRPCError {
     BumpFeeUTXOSpent(OutPoint),
     #[error("Transaction is already in block: {0}")]
     TransactionAlreadyInBlock(BlockHash),
+    #[error("Transaction is not confirmed")]
+    TransactionNotConfirmed,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -211,7 +213,16 @@ impl ExtendedRpc {
     /// # Returns
     ///
     /// - [`bool`]: `true` if the UTXO is spent, `false` otherwise.
+    ///
+    /// # Errors
+    ///
+    /// - [`BitcoinRPCError`]: If the transaction is not confirmed or if there
+    ///   was an error retrieving the transaction output.
     pub async fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool> {
+        if !self.is_tx_on_chain(&outpoint.txid).await? {
+            return Err(BitcoinRPCError::TransactionNotConfirmed);
+        }
+
         let res = self
             .client
             .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
@@ -492,9 +503,8 @@ mod tests {
         // In mempool.
         assert!(rpc.confirmation_blocks(&utxo.txid).await.is_err());
         assert!(rpc.get_blockhash_of_tx(&utxo.txid).await.is_err());
-
-        // TODO: should we check if the tx is in mempool?
-        // assert_eq!(rpc.is_tx_on_chain(&txid).await.unwrap(), false);
+        assert!(!rpc.is_tx_on_chain(&txid).await.unwrap());
+        assert!(rpc.is_utxo_spent(&utxo).await.is_err());
 
         rpc.mine_blocks(1).await.unwrap();
         let height = rpc.client.get_block_count().await.unwrap();
