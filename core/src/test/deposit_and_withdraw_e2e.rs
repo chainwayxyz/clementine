@@ -1012,22 +1012,6 @@ async fn mock_citrea_run_malicious_after_exit() {
         .unwrap()
         .into_inner();
 
-    let kickoff_txid: bitcoin::Txid = operators[0]
-        .internal_finalized_payout(FinalizedPayoutParams {
-            payout_blockhash: vec![0u8; 32],
-            deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .try_into()
-        .unwrap();
-
-    // wait 3 seconds so fee payer txs are sent to mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // mine 1 block to make sure the fee payer txs are in the next block
-    rpc.mine_blocks(1).await.unwrap();
-
     // get first round's tx
     let round_tx =
         get_tx_from_signed_txs_with_type(&first_round_txs, TransactionType::Round).unwrap();
@@ -1063,25 +1047,34 @@ async fn mock_citrea_run_malicious_after_exit() {
         .unwrap();
     let spend_tx = spend_txhandler.promote().unwrap().get_cached_tx().clone();
 
-    let _round_tx_block_height =
-        mine_once_after_in_mempool(&rpc, round_txid, Some("Round tx"), Some(1800))
-            .await
-            .unwrap();
-
-    tracing::warn!("Round tx onchain {:?}", _round_tx_block_height);
-
-    // Wait for the kickoff tx to be onchain
-    let _kickoff_block_height =
-        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
-            .await
-            .unwrap();
-
     rpc.client.send_raw_transaction(&spend_tx).await.unwrap();
 
     // mine 1 block to make sure collateral burn tx lands onchain
     rpc.mine_blocks(1).await.unwrap();
 
     tracing::warn!("here");
+
+    let kickoff_txid: bitcoin::Txid = operators[0]
+        .internal_finalized_payout(FinalizedPayoutParams {
+            payout_blockhash: vec![0u8; 32],
+            deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .try_into()
+        .unwrap();
+
+    // wait 3 seconds so fee payer txs are sent to mempool
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    // mine 1 block to make sure the fee payer txs are in the next block
+    rpc.mine_blocks(1).await.unwrap();
+
+    // Wait for the kickoff tx to be onchain
+    let _kickoff_block_height =
+        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
+            .await
+            .unwrap();
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,

@@ -274,6 +274,42 @@ where
         let wpks = kickoff_wpks.keys.clone();
         let (sig_tx, sig_rx) = mpsc::channel(kickoff_sigs.len());
 
+        // try to send the first round tx
+        let (mut first_round_tx, _) = create_round_nth_txhandler(
+            self.signer.xonly_public_key,
+            self.collateral_funding_outpoint,
+            self.config.protocol_paramset().collateral_funding_amount,
+            0, // index 0 for the first round
+            &kickoff_wpks,
+            self.config.protocol_paramset(),
+        )?;
+
+        self.signer
+            .clone()
+            .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
+
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                Some(TxMetadata {
+                    tx_type: TransactionType::Round,
+                    operator_xonly_pk: None,
+                    round_idx: Some(0),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                first_round_tx.get_cached_tx(),
+                FeePayingType::CPFP,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit().await?;
+
         tokio::spawn(async move {
             for wpk in wpks {
                 wpk_tx
@@ -700,50 +736,6 @@ where
             )
             .await?
             .ok_or(BridgeError::DatabaseError(sqlx::Error::RowNotFound))?;
-
-        // advance to first round if current round is 0, i.e. collateral utxo is still on chain
-        if self.db.get_current_round_index(None).await?.unwrap_or(0) == 0 {
-            tracing::warn!("First round tx not on chain, generating first round tx");
-            let wpks = self.generate_kickoff_winternitz_pubkeys()?;
-            let kickoff_wpks = KickoffWinternitzKeys::new(
-                wpks,
-                self.config.protocol_paramset().num_kickoffs_per_round,
-            );
-            // try to send the first round tx
-            let (mut first_round_tx, _) = create_round_nth_txhandler(
-                self.signer.xonly_public_key,
-                self.collateral_funding_outpoint,
-                self.config.protocol_paramset().collateral_funding_amount,
-                0, // index 0 for the first round
-                &kickoff_wpks,
-                self.config.protocol_paramset(),
-            )?;
-
-            self.signer
-                .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
-
-            let mut dbtx = self.db.begin_transaction().await?;
-            self.tx_sender
-                .insert_try_to_send(
-                    &mut dbtx,
-                    Some(TxMetadata {
-                        tx_type: TransactionType::Round,
-                        operator_xonly_pk: Some(self.signer.xonly_public_key),
-                        round_idx: Some(0),
-                        kickoff_idx: None,
-                        deposit_outpoint: None,
-                    }),
-                    first_round_tx.get_cached_tx(),
-                    FeePayingType::CPFP,
-                    None,
-                    &[],
-                    &[],
-                    &[],
-                    &[],
-                )
-                .await?;
-            dbtx.commit().await?;
-        }
 
         // get signed txs,
         let kickoff_data = KickoffData {
