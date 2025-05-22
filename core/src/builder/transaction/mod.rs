@@ -193,18 +193,50 @@ impl DepositData {
     pub fn get_num_operators(&self) -> usize {
         self.actors.operators.len()
     }
-    pub fn get_deposit_script(&mut self) -> Result<Arc<dyn SpendableScript>, BridgeError> {
+    /// Returns the scripts for the deposit.
+    pub fn get_deposit_scripts(
+        &mut self,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<Vec<Arc<dyn SpendableScript>>, BridgeError> {
         let nofn_xonly_pk = self.get_nofn_xonly_pk()?;
-        match &self.deposit.deposit_type {
-            DepositType::BaseDeposit(base_deposit_data) => Ok(Arc::new(BaseDepositScript::new(
-                nofn_xonly_pk,
-                base_deposit_data.evm_address,
-            ))),
-            DepositType::ReplacementDeposit(replacement_deposit_data) => {
-                Ok(Arc::new(ReplacementDepositScript::new(
+
+        match &mut self.deposit.deposit_type {
+            DepositType::BaseDeposit(original_deposit_data) => {
+                let deposit_script = Arc::new(BaseDepositScript::new(
                     nofn_xonly_pk,
-                    replacement_deposit_data.old_move_txid,
-                )))
+                    original_deposit_data.evm_address,
+                ));
+
+                let recovery_script_pubkey = original_deposit_data
+                    .recovery_taproot_address
+                    .clone()
+                    .assume_checked()
+                    .script_pubkey();
+
+                let recovery_extracted_xonly_pk =
+                    XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
+                        .wrap_err(
+                            "Failed to extract xonly public key from recovery script pubkey",
+                        )?;
+
+                let script_timelock = Arc::new(TimelockScript::new(
+                    Some(recovery_extracted_xonly_pk),
+                    paramset.user_takes_after,
+                ));
+
+                Ok(vec![deposit_script, script_timelock])
+            }
+            DepositType::ReplacementDeposit(replacement_deposit_data) => {
+                let deposit_script: Arc<dyn SpendableScript> =
+                    Arc::new(ReplacementDepositScript::new(
+                        nofn_xonly_pk,
+                        replacement_deposit_data.old_move_txid,
+                    ));
+                let security_council_script: Arc<dyn SpendableScript> = Arc::new(
+                    Multisig::from_security_council(self.security_council.clone()),
+                );
+
+                Ok(vec![deposit_script, security_council_script])
             }
         }
     }
@@ -590,67 +622,22 @@ pub fn create_move_to_vault_txhandler(
         deposit_data.security_council.clone(),
     ));
 
-    let builder = match &mut deposit_data.deposit.deposit_type {
-        DepositType::BaseDeposit(original_deposit_data) => {
-            let deposit_script = Arc::new(BaseDepositScript::new(
-                nofn_xonly_pk,
-                original_deposit_data.evm_address,
-            ));
+    let deposit_scripts = deposit_data.get_deposit_scripts(paramset)?;
 
-            let recovery_script_pubkey = original_deposit_data
-                .recovery_taproot_address
-                .clone()
-                .assume_checked()
-                .script_pubkey();
-
-            let recovery_extracted_xonly_pk =
-                XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
-                    .wrap_err("Failed to extract xonly public key from recovery script pubkey")?;
-
-            let script_timelock = Arc::new(TimelockScript::new(
-                Some(recovery_extracted_xonly_pk),
-                paramset.user_takes_after,
-            ));
-
-            TxHandlerBuilder::new(TransactionType::MoveToVault)
-                .with_version(Version::non_standard(3))
-                .add_input(
-                    NormalSignatureKind::NotStored,
-                    SpendableTxIn::from_scripts(
-                        deposit_outpoint,
-                        paramset.bridge_amount,
-                        vec![deposit_script, script_timelock],
-                        None,
-                        paramset.network,
-                    ),
-                    SpendPath::ScriptSpend(0),
-                    DEFAULT_SEQUENCE,
-                )
-        }
-        DepositType::ReplacementDeposit(replacement_deposit_data) => {
-            let deposit_script = Arc::new(ReplacementDepositScript::new(
-                nofn_xonly_pk,
-                replacement_deposit_data.old_move_txid,
-            ));
-
-            TxHandlerBuilder::new(TransactionType::MoveToVault)
-                .with_version(Version::non_standard(3))
-                .add_input(
-                    NormalSignatureKind::NotStored,
-                    SpendableTxIn::from_scripts(
-                        deposit_outpoint,
-                        paramset.bridge_amount,
-                        vec![deposit_script, security_council_script.clone()],
-                        None,
-                        paramset.network,
-                    ),
-                    SpendPath::ScriptSpend(0),
-                    DEFAULT_SEQUENCE,
-                )
-        }
-    };
-
-    Ok(builder
+    Ok(TxHandlerBuilder::new(TransactionType::MoveToVault)
+        .with_version(Version::non_standard(3))
+        .add_input(
+            NormalSignatureKind::NotStored,
+            SpendableTxIn::from_scripts(
+                deposit_outpoint,
+                paramset.bridge_amount,
+                deposit_scripts,
+                None,
+                paramset.network,
+            ),
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
         .add_output(UnspentTxOut::from_scripts(
             paramset.bridge_amount - ANCHOR_AMOUNT,
             vec![nofn_script, security_council_script],

@@ -1,7 +1,7 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
-use crate::builder::address::taproot_builder_with_scripts;
+use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::script::{extract_winternitz_commits, SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
@@ -282,7 +282,18 @@ where
             return Ok(false);
         }
         // check if deposit script is valid
-        let deposit_script = deposit_data.get_deposit_script()?.to_script_buf();
+        let deposit_scripts: Vec<ScriptBuf> = deposit_data
+            .get_deposit_scripts(self.config.protocol_paramset())?
+            .into_iter()
+            .map(|s| s.to_script_buf())
+            .collect();
+        let deposit_txout_pubkey = create_taproot_address(
+            &deposit_scripts,
+            None,
+            self.config.protocol_paramset().network,
+        )
+        .0
+        .script_pubkey();
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let deposit_txid = deposit_outpoint.txid;
         let deposit_tx = self
@@ -306,10 +317,10 @@ where
             );
             return Ok(false);
         }
-        if deposit_txout.script_pubkey != deposit_script {
+        if deposit_txout.script_pubkey != deposit_txout_pubkey {
             tracing::warn!(
-                "Deposit script in deposit outpoint does not match the deposit data, expected {:?}, got {:?}",
-                deposit_script,
+                "Deposit script pubkey in deposit outpoint does not match the deposit data, expected {:?}, got {:?}",
+                deposit_txout_pubkey,
                 deposit_txout.script_pubkey
             );
             return Ok(false);
