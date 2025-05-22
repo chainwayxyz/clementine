@@ -266,8 +266,9 @@ where
     }
 
     /// Checks if all operators in verifier's db are in the deposit.
-    ///
-    async fn is_deposit_valid(&self, deposit_data: &DepositData) -> Result<bool, BridgeError> {
+    /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
+    /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
+    async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
         let operator_xonly_pks = deposit_data.get_operators();
         // check if all operators are in the deposit
         let are_all_operators_in_deposit = self
@@ -281,7 +282,38 @@ where
             return Ok(false);
         }
         // check if deposit script is valid
-        let deposit_script = ;
+        let deposit_script = deposit_data.get_deposit_script()?.to_script_buf();
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let deposit_txid = deposit_outpoint.txid;
+        let deposit_tx = self
+            .rpc
+            .get_tx_of_txid(&deposit_txid)
+            .await
+            .wrap_err("Deposit tx could not be found on chain")?;
+        let deposit_txout = deposit_tx
+            .output
+            .get(deposit_outpoint.vout as usize)
+            .ok_or(eyre::eyre!(
+                "Deposit vout not found in tx {}, vout: {}",
+                deposit_txid,
+                deposit_outpoint.vout
+            ))?;
+        if deposit_txout.value != self.config.protocol_paramset().bridge_amount {
+            tracing::warn!(
+                "Deposit amount is not correct, expected {}, got {}",
+                self.config.protocol_paramset().bridge_amount,
+                deposit_txout.value
+            );
+            return Ok(false);
+        }
+        if deposit_txout.script_pubkey != deposit_script {
+            tracing::warn!(
+                "Deposit script in deposit outpoint does not match the deposit data, expected {:?}, got {:?}",
+                deposit_script,
+                deposit_txout.script_pubkey
+            );
+            return Ok(false);
+        }
         Ok(true)
     }
 
@@ -393,7 +425,7 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self.is_deposit_valid(&deposit_data).await? {
+        if !self.is_deposit_valid(&mut deposit_data).await? {
             return Err(BridgeError::InvalidDeposit);
         }
 

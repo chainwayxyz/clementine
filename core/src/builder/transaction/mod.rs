@@ -193,10 +193,20 @@ impl DepositData {
     pub fn get_num_operators(&self) -> usize {
         self.actors.operators.len()
     }
-    pub fn get_deposit_script(&self) -> Result<Arc<dyn SpendableScript>, BridgeError> {
+    pub fn get_deposit_script(&mut self) -> Result<Arc<dyn SpendableScript>, BridgeError> {
         let nofn_xonly_pk = self.get_nofn_xonly_pk()?;
-        let 
-        Ok(security_council_script)
+        match &self.deposit.deposit_type {
+            DepositType::BaseDeposit(base_deposit_data) => Ok(Arc::new(BaseDepositScript::new(
+                nofn_xonly_pk,
+                base_deposit_data.evm_address,
+            ))),
+            DepositType::ReplacementDeposit(replacement_deposit_data) => {
+                Ok(Arc::new(ReplacementDepositScript::new(
+                    nofn_xonly_pk,
+                    replacement_deposit_data.old_move_txid,
+                )))
+            }
+        }
     }
 }
 
