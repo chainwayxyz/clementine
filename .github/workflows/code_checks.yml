@@ -27,10 +27,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/install-risc0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
+      - name: Install cargo-clippy
+        run: rustup component add --toolchain 1.85-x86_64-unknown-linux-gnu clippy
       - name: Run Cargo clippy
         run: cargo clippy --no-deps --all-targets -- -Dwarnings
 
