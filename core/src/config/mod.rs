@@ -44,7 +44,7 @@ pub struct BridgeConfig {
     ///
     /// Sourced from either a file or the environment, is set to REGTEST_PARAMSET in tests
     ///
-    /// Skipped in deserialization and replaced by either file/environment source. See [`clementine_core::cli::get_cli_config`]
+    /// Skipped in deserialization and replaced by either file/environment source. See [`crate::cli::get_cli_config`]
     #[serde(skip)]
     pub protocol_paramset: &'static ProtocolParamset,
     /// Host of the operator or the verifier

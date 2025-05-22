@@ -1,0 +1,40 @@
+name: Build and Deploy Documentation
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGOFLAGS: --workspace --all-targets --all-features
+  RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
+  RISC0_DEV_MODE: 1
+  RUST_MIN_STACK: 33554432
+
+jobs:
+  build:
+    name: Build and deploy documentation
+    runs-on: ubicloud-standard-30
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clean documentation directory
+        run: cargo clean --doc
+      - name: Build documentation
+        run: cargo doc --no-deps
+      - name: Finalize documentation
+        run: |
+          echo '<meta http-equiv="refresh" content="0;url=clementine_core/index.html">' > target/doc/index.html
+          touch target/doc/.nojekyll
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Documentation
+          path: ./target/doc
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: target/doc
