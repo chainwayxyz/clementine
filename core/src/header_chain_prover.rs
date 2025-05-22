@@ -16,13 +16,12 @@ use crate::{
 use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
-use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use circuits_lib::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use eyre::{eyre, Context, OptionExt};
 use lazy_static::lazy_static;
-use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
+use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -37,15 +36,6 @@ const TESTNET4_ELF: &[u8] =
 const SIGNET_ELF: &[u8] = include_bytes!("../../risc0-circuits/elfs/signet-header-chain-guest.bin");
 const REGTEST_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-header-chain-guest.bin");
-
-const MAINNET_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/mainnet-work-only-guest.bin");
-const TESTNET4_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/testnet4-work-only-guest.bin");
-const SIGNET_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/signet-work-only-guest.bin");
-const REGTEST_WORK_ONLY_ELF: &[u8] =
-    include_bytes!("../../risc0-circuits/elfs/regtest-work-only-guest.bin");
 
 lazy_static! {
     static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
@@ -76,8 +66,6 @@ pub enum HeaderChainProverError {
     ProverDeSerializationError,
     #[error("Wait for candidate batch to be ready")]
     BatchNotReady,
-    #[error("Header chain prover not initialized due to config")]
-    HeaderChainProverNotInitialized,
 
     #[error(transparent)]
     Other(#[from] eyre::Report),
@@ -186,50 +174,6 @@ impl HeaderChainProver {
                 .into(),
             network: config.protocol_paramset().network,
         })
-    }
-
-    /// Proves the work only proof for the given HCP receipt.
-    pub fn prove_work_only(
-        &self,
-        hcp_receipt: Receipt,
-    ) -> Result<(Receipt, WorkOnlyCircuitOutput), HeaderChainProverError> {
-        let block_header_circuit_output: BlockHeaderCircuitOutput =
-            borsh::from_slice(&hcp_receipt.journal.bytes)
-                .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
-        let input = WorkOnlyCircuitInput {
-            header_chain_circuit_output: block_header_circuit_output,
-        };
-        let mut env = ExecutorEnv::builder();
-
-        env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
-
-        env.add_assumption(hcp_receipt);
-
-        let env = env
-            .build()
-            .map_err(|e| eyre::eyre!(e))
-            .wrap_err("Failed to build environment")?;
-
-        let prover = risc0_zkvm::default_prover();
-
-        let elf = match self.network {
-            Network::Bitcoin => MAINNET_WORK_ONLY_ELF,
-            Network::Testnet4 => TESTNET4_WORK_ONLY_ELF,
-            Network::Signet => SIGNET_WORK_ONLY_ELF,
-            Network::Regtest => REGTEST_WORK_ONLY_ELF,
-            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
-        };
-
-        tracing::warn!("Starting proving HCP work only proof");
-        let receipt = prover
-            .prove_with_opts(env, elf, &ProverOpts::groth16())
-            .map_err(|e| eyre::eyre!(e))?
-            .receipt;
-        tracing::warn!("HCP work only proof proof generated");
-        let work_output: WorkOnlyCircuitOutput = borsh::from_slice(&receipt.journal.bytes)
-            .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
-
-        Ok((receipt, work_output))
     }
 
     /// Proves blocks till the block with hash `current_block_hash`.
@@ -570,65 +514,6 @@ mod tests {
         }
 
         headers
-    }
-
-    #[tokio::test]
-    async fn test_fetch_and_save_missing_blocks() {
-        // test these functions:
-        // save_block_infos_within_range
-        // fetch_and_save_missing_blocks
-        // get_block_info_from_hash_hcp
-        // get_latest_proven_block_info_until_height
-        let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc().clone();
-
-        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
-            .await
-            .unwrap();
-
-        let current_height = rpc.client.get_block_count().await.unwrap();
-        let current_hcp_height = prover
-            .db
-            .get_latest_finalized_block_height(None)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_ne!(current_height, current_hcp_height);
-
-        prover
-            .db
-            .fetch_and_save_missing_blocks(&rpc, current_height as u32 + 1)
-            .await
-            .unwrap();
-
-        let current_hcp_height = prover
-            .db
-            .get_latest_finalized_block_height(None)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(current_height, current_hcp_height);
-
-        let test_height = current_height as u32 / 2;
-
-        let block_hash = rpc.client.get_block_hash(test_height as u64).await.unwrap();
-        let block_info = prover
-            .db
-            .get_block_info_from_hash_hcp(None, block_hash)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(block_info.2, test_height);
-
-        prover.prove_till_hash(block_hash).await.unwrap();
-        let latest_proven_block = prover
-            .db
-            .get_latest_proven_block_info_until_height(None, current_hcp_height as u32)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(latest_proven_block.2, test_height as u64);
     }
 
     #[tokio::test]

@@ -1,7 +1,5 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
-#[cfg(test)]
-use risc0_zkvm::is_dev_mode;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1021,7 +1019,7 @@ where
             .get(&TransactionType::Kickoff)
             .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
             .get_cached_tx();
-
+        tracing::warn!("Calculated move and kickoff tx in send_asserts");
         let (payout_op_xonly_pk, payout_block_hash, payout_txid, deposit_idx) = self
             .db
             .get_payout_info_from_move_txid(None, move_txid)
@@ -1068,7 +1066,6 @@ where
             .wrap_err("Failed to get light client proof for payout block height")?
             .ok_or_eyre("Light client proof is not available for payout block height")?;
         tracing::info!("Got light client proof in send_asserts");
-
         let storage_proof = self
             .citrea_client
             .get_storage_proof(l2_height, deposit_idx as u32)
@@ -1147,7 +1144,7 @@ where
             payout_block_height,
             payout_tx_index as u32,
         );
-        tracing::info!("Calculated spv proof in send_asserts");
+        tracing::info!("Calculated spv in send_asserts");
 
         let mut wt_contexts = Vec::new();
         for (_, tx) in watchtower_challenges.iter() {
@@ -1164,8 +1161,11 @@ where
         {
             // if in test environment and risc0 dev mode is enabled, post dummy asserts as bridge circuit is
             // not supported in risc0 dev mode
-            if is_dev_mode() {
-                tracing::warn!("Warning, operator was challenged but RISC0_DEV_MODE is enabled, will not generate real proof");
+            let risc0_dev_mode = std::env::var("RISC0_DEV_MODE")
+                .map(|val| val.to_lowercase() == "true" || val == "1")
+                .unwrap_or(false);
+            tracing::info!("RISC0 dev mode: {}", risc0_dev_mode);
+            if risc0_dev_mode {
                 let assert_txs = self
                     .create_assert_commitment_txs(
                         TransactionRequestData {
@@ -1239,10 +1239,10 @@ where
                 .into())
             }
         };
-        tracing::warn!("Starting proving bridge circuit to send asserts");
+
         let (g16_proof, g16_output, public_inputs) =
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
-        tracing::warn!("Proved bridge circuit in send_asserts");
+        tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
         let asserts = generate_assertions(
