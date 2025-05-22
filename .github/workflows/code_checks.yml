@@ -14,36 +14,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/install-risc0
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Run Cargo fmt
-      run: cargo fmt --check
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Cargo fmt
+        run: cargo fmt --check
 
   linting:
     name: Check linting
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/install-risc0
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Run Cargo clippy
-      run: cargo clippy --no-deps --all-targets -- -Dwarnings
+      - name: Run Cargo clippy
+        run: cargo clippy --no-deps --all-targets -- -Dwarnings
 
   udeps:
     name: Check unused dependencies
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-30
 
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          
+
       - name: Toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -57,6 +57,15 @@ jobs:
         with:
           version: "latest"
           args: "--workspace --all-features --all-targets"
+
+  docs:
+    name: Check documentation build
+    runs-on: ubicloud-standard-30
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build documentation
+        run: cargo doc --no-deps
 
   todo:
     name: Check for TODO statements
