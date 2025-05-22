@@ -830,14 +830,29 @@ impl ClementineAggregator for Aggregator {
         request: tonic::Request<super::WithdrawParams>,
     ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
         let withdraw_params = request.into_inner();
-        let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
+        let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
             parser::operator::parse_withdrawal_sig_params(withdraw_params.clone()).await?;
         // get which deposit the withdrawal belongs to
         let withdrawal = self
             .db
-            .get_move_to_vault_txid_from_citrea_deposit(None, withdrawal_id)
+            .get_move_to_vault_txid_from_citrea_deposit(None, deposit_id)
             .await?;
         if let Some(move_txid) = withdrawal {
+            // check if withdrawal utxo is correct
+            let withdrawal_utxo = self
+                .db
+                .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
+                .await?
+                .ok_or(Status::invalid_argument(format!(
+                    "Withdrawal utxo not found for deposit id {}",
+                    deposit_id
+                )))?;
+            if withdrawal_utxo != input_outpoint {
+                return Err(Status::invalid_argument(format!(
+                    "Withdrawal utxo is not correct: {:?} != {:?}",
+                    withdrawal_utxo, input_outpoint
+                )));
+            }
             let deposit_data = self
                 .db
                 .get_deposit_data_with_move_tx(None, move_txid)
@@ -955,7 +970,7 @@ impl ClementineAggregator for Aggregator {
         } else {
             Err(Status::not_found(format!(
                 "Withdrawal with index {} not found.",
-                withdrawal_id
+                deposit_id
             )))
         }
     }
