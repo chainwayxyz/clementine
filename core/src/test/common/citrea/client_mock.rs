@@ -1,5 +1,4 @@
-use super::CitreaClientT;
-use crate::errors::BridgeError;
+use crate::{citrea::CitreaClientT, errors::BridgeError};
 use alloy::signers::local::PrivateKeySigner;
 use bitcoin::{OutPoint, Txid};
 use std::{
