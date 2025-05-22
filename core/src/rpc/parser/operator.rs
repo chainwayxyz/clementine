@@ -11,7 +11,8 @@ use crate::{
     },
 };
 use bitcoin::{
-    address::NetworkUnchecked, hashes::Hash, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf, XOnlyPublicKey
+    address::NetworkUnchecked, hashes::Hash, secp256k1::schnorr::Signature, Address, Amount,
+    OutPoint, ScriptBuf, XOnlyPublicKey,
 };
 use bitvm::signatures::winternitz;
 use std::str::FromStr;

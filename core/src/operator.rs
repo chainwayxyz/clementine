@@ -143,27 +143,14 @@ where
         }
 
         // check if we store our collateral outpoint already in db
-        let op_data = db.get_operator(None, signer.xonly_public_key).await?;
+        let mut dbtx = db.begin_transaction().await?;
+        let op_data = db
+            .get_operator(Some(&mut dbtx), signer.xonly_public_key)
+            .await?;
         let (collateral_funding_outpoint, reimburse_addr) = match op_data {
             Some(operator_data) => {
                 // Operator data is already set in db, we don't actually need to do anyhing.
-                // Here we just give errors if the values set in config and db doesn't match.
-                if let Some(config_collateral_funding_outpoint) =
-                    config.operator_collateral_funding_outpoint
-                {
-                    if operator_data.collateral_funding_outpoint
-                        != config_collateral_funding_outpoint
-                    {
-                        return Err(eyre::eyre!(format!("Operator collateral funding outpoint is already set in db. Please remove it from db manually before running the operator.
-                                Config: {:?}, DB: {:?}", config_collateral_funding_outpoint, operator_data.collateral_funding_outpoint)).into());
-                    }
-                }
-                if let Some(config_reimburse_addr) = &config.operator_reimbursement_address {
-                    if *operator_data.reimburse_addr.as_unchecked() != *config_reimburse_addr {
-                        return Err(eyre::eyre!(format!("Operator reimbursement address is already set in db. Please remove it from db manually before running the operator.
-                                Config: {:?}, DB: {:?}", config_reimburse_addr, operator_data.reimburse_addr)).into());
-                    }
-                }
+                // set_operator_checked will give error if the values set in config and db doesn't match.
                 (
                     operator_data.collateral_funding_outpoint,
                     operator_data.reimburse_addr,
@@ -192,7 +179,7 @@ where
                 };
                 let outpoint = match &config.operator_collateral_funding_outpoint {
                     Some(outpoint) => {
-                        // check if outpoint has exactly collateral funding amount and exists on chain
+                        // check if outpoint exists on chain and has exactly collateral funding amount
                         let collateral_tx = rpc
                             .get_tx_of_txid(&outpoint.txid)
                             .await
@@ -218,13 +205,18 @@ where
                         .await?
                     }
                 };
-
-                db.set_operator_checked(None, signer.xonly_public_key, &reimburse_addr, outpoint)
-                    .await?;
                 (outpoint, reimburse_addr)
             }
         };
 
+        db.set_operator_checked(
+            Some(&mut dbtx),
+            signer.xonly_public_key,
+            &reimburse_addr,
+            collateral_funding_outpoint,
+        )
+        .await?;
+        dbtx.commit().await?;
         let citrea_client = C::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),

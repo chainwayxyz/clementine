@@ -301,6 +301,27 @@ mod tests {
             );
         }
 
+        if let Some(ref operator_reimbursement_address) =
+            default_config.operator_reimbursement_address
+        {
+            std::env::set_var(
+                "OPERATOR_REIMBURSEMENT_ADDRESS",
+                operator_reimbursement_address
+                    .to_owned()
+                    .assume_checked()
+                    .to_string(),
+            );
+        }
+
+        if let Some(ref operator_collateral_funding_outpoint) =
+            default_config.operator_collateral_funding_outpoint
+        {
+            std::env::set_var(
+                "OPERATOR_COLLATERAL_FUNDING_OUTPOINT",
+                operator_collateral_funding_outpoint.to_string(),
+            );
+        }
+
         assert_eq!(super::BridgeConfig::from_env().unwrap(), default_config);
     }
 
