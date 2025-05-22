@@ -550,7 +550,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
         value: withdrawal_amount,
         script_pubkey: withdrawal_address.script_pubkey(),
     };
-    let undpent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
+    let unspent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
         .add_input(
@@ -559,7 +559,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
             SpendPath::KeySpend,
             builder::transaction::DEFAULT_SEQUENCE,
         )
-        .add_output(undpent_txout.clone())
+        .add_output(unspent_txout.clone())
         .finalize();
 
     let sighash = tx

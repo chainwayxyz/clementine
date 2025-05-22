@@ -233,7 +233,7 @@ pub async fn get_citrea_safe_withdraw_params(
         None,
     );
 
-    let undpent_txout =
+    let unspent_txout =
         builder::transaction::output::UnspentTxOut::from_partial(payout_output.clone());
 
     let mut tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
@@ -243,7 +243,7 @@ pub async fn get_citrea_safe_withdraw_params(
             SpendPath::KeySpend,
             builder::transaction::DEFAULT_SEQUENCE,
         )
-        .add_output(undpent_txout.clone())
+        .add_output(unspent_txout.clone())
         .finalize();
 
     let taproot_signature = bitcoin::taproot::Signature {
