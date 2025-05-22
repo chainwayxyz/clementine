@@ -265,27 +265,24 @@ where
         Ok(tagged_sigs)
     }
 
-    /// Checks if the verifier has an operator in the deposit.
-    /// If the verifier does not have an operator, it is a valid deposit.
-    /// If the verifier has an operator, it is a valid deposit if the operator is in the deposit.
-    /// Verifier and operator belonging to same entity should have the same private key for this function to work.
-    /// Verifier's own operator should always exist in verifier's db, because they use the same db and operator
-    /// saves its own data to db in Operator::new.
-    async fn does_deposit_contain_own_operator(
-        &self,
-        deposit_data: &DepositData,
-    ) -> Result<bool, BridgeError> {
+    /// Checks if all operators in verifier's db are in the deposit.
+    ///
+    async fn is_deposit_valid(&self, deposit_data: &DepositData) -> Result<bool, BridgeError> {
         let operator_xonly_pks = deposit_data.get_operators();
-        let verifier_xonly_pk = self.signer.xonly_public_key;
-        // check if verifier has an operator by checking operator data in db
-        let operator_data = self.db.get_operator(None, verifier_xonly_pk).await?;
-        if operator_data.is_none() {
-            // verifier does not own an operator, so it is a valid deposit
-            Ok(true)
-        } else {
-            // verifier owns an operator, so it is a valid deposit
-            Ok(operator_xonly_pks.contains(&verifier_xonly_pk))
+        // check if all operators are in the deposit
+        let are_all_operators_in_deposit = self
+            .db
+            .get_operators(None)
+            .await?
+            .into_iter()
+            .all(|(xonly_pk, _, _)| operator_xonly_pks.contains(&xonly_pk));
+        if !are_all_operators_in_deposit {
+            tracing::warn!("All operators are not in the deposit");
+            return Ok(false);
         }
+        // check if deposit script is valid
+        let deposit_script = ;
+        Ok(true)
     }
 
     pub async fn set_operator(
@@ -396,10 +393,7 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self
-            .does_deposit_contain_own_operator(&deposit_data)
-            .await?
-        {
+        if !self.is_deposit_valid(&deposit_data).await? {
             return Err(BridgeError::InvalidDeposit);
         }
 
@@ -502,7 +496,7 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self.does_deposit_contain_own_operator(deposit_data).await? {
+        if !self.is_deposit_valid(deposit_data).await? {
             return Err(BridgeError::InvalidDeposit);
         }
 

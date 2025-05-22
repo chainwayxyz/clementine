@@ -193,6 +193,11 @@ impl DepositData {
     pub fn get_num_operators(&self) -> usize {
         self.actors.operators.len()
     }
+    pub fn get_deposit_script(&self) -> Result<Arc<dyn SpendableScript>, BridgeError> {
+        let nofn_xonly_pk = self.get_nofn_xonly_pk()?;
+        let 
+        Ok(security_council_script)
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

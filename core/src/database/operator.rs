@@ -178,6 +178,9 @@ impl Database {
 
     /// Sets the unspent kickoff sigs received from operators during initial setup.
     /// Sigs of each round are stored together in the same row.
+    /// On conflict, do not update the existing sigs. Although techically, as long as kickoff winternitz keys
+    /// and operator data(collateral funding outpoint and reimburse address) are not changed, the sigs are still valid
+    /// even if they are changed.
     pub async fn set_unspent_kickoff_sigs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -216,6 +219,8 @@ impl Database {
     }
 
     /// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
+    /// On conflict, do not update the existing keys. This is very important, as otherwise the txids of
+    /// operators round tx's will change.
     pub async fn set_operator_kickoff_winternitz_public_keys(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

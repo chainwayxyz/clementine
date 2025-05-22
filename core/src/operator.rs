@@ -703,6 +703,7 @@ where
 
         // advance to first round if current round is 0, i.e. collateral utxo is still on chain
         if self.db.get_current_round_index(None).await?.unwrap_or(0) == 0 {
+            tracing::warn!("First round tx not on chain, generating first round tx");
             let wpks = self.generate_kickoff_winternitz_pubkeys()?;
             let kickoff_wpks = KickoffWinternitzKeys::new(
                 wpks,
@@ -727,7 +728,7 @@ where
                     &mut dbtx,
                     Some(TxMetadata {
                         tx_type: TransactionType::Round,
-                        operator_xonly_pk: None,
+                        operator_xonly_pk: Some(self.signer.xonly_public_key),
                         round_idx: Some(0),
                         kickoff_idx: None,
                         deposit_outpoint: None,
