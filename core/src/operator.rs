@@ -38,7 +38,7 @@ use bitcoin::{
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
-use eyre::Context;
+use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -148,33 +148,75 @@ where
             .get_operator(Some(&mut dbtx), signer.xonly_public_key)
             .await?;
         let (collateral_funding_outpoint, reimburse_addr) = match op_data {
-            Some(op_data) => (op_data.collateral_funding_outpoint, op_data.reimburse_addr),
-            None => {
-                let outpoint = rpc
-                    .send_to_address(
-                        &signer.address,
-                        config.protocol_paramset().collateral_funding_amount,
-                    )
-                    .await?;
-
-                let reimburse_addr = rpc
-                    .client
-                    .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
-                    .await
-                    .wrap_err("Failed to get new address")?
-                    .assume_checked();
-                db.set_operator(
-                    Some(&mut dbtx),
-                    signer.xonly_public_key,
-                    reimburse_addr.to_string(),
-                    outpoint,
+            Some(operator_data) => {
+                // Operator data is already set in db, we don't actually need to do anyhing.
+                // set_operator_checked will give error if the values set in config and db doesn't match.
+                (
+                    operator_data.collateral_funding_outpoint,
+                    operator_data.reimburse_addr,
                 )
-                .await?;
+            }
+            None => {
+                // Operator data is not set in db, then we check if any collateral outpoint and reimbursement address is set in config.
+                // If so we create a new operator using those data, otherwise we generate new collateral outpoint and reimbursement address.
+                let reimburse_addr = match &config.operator_reimbursement_address {
+                    Some(reimburse_addr) => {
+                        reimburse_addr
+                            .to_owned()
+                            .require_network(config.protocol_paramset().network)
+                            .wrap_err(format!("Invalid operator reimbursement address provided in config: {:?} for network: {:?}", reimburse_addr, config.protocol_paramset().network))?
+                    }
+                    None => {
+                        rpc
+                        .client
+                        .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
+                        .await
+                        .wrap_err("Failed to get new address")?
+                        .require_network(config.protocol_paramset().network)
+                        .wrap_err(format!("Invalid operator reimbursement address generated for the network in config: {:?}
+                                Possibly the provided rpc's network and network given in config doesn't match", config.protocol_paramset().network))?
+                    }
+                };
+                let outpoint = match &config.operator_collateral_funding_outpoint {
+                    Some(outpoint) => {
+                        // check if outpoint exists on chain and has exactly collateral funding amount
+                        let collateral_tx = rpc
+                            .get_tx_of_txid(&outpoint.txid)
+                            .await
+                            .wrap_err("Failed to get collateral funding tx")?;
+                        let collateral_value = collateral_tx
+                            .output
+                            .get(outpoint.vout as usize)
+                            .ok_or_eyre("Invalid vout index for collateral funding tx")?
+                            .value;
+                        if collateral_value != config.protocol_paramset().collateral_funding_amount
+                        {
+                            return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different amount than the one specified in config..
+                                Bridge collateral funnding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_value).into());
+                        }
+                        *outpoint
+                    }
+                    None => {
+                        // create a new outpoint that has collateral funding amount
+                        rpc.send_to_address(
+                            &signer.address,
+                            config.protocol_paramset().collateral_funding_amount,
+                        )
+                        .await?
+                    }
+                };
                 (outpoint, reimburse_addr)
             }
         };
-        dbtx.commit().await?;
 
+        db.set_operator_checked(
+            Some(&mut dbtx),
+            signer.xonly_public_key,
+            &reimburse_addr,
+            collateral_funding_outpoint,
+        )
+        .await?;
+        dbtx.commit().await?;
         let citrea_client = C::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
@@ -794,7 +836,7 @@ where
             create_round_nth_txhandler(
                 self.signer.xonly_public_key,
                 self.collateral_funding_outpoint,
-                Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
+                self.config.protocol_paramset().collateral_funding_amount,
                 current_round_index as usize,
                 &kickoff_wpks,
                 self.config.protocol_paramset(),
@@ -803,7 +845,7 @@ where
         let (mut next_round_txhandler, _) = create_round_nth_txhandler(
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
-            Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
+            self.config.protocol_paramset().collateral_funding_amount,
             current_round_index as usize + 1,
             &kickoff_wpks,
             self.config.protocol_paramset(),

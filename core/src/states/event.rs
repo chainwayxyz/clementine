@@ -103,6 +103,15 @@ impl<T: Owner + std::fmt::Debug + 'static> StateManager<T> {
                 self.process_block_parallel(height).await?;
             }
             SystemEvent::NewOperator { operator_data } => {
+                // Check if operator's state machine already exists.
+                // This can happen if aggregator calls set_operator for the same operator multiple times.
+                // In this case, we don't want to create a new state machine.
+                for operator_machine in self.round_machines.iter() {
+                    if operator_machine.operator_data.xonly_pk == operator_data.xonly_pk {
+                        return Ok(());
+                    }
+                }
+
                 let operator_machine = RoundStateMachine::new(operator_data)
                     .uninitialized_state_machine()
                     .init_with_context(&mut self.context)
