@@ -47,7 +47,7 @@ impl TxSender {
         // Calculate original tx fee
         let original_tx_fee = self.get_tx_fee(&original_tx).await.map_err(|e| eyre!(e))?;
 
-        println!("original_tx_fee: {}", original_tx_fee);
+        //println!("original_tx_fee: {}", original_tx_fee);
 
         let original_tx_weight = original_tx.weight();
 
