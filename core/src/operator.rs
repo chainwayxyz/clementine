@@ -1,5 +1,4 @@
 use ark_ff::PrimeField;
-use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use risc0_zkvm::is_dev_mode;
 use std::collections::{BTreeMap, HashMap};
@@ -50,7 +49,7 @@ use bridge_circuit_host::bridge_circuit_host::{
     SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
 };
 use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
-use bridge_circuit_host::utils::get_ark_verifying_key;
+use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
 use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
@@ -1191,11 +1190,12 @@ where
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
 
         let asserts = if cfg!(test) && is_dev_mode() {
-            (
-                [[0u8; 32]; NUM_PUBS],
-                [[0u8; 32]; NUM_U256],
-                [[0u8; 16]; NUM_HASH],
+            generate_assertions(
+                g16_proof,
+                vec![public_input_scalar],
+                &get_ark_verifying_key_dev_mode_bridge(),
             )
+            .map_err(|e| eyre::eyre!("Failed to generate dev mode assertions: {}", e))?
         } else {
             generate_assertions(
                 g16_proof,

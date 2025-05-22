@@ -120,6 +120,18 @@ pub fn stark_to_snark(
     seal_json["control_root"] = vec![a0_dec, a1_dec].into();
     std::fs::write(seal_path, serde_json::to_string_pretty(&seal_json).unwrap()).unwrap();
 
+    let pull_status = Command::new("docker")
+        .arg("pull")
+        .arg("ozancw/risc0-to-bitvm2-groth16-prover:latest")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .status()
+        .expect("Failed to execute docker pull");
+
+    if !pull_status.success() {
+        panic!("docker pull failed with status: {}", pull_status);
+    }
+
     let output = Command::new("docker")
         .arg("run")
         .arg("--rm")
@@ -168,7 +180,7 @@ pub fn stark_to_snark(
     (proof_json.try_into().unwrap(), output_bytes)
 }
 
-const ID_BN254_FR_BITS: [&str; 254] = [
+const ID_BN254_FR_BITS_DEV_BRIDGE: [&str; 254] = [
     "1", "1", "0", "0", "0", "0", "0", "0", "0", "1", "1", "1", "1", "0", "1", "0", "0", "1", "1",
     "0", "0", "1", "0", "1", "0", "0", "0", "1", "0", "1", "0", "0", "0", "1", "0", "1", "1", "1",
     "0", "0", "0", "0", "1", "1", "1", "1", "0", "0", "1", "0", "1", "1", "0", "1", "0", "0", "1",
@@ -277,7 +289,7 @@ pub fn stark_to_succinct_dev_mode(
     //     id_bn254_fr_bits
     // );
 
-    let id_bn254_fr_bits: Vec<String> = ID_BN254_FR_BITS
+    let id_bn254_fr_bits: Vec<String> = ID_BN254_FR_BITS_DEV_BRIDGE
         .iter()
         .map(|&bit| bit.to_string())
         .collect();
@@ -296,13 +308,25 @@ pub fn stark_to_succinct_dev_mode(
     seal_json["control_root"] = vec![a0_dec, a1_dec].into();
     std::fs::write(seal_path, serde_json::to_string_pretty(&seal_json).unwrap()).unwrap();
 
+    let pull_status = Command::new("docker")
+        .arg("pull")
+        .arg("ozancw/dev-risc0-to-bitvm2-groth16-prover:latest")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .status()
+        .expect("Failed to execute docker pull");
+
+    if !pull_status.success() {
+        panic!("docker pull failed with status: {}", pull_status);
+    }
+
     let output = Command::new("docker")
         .arg("run")
         .arg("--rm")
         .arg("--platform=linux/amd64") // Force linux/amd64 platform
         .arg("-v")
         .arg(format!("{}:/mnt", work_dir.to_string_lossy()))
-        .arg("ozancw/risc0-test-groth16-prover:latest")
+        .arg("ozancw/dev-risc0-to-bitvm2-groth16-prover:latest")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -437,6 +461,18 @@ pub fn test_stark_to_succinct(
     seal_json["id_bn254_fr_bits"] = id_bn254_fr_bits.into();
     seal_json["control_root"] = vec![a0_dec, a1_dec].into();
     std::fs::write(seal_path, serde_json::to_string_pretty(&seal_json).unwrap()).unwrap();
+
+    let pull_status = Command::new("docker")
+        .arg("pull")
+        .arg("ozancw/risc0-to-bitvm2-groth16-prover:latest")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .status()
+        .expect("Failed to execute docker pull");
+
+    if !pull_status.success() {
+        panic!("docker pull failed with status: {}", pull_status);
+    }
 
     let output = Command::new("docker")
         .arg("run")
