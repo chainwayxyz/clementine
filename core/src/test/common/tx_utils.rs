@@ -23,13 +23,14 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
     let mut timeout_counter = 300;
-    while rpc
+    while match rpc
         .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
         .await
-        .unwrap()
-        .is_some()
     {
+        Err(_) => true,
+        Ok(val) => val.is_some(),
+    } {
         // Mine more blocks and wait longer between checks
         let block_count = rpc.client.get_blockchain_info().await?.blocks;
         lc_prover
