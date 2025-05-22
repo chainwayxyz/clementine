@@ -25,6 +25,7 @@ pub mod musig2;
 pub mod operator;
 pub mod rpc;
 pub mod servers;
+#[cfg(feature = "state-machine")]
 pub mod states;
 pub mod task;
 pub mod tx_sender;

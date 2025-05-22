@@ -52,7 +52,7 @@ impl<T: Owner + std::fmt::Debug + 'static> BlockFetcherTask<T> {
 
         tracing::info!(
             "Creating block fetcher task for owner type {} starting from height {}",
-            T::OWNER_TYPE,
+            T::ENTITY_NAME,
             next_height
         );
 
@@ -243,6 +243,7 @@ mod tests {
         database::DatabaseTransaction,
         states::{block_cache, context::DutyResult, Duty},
         test::common::create_test_config_with_thread_name,
+        utils::NamedEntity,
     };
 
     use super::*;
@@ -250,10 +251,12 @@ mod tests {
     #[derive(Clone, Debug)]
     struct MockHandler;
 
+    impl NamedEntity for MockHandler {
+        const ENTITY_NAME: &'static str = "MockHandler";
+    }
+
     #[async_trait]
     impl Owner for MockHandler {
-        const OWNER_TYPE: &'static str = "MockHandler";
-
         async fn handle_duty(&self, _: Duty) -> Result<DutyResult, BridgeError> {
             Ok(DutyResult::Handled)
         }

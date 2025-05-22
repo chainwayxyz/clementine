@@ -1,16 +1,13 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use tokio::time::sleep;
+#[cfg(feature = "state-machine")]
 use tonic::async_trait;
 
-use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
-use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
-use crate::states::context::{Duty, DutyResult};
-use crate::states::{block_cache, Owner};
+use crate::utils::NamedEntity;
 
 use super::manager::BackgroundTaskManager;
 use super::{CancelableResult, Task, TaskExt};
@@ -93,34 +90,8 @@ impl Task for SleepTask {
 #[derive(Debug, Clone)]
 struct TestOwner;
 
-#[async_trait]
-impl Owner for TestOwner {
-    const OWNER_TYPE: &'static str = "test_owner";
-
-    async fn handle_duty(&self, _duty: Duty) -> Result<DutyResult, BridgeError> {
-        // For testing purposes, just return OK
-        Ok(DutyResult::Handled)
-    }
-
-    async fn create_txhandlers(
-        &self,
-        _tx_type: TransactionType,
-        _contract_context: ContractContext,
-    ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
-        // Return empty BTreeMap for testing
-        Ok(BTreeMap::new())
-    }
-
-    async fn handle_finalized_block(
-        &self,
-        _dbtx: DatabaseTransaction<'_, '_>,
-        _block_id: u32,
-        _block_height: u32,
-        _block_cache: Arc<block_cache::BlockCache>,
-        _light_client_proof_wait_interval_secs: Option<u32>,
-    ) -> Result<(), BridgeError> {
-        Ok(())
-    }
+impl NamedEntity for TestOwner {
+    const ENTITY_NAME: &'static str = "test_owner";
 }
 
 #[tokio::test]

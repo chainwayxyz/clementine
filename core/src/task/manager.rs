@@ -1,6 +1,6 @@
 use super::{IntoTask, Task, TaskExt};
 use crate::errors::BridgeError;
-use crate::states::Owner;
+use crate::utils::NamedEntity;
 use futures::future::join_all;
 use std::marker::PhantomData;
 use std::time::Duration;
@@ -12,7 +12,7 @@ use tokio::time::sleep;
 /// dropped, it will abort all tasks. Graceful shutdown can be performed with
 /// `graceful_shutdown`
 #[derive(Debug)]
-pub struct BackgroundTaskManager<T: Owner + 'static> {
+pub struct BackgroundTaskManager<T: NamedEntity + 'static> {
     /// Task handles for spawned tasks
     abort_handles: Vec<AbortHandle>,
     /// Cancellation senders for tasks
@@ -20,7 +20,7 @@ pub struct BackgroundTaskManager<T: Owner + 'static> {
     phantom: PhantomData<T>,
 }
 
-impl<T: Owner + 'static> Default for BackgroundTaskManager<T> {
+impl<T: NamedEntity + 'static> Default for BackgroundTaskManager<T> {
     fn default() -> Self {
         Self {
             abort_handles: Vec::new(),
@@ -30,7 +30,7 @@ impl<T: Owner + 'static> Default for BackgroundTaskManager<T> {
     }
 }
 
-impl<T: Owner + 'static> BackgroundTaskManager<T> {
+impl<T: NamedEntity + 'static> BackgroundTaskManager<T> {
     fn monitor_spawned_task(&self, handle: JoinHandle<Result<(), BridgeError>>, task_name: String) {
         tokio::spawn(async move {
             match handle.await {
@@ -129,7 +129,7 @@ impl<T: Owner + 'static> BackgroundTaskManager<T> {
     }
 }
 
-impl<T: Owner + 'static> Drop for BackgroundTaskManager<T> {
+impl<T: NamedEntity + 'static> Drop for BackgroundTaskManager<T> {
     fn drop(&mut self) {
         self.abort_all();
     }

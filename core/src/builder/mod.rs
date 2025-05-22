@@ -4,6 +4,7 @@
 //! structures.
 
 pub mod address;
+pub mod block_cache;
 pub mod script;
 pub mod sighash;
 pub mod transaction;
