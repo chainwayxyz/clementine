@@ -4,8 +4,8 @@
 //! Please refer to the [whitepaper](https://citrea.xyz/clementine_whitepaper.pdf)
 //! to understand the design of Clementine.
 //!
-//! [`core`] is the backbone of Clementine. As the name suggests, it provides
-//! the core functionalities for Clementine to operate.
+//! Clementine Core is the backbone of Clementine. As the name suggests, it
+//! provides the core functionalities for Clementine to operate.
 //!
 //! Most of the modules are self-explanatory and documented. Please refer
 //! to the documentation of each module for more information.
@@ -15,10 +15,11 @@
 //! Clementine's architecture is designed so that every actor is a separate
 //! server. They all communicate with each other via gRPC.
 //!
-//! For this reason, [`core`] provides a single main binary, `clementine-core`,
-//! which acts as a server starter for every actor. There is also a helper
-//! binary, `clementine-core-cli`, which is a command-line interface for
-//! communicating with these servers. It is located in [`bin/cli.rs`](bin/cli.rs).
+//! For this reason, Clementine Core provides a single main binary,
+//! `clementine-core`, which acts as a server starter for every actor. There is
+//! also a helper binary, `clementine-core-cli`, which is a command-line
+//! interface for communicating with these servers. It is located in
+//! `bin/cli.rs`.
 //!
 //! The [`cli`] module provides the command-line interface for Clementine. It is
 //! used in every binary.
@@ -39,9 +40,9 @@
 //! An actor is only meaningful if its server is running. For each actor, there
 //! is a server module, which provides the server implementation.
 //!
-//! The main server architecture is defined in the [`rpc/clementine.proto`](rpc/clementine.proto)
-//! file. It is compiled to Rust code by the `tonic` library. Server logic for
-//! each actor is defined in the respective server module in the [`rpc`] module.
+//! The main server architecture is defined in the `rpc/clementine.proto` file.
+//! It is compiled to Rust code by the `tonic` library. Server logic for each
+//! actor is defined in the respective server module in the [`rpc`] module.
 //!
 //! ## Development Guidelines
 //!
@@ -54,14 +55,14 @@
 //!
 //! There are a few quirks about testing Clementine. One of the main ones is
 //! that there is no `tests` directory for integration tests. Rather, there is a
-//! [`test`] module, which is compiled only if `test` is enabled by Cargo (when
+//! `test` module, which is compiled only if `test` is enabled by Cargo (when
 //! running `cargo test`). That module provides common utilities for unit and
 //! integration testing, as well as integration tests themselves. This is a
 //! workaround for having common test utilities between unit and integration
 //! tests.
 //!
-//! Please refer to the [`test`] module to check what utilities are available
-//! for testing and how to use them.
+//! Please refer to the `test` module to check what utilities are available for
+//! testing and how to use them.
 
 #![allow(clippy::too_many_arguments)]
 
