@@ -4,7 +4,10 @@ use crate::bitvm_client::SECP;
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::transaction::output::UnspentTxOut;
+use crate::builder::transaction::{
+    op_return_txout, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
+};
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
@@ -32,6 +35,7 @@ use crate::{
 use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;
 use async_trait::async_trait;
+use bitcoin::consensus::{self, Encodable};
 use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use bitcoin::{OutPoint, TxOut, Txid};
@@ -1107,6 +1111,10 @@ async fn mock_citrea_run_malicious_after_exit() {
             SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: round_tx.output[0].value - Amount::from_sat(1000),
+            script_pubkey: round_tx.output[0].script_pubkey.clone(),
+        }))
         .finalize();
 
     actor
