@@ -128,6 +128,8 @@ pub enum BridgeError {
     DepositNotFound(OutPoint),
     #[error("Invalid deposit, deposit does not include the operator of a verifier")]
     InvalidDeposit,
+    #[error("Operator data mismatch. Data already stored in BD and received by set_operator doesn't match for xonly_pk: {0}")]
+    OperatorDataMismatch(XOnlyPublicKey),
 
     // External crate error wrappers
     #[error("Failed to call database: {0}")]

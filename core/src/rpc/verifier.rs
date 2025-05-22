@@ -79,6 +79,20 @@ where
         let (collateral_funding_outpoint, operator_xonly_pk, wallet_reimburse_address) =
             parser::operator::parse_details(&mut in_stream).await?;
 
+        // check if address is valid
+        let wallet_reimburse_address_checked = wallet_reimburse_address
+            .clone()
+            .require_network(self.verifier.config.protocol_paramset().network)
+            .map_err(|e| {
+                Status::invalid_argument(format!(
+                    "Invalid operator reimbursement address: {:?} for bitcoin network {:?} for operator {:?}. ParseError: {}",
+                    wallet_reimburse_address,
+                    self.verifier.config.protocol_paramset().network,
+                    operator_xonly_pk,
+                    e
+                ))
+            })?;
+
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
         for _ in 0..self.verifier.config.get_num_kickoff_winternitz_pks() {
@@ -102,7 +116,7 @@ where
             .set_operator(
                 collateral_funding_outpoint,
                 operator_xonly_pk,
-                wallet_reimburse_address,
+                wallet_reimburse_address_checked,
                 operator_kickoff_winternitz_public_keys,
                 unspent_kickoff_sigs,
             )

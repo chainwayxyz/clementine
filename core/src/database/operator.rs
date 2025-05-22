@@ -30,20 +30,53 @@ pub type AssertTxHash = Vec<[u8; 32]>;
 pub type BitvmSetup = (AssertTxHash, RootHash, RootHash);
 
 impl Database {
-    /// TODO: wallet_address should have `Address` type.
-    pub async fn set_operator(
+    /// Sets the operator details to the db.
+    /// This function additionally checks if the operator data already exists in the db.
+    /// As we don't want to overwrite operator data on the db, as it can prevent us slash malicious operators that signed
+    /// previous deposits. This function should give an error if an operator changed its data.
+    pub async fn set_operator_checked(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         xonly_pubkey: XOnlyPublicKey,
-        wallet_address: String,
+        wallet_address: &bitcoin::Address,
+        collateral_funding_outpoint: OutPoint,
+    ) -> Result<(), BridgeError> {
+        let existing = self.get_operator(tx, xonly_pubkey).await?;
+        match existing {
+            None => {
+                self.set_operator(
+                    None,
+                    xonly_pubkey,
+                    wallet_address,
+                    collateral_funding_outpoint,
+                )
+                .await?;
+                Ok(())
+            }
+            Some(op) => {
+                if op.reimburse_addr == *wallet_address
+                    && op.collateral_funding_outpoint == collateral_funding_outpoint
+                {
+                    Ok(())
+                } else {
+                    Err(BridgeError::OperatorDataMismatch(xonly_pubkey))
+                }
+            }
+        }
+    }
+
+    async fn set_operator(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        xonly_pubkey: XOnlyPublicKey,
+        wallet_address: &bitcoin::Address,
         collateral_funding_outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) VALUES ($1, $2, $3)
-                    ON CONFLICT DO NOTHING",
+            "INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) VALUES ($1, $2, $3)",
         )
         .bind(XOnlyPublicKeyDB(xonly_pubkey))
-        .bind(wallet_address)
+        .bind(AddressDB(wallet_address.as_unchecked().clone()))
         .bind(OutPointDB(collateral_funding_outpoint));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -755,10 +788,7 @@ mod tests {
         }
         // add to db
         for x in ops.iter() {
-            database
-                .set_operator(None, x.0, x.1.to_string(), x.2)
-                .await
-                .unwrap();
+            database.set_operator(None, x.0, &x.1, x.2).await.unwrap();
         }
         let res = database.get_operators(None).await.unwrap();
         assert_eq!(res.len(), ops.len());
@@ -776,6 +806,94 @@ mod tests {
         assert_eq!(res_single.xonly_pk, ops[1].0);
         assert_eq!(res_single.reimburse_addr, ops[1].1);
         assert_eq!(res_single.collateral_funding_outpoint, ops[1].2);
+    }
+
+    #[tokio::test]
+    async fn test_set_operator_checked() {
+        let config = create_test_config_with_thread_name().await;
+        let database = Database::new(&config).await.unwrap();
+
+        let operator_xonly_pk = generate_random_xonly_pk();
+        let reimburse_addr = Address::from_str("bc1q6d6cztycxjpm7p882emln0r04fjqt0kqylvku2")
+            .unwrap()
+            .assume_checked();
+        let collateral_funding_outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 0,
+        };
+
+        // Test inserting new operator
+        database
+            .set_operator_checked(
+                None,
+                operator_xonly_pk,
+                &reimburse_addr,
+                collateral_funding_outpoint,
+            )
+            .await
+            .unwrap();
+
+        let res = database
+            .get_operator(None, operator_xonly_pk)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(res.xonly_pk, operator_xonly_pk);
+        assert_eq!(res.reimburse_addr, reimburse_addr);
+        assert_eq!(res.collateral_funding_outpoint, collateral_funding_outpoint);
+
+        // Test updating operator data
+        let new_reimburse_addr = Address::from_str("bc1qj2mw4uh24qf67kn4nyqfsnta0mmxcutvhkyfp9")
+            .unwrap()
+            .assume_checked();
+        let new_collateral_funding_outpoint = OutPoint {
+            txid: Txid::from_byte_array([2u8; 32]),
+            vout: 1,
+        };
+
+        // test that we can't update the reimburse address
+        assert!(database
+            .set_operator_checked(
+                None,
+                operator_xonly_pk,
+                &reimburse_addr,
+                new_collateral_funding_outpoint
+            )
+            .await
+            .is_err());
+
+        // test that we can't update the collateral funding outpoint
+        assert!(database
+            .set_operator_checked(
+                None,
+                operator_xonly_pk,
+                &new_reimburse_addr,
+                collateral_funding_outpoint
+            )
+            .await
+            .is_err());
+
+        // test that we can't update both
+        assert!(database
+            .set_operator_checked(
+                None,
+                operator_xonly_pk,
+                &new_reimburse_addr,
+                new_collateral_funding_outpoint
+            )
+            .await
+            .is_err());
+
+        // test that it doesnt throw an error if the operator data is the same
+        assert!(database
+            .set_operator_checked(
+                None,
+                operator_xonly_pk,
+                &reimburse_addr,
+                collateral_funding_outpoint
+            )
+            .await
+            .is_ok());
     }
 
     #[tokio::test]

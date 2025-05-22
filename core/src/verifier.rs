@@ -268,8 +268,13 @@ where
     /// Checks if the verifier has an operator in the deposit.
     /// If the verifier does not have an operator, it is a valid deposit.
     /// If the verifier has an operator, it is a valid deposit if the operator is in the deposit.
-    /// Verifier and operator belonging to same entity should have the same keys for this function to work.
-    async fn is_deposit_valid(&self, deposit_data: &DepositData) -> Result<bool, BridgeError> {
+    /// Verifier and operator belonging to same entity should have the same private key for this function to work.
+    /// Verifier's own operator should always exist in verifier's db, because they use the same db and operator
+    /// saves its own data to db in Operator::new.
+    async fn does_deposit_contain_own_operator(
+        &self,
+        deposit_data: &DepositData,
+    ) -> Result<bool, BridgeError> {
         let operator_xonly_pks = deposit_data.get_operators();
         let verifier_xonly_pk = self.signer.xonly_public_key;
         // check if verifier has an operator by checking operator data in db
@@ -307,10 +312,10 @@ where
         let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
-            .set_operator(
+            .set_operator_checked(
                 Some(&mut dbtx),
                 operator_xonly_pk,
-                wallet_reimburse_address.to_string(),
+                &wallet_reimburse_address,
                 collateral_funding_outpoint,
             )
             .await?;
@@ -391,7 +396,10 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self.is_deposit_valid(&deposit_data).await? {
+        if !self
+            .does_deposit_contain_own_operator(&deposit_data)
+            .await?
+        {
             return Err(BridgeError::InvalidDeposit);
         }
 
@@ -494,7 +502,7 @@ where
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
 
-        if !self.is_deposit_valid(deposit_data).await? {
+        if !self.does_deposit_contain_own_operator(deposit_data).await? {
             return Err(BridgeError::InvalidDeposit);
         }
 

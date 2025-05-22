@@ -2,7 +2,7 @@
 
 use super::BridgeConfig;
 use crate::{builder::transaction::SecurityCouncil, errors::BridgeError};
-use bitcoin::{secp256k1::SecretKey, Amount};
+use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
 pub(crate) fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
@@ -105,6 +105,40 @@ impl BridgeConfig {
                 None
             };
 
+        let operator_reimbursement_address = if let Ok(operator_reimbursement_address) =
+            std::env::var("OPERATOR_REIMBURSEMENT_ADDRESS")
+        {
+            Some(
+                operator_reimbursement_address
+                    .parse::<bitcoin::Address<NetworkUnchecked>>()
+                    .map_err(|e| {
+                        BridgeError::EnvVarMalformed(
+                            "OPERATOR_REIMBURSEMENT_ADDRESS",
+                            e.to_string(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        let operator_collateral_funding_outpoint = if let Ok(operator_collateral_funding_outpoint) =
+            std::env::var("OPERATOR_COLLATERAL_FUNDING_OUTPOINT")
+        {
+            Some(
+                operator_collateral_funding_outpoint
+                    .parse::<bitcoin::OutPoint>()
+                    .map_err(|e| {
+                        BridgeError::EnvVarMalformed(
+                            "OPERATOR_COLLATERAL_FUNDING_OUTPOINT",
+                            e.to_string(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
         // TLS certificate and key paths
         let server_cert_path = read_string_from_env("SERVER_CERT_PATH").map(PathBuf::from)?;
         let server_key_path = read_string_from_env("SERVER_KEY_PATH").map(PathBuf::from)?;
@@ -128,6 +162,8 @@ impl BridgeConfig {
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
             winternitz_secret_key,
             operator_withdrawal_fee_sats,
+            operator_reimbursement_address,
+            operator_collateral_funding_outpoint,
             bitcoin_rpc_url: read_string_from_env("BITCOIN_RPC_URL")?,
             bitcoin_rpc_user: read_string_from_env("BITCOIN_RPC_USER")?,
             bitcoin_rpc_password: read_string_from_env("BITCOIN_RPC_PASSWORD")?,

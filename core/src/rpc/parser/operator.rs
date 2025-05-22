@@ -11,8 +11,7 @@ use crate::{
     },
 };
 use bitcoin::{
-    hashes::Hash, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf,
-    XOnlyPublicKey,
+    address::NetworkUnchecked, hashes::Hash, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf, XOnlyPublicKey
 };
 use bitvm::signatures::winternitz;
 use std::str::FromStr;
@@ -85,7 +84,7 @@ impl TryFrom<DepositSignSession> for DepositParams {
 /// - Wallet reimburse address
 pub async fn parse_details(
     stream: &mut tonic::Streaming<OperatorParams>,
-) -> Result<(OutPoint, XOnlyPublicKey, Address), Status> {
+) -> Result<(OutPoint, XOnlyPublicKey, Address<NetworkUnchecked>), Status> {
     let operator_param = fetch_next_message_from_stream!(stream, response)?;
 
     let operator_config =
@@ -108,8 +107,7 @@ pub async fn parse_details(
     let wallet_reimburse_address = Address::from_str(&operator_config.wallet_reimburse_address)
         .map_err(|e| {
             Status::invalid_argument(format!("Failed to parse wallet reimburse address: {:?}", e))
-        })?
-        .assume_checked();
+        })?;
 
     Ok((
         collateral_funding_outpoint,

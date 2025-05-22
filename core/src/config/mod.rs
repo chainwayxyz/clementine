@@ -13,8 +13,9 @@
 use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
 use crate::builder::transaction::SecurityCouncil;
 use crate::errors::BridgeError;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::Amount;
+use bitcoin::{Address, Amount, OutPoint};
 use protocol::ProtocolParamset;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -90,6 +91,12 @@ pub struct BridgeConfig {
     pub verifier_endpoints: Option<Vec<String>>,
     /// Operator endpoint. For the aggregator only
     pub operator_endpoints: Option<Vec<String>>,
+
+    /// Own operator's reimbursement address.
+    pub operator_reimbursement_address: Option<Address<NetworkUnchecked>>,
+
+    /// Own operator's collateral funding outpoint.
+    pub operator_collateral_funding_outpoint: Option<OutPoint>,
 
     // TLS certificates
     /// Path to the server certificate file.
@@ -209,6 +216,9 @@ impl Default for BridgeConfig {
             header_chain_proof_path: Some(
                 PathBuf::from_str("../core/tests/data/first_1.bin").expect("known valid input"),
             ),
+
+            operator_reimbursement_address: None,
+            operator_collateral_funding_outpoint: None,
 
             security_council: SecurityCouncil {
                 pks: vec![*UNSPENDABLE_XONLY_PUBKEY],
