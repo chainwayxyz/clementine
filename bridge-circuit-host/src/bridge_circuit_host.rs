@@ -1,4 +1,4 @@
-use crate::docker::{stark_to_snark, stark_to_succinct_dev_mode};
+use crate::docker::stark_to_snark;
 use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
@@ -17,7 +17,7 @@ use circuits_lib::common::constants::{
     TESTNET4_HEADER_CHAIN_METHOD_ID,
 };
 use circuits_lib::header_chain::mmr_native::MMRNative;
-use risc0_zkvm::{compute_image_id, default_prover, is_dev_mode, ExecutorEnv, ProverOpts, Receipt};
+use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
 
 pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
@@ -144,8 +144,7 @@ pub fn prove_bridge_circuit(
 
     tracing::warn!("Bridge circuit proof generated");
 
-    let succinct_receipt_journal: [u8; 32] =
-        succinct_receipt.clone().journal.bytes.try_into().unwrap();
+    let succinct_receipt_journal: [u8; 32] = succinct_receipt.journal.bytes.try_into().unwrap();
 
     if *journal_hash.as_bytes() != succinct_receipt_journal {
         panic!("Journal hash mismatch");
@@ -154,14 +153,10 @@ pub fn prove_bridge_circuit(
     let bridge_circuit_method_id = compute_image_id(bridge_circuit_elf).unwrap();
     let combined_method_id_constant =
         calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
-    let (g16_proof, g16_output) = if is_dev_mode() {
-        stark_to_succinct_dev_mode(succinct_receipt, &succinct_receipt_journal)
-    } else {
-        stark_to_snark(
-            succinct_receipt.inner.succinct().unwrap().clone(),
-            &succinct_receipt_journal,
-        )
-    };
+    let (g16_proof, g16_output) = stark_to_snark(
+        succinct_receipt.inner.succinct().unwrap().clone(),
+        &succinct_receipt_journal,
+    );
 
     tracing::warn!("Bridge circuit Groth16 proof generated");
 

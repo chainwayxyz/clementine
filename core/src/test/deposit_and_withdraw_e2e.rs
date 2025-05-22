@@ -310,6 +310,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             config
         };
 
+        tracing::warn!("Database name: {:?}", verifier_0_config.db_name);
+
         let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
 
         let db = Database::new(&verifier_0_config)

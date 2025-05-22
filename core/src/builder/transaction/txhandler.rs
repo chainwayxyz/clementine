@@ -71,14 +71,10 @@ impl<T: State> TxHandler<T> {
             .get(idx)
             .ok_or(TxError::TxInputNotFound)?
             .get_spendable();
-        let merkle_root = txin
-            .get_spend_info()
-            .as_ref()
-            .ok_or(eyre::eyre!(
-                "Spend info not found for requested txin in get_merkle_root_of_txin"
-            ))?
-            .merkle_root();
-        Ok(merkle_root)
+        let spend_info = txin.get_spend_info().clone().ok_or(eyre::eyre!(
+            "Spend info not found for requested txin in get_merkle_root_of_txin"
+        ))?;
+        Ok(spend_info.merkle_root())
     }
 
     pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {

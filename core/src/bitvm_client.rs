@@ -4,6 +4,7 @@ use crate::builder::script::{SpendableScript, WinternitzCommit};
 
 use crate::config::protocol::ProtocolParamset;
 use crate::errors::BridgeError;
+use ark_bn254::Bn254;
 use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 
@@ -12,6 +13,9 @@ use bitvm::chunk::api::{
     NUM_U256,
 };
 use bitvm::signatures::wots_api::wots160;
+
+//use bitvm::chunker::assigner::BridgeAssigner;
+use ark_serialize::CanonicalDeserialize;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bridge_circuit_host::utils::get_ark_verifying_key;

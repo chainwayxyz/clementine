@@ -17,7 +17,6 @@ use circuits_lib::{
 use risc0_zkvm::Receipt;
 
 use crate::utils::get_ark_verifying_key;
-use thiserror::Error;
 
 const OP_RETURN_OUTPUT: usize = 1;
 const ANCHOR_OUTPUT: usize = 1;
@@ -38,31 +37,19 @@ pub struct BridgeCircuitHostParams {
     pub payout_input_index: u16,
 }
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone)]
 pub enum BridgeCircuitHostParamsError {
-    #[error("Invalid kickoff transaction")]
     InvalidKickoffTx,
-    #[error("Invalid headerchain receipt")]
     InvalidHeaderchainReceipt,
-    #[error("Invalid light client proof")]
     InvalidLightClientProof,
-    #[error("Invalid LCP receipt")]
     InvalidLcpReceipt,
-    #[error("Invalid storage proof")]
     InvalidStorageProof,
-    #[error("Invalid network")]
     InvalidNetwork,
-    #[error("Invalid watchtower inputs")]
     InvalidWatchtowerInputs,
-    #[error("Invalid public key")]
     InvalidPubkey,
-    #[error("Invalid number of kickoff outputs")]
     InvalidNumberOfKickoffOutputs,
-    #[error("Payout input index not found")]
     PayoutInputIndexNotFound,
-    #[error("Payout input index too large: {0}")]
     PayoutInputIndexTooLarge(usize),
-    #[error("Invalid kickoff transaction vout")]
     KickOffTxInvalidVout,
 }
 
