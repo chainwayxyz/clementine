@@ -109,11 +109,14 @@ pub fn verify_storage_proofs(
     storage_verify(&deposit_storage_proof, state_root);
 
     storage_verify(&vout_storage_proof, state_root);
+    
+    println!("Vout storage proof: {:?}", vout_storage_proof.value);
 
     let buf: [u8; 32] = vout_storage_proof.value.to_le_bytes();
 
+    println!("Vout value: {:?}", buf);
     // ENDIANNESS SHOULD BE CHECKED THIS FIELD IS 4 BYTES in the contract
-    let vout = u32::from_le_bytes(buf[0..4].try_into().expect("Vout value conversion failed"));
+    let vout = u32::from_be_bytes(buf[0..4].try_into().expect("Vout value conversion failed"));
 
     let wd_outpoint = WithdrawalOutpointTxid(utxo_storage_proof.value.to_be_bytes());
 
@@ -178,8 +181,14 @@ mod tests {
     fn test_verify_storage_proofs() {
         let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
+        let bytes = [
+            109, 186, 204, 81, 16, 238, 160, 102, 32, 191, 126, 192, 10, 150, 189, 198, 82, 220,
+            234, 161, 113, 42, 202, 168, 106, 50, 233, 118, 215, 225, 134, 88,
+        ];
+        println!("hex bytes: {:?}", hex::encode(bytes));
+
         let state_root: [u8; 32] =
-            hex::decode("dc972184163d53507364ffeabe5cf19e654208b3407599ca0a5ffdcee7082a9d")
+            hex::decode("6dbacc5110eea06620bf7ec00a96bdc652dceaa1712acaa86a32e976d7e18658")
                 .expect("Valid hex, cannot fail")
                 .try_into()
                 .expect("Valid length, cannot fail");
@@ -190,14 +199,14 @@ mod tests {
         let move_tx_id_hex = hex::encode(*move_tx_id);
 
         let expected_user_wd_outpoint_bytes = [
-            185, 106, 183, 36, 226, 53, 19, 15, 173, 156, 223, 48, 165, 187, 74, 167, 84, 177, 175,
-            10, 247, 195, 60, 244, 95, 114, 196, 201, 152, 158, 75, 134,
+            140, 60, 152, 247, 242, 161, 54, 101, 52, 130, 197, 223, 104, 145, 231, 202, 144, 45,
+            92, 26, 90, 11, 193, 221, 203, 172, 255, 218, 172, 14, 240, 110,
         ];
 
         let expected_vout: u32 = 1;
 
         let expected_move_tx_id_hex =
-            "5e2f60b89450de4c82b9ef91b486978be45133b0b30f14a2f744b94f85a279c5";
+            "93742351a8c68d0f102bd5bd92c477fdc4374168feb1fb81d083ec6cca5838a4";
 
         assert_eq!(
             move_tx_id_hex, expected_move_tx_id_hex,
