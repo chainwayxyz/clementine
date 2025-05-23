@@ -125,7 +125,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
             .contract
             .withdraw(
                 FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
-                FixedBytes::from(withdrawal_utxo.vout.to_be_bytes()),
+                FixedBytes::from(withdrawal_utxo.vout.to_le_bytes()),
             )
             .value(U256::from(
                 config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
@@ -160,7 +160,7 @@ impl TestCase for CitreaWithdrawAndGetUTXO {
 async fn citrea_withdraw_and_get_utxo() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     TestCaseRunner::new(CitreaWithdrawAndGetUTXO).run().await
 }

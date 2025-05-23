@@ -1,7 +1,8 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType, SignedTxsWithType,
-    VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
+    OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
+    SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
+    VerifierParams,
 };
 use super::error;
 use super::parser::ParserError;
@@ -30,6 +31,39 @@ where
 {
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         Ok(Response::new(get_vergen_response()))
+    }
+
+    async fn optimistic_payout_sign(
+        &self,
+        request: Request<OptimisticPayoutParams>,
+    ) -> Result<Response<PartialSig>, Status> {
+        let params = request.into_inner();
+        let agg_nonce = MusigAggNonce::from_slice(params.agg_nonce.as_slice())
+            .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
+        let nonce_session_id = params
+            .nonce_gen
+            .ok_or(Status::invalid_argument(
+                "Nonce params not found for optimistic payout",
+            ))?
+            .id;
+        let withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
+            "Withdrawal params not found for optimistic payout",
+        ))?;
+        let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
+            parser::operator::parse_withdrawal_sig_params(withdraw_params).await?;
+        let partial_sig = self
+            .verifier
+            .sign_optimistic_payout(
+                nonce_session_id,
+                agg_nonce,
+                withdrawal_id,
+                input_signature,
+                input_outpoint,
+                output_script_pubkey,
+                output_amount,
+            )
+            .await?;
+        Ok(Response::new(partial_sig.into()))
     }
 
     async fn internal_create_watchtower_challenge(

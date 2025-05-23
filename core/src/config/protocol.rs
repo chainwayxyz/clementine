@@ -229,7 +229,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_amount: Amount::from_sat(1_000_000_000),
     kickoff_amount: Amount::from_sat(55_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
-    collateral_funding_amount: Amount::from_sat(200_000_000),
+    collateral_funding_amount: Amount::from_sat(99_000_000),
     watchtower_challenge_bytes: 144,
     kickoff_blockhash_commit_length: 40,
     winternitz_log_d: WINTERNITZ_LOG_D,

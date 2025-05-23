@@ -9,20 +9,19 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_emergency_stop_txhandler, create_move_to_vault_txhandler, create_txhandlers,
-    ContractContext, DepositData, KickoffData, OperatorData, ReimburseDbCache, TransactionType,
-    TxHandler, TxHandlerCache,
+    create_emergency_stop_txhandler, create_move_to_vault_txhandler,
+    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, DepositData,
+    KickoffData, OperatorData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::TEN_MINUTES_IN_SECS;
+use crate::constants::{ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
-use crate::musig2;
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::context::DutyResult;
 use crate::states::{block_cache, StateManager};
@@ -30,11 +29,12 @@ use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
 use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
+use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
-use bitcoin::OutPoint;
-use bitcoin::{Address, ScriptBuf, Witness, XOnlyPublicKey};
+use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
+use bitcoin::{OutPoint, TxOut};
 use bitvm::signatures::winternitz;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use eyre::{Context, OptionExt, Result};
@@ -829,6 +829,103 @@ where
         Ok((move_tx_partial_sig, emergency_stop_partial_sig))
     }
 
+    pub async fn sign_optimistic_payout(
+        &self,
+        nonce_session_id: u32,
+        agg_nonce: MusigAggNonce,
+        deposit_id: u32,
+        input_signature: Signature,
+        input_outpoint: OutPoint,
+        output_script_pubkey: ScriptBuf,
+        output_amount: Amount,
+    ) -> Result<MusigPartialSignature, BridgeError> {
+        // check if withdrawal is valid first
+        let move_txid = self
+            .db
+            .get_move_to_vault_txid_from_citrea_deposit(None, deposit_id)
+            .await?;
+        if move_txid.is_none() {
+            return Err(eyre::eyre!("Deposit not found for id: {}", deposit_id).into());
+        }
+        if output_amount > self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT {
+            return Err(eyre::eyre!(
+                "Output amount is greater than the bridge amount: {} > {}",
+                output_amount,
+                self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT
+            )
+            .into());
+        }
+
+        // check if withdrawal utxo is correct
+        let withdrawal_utxo = self
+            .db
+            .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
+            .await?
+            .ok_or_eyre("Withdrawal utxo not found")?;
+        if withdrawal_utxo != input_outpoint {
+            return Err(eyre::eyre!(
+                "Withdrawal utxo is not correct: {:?} != {:?}",
+                withdrawal_utxo,
+                input_outpoint
+            )
+            .into());
+        }
+
+        let move_txid = move_txid.expect("Withdrawal must be Some");
+        let mut deposit_data = self
+            .db
+            .get_deposit_data_with_move_tx(None, move_txid)
+            .await?
+            .ok_or_eyre("Deposit data corresponding to move txid not found")?;
+
+        let withdrawal_prevout = self.rpc.get_txout_from_outpoint(&input_outpoint).await?;
+        let withdrawal_utxo = UTXO {
+            outpoint: input_outpoint,
+            txout: withdrawal_prevout,
+        };
+        let output_txout = TxOut {
+            value: output_amount,
+            script_pubkey: output_script_pubkey,
+        };
+
+        let opt_payout_txhandler = create_optimistic_payout_txhandler(
+            &mut deposit_data,
+            withdrawal_utxo,
+            output_txout,
+            input_signature,
+            self.config.protocol_paramset(),
+        )?;
+        // txin at index 1 is deposited utxo in movetx
+        let sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
+            1,
+            0,
+            bitcoin::TapSighashType::Default,
+        )?;
+
+        let opt_payout_secnonce = {
+            let mut session_map = self.nonces.lock().await;
+            let session = session_map
+                .sessions
+                .get_mut(&nonce_session_id)
+                .ok_or_else(|| eyre::eyre!("Could not find session id {nonce_session_id}"))?;
+            session
+                .nonces
+                .pop()
+                .ok_or_eyre("No move tx secnonce in session")?
+        };
+
+        let opt_payout_partial_sig = musig2::partial_sign(
+            deposit_data.get_verifiers(),
+            None,
+            opt_payout_secnonce,
+            agg_nonce,
+            self.signer.keypair,
+            Message::from_digest(sighash.to_byte_array()),
+        )?;
+
+        Ok(opt_payout_partial_sig)
+    }
+
     pub async fn set_operator_keys(
         &self,
         deposit_data: DepositData,
@@ -974,37 +1071,41 @@ where
             return Ok(true);
         }
         let payout_info = payout_info?;
-        if let Some((operator_xonly_pk, payout_blockhash, _, _)) = payout_info {
-            if operator_xonly_pk != kickoff_data.operator_xonly_pk {
+        let Some((operator_xonly_pk, payout_blockhash, _, _)) = payout_info else {
+            tracing::warn!("No payout info found in db, assuming malicious");
+            return Ok(true);
+        };
+
+        if operator_xonly_pk != kickoff_data.operator_xonly_pk {
+            tracing::warn!("Operator xonly pk for the payout does not match with the kickoff_data");
+            return Ok(true);
+        }
+
+        let wt_derive_path = WinternitzDerivationPath::Kickoff(
+            kickoff_data.round_idx,
+            kickoff_data.kickoff_idx,
+            self.config.protocol_paramset(),
+        );
+        let commits = extract_winternitz_commits(
+            kickoff_witness,
+            &[wt_derive_path],
+            self.config.protocol_paramset(),
+        )?;
+        let blockhash_data = commits.first();
+        // only last 20 bytes of the blockhash is committed
+        let truncated_blockhash = &payout_blockhash[12..];
+        if let Some(committed_blockhash) = blockhash_data {
+            if committed_blockhash != truncated_blockhash {
+                tracing::warn!("Payout blockhash does not match committed hash: committed: {:?}, truncated payout blockhash: {:?}",
+                        blockhash_data, truncated_blockhash);
                 return Ok(true);
             }
-            let wt_derive_path = WinternitzDerivationPath::Kickoff(
-                kickoff_data.round_idx,
-                kickoff_data.kickoff_idx,
-                self.config.protocol_paramset(),
-            );
-            let commits = extract_winternitz_commits(
-                kickoff_witness,
-                &[wt_derive_path],
-                self.config.protocol_paramset(),
-            )?;
-            let blockhash_data = commits.first();
-            // only last 20 bytes of the blockhash is committed
-            let truncated_blockhash = &payout_blockhash[12..];
-            if let Some(committed_blockhash) = blockhash_data {
-                if committed_blockhash != truncated_blockhash {
-                    tracing::warn!("Payout blockhash does not match committed hash: committed: {:?}, truncated payout blockhash: {:?}",
-                        blockhash_data, truncated_blockhash);
-                    return Ok(true);
-                }
-            } else {
-                return Err(BridgeError::Error(
-                    "Couldn't retrieve committed data from witness".to_string(),
-                ));
-            }
-            return Ok(false);
+        } else {
+            return Err(BridgeError::Error(
+                "Couldn't retrieve committed data from witness".to_string(),
+            ));
         }
-        Ok(true)
+        Ok(false)
     }
 
     /// Checks if the kickoff is malicious and sends the appropriate txs if it is.
@@ -1310,11 +1411,19 @@ where
                 .to_bytes();
             tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
 
-            // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
-            let mut operator_idx_bytes = [0u8; 32]; // Create a 4-byte array initialized with zeros
-            operator_idx_bytes.copy_from_slice(&last_output[2..last_output.len()]);
-            let operator_xonly_pk =
-                XOnlyPublicKey::from_slice(&operator_idx_bytes).expect("Invalid operator xonly_pk");
+            let mut operator_xonly_pk_bytes = [0u8; 32]; // Empty 32-byte array to copy operator xonly pk
+                                                         // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
+            if last_output.len() - 2 != 32 {
+                tracing::error!(
+                    "Invalid operator xonly pk length ({} != 32) in payout tx {}",
+                    last_output.len() - 2,
+                    payout_txid
+                );
+            }
+            operator_xonly_pk_bytes.copy_from_slice(&last_output[2..last_output.len()]);
+
+            let operator_xonly_pk = XOnlyPublicKey::from_slice(&operator_xonly_pk_bytes)
+                .expect("Invalid operator xonly_pk");
 
             payout_txs_and_payer_operator_idx.push((
                 idx,
@@ -1423,7 +1532,7 @@ where
                 latest_blockhash,
             } => {
                 tracing::warn!(
-                    "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?}, 
+                    "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?},
                     operator_acks: {:?}, payout_blockhash: {:?}, latest_blockhash: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(),
                     payout_blockhash.len(), latest_blockhash.len()

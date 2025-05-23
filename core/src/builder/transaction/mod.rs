@@ -46,7 +46,7 @@ pub use creator::{
 pub use operator_collateral::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
 };
-pub use operator_reimburse::create_payout_txhandler;
+pub use operator_reimburse::{create_optimistic_payout_txhandler, create_payout_txhandler};
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -369,6 +369,7 @@ pub enum TransactionType {
     ReplacementDeposit,
     LatestBlockhashTimeout,
     LatestBlockhash,
+    OptimisticPayout,
 }
 
 // converter from proto type to rust enum
@@ -403,6 +404,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::ReplacementDeposit => Ok(Self::ReplacementDeposit),
                     Normal::LatestBlockhashTimeout => Ok(Self::LatestBlockhashTimeout),
                     Normal::LatestBlockhash => Ok(Self::LatestBlockhash),
+                    Normal::OptimisticPayout => Ok(Self::OptimisticPayout),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -475,6 +477,9 @@ impl From<TransactionType> for GrpcTransactionId {
                 }
                 TransactionType::LatestBlockhash => {
                     NormalTransaction(Normal::LatestBlockhash as i32)
+                }
+                TransactionType::OptimisticPayout => {
+                    NormalTransaction(Normal::OptimisticPayout as i32)
                 }
                 TransactionType::WatchtowerChallenge(index) => {
                     NumberedTransaction(NumberedTransactionId {

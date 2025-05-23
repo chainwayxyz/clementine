@@ -166,6 +166,7 @@ enum NormalTransactionId {
     REPLACEMENT_DEPOSIT = 17;
     LATEST_BLOCKHASH_TIMEOUT = 18;
     LATEST_BLOCKHASH = 19;
+    OPTIMISTIC_PAYOUT = 20;
 }
 
 enum NumberedTransactionType {
@@ -406,6 +407,12 @@ message NonceGenResponse {
   }
 }
 
+message OptimisticPayoutParams {
+  WithdrawParams withdrawal = 1;
+  NonceGenFirstResponse nonce_gen = 2;
+  bytes agg_nonce = 3;
+}
+
 message VerifierDepositSignParams {
   oneof params {
     DepositSignSession deposit_sign_first_param = 1;
@@ -515,6 +522,9 @@ service ClementineVerifier {
   rpc DepositSign(stream VerifierDepositSignParams)
     returns (stream PartialSig) {}
 
+  // Signs the optimistic payout tx with given aggNonce and withdrawal info.
+  rpc OptimisticPayoutSign(OptimisticPayoutParams) returns (PartialSig) {}
+
   // Verifies every signature and signs move_tx.
   //
   // Used by aggregator inside new_deposit
@@ -618,6 +628,9 @@ service ClementineAggregator {
   // Used by the clementine-backend service to initiate a withdrawal
   rpc Withdraw(WithdrawParams)
     returns (AggregatorWithdrawResponse) {}
+
+  // Perform an optimistic payout to reimburse a peg-out from Citrea
+  rpc OptimisticPayout(WithdrawParams) returns (RawSignedTx)  {}
 
   // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
