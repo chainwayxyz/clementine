@@ -226,7 +226,8 @@ impl TxSenderClient {
             | TransactionType::LatestBlockhashTimeout
             | TransactionType::LatestBlockhash
             | TransactionType::WatchtowerChallenge(_)
-            | TransactionType::EmergencyStop => {
+            | TransactionType::EmergencyStop
+            | TransactionType::OptimisticPayout => {
                 // no_dependency and cpfp
                 self.insert_try_to_send(
                     dbtx,
