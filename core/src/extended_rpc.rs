@@ -6,7 +6,7 @@
 //!
 //! ## Tests
 //!
-//! On tests, Bitcoind node and client are usually created using
+//! In tests, Bitcoind node and client are usually created using
 //! [`crate::test::common::create_regtest_rpc`]. Please refer to
 //! [`crate::test::common`] for using [`ExtendedRpc`] in tests.
 
