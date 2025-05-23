@@ -961,6 +961,7 @@ impl ClementineAggregator for Aggregator {
                     &[],
                     None,
                     &self.config,
+                    None,
                 )
                 .await
                 .map_err(BridgeError::from)?;

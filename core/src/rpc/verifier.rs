@@ -1,9 +1,9 @@
+use super::clementine::OptimisticPayoutParams;
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType, SignedTxsWithType,
     VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
 };
-use super::clementine::{OptimisticPayoutParams, VergenResponse};
 use super::error;
 use super::parser::ParserError;
 use crate::builder::transaction::sign::create_and_sign_txs;
