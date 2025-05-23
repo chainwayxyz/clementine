@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["TransactionParams","UTXO"]};
+window.SIDEBAR_ITEMS = {"struct":["MerkleProof","Transaction","UTXO"]};
