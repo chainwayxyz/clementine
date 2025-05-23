@@ -1278,27 +1278,27 @@ where
 
         let (work_only_proof, work_output) = hcp_prover.prove_work_only(current_tip_hcp.0)?;
 
-        #[cfg(test)]
-        {
-            // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
-            // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
-            if is_dev_mode() {
-                tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
-                let g16_bytes = 128;
-                let mut challenge = vec![0u8; g16_bytes];
-                for (step, i) in (0..g16_bytes).step_by(32).enumerate() {
-                    if i < g16_bytes {
-                        challenge[i] = step as u8;
-                    }
-                }
-                let total_work = borsh::to_vec(&work_output.work_u128)
-                    .wrap_err("Couldn't serialize total work")?;
-                challenge.extend_from_slice(&total_work);
-                return self
-                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
-                    .await;
-            }
-        }
+        // #[cfg(test)]
+        // {
+        //     // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
+        //     // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
+        //     if is_dev_mode() {
+        //         tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
+        //         let g16_bytes = 128;
+        //         let mut challenge = vec![0u8; g16_bytes];
+        //         for (step, i) in (0..g16_bytes).step_by(32).enumerate() {
+        //             if i < g16_bytes {
+        //                 challenge[i] = step as u8;
+        //             }
+        //         }
+        //         let total_work = borsh::to_vec(&work_output.work_u128)
+        //             .wrap_err("Couldn't serialize total work")?;
+        //         challenge.extend_from_slice(&total_work);
+        //         return self
+        //             .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
+        //             .await;
+        //     }
+        // }
 
         let g16: [u8; 256] = work_only_proof
             .inner
@@ -1323,6 +1323,8 @@ where
         let total_work =
             borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
         commit_data.extend_from_slice(&total_work);
+
+        tracing::info!("Watchtower prepared commit data, trying to send watchtower challenge");
 
         self.queue_watchtower_challenge(kickoff_data, deposit_data, commit_data)
             .await
@@ -1599,6 +1601,9 @@ where
                 );
                 self.send_watchtower_challenge(kickoff_data, deposit_data)
                     .await?;
+
+                tracing::info!("Verifier sent watchtower challenge",);
+
                 Ok(DutyResult::Handled)
             }
             Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
