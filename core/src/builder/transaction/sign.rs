@@ -431,7 +431,7 @@ where
         #[cfg(test)]
         {
             if self.config.test_params.disrupt_block_hash_commit {
-                block_hash[32] ^= 0x01;
+                block_hash[31] ^= 0x01;
             }
         }
 
