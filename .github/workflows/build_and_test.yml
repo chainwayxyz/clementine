@@ -28,6 +28,9 @@ jobs:
         with:
           shared-key: "debug-build"
 
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - name: Compile in debug mode
         run: cargo build $CARGOFLAGS --verbose
 
@@ -46,6 +49,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "release-build"
+
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
 
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS --verbose --release
@@ -85,6 +91,9 @@ jobs:
         with:
           shared-key: "debug-build"
 
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - name: Run tests
         run: cargo test
 
@@ -122,6 +131,9 @@ jobs:
         with:
           shared-key: "release-build"
 
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - name: Run tests
         run: cargo test --release
 
@@ -143,6 +155,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "release-build"
+
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
 
       - name: Run tests
         run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
@@ -177,6 +192,9 @@ jobs:
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
       - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
 
       - name: Run coverage
         run: cargo llvm-cov --locked --lcov --output-path lcov.info
