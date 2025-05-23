@@ -811,7 +811,7 @@ where
             create_round_nth_txhandler(
                 self.signer.xonly_public_key,
                 self.collateral_funding_outpoint,
-                Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
+                self.config.protocol_paramset().collateral_funding_amount,
                 current_round_index as usize,
                 &kickoff_wpks,
                 self.config.protocol_paramset(),
@@ -820,7 +820,7 @@ where
         let (mut next_round_txhandler, _) = create_round_nth_txhandler(
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
-            Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
+            self.config.protocol_paramset().collateral_funding_amount,
             current_round_index as usize + 1,
             &kickoff_wpks,
             self.config.protocol_paramset(),
@@ -1306,7 +1306,7 @@ where
                 operator_xonly_pk,
                 used_kickoffs,
             } => {
-                tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}", 
+                tracing::info!("Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}",
                     self.signer.xonly_public_key, round_idx, operator_xonly_pk, used_kickoffs);
                 Ok(DutyResult::Handled)
             }
@@ -1318,7 +1318,7 @@ where
                 payout_blockhash,
                 latest_blockhash,
             } => {
-                tracing::warn!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}", 
+                tracing::warn!("Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}",
                     self.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
                 self.send_asserts(
                     kickoff_data,

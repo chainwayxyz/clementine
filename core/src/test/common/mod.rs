@@ -36,7 +36,6 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{taproot, Amount, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
-use citrea::get_transaction_params;
 use eyre::Context;
 use secp256k1::rand;
 pub use setup_utils::*;
@@ -360,34 +359,39 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 
-    let transaction = rpc
-        .client
-        .get_raw_transaction(&move_txid, None)
-        .await
-        .expect("a");
-    let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
-        .client
-        .get_raw_transaction_info(&move_txid, None)
-        .await
-        .expect("a");
-    let block: bitcoincore_rpc::json::GetBlockResult = rpc
-        .client
-        .get_block_info(&tx_info.blockhash.unwrap())
-        .await
-        .expect("a");
-    let block_height = block.height;
-    let block = rpc
-        .client
-        .get_block(&tx_info.blockhash.unwrap())
-        .await
-        .expect("a");
-    let transaction_params =
-        get_transaction_params(transaction.clone(), block, block_height as u32, move_txid);
-    println!("Move tx Transaction params: {:?}", transaction_params);
-    println!(
-        "Move tx: {:?}",
-        hex::encode(bitcoin::consensus::serialize(&transaction))
-    );
+    // let transaction = rpc
+    //     .client
+    //     .get_raw_transaction(&move_txid, None)
+    //     .await
+    //     .expect("a");
+    // let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
+    //     .client
+    //     .get_raw_transaction_info(&move_txid, None)
+    //     .await
+    //     .expect("a");
+    // let block: bitcoincore_rpc::json::GetBlockResult = rpc
+    //     .client
+    //     .get_block_info(&tx_info.blockhash.unwrap())
+    //     .await
+    //     .expect("a");
+    // let block_height = block.height;
+    // let block = rpc
+    //     .client
+    //     .get_block(&tx_info.blockhash.unwrap())
+    //     .await
+    //     .expect("a");
+    // let transaction_params = get_citrea_deposit_params(
+    //     &rpc,
+    //     transaction.clone(),
+    //     block,
+    //     block_height as u32,
+    //     move_txid,
+    // ).await?;
+    // println!("Move tx Transaction params: {:?}", transaction_params);
+    // println!(
+    //     "Move tx: {:?}",
+    //     hex::encode(bitcoin::consensus::serialize(&transaction))
+    // );
 
     Ok((
         verifiers,

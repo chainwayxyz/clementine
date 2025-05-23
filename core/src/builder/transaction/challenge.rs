@@ -157,7 +157,6 @@ pub fn create_operator_challenge_nack_txhandler(
             .add_output(UnspentTxOut::from_partial(
                 builder::transaction::anchor_output(),
             ))
-            .add_burn_output()
             .finalize(),
     )
 }

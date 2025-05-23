@@ -64,6 +64,7 @@ bitcoin-script = { workspace = true }
 citrea-e2e = { workspace = true }
 base64 = { workspace = true }
 bridge-circuit-host = { path = "../bridge-circuit-host" }
+ctor = { workspace = true }
 
 [[bin]]
 name = "clementine-cli"

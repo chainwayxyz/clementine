@@ -246,6 +246,8 @@ impl CitreaClientT for CitreaClient {
         let key = secret_key.with_chain_id(Some(chain_id.into()));
         let wallet_address = key.address();
 
+        tracing::info!("Wallet address: {}", wallet_address);
+
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(key))
             .on_http(citrea_rpc_url.clone());
@@ -354,7 +356,7 @@ impl CitreaClientT for CitreaClient {
             let txid =
                 Txid::from_slice(txid.as_ref()).wrap_err("Failed to convert txid to Txid")?;
             let vout = withdrawal_utxo.outputId.0;
-            let vout = u32::from_be_bytes(vout);
+            let vout = u32::from_le_bytes(vout);
             let utxo = OutPoint { txid, vout };
             utxos.push((start_idx as u64, utxo));
             start_idx += 1;
@@ -471,27 +473,23 @@ impl CitreaClientT for CitreaClient {
         Ok(replacement_move_txids)
     }
 
-    /// TODO: This is not the best way to do this, but it's a quick fix for now
     async fn check_nofn_correctness(
         &self,
-        _nofn_xonly_pk: XOnlyPublicKey,
+        nofn_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
-        // let script_prefix = self
-        //     .contract
-        //     .scriptPrefix()
-        //     .call()
-        //     .await
-        //     .wrap_err("Failed to get script prefix")?
-        //     ._0;
-        // if script_prefix.len() < 34 {
-        //     return Err(eyre::eyre!("script_prefix is too short").into());
-        // }
-        // let script_nofn_bytes = &script_prefix[2..2 + 32];
-        // let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(script_nofn_bytes)
-        //     .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
-        // if contract_nofn_xonly_pk != nofn_xonly_pk {
-        //     return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
-        // }
+        let contract_nofn_xonly_pk = self
+            .contract
+            .getAggregatedKey()
+            .call()
+            .await
+            .wrap_err("Failed to get script prefix")?
+            ._0;
+
+        let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(contract_nofn_xonly_pk.as_ref())
+            .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
+        if contract_nofn_xonly_pk != nofn_xonly_pk {
+            return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
+        }
         Ok(())
     }
 }
@@ -520,111 +518,3 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
         RootProvider,
     >,
 >;
-
-#[cfg(test)]
-mod tests {
-    use crate::citrea::CitreaClientT;
-    use crate::citrea::BRIDGE_CONTRACT::Withdrawal;
-    use crate::test::common::citrea::get_bridge_params;
-    use crate::{
-        citrea::CitreaClient,
-        test::common::{
-            citrea::{self, SECRET_KEYS},
-            create_test_config_with_thread_name,
-        },
-    };
-    use alloy::providers::Provider;
-    use citrea_e2e::{
-        config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
-        framework::TestFramework,
-        test_case::{TestCase, TestCaseRunner},
-    };
-    use tonic::async_trait;
-
-    struct CitreaGetLogsLimitCheck;
-    #[async_trait]
-    impl TestCase for CitreaGetLogsLimitCheck {
-        fn bitcoin_config() -> BitcoinConfig {
-            BitcoinConfig {
-                extra_args: vec![
-                    "-txindex=1",
-                    "-fallbackfee=0.000001",
-                    "-rpcallowip=0.0.0.0/0",
-                ],
-                ..Default::default()
-            }
-        }
-
-        fn test_config() -> TestCaseConfig {
-            TestCaseConfig {
-                with_batch_prover: false,
-                with_sequencer: true,
-                with_full_node: true,
-                docker: TestCaseDockerConfig {
-                    bitcoin: true,
-                    citrea: true,
-                },
-                ..Default::default()
-            }
-        }
-
-        fn sequencer_config() -> SequencerConfig {
-            SequencerConfig {
-                bridge_initialize_params: get_bridge_params().to_string(),
-                ..Default::default()
-            }
-        }
-
-        async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
-            let (sequencer, _full_node, _, _, da) =
-                citrea::start_citrea(Self::sequencer_config(), f)
-                    .await
-                    .unwrap();
-
-            let mut config = create_test_config_with_thread_name().await;
-            citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, None);
-
-            let citrea_client = CitreaClient::new(
-                config.citrea_rpc_url,
-                config.citrea_light_client_prover_url,
-                config.citrea_chain_id,
-                Some(SECRET_KEYS[0].to_string().parse().unwrap()),
-            )
-            .await
-            .unwrap();
-
-            let filter = citrea_client.contract.event_filter::<Withdrawal>().filter;
-            let start = 0;
-            let end = 1001;
-
-            // Generate blocks because Citrea will default `to_block` as the
-            // height if `to_block` is exceeded height.
-            for _ in start..end {
-                sequencer.client.send_publish_batch_request().await.unwrap();
-            }
-
-            let logs_from_citrea_module = citrea_client
-                .get_logs(filter.clone(), start, end)
-                .await
-                .unwrap();
-            println!("Logs from Citrea module: {:?}", logs_from_citrea_module);
-
-            let filter = filter.from_block(start).to_block(end);
-            let logs_from_direct_call = citrea_client.contract.provider().get_logs(&filter).await;
-            println!("Logs from direct call: {:?}", logs_from_direct_call);
-            assert!(logs_from_direct_call.is_err());
-
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
-    #[ignore = "Includes code that won't change much and the test itself is too flaky; Ignoring..."]
-    async fn citrea_get_logs_limit_check() -> citrea_e2e::Result<()> {
-        std::env::set_var(
-            "CITREA_DOCKER_IMAGE",
-            "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
-        );
-        TestCaseRunner::new(CitreaGetLogsLimitCheck).run().await
-    }
-}
