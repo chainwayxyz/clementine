@@ -489,7 +489,7 @@
 <a href=#489 id=489 data-nosnippet>489</a>        </span><span class="kw">let </span>submit_package_result: PackageSubmissionResult = <span class="self">self
 <a href=#490 id=490 data-nosnippet>490</a>            </span>.rpc
 <a href=#491 id=491 data-nosnippet>491</a>            .client
-<a href=#492 id=492 data-nosnippet>492</a>            .submit_package(<span class="kw-2">&amp;</span>package_refs)
+<a href=#492 id=492 data-nosnippet>492</a>            .submit_package(<span class="kw-2">&amp;</span>package_refs, <span class="prelude-val">Some</span>(Amount::from_sat(<span class="number">0</span>)), <span class="prelude-val">None</span>)
 <a href=#493 id=493 data-nosnippet>493</a>            .<span class="kw">await
 <a href=#494 id=494 data-nosnippet>494</a>            </span>.wrap_err(<span class="string">"Failed to submit package"</span>)<span class="question-mark">?</span>;
 <a href=#495 id=495 data-nosnippet>495</a>

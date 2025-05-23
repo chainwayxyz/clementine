@@ -794,8 +794,8 @@
 <a href=#794 id=794 data-nosnippet>794</a>            create_round_nth_txhandler(
 <a href=#795 id=795 data-nosnippet>795</a>                <span class="self">self</span>.signer.xonly_public_key,
 <a href=#796 id=796 data-nosnippet>796</a>                <span class="self">self</span>.collateral_funding_outpoint,
-<a href=#797 id=797 data-nosnippet>797</a>                Amount::from_sat(<span class="number">200_000_000</span>), <span class="comment">// TODO: Get this from protocol constants config
-<a href=#798 id=798 data-nosnippet>798</a>                </span>current_round_index <span class="kw">as </span>usize,
+<a href=#797 id=797 data-nosnippet>797</a>                <span class="self">self</span>.config.protocol_paramset().collateral_funding_amount,
+<a href=#798 id=798 data-nosnippet>798</a>                current_round_index <span class="kw">as </span>usize,
 <a href=#799 id=799 data-nosnippet>799</a>                <span class="kw-2">&amp;</span>kickoff_wpks,
 <a href=#800 id=800 data-nosnippet>800</a>                <span class="self">self</span>.config.protocol_paramset(),
 <a href=#801 id=801 data-nosnippet>801</a>            )<span class="question-mark">?</span>;
@@ -803,8 +803,8 @@
 <a href=#803 id=803 data-nosnippet>803</a>        <span class="kw">let </span>(<span class="kw-2">mut </span>next_round_txhandler, <span class="kw">_</span>) = create_round_nth_txhandler(
 <a href=#804 id=804 data-nosnippet>804</a>            <span class="self">self</span>.signer.xonly_public_key,
 <a href=#805 id=805 data-nosnippet>805</a>            <span class="self">self</span>.collateral_funding_outpoint,
-<a href=#806 id=806 data-nosnippet>806</a>            Amount::from_sat(<span class="number">200_000_000</span>), <span class="comment">// TODO: Get this from protocol constants config
-<a href=#807 id=807 data-nosnippet>807</a>            </span>current_round_index <span class="kw">as </span>usize + <span class="number">1</span>,
+<a href=#806 id=806 data-nosnippet>806</a>            <span class="self">self</span>.config.protocol_paramset().collateral_funding_amount,
+<a href=#807 id=807 data-nosnippet>807</a>            current_round_index <span class="kw">as </span>usize + <span class="number">1</span>,
 <a href=#808 id=808 data-nosnippet>808</a>            <span class="kw-2">&amp;</span>kickoff_wpks,
 <a href=#809 id=809 data-nosnippet>809</a>            <span class="self">self</span>.config.protocol_paramset(),
 <a href=#810 id=810 data-nosnippet>810</a>        )<span class="question-mark">?</span>;
@@ -1068,7 +1068,7 @@
 <a href=#1068 id=1068 data-nosnippet>1068</a>                operator_xonly_pk,
 <a href=#1069 id=1069 data-nosnippet>1069</a>                used_kickoffs,
 <a href=#1070 id=1070 data-nosnippet>1070</a>            } =&gt; {
-<a href=#1071 id=1071 data-nosnippet>1071</a>                <span class="macro">tracing::info!</span>(<span class="string">"Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}"</span>, 
+<a href=#1071 id=1071 data-nosnippet>1071</a>                <span class="macro">tracing::info!</span>(<span class="string">"Operator {:?} called new ready to reimburse with round_idx: {}, operator_xonly_pk: {:?}, used_kickoffs: {:?}"</span>,
 <a href=#1072 id=1072 data-nosnippet>1072</a>                    <span class="self">self</span>.signer.xonly_public_key, round_idx, operator_xonly_pk, used_kickoffs);
 <a href=#1073 id=1073 data-nosnippet>1073</a>                <span class="prelude-val">Ok</span>(DutyResult::Handled)
 <a href=#1074 id=1074 data-nosnippet>1074</a>            }
@@ -1080,7 +1080,7 @@
 <a href=#1080 id=1080 data-nosnippet>1080</a>                payout_blockhash,
 <a href=#1081 id=1081 data-nosnippet>1081</a>                latest_blockhash,
 <a href=#1082 id=1082 data-nosnippet>1082</a>            } =&gt; {
-<a href=#1083 id=1083 data-nosnippet>1083</a>                <span class="macro">tracing::warn!</span>(<span class="string">"Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}"</span>, 
+<a href=#1083 id=1083 data-nosnippet>1083</a>                <span class="macro">tracing::warn!</span>(<span class="string">"Operator {:?} called send operator asserts with kickoff_data: {:?}, deposit_data: {:?}, watchtower_challenges: {:?}"</span>,
 <a href=#1084 id=1084 data-nosnippet>1084</a>                    <span class="self">self</span>.signer.xonly_public_key, kickoff_data, deposit_data, watchtower_challenges.len());
 <a href=#1085 id=1085 data-nosnippet>1085</a>                <span class="self">self</span>.send_asserts(
 <a href=#1086 id=1086 data-nosnippet>1086</a>                    kickoff_data,
