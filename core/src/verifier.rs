@@ -1060,37 +1060,41 @@ where
             return Ok(true);
         }
         let payout_info = payout_info?;
-        if let Some((operator_xonly_pk, payout_blockhash)) = payout_info {
-            if operator_xonly_pk != kickoff_data.operator_xonly_pk {
+        let Some((operator_xonly_pk, payout_blockhash)) = payout_info else {
+            tracing::warn!("No payout info found in db, assuming malicious");
+            return Ok(true);
+        };
+
+        if operator_xonly_pk != kickoff_data.operator_xonly_pk {
+            tracing::warn!("Operator xonly pk for the payout does not match with the kickoff_data");
+            return Ok(true);
+        }
+
+        let wt_derive_path = WinternitzDerivationPath::Kickoff(
+            kickoff_data.round_idx,
+            kickoff_data.kickoff_idx,
+            self.config.protocol_paramset(),
+        );
+        let commits = extract_winternitz_commits(
+            kickoff_witness,
+            &[wt_derive_path],
+            self.config.protocol_paramset(),
+        )?;
+        let blockhash_data = commits.first();
+        // only last 20 bytes of the blockhash is committed
+        let truncated_blockhash = &payout_blockhash[12..];
+        if let Some(committed_blockhash) = blockhash_data {
+            if committed_blockhash != truncated_blockhash {
+                tracing::warn!("Payout blockhash does not match committed hash: committed: {:?}, truncated payout blockhash: {:?}",
+                        blockhash_data, truncated_blockhash);
                 return Ok(true);
             }
-            let wt_derive_path = WinternitzDerivationPath::Kickoff(
-                kickoff_data.round_idx,
-                kickoff_data.kickoff_idx,
-                self.config.protocol_paramset(),
-            );
-            let commits = extract_winternitz_commits(
-                kickoff_witness,
-                &[wt_derive_path],
-                self.config.protocol_paramset(),
-            )?;
-            let blockhash_data = commits.first();
-            // only last 20 bytes of the blockhash is committed
-            let truncated_blockhash = &payout_blockhash[12..];
-            if let Some(committed_blockhash) = blockhash_data {
-                if committed_blockhash != truncated_blockhash {
-                    tracing::warn!("Payout blockhash does not match committed hash: committed: {:?}, truncated payout blockhash: {:?}",
-                        blockhash_data, truncated_blockhash);
-                    return Ok(true);
-                }
-            } else {
-                return Err(BridgeError::Error(
-                    "Couldn't retrieve committed data from witness".to_string(),
-                ));
-            }
-            return Ok(false);
+        } else {
+            return Err(BridgeError::Error(
+                "Couldn't retrieve committed data from witness".to_string(),
+            ));
         }
-        Ok(true)
+        Ok(false)
     }
 
     /// Checks if the kickoff is malicious and sends the appropriate txs if it is.
@@ -1330,11 +1334,19 @@ where
                 .to_bytes();
             tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
 
-            // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
-            let mut operator_idx_bytes = [0u8; 32]; // Create a 4-byte array initialized with zeros
-            operator_idx_bytes.copy_from_slice(&last_output[2..last_output.len()]);
-            let operator_xonly_pk =
-                XOnlyPublicKey::from_slice(&operator_idx_bytes).expect("Invalid operator xonly_pk");
+            let mut operator_xonly_pk_bytes = [0u8; 32]; // Empty 32-byte array to copy operator xonly pk
+                                                         // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
+            if last_output.len() - 2 != 32 {
+                tracing::error!(
+                    "Invalid operator xonly pk length ({} != 32) in payout tx {}",
+                    last_output.len() - 2,
+                    payout_txid
+                );
+            }
+            operator_xonly_pk_bytes.copy_from_slice(&last_output[2..last_output.len()]);
+
+            let operator_xonly_pk = XOnlyPublicKey::from_slice(&operator_xonly_pk_bytes)
+                .expect("Invalid operator xonly_pk");
 
             payout_txs_and_payer_operator_idx.push((
                 idx,
@@ -1442,7 +1454,7 @@ where
                 latest_blockhash,
             } => {
                 tracing::warn!(
-                    "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?}, 
+                    "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?},
                     operator_acks: {:?}, payout_blockhash: {:?}, latest_blockhash: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(),
                     payout_blockhash.len(), latest_blockhash.len()
