@@ -207,7 +207,7 @@
 <a href=#207 id=207 data-nosnippet>207</a>            <span class="kw-2">&amp;</span>bitvm_client::UNSPENDABLE_XONLY_PUBKEY
 <a href=#208 id=208 data-nosnippet>208</a>                .tap_tweak(<span class="kw-2">&amp;</span>SECP, spend_info.merkle_root())
 <a href=#209 id=209 data-nosnippet>209</a>                .<span class="number">0
-<a href=#210 id=210 data-nosnippet>210</a>                </span>.to_inner()
+<a href=#210 id=210 data-nosnippet>210</a>                </span>.to_x_only_public_key()
 <a href=#211 id=211 data-nosnippet>211</a>        ));
 <a href=#212 id=212 data-nosnippet>212</a>        <span class="macro">assert_eq!</span>(
 <a href=#213 id=213 data-nosnippet>213</a>            spend_info.internal_key(),
@@ -226,7 +226,7 @@
 <a href=#226 id=226 data-nosnippet>226</a>            <span class="kw-2">&amp;</span>internal_key
 <a href=#227 id=227 data-nosnippet>227</a>                .tap_tweak(<span class="kw-2">&amp;</span>SECP, spend_info.merkle_root())
 <a href=#228 id=228 data-nosnippet>228</a>                .<span class="number">0
-<a href=#229 id=229 data-nosnippet>229</a>                </span>.to_inner()
+<a href=#229 id=229 data-nosnippet>229</a>                </span>.to_x_only_public_key()
 <a href=#230 id=230 data-nosnippet>230</a>        ));
 <a href=#231 id=231 data-nosnippet>231</a>        <span class="macro">assert_eq!</span>(spend_info.internal_key(), internal_key);
 <a href=#232 id=232 data-nosnippet>232</a>        <span class="macro">assert!</span>(spend_info.merkle_root().is_none());
@@ -242,7 +242,7 @@
 <a href=#242 id=242 data-nosnippet>242</a>            <span class="kw-2">&amp;</span>internal_key
 <a href=#243 id=243 data-nosnippet>243</a>                .tap_tweak(<span class="kw-2">&amp;</span>SECP, spend_info.merkle_root())
 <a href=#244 id=244 data-nosnippet>244</a>                .<span class="number">0
-<a href=#245 id=245 data-nosnippet>245</a>                </span>.to_inner()
+<a href=#245 id=245 data-nosnippet>245</a>                </span>.to_x_only_public_key()
 <a href=#246 id=246 data-nosnippet>246</a>        ));
 <a href=#247 id=247 data-nosnippet>247</a>        <span class="macro">assert_eq!</span>(spend_info.internal_key(), internal_key);
 <a href=#248 id=248 data-nosnippet>248</a>        <span class="macro">assert!</span>(spend_info.merkle_root().is_some());
@@ -258,7 +258,7 @@
 <a href=#258 id=258 data-nosnippet>258</a>            <span class="kw-2">&amp;</span>internal_key
 <a href=#259 id=259 data-nosnippet>259</a>                .tap_tweak(<span class="kw-2">&amp;</span>SECP, spend_info.merkle_root())
 <a href=#260 id=260 data-nosnippet>260</a>                .<span class="number">0
-<a href=#261 id=261 data-nosnippet>261</a>                </span>.to_inner()
+<a href=#261 id=261 data-nosnippet>261</a>                </span>.to_x_only_public_key()
 <a href=#262 id=262 data-nosnippet>262</a>        ));
 <a href=#263 id=263 data-nosnippet>263</a>        <span class="macro">assert_eq!</span>(spend_info.internal_key(), internal_key);
 <a href=#264 id=264 data-nosnippet>264</a>        <span class="macro">assert!</span>(spend_info.merkle_root().is_some());
