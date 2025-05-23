@@ -632,6 +632,11 @@ impl Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
 
+        tracing::info!(
+            "move_tx: {}",
+            hex::encode(bitcoin::consensus::serialize(&move_tx))
+        );
+
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
         Ok(move_txhandler.promote()?)
     }

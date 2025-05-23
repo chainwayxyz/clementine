@@ -1,6 +1,7 @@
 use crate::citrea::LIGHT_CLIENT_ADDRESS;
 use crate::errors::BridgeError;
-use crate::test::common::citrea::parameters::get_transaction_params;
+use crate::extended_rpc::ExtendedRpc;
+use crate::test::common::citrea::parameters::get_citrea_deposit_params;
 use crate::EVMAddress;
 use alloy::sol_types::SolValue;
 use bitcoin::{Block, Transaction};
@@ -55,6 +56,7 @@ pub async fn eth_get_balance(
 /// won't directly talk with EVM but with Citrea. So that authorization can be done (Citrea will
 /// block this call if it isn't an operator).
 pub async fn deposit(
+    rpc: &ExtendedRpc,
     client: HttpClient,
     block: Block,
     block_height: u32,
@@ -62,12 +64,12 @@ pub async fn deposit(
 ) -> Result<(), BridgeError> {
     let txid = transaction.compute_txid();
 
-    let params = get_transaction_params(transaction, block, block_height, txid)?;
+    let params = get_citrea_deposit_params(rpc, transaction, block, block_height, txid).await?;
 
     let _response: () = client
         .request(
             "citrea_sendRawDepositTransaction",
-            rpc_params!(hex::encode(params.abi_encode())),
+            rpc_params!(hex::encode(params.abi_encode_params())),
         )
         .await
         .wrap_err("Failed to send deposit transaction")?;

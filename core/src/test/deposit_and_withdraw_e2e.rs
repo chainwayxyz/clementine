@@ -12,7 +12,7 @@ use crate::database::Database;
 use crate::rpc::clementine::{
     FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::SECRET_KEYS;
+use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
     get_txid_where_utxo_is_spent,
@@ -30,7 +30,6 @@ use crate::{
         create_test_config_with_thread_name,
     },
 };
-use alloy::primitives::FixedBytes;
 use alloy::primitives::U256;
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
@@ -138,7 +137,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         let (
             _verifiers,
             mut operators,
-            _aggregator,
+            mut _aggregator,
             _cleanup,
             _deposit_params,
             move_txid,
@@ -183,7 +182,9 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         );
 
         tracing::debug!("Depositing to Citrea...");
+
         citrea::deposit(
+            &rpc,
             sequencer.client.http_client().clone(),
             block,
             block_height.try_into().unwrap(),
@@ -226,6 +227,34 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                         .unwrap_or(Amount::from_sat(0)),
             )
             .await;
+
+        rpc.mine_blocks(1).await.unwrap();
+
+        let block_height = rpc.client.get_block_count().await.unwrap();
+
+        // Wait for TXs to be on-chain (CPFP etc.).
+        rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+            sequencer.client.send_publish_batch_request().await.unwrap();
+        }
+
+        citrea::wait_until_lc_contract_updated(sequencer.client.http_client(), block_height)
+            .await
+            .unwrap();
+
+        let params = get_citrea_safe_withdraw_params(
+            &rpc,
+            withdrawal_utxo_with_txout.clone(),
+            payout_txout.clone(),
+            sig,
+        )
+        .await
+        .unwrap();
+
+        tracing::info!("Params: {:?}", params);
+
         let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
         tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
@@ -235,8 +264,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                 withdrawal_id: 0,
                 input_signature: sig.serialize().to_vec(),
                 input_outpoint: Some(withdrawal_utxo.into()),
-                output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
-                output_amount: payout_txout.txout().value.to_sat(),
+                output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                output_amount: payout_txout.value.to_sat(),
             })
             .await
             .is_err());
@@ -250,12 +279,32 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         .await
         .unwrap();
 
+        // let citrea_withdrawal_tx = citrea_client
+        //     .contract
+        //     .withdraw(
+        //         FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
+        //         FixedBytes::from(withdrawal_utxo.vout.to_be_bytes()),
+        //     )
+        //     .value(U256::from(
+        //         config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
+        //     ))
+        //     .send()
+        //     .await
+        //     .unwrap();
+        // tracing::debug!("Withdrawal TX sent in Citrea");
+
+        // // 1. force sequencer to commit
+        // for _ in 0..sequencer.config.node.max_l2_blocks_per_commitment {
+        //     sequencer.client.send_publish_batch_request().await.unwrap();
+        // }
+        // tracing::debug!("Publish batch request sent");
+
+        // let receipt = citrea_withdrawal_tx.get_receipt().await.unwrap();
+        // println!("Citrea withdrawal tx receipt: {:?}", receipt);
+
         let citrea_withdrawal_tx = citrea_client
             .contract
-            .withdraw(
-                FixedBytes::from(withdrawal_utxo.txid.to_raw_hash().to_byte_array()),
-                FixedBytes::from(withdrawal_utxo.vout.to_be_bytes()),
-            )
+            .safeWithdraw(params.0, params.1, params.2, params.3, params.4)
             .value(U256::from(
                 config.protocol_paramset().bridge_amount.to_sat() * SATS_TO_WEI_MULTIPLIER,
             ))
@@ -306,8 +355,8 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
                     withdrawal_id: 0,
                     input_signature: sig.serialize().to_vec(),
                     input_outpoint: Some(withdrawal_utxo.into()),
-                    output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
-                    output_amount: payout_txout.txout().value.to_sat(),
+                    output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                    output_amount: payout_txout.value.to_sat(),
                 })
                 .await;
 
@@ -426,7 +475,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 async fn citrea_deposit_and_withdraw_e2e() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
-        "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
+        "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
     TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
 }
@@ -533,14 +582,7 @@ async fn mock_citrea_run_truthful() {
         None,
         config.protocol_paramset().network,
     );
-    let (
-        UTXO {
-            outpoint: withdrawal_utxo,
-            ..
-        },
-        payout_txout,
-        sig,
-    ) = generate_withdrawal_transaction_and_signature(
+    let (dust_utxo, payout_txout, sig) = generate_withdrawal_transaction_and_signature(
         &config,
         &rpc,
         &withdrawal_address,
@@ -551,24 +593,9 @@ async fn mock_citrea_run_truthful() {
     )
     .await;
 
-    // let withdrawal_response = operators[0]
-    //     .withdraw(WithdrawParams {
-    //         withdrawal_id: 0,
-    //         input_signature: sig.serialize().to_vec(),
-    //         input_outpoint: Some(withdrawal_utxo.into()),
-    //         output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
-    //         output_amount: payout_txout.txout().value.to_sat(),
-    //     })
-    //     .await;
-
-    // tracing::info!("Withdrawal response: {:?}", withdrawal_response);
+    let withdrawal_utxo = dust_utxo.outpoint;
 
     tracing::info!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
-
-    tracing::info!("Collecting deposits and withdrawals");
-
-    // mine 1 block to make sure the withdrawal is in the next block
-    // rpc.mine_blocks(1).await.unwrap();
 
     let current_block_height = rpc.client.get_block_count().await.unwrap();
 
@@ -591,8 +618,8 @@ async fn mock_citrea_run_truthful() {
                     withdrawal_id: 0,
                     input_signature: sig.serialize().to_vec(),
                     input_outpoint: Some(withdrawal_utxo.into()),
-                    output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
-                    output_amount: payout_txout.txout().value.to_sat(),
+                    output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                    output_amount: payout_txout.value.to_sat(),
                 })
                 .await;
 
