@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["stark_to_snark","test_stark_to_succinct","to_decimal"]};
+window.SIDEBAR_ITEMS = {"fn":["stark_to_snark","stark_to_succinct_dev_mode","test_stark_to_succinct","to_decimal"]};

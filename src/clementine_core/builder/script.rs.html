@@ -56,8 +56,8 @@
 <a href=#56 id=56 data-nosnippet>56</a>    <span class="kw">for </span>wt_path <span class="kw">in </span>wt_derive_paths.iter().rev() {
 <a href=#57 id=57 data-nosnippet>57</a>        <span class="kw">let </span>wt_params = wt_path.get_params();
 <a href=#58 id=58 data-nosnippet>58</a>        <span class="kw">let </span>message_digits =
-<a href=#59 id=59 data-nosnippet>59</a>            (wt_params.byte_message_length() * <span class="number">8</span>).div_ceil(paramset.winternitz_log_d) <span class="kw">as </span>usize;
-<a href=#60 id=60 data-nosnippet>60</a>        <span class="kw">let </span>checksum_digits = wt_params.total_length() <span class="kw">as </span>usize - message_digits;
+<a href=#59 id=59 data-nosnippet>59</a>            (wt_params.message_byte_len() * <span class="number">8</span>).div_ceil(paramset.winternitz_log_d) <span class="kw">as </span>usize;
+<a href=#60 id=60 data-nosnippet>60</a>        <span class="kw">let </span>checksum_digits = wt_params.total_digit_len() <span class="kw">as </span>usize - message_digits;
 <a href=#61 id=61 data-nosnippet>61</a>
 <a href=#62 id=62 data-nosnippet>62</a>        <span class="kw">let </span><span class="kw-2">mut </span>elements: Vec&lt;<span class="kw-2">&amp;</span>[u8]&gt; = cur_witness_iter
 <a href=#63 id=63 data-nosnippet>63</a>            .by_ref()

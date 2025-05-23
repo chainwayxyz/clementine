@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["create_spv","prove_bridge_circuit","prove_work_only_header_chain_proof"]};
+window.SIDEBAR_ITEMS = {"constant":["MAINNET_BRIDGE_CIRCUIT_ELF","REGTEST_BRIDGE_CIRCUIT_ELF","SIGNET_BRIDGE_CIRCUIT_ELF","TESTNET4_BRIDGE_CIRCUIT_ELF"],"fn":["create_spv","prove_bridge_circuit","prove_work_only_header_chain_proof"]};

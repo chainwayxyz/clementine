@@ -185,7 +185,7 @@
 <a href=#185 id=185 data-nosnippet>185</a>                </span><span class="prelude-val">Ok</span>(output)
 <a href=#186 id=186 data-nosnippet>186</a>            }
 <a href=#187 id=187 data-nosnippet>187</a>            <span class="prelude-val">Err</span>(e) =&gt; {
-<a href=#188 id=188 data-nosnippet>188</a>                <span class="macro">tracing::error!</span>(task=<span class="question-mark">?</span><span class="self">self</span>.inner, <span class="string">"Task error, suppressing due to buffer: {e:?}"</span>);
+<a href=#188 id=188 data-nosnippet>188</a>                <span class="macro">tracing::error!</span>(<span class="string">"Task error, suppressing due to buffer: {e:?}"</span>);
 <a href=#189 id=189 data-nosnippet>189</a>                <span class="self">self</span>.buffer.push(e);
 <a href=#190 id=190 data-nosnippet>190</a>                <span class="kw">if </span><span class="self">self</span>.buffer.len() &gt;= <span class="self">self</span>.error_overflow_limit {
 <a href=#191 id=191 data-nosnippet>191</a>                    <span class="kw">let </span><span class="kw-2">mut </span>base_error: eyre::Report =
