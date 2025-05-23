@@ -59,7 +59,7 @@ jobs:
   # Tests ------------------------------------------------------------------------
   debug_build_test:
     name: Test code with debug build
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-16
     needs: debug_build
 
     services:
@@ -99,7 +99,7 @@ jobs:
 
   release_build_test:
     name: Test code with release build
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-16
     needs: release_build
 
     services:
