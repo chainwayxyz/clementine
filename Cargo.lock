@@ -1616,7 +1616,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=929c8e0#929c8e00eebd7947c1b225cca262a914db6be731"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=a2c0810429f6b93568b2140e5476d2d70b5db3be#a2c0810429f6b93568b2140e5476d2d70b5db3be"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -1655,9 +1655,9 @@ dependencies = [
 
 [[package]]
 name = "blake3"
-version = "1.5.1"
+version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30cca6d3674597c30ddf2c587bf8d9d65c9a84d2326d941cc79c9842dfe0ef52"
+checksum = "3888aaa89e4b2a40fca9848e400f6a658a5a3978de7be858e209cafa8be9a4a0"
 dependencies = [
  "arrayref",
  "arrayvec",
@@ -2065,11 +2065,13 @@ version = "0.3.0"
 dependencies = [
  "alloy",
  "ark-bn254",
+ "ark-ff 0.5.0",
  "ark-groth16",
  "ark-serialize 0.5.0",
  "async-stream",
  "async-trait",
  "base64 0.22.1",
+ "bincode",
  "bitcoin",
  "bitcoin-script",
  "bitcoincore-rpc",
@@ -2085,6 +2087,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "hex",
+ "hex-literal",
  "http",
  "hyper",
  "hyper-util",

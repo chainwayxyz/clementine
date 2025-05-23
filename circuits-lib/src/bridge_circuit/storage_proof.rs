@@ -110,15 +110,18 @@ pub fn verify_storage_proofs(
 
     storage_verify(&vout_storage_proof, state_root);
 
-    let buf: [u8; 32] = vout_storage_proof.value.to_le_bytes();
+    let buf: [u8; 32] = vout_storage_proof.value.to_be_bytes();
 
     // ENDIANNESS SHOULD BE CHECKED THIS FIELD IS 4 BYTES in the contract
+    let vout = u32::from_le_bytes(
+        buf[28..32]
+            .try_into()
+            .expect("Vout value conversion failed"),
+    );
 
-    let vout = u32::from_le_bytes(buf[0..4].try_into().expect("Vout value conversion failed"));
+    let wd_outpoint = WithdrawalOutpointTxid(utxo_storage_proof.value.to_be_bytes());
 
-    let wd_outpoint = WithdrawalOutpointTxid(utxo_storage_proof.value.to_le_bytes());
-
-    let move_txid = MoveTxid(deposit_storage_proof.value.to_le_bytes());
+    let move_txid = MoveTxid(deposit_storage_proof.value.to_be_bytes());
 
     (wd_outpoint, vout, move_txid)
 }
@@ -180,7 +183,7 @@ mod tests {
         let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
 
         let state_root: [u8; 32] =
-            hex::decode("fe1dac365fa622b56c128f75080fbdc226ed087551755ca14c4b4b0287555aa5")
+            hex::decode("6dbacc5110eea06620bf7ec00a96bdc652dceaa1712acaa86a32e976d7e18658")
                 .expect("Valid hex, cannot fail")
                 .try_into()
                 .expect("Valid length, cannot fail");
@@ -191,14 +194,14 @@ mod tests {
         let move_tx_id_hex = hex::encode(*move_tx_id);
 
         let expected_user_wd_outpoint_bytes = [
-            56, 100, 54, 16, 198, 255, 202, 164, 42, 95, 228, 47, 96, 137, 162, 129, 86, 152, 92,
-            12, 189, 174, 150, 201, 50, 195, 11, 80, 234, 171, 122, 29,
+            140, 60, 152, 247, 242, 161, 54, 101, 52, 130, 197, 223, 104, 145, 231, 202, 144, 45,
+            92, 26, 90, 11, 193, 221, 203, 172, 255, 218, 172, 14, 240, 110,
         ];
 
-        let expected_vout: u32 = 0;
+        let expected_vout: u32 = 1;
 
         let expected_move_tx_id_hex =
-            "0778b4ccf0c2e2e37d0d6f634f2acb47b22536b935007a137007f88af86d1755";
+            "93742351a8c68d0f102bd5bd92c477fdc4374168feb1fb81d083ec6cca5838a4";
 
         assert_eq!(
             move_tx_id_hex, expected_move_tx_id_hex,

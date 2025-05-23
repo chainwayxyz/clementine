@@ -21,7 +21,7 @@ use crate::constants::{ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::header_chain_prover::HeaderChainProver;
+use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::context::DutyResult;
 use crate::states::{block_cache, StateManager};
@@ -36,7 +36,10 @@ use bitcoin::secp256k1::Message;
 use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitvm::signatures::winternitz;
+use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use eyre::{Context, OptionExt, Result};
+#[cfg(test)]
+use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::pin;
@@ -1021,6 +1024,14 @@ where
             .to_raw_hash()
             .to_byte_array();
 
+        self.db
+            .set_operator_bitvm_keys(
+                None,
+                operator_xonly_pk,
+                deposit_data.get_deposit_outpoint(),
+                bitvm_pks.to_flattened_vec(),
+            )
+            .await?;
         // Save the public input wots to db along with the root hash
         self.db
             .set_bitvm_setup(
@@ -1060,7 +1071,7 @@ where
             return Ok(true);
         }
         let payout_info = payout_info?;
-        let Some((operator_xonly_pk, payout_blockhash)) = payout_info else {
+        let Some((operator_xonly_pk, payout_blockhash, _, _)) = payout_info else {
             tracing::warn!("No payout info found in db, assuming malicious");
             return Ok(true);
         };
@@ -1165,6 +1176,7 @@ where
                             &signed_txs,
                             tx_metadata,
                             &self.config,
+                            None,
                         )
                         .await?;
                 }
@@ -1180,17 +1192,81 @@ where
         kickoff_data: KickoffData,
         deposit_data: DepositData,
     ) -> Result<(), BridgeError> {
-        let (tx_type, challenge_tx) = self
-            .create_and_sign_watchtower_challenge(
+        let hcp_prover = self
+            .header_chain_prover
+            .as_ref()
+            .ok_or(HeaderChainProverError::HeaderChainProverNotInitialized)?;
+        let current_tip_hcp = hcp_prover.get_tip_header_chain_proof().await?;
+
+        let (work_only_proof, work_output) = hcp_prover.prove_work_only(current_tip_hcp.0)?;
+
+        #[cfg(test)]
+        {
+            // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
+            // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
+            if is_dev_mode() {
+                tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
+                let g16_bytes = 128;
+                let mut challenge = vec![0u8; g16_bytes];
+                for (step, i) in (0..g16_bytes).step_by(32).enumerate() {
+                    if i < g16_bytes {
+                        challenge[i] = step as u8;
+                    }
+                }
+                let total_work = borsh::to_vec(&work_output.work_u128)
+                    .wrap_err("Couldn't serialize total work")?;
+                challenge.extend_from_slice(&total_work);
+                return self
+                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
+                    .await;
+            }
+        }
+
+        let g16: [u8; 256] = work_only_proof
+            .inner
+            .groth16()
+            .wrap_err("Work only receipt is not groth16")?
+            .seal
+            .to_owned()
+            .try_into()
+            .map_err(|e: Vec<u8>| {
+                eyre::eyre!(
+                    "Invalid g16 proof length, expected 256 bytes, got {}",
+                    e.len()
+                )
+            })?;
+
+        let g16_proof = CircuitGroth16Proof::from_seal(&g16);
+        let mut commit_data: Vec<u8> = g16_proof
+            .to_compressed()
+            .wrap_err("Couldn't compress g16 proof")?
+            .to_vec();
+
+        let total_work =
+            borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
+        commit_data.extend_from_slice(&total_work);
+
+        self.queue_watchtower_challenge(kickoff_data, deposit_data, commit_data)
+            .await
+    }
+
+    async fn queue_watchtower_challenge(
+        &self,
+        kickoff_data: KickoffData,
+        deposit_data: DepositData,
+        commit_data: Vec<u8>,
+    ) -> Result<(), BridgeError> {
+        let (tx_type, challenge_tx, rbf_info) = self
+            .create_watchtower_challenge(
                 TransactionRequestData {
                     deposit_outpoint: deposit_data.get_deposit_outpoint(),
                     kickoff_data,
                 },
-                &vec![0u8; self.config.protocol_paramset().watchtower_challenge_bytes], // dummy challenge
+                &commit_data,
             )
             .await?;
-        let mut dbtx = self.db.begin_transaction().await?;
 
+        let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
             .add_tx_to_queue(
                 &mut dbtx,
@@ -1205,13 +1281,14 @@ where
                     deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                 }),
                 &self.config,
+                Some(rbf_info),
             )
             .await?;
-        dbtx.commit().await?;
 
+        dbtx.commit().await?;
         tracing::info!(
-            "Commited watchtower challenge for watchtower {}",
-            self.signer.xonly_public_key
+            "Commited watchtower challenge, commit data: {:?}",
+            commit_data
         );
 
         Ok(())
@@ -1228,22 +1305,22 @@ where
         tracing::debug!("Updating citrea deposit and withdrawals");
 
         let last_deposit_idx = self.db.get_last_deposit_idx(None).await?;
-        tracing::info!("Last deposit idx: {:?}", last_deposit_idx);
+        tracing::debug!("Last deposit idx: {:?}", last_deposit_idx);
 
         let last_withdrawal_idx = self.db.get_last_withdrawal_idx(None).await?;
-        tracing::info!("Last withdrawal idx: {:?}", last_withdrawal_idx);
+        tracing::debug!("Last withdrawal idx: {:?}", last_withdrawal_idx);
 
         let new_deposits = self
             .citrea_client
             .collect_deposit_move_txids(last_deposit_idx, l2_height_end)
             .await?;
-        tracing::info!("New deposits: {:?}", new_deposits);
+        tracing::debug!("New deposits: {:?}", new_deposits);
 
         let new_withdrawals = self
             .citrea_client
             .collect_withdrawal_utxos(last_withdrawal_idx, l2_height_end)
             .await?;
-        tracing::info!("New Withdrawals: {:?}", new_withdrawals);
+        tracing::debug!("New Withdrawals: {:?}", new_withdrawals);
 
         for (idx, move_to_vault_txid) in new_deposits {
             tracing::info!(
@@ -1400,6 +1477,7 @@ where
                             deposit_outpoint: None,
                         }),
                         &self.config,
+                        None,
                     )
                     .await?;
             }
@@ -1537,10 +1615,12 @@ where
         light_client_proof_wait_interval_secs: Option<u32>,
     ) -> Result<(), BridgeError> {
         tracing::info!(
-            "Handling finalized block height: {:?} and block cache height: {:?}",
+            "Verifier Handling finalized block height: {:?} and block cache height: {:?}",
             block_height,
             block_cache.block_height
         );
+
+        // before a certain number of blocks, citrea doesn't produce proofs (defined in citrea config)
         let max_attempts = light_client_proof_wait_interval_secs.unwrap_or(TEN_MINUTES_IN_SECS);
         let timeout = Duration::from_secs(max_attempts as u64);
 

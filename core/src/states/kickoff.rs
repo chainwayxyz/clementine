@@ -49,6 +49,7 @@ pub enum KickoffEvent {
     // ChallengeTimeoutNotSent,
     TimeToSendWatchtowerChallenge,
     TimeToSendVerifierDisprove,
+    TimeToSendOperatorAsserts, // unused for now, asserts are directly sent after latest blockhash is committed
     /// Special event that is used to indicate that the state machine has been saved to the database and the dirty flag should be reset
     SavedToDb,
 }
@@ -304,7 +305,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
-            | KickoffEvent::SavedToDb => Super,
+            | KickoffEvent::SavedToDb
+            | KickoffEvent::TimeToSendOperatorAsserts => Super,
             KickoffEvent::TimeToSendWatchtowerChallenge => {
                 self.send_watchtower_challenge(context).await;
                 Handled
@@ -390,7 +392,11 @@ impl<T: Owner> KickoffStateMachine<T> {
                     .expect("Latest blockhash outpoint that got matched should be in block");
                 // save latest blockhash witness
                 self.latest_blockhash = witness;
-                // send operator asserts if all watchtower challenges are spent + latest blockhash is committed
+                // can start sending asserts as latest blockhash is committed and finalized
+                self.send_operator_asserts(context).await;
+                Handled
+            }
+            KickoffEvent::TimeToSendOperatorAsserts => {
                 self.send_operator_asserts(context).await;
                 Handled
             }
@@ -420,7 +426,8 @@ impl<T: Owner> KickoffStateMachine<T> {
             | KickoffEvent::BurnConnectorSpent
             | KickoffEvent::WatchtowerChallengeTimeoutSent { .. }
             | KickoffEvent::LatestBlockHashSent { .. }
-            | KickoffEvent::SavedToDb => Super,
+            | KickoffEvent::SavedToDb
+            | KickoffEvent::TimeToSendOperatorAsserts => Super,
             _ => {
                 self.unhandled_event(context, event).await;
                 Handled

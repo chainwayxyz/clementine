@@ -1,11 +1,13 @@
 use super::common::citrea::get_bridge_params;
 use crate::actor::Actor;
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{self, SECP};
 use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::input::{SpendableTxIn, UtxoVout};
 use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
+use crate::builder::transaction::{
+    KickoffData, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
+};
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
@@ -14,14 +16,16 @@ use crate::rpc::clementine::{
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    ensure_outpoint_spent, ensure_outpoint_spent_while_waiting_for_light_client_sync,
-    get_txid_where_utxo_is_spent,
+    create_tx_sender, ensure_outpoint_spent,
+    ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
+    mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
     create_regtest_rpc, generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
     poll_get, poll_until_condition, run_single_deposit,
 };
 use crate::test::full_flow::get_tx_from_signed_txs_with_type;
+use crate::tx_sender::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,
@@ -139,7 +143,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             mut operators,
             mut _aggregator,
             _cleanup,
-            _deposit_params,
+            deposit_params,
             move_txid,
             _deposit_blockhash,
             verifiers_public_keys,
@@ -349,6 +353,19 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
+        // Setup tx_sender for sending transactions
+        let verifier_0_config = {
+            let mut config = config.clone();
+            config.db_name += "0";
+            config
+        };
+
+        let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
+
+        let db = Database::new(&verifier_0_config)
+            .await
+            .expect("failed to create database");
+
         let payout_txid = loop {
             let withdrawal_response = operators[0]
                 .withdraw(WithdrawParams {
@@ -382,19 +399,6 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
 
-        // Setup tx_sender for sending transactions
-        let verifier_0_config = {
-            let mut config = config.clone();
-            config.db_name += "0";
-            config
-        };
-
-        let op0_xonly_pk = verifiers_public_keys[0].x_only_public_key().0;
-
-        let db = Database::new(&verifier_0_config)
-            .await
-            .expect("failed to create database");
-
         // wait until payout part is not null
         while db
             .get_first_unhandled_payout_by_operator_xonly_pk(None, op0_xonly_pk)
@@ -422,7 +426,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         let reimburse_connector = OutPoint {
             txid: kickoff_txid,
-            vout: 2,
+            vout: UtxoVout::ReimburseInKickoff.get_vout(),
         };
 
         // wait 3 seconds so fee payer txs are sent to mempool
@@ -432,9 +436,90 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 
         // Wait for the kickoff tx to be onchain
         let kickoff_block_height =
-            mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800)).await?;
+            mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
+
+        let kickoff_tx = rpc.get_tx_of_txid(&kickoff_txid).await?;
+
+        // wrongfully challenge operator
+        let kickoff_idx = kickoff_tx.input[0].previous_output.vout - 1;
+        let base_tx_req = TransactionRequest {
+            kickoff_id: Some(
+                KickoffData {
+                    operator_xonly_pk: op0_xonly_pk,
+                    round_idx: 0,
+                    kickoff_idx: kickoff_idx as u32,
+                }
+                .into(),
+            ),
+            deposit_outpoint: Some(deposit_params.deposit_outpoint.into()),
+        };
+        let all_txs = operators[0]
+            .internal_create_signed_txs(base_tx_req.clone())
+            .await?
+            .into_inner();
+
+        let challenge_tx = bitcoin::consensus::deserialize(
+            &all_txs
+                .signed_txs
+                .iter()
+                .find(|tx| tx.transaction_type == Some(TransactionType::Challenge.into()))
+                .unwrap()
+                .raw_tx,
+        )
+        .unwrap();
+
+        let kickoff_tx: Transaction = bitcoin::consensus::deserialize(
+            &all_txs
+                .signed_txs
+                .iter()
+                .find(|tx| tx.transaction_type == Some(TransactionType::Kickoff.into()))
+                .unwrap()
+                .raw_tx,
+        )
+        .unwrap();
+
+        assert_eq!(kickoff_txid, kickoff_tx.compute_txid());
+
+        // send wrong challenge tx
+        let (tx_sender, tx_sender_db) = create_tx_sender(&config, 0).await.unwrap();
+        let mut db_commit = tx_sender_db.begin_transaction().await.unwrap();
+        tx_sender
+            .insert_try_to_send(
+                &mut db_commit,
+                Some(TxMetadata {
+                    deposit_outpoint: None,
+                    operator_xonly_pk: None,
+                    round_idx: None,
+                    kickoff_idx: None,
+                    tx_type: TransactionType::Challenge,
+                }),
+                &challenge_tx,
+                FeePayingType::RBF,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await
+            .unwrap();
+        db_commit.commit().await.unwrap();
 
         rpc.mine_blocks(DEFAULT_FINALITY_DEPTH).await.unwrap();
+
+        let challenge_outpoint = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::Challenge.get_vout(),
+        };
+        tracing::warn!(
+            "Wait until challenge tx is in mempool, kickoff block height: {:?}",
+            kickoff_block_height
+        );
+        // wait until challenge tx is in mempool
+        mine_once_after_outpoint_spent_in_mempool(&rpc, challenge_outpoint)
+            .await
+            .unwrap();
+        tracing::warn!("Mined once after challenge tx is in mempool");
 
         // wait until the light client prover is synced to the same height
         lc_prover
@@ -449,6 +534,30 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
         )
         .await
         .unwrap();
+
+        // Create assert transactions for operator 0
+        let assert_txs = operators[0]
+            .internal_create_assert_commitment_txs(base_tx_req)
+            .await?
+            .into_inner();
+
+        // check if asserts were sent due to challenge
+        let operator_assert_txids = (0
+            ..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
+            .map(|i| {
+                let assert_tx =
+                    get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
+                        .unwrap();
+                assert_tx.compute_txid()
+            })
+            .collect::<Vec<Txid>>();
+        for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
+            assert!(
+                rpc.is_txid_in_chain(&txid).await.unwrap(),
+                "Mini assert {} was not found in the chain",
+                idx
+            );
+        }
         Ok(())
     }
 }
@@ -718,7 +827,7 @@ async fn mock_citrea_run_truthful() {
 
     // Wait for the kickoff tx to be onchain
     let _kickoff_block_height =
-        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
+        mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
             .await
             .unwrap();
 
