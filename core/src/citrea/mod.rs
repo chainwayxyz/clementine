@@ -216,7 +216,10 @@ impl CitreaClient {
 
         Ok(logs)
     }
+}
 
+#[async_trait]
+impl CitreaClientT for CitreaClient {
     /// Fetches the storage proof for a given deposit index and transaction ID.
     ///
     /// This function interacts with an Citrea RPC endpoint to retrieve a storage proof,
@@ -228,11 +231,11 @@ impl CitreaClient {
     ///
     /// # Returns
     /// Returns a `StorageProof` struct containing serialized storage proofs for the UTXO and deposit index.
-    pub async fn fetch_storage_proof(
+    async fn get_storage_proof(
         &self,
         l2_height: u64,
         deposit_index: u32,
-    ) -> eyre::Result<StorageProof> {
+    ) -> Result<StorageProof, BridgeError> {
         let ind = deposit_index;
         let tx_index: u32 = ind * 2;
 
@@ -274,15 +277,20 @@ impl CitreaClient {
                 ],
                 format!("0x{:x}", l2_height),
             )
-            .await?;
+            .await
+            .wrap_err("Failed to get storage proof from rpc")?;
 
-        let response: EIP1186AccountProofResponse = serde_json::from_value(response)?;
+        let response: EIP1186AccountProofResponse = serde_json::from_value(response)
+            .wrap_err("Failed to deserialize EIP1186AccountProofResponse")?;
 
-        let serialized_utxo = serde_json::to_string(&response.storage_proof[0])?;
+        let serialized_utxo = serde_json::to_string(&response.storage_proof[0])
+            .wrap_err("Failed to serialize storage proof utxo")?;
 
-        let serialized_vout = serde_json::to_string(&response.storage_proof[1])?;
+        let serialized_vout = serde_json::to_string(&response.storage_proof[1])
+            .wrap_err("Failed to serialize storage proof vout")?;
 
-        let serialized_deposit = serde_json::to_string(&response.storage_proof[2])?;
+        let serialized_deposit = serde_json::to_string(&response.storage_proof[2])
+            .wrap_err("Failed to serialize storage proof deposit")?;
 
         Ok(StorageProof {
             storage_proof_utxo: serialized_utxo,
@@ -290,19 +298,6 @@ impl CitreaClient {
             storage_proof_deposit_txid: serialized_deposit,
             index: ind,
         })
-    }
-}
-
-#[async_trait]
-impl CitreaClientT for CitreaClient {
-    async fn get_storage_proof(
-        &self,
-        l2_height: u64,
-        deposit_index: u32,
-    ) -> Result<StorageProof, BridgeError> {
-        self.fetch_storage_proof(l2_height, deposit_index)
-            .await
-            .map_err(BridgeError::from)
     }
 
     async fn new(
