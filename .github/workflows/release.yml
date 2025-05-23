@@ -46,7 +46,7 @@ jobs:
 
   release:
     needs:  linux_amd64_binary_extraction
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - name: Download linux-amd64 Binary
         uses: actions/download-artifact@v4

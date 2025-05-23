@@ -17,6 +17,9 @@ jobs:
     runs-on: ubicloud-standard-30
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -28,9 +31,6 @@ jobs:
         with:
           shared-key: "debug-build"
 
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
-
       - name: Compile in debug mode
         run: cargo build $CARGOFLAGS --verbose
 
@@ -39,6 +39,9 @@ jobs:
     runs-on: ubicloud-standard-30
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -49,9 +52,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "release-build"
-
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
 
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS --verbose --release
@@ -79,6 +79,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -90,9 +93,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "debug-build"
-
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
 
       - name: Run tests
         run: cargo test
@@ -119,6 +119,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -130,9 +133,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "release-build"
-
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
 
       - name: Run tests
         run: cargo test --release
@@ -146,6 +146,9 @@ jobs:
       RISC0_DEV_MODE: 0
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -155,9 +158,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "release-build"
-
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
 
       - name: Run tests
         run: cargo test --release -p bridge-circuit-host bridge_circuit_test -- --ignored
@@ -185,6 +185,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -192,9 +195,6 @@ jobs:
       - uses: ./.github/actions/build-prerequisites
       - uses: ./.github/actions/test-prerequisites
       - uses: taiki-e/install-action@cargo-llvm-cov
-
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@v2
 
       - name: Run coverage
         run: cargo llvm-cov --locked --lcov --output-path lcov.info

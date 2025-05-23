@@ -11,9 +11,12 @@ env:
 jobs:
   formatting:
     name: Check formatting
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -23,9 +26,12 @@ jobs:
 
   linting:
     name: Check linting
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -39,6 +45,9 @@ jobs:
     runs-on: ubicloud-standard-30
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - uses: ./.github/actions/install-risc0
         with:
@@ -63,15 +72,21 @@ jobs:
     runs-on: ubicloud-standard-30
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - name: Build documentation
         run: cargo doc --no-deps
 
   todo:
     name: Check for TODO statements
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
 
       - name: Run script

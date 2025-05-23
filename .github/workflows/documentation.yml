@@ -20,6 +20,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Collect Workflow Telemetry
+        uses: catchpoint/workflow-telemetry-action@v2
+
       - uses: actions/checkout@v4
       - name: Clean documentation directory
         run: cargo clean --doc
