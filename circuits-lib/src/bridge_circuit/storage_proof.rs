@@ -109,14 +109,12 @@ pub fn verify_storage_proofs(
     storage_verify(&deposit_storage_proof, state_root);
 
     storage_verify(&vout_storage_proof, state_root);
-    
-    println!("Vout storage proof: {:?}", vout_storage_proof.value);
 
-    let buf: [u8; 32] = vout_storage_proof.value.to_le_bytes();
 
-    println!("Vout value: {:?}", buf);
+    let buf: [u8; 32] = vout_storage_proof.value.to_be_bytes();
+
     // ENDIANNESS SHOULD BE CHECKED THIS FIELD IS 4 BYTES in the contract
-    let vout = u32::from_be_bytes(buf[0..4].try_into().expect("Vout value conversion failed"));
+    let vout = u32::from_le_bytes(buf[28..32].try_into().expect("Vout value conversion failed"));
 
     let wd_outpoint = WithdrawalOutpointTxid(utxo_storage_proof.value.to_be_bytes());
 
@@ -180,12 +178,6 @@ mod tests {
     #[test]
     fn test_verify_storage_proofs() {
         let storage_proof: StorageProof = borsh::from_slice(STORAGE_PROOF).unwrap();
-
-        let bytes = [
-            109, 186, 204, 81, 16, 238, 160, 102, 32, 191, 126, 192, 10, 150, 189, 198, 82, 220,
-            234, 161, 113, 42, 202, 168, 106, 50, 233, 118, 215, 225, 134, 88,
-        ];
-        println!("hex bytes: {:?}", hex::encode(bytes));
 
         let state_root: [u8; 32] =
             hex::decode("6dbacc5110eea06620bf7ec00a96bdc652dceaa1712acaa86a32e976d7e18658")
