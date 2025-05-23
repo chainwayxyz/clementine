@@ -6,7 +6,7 @@ use crate::errors::BridgeError;
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},
     network::EthereumWallet,
-    primitives::U256,
+    primitives::{keccak256, U256},
     providers::{
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -14,17 +14,14 @@ use alloy::{
         },
         Provider, ProviderBuilder, RootProvider,
     },
-    rpc::{
-        client::ClientBuilder,
-        types::{Filter, Log},
-    },
+    rpc::types::{EIP1186AccountProofResponse, Filter, Log},
     signers::{local::PrivateKeySigner, Signer},
     sol,
     sol_types::SolEvent,
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
-use bridge_circuit_host::{fetch_storage_proof, receipt_from_inner};
+use bridge_circuit_host::receipt_from_inner;
 use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
@@ -39,6 +36,10 @@ pub mod mock;
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
 pub const BRIDGE_CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 pub const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
+const UTXOS_STORAGE_INDEX: [u8; 32] =
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000007");
+const DEPOSIT_STORAGE_INDEX: [u8; 32] =
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000008");
 
 // Codegen from ABI file to interact with the contract.
 sol!(
@@ -174,7 +175,6 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
 /// RPC.
 #[derive(Clone, Debug)]
 pub struct CitreaClient {
-    rpc_url: Url,
     pub client: HttpClient,
     pub light_client_prover_client: HttpClient,
     pub wallet_address: alloy::primitives::Address,
@@ -216,6 +216,81 @@ impl CitreaClient {
 
         Ok(logs)
     }
+
+    /// Fetches the storage proof for a given deposit index and transaction ID.
+    ///
+    /// This function interacts with an Citrea RPC endpoint to retrieve a storage proof,
+    /// which includes proof details for both the UTXO and the deposit index.
+    ///
+    /// # Arguments
+    /// * `l2_height` - A `u64` representing the L2 block height.
+    /// * `deposit_index` - A `u32` representing the deposit index.
+    ///
+    /// # Returns
+    /// Returns a `StorageProof` struct containing serialized storage proofs for the UTXO and deposit index.
+    pub async fn fetch_storage_proof(
+        &self,
+        l2_height: u64,
+        deposit_index: u32,
+    ) -> eyre::Result<StorageProof> {
+        let ind = deposit_index;
+        let tx_index: u32 = ind * 2;
+
+        let storage_address_wd_utxo_bytes = keccak256(UTXOS_STORAGE_INDEX);
+        let storage_address_wd_utxo: U256 = U256::from_be_bytes(
+            <[u8; 32]>::try_from(&storage_address_wd_utxo_bytes[..])
+                .wrap_err("Storage address wd utxo bytes slice with incorrect length")?,
+        );
+
+        // Storage key address calculation UTXO
+        let storage_key_wd_utxo: U256 = storage_address_wd_utxo + U256::from(tx_index);
+        let storage_key_wd_utxo_hex =
+            format!("0x{}", hex::encode(storage_key_wd_utxo.to_be_bytes::<32>()));
+
+        // Storage key address calculation Vout
+        let storage_key_vout: U256 = storage_address_wd_utxo + U256::from(tx_index + 1);
+        let storage_key_vout_hex =
+            format!("0x{}", hex::encode(storage_key_vout.to_be_bytes::<32>()));
+
+        // Storage key address calculation Deposit
+        let storage_address_deposit_bytes = keccak256(DEPOSIT_STORAGE_INDEX);
+        let storage_address_deposit: U256 = U256::from_be_bytes(
+            <[u8; 32]>::try_from(&storage_address_deposit_bytes[..])
+                .wrap_err("Storage address deposit bytes slice with incorrect length")?,
+        );
+
+        let storage_key_deposit: U256 = storage_address_deposit + U256::from(deposit_index);
+        let storage_key_deposit_hex = hex::encode(storage_key_deposit.to_be_bytes::<32>());
+        let storage_key_deposit_hex = format!("0x{}", storage_key_deposit_hex);
+
+        let response: serde_json::Value = self
+            .client
+            .get_proof(
+                BRIDGE_CONTRACT_ADDRESS,
+                vec![
+                    storage_key_wd_utxo_hex,
+                    storage_key_vout_hex,
+                    storage_key_deposit_hex,
+                ],
+                format!("0x{:x}", l2_height),
+            )
+            .await?;
+
+        let response: EIP1186AccountProofResponse = serde_json::from_value(response)?;
+
+        let serialized_utxo = serde_json::to_string(&response.storage_proof[0])?;
+
+        let serialized_vout = serde_json::to_string(&response.storage_proof[1])?;
+
+        let serialized_deposit = serde_json::to_string(&response.storage_proof[2])?;
+
+        Ok(StorageProof {
+            storage_proof_utxo: serialized_utxo,
+            storage_proof_vout: serialized_vout,
+            storage_proof_deposit_txid: serialized_deposit,
+            index: ind,
+        })
+    }
 }
 
 #[async_trait]
@@ -225,9 +300,7 @@ impl CitreaClientT for CitreaClient {
         l2_height: u64,
         deposit_index: u32,
     ) -> Result<StorageProof, BridgeError> {
-        let hex_l2_str = format!("0x{:x}", l2_height);
-        let alloy_client = ClientBuilder::default().http(self.rpc_url.clone());
-        fetch_storage_proof(&hex_l2_str, deposit_index, alloy_client)
+        self.fetch_storage_proof(l2_height, deposit_index)
             .await
             .map_err(BridgeError::from)
     }
@@ -260,14 +333,13 @@ impl CitreaClientT for CitreaClient {
         );
 
         let client = HttpClientBuilder::default()
-            .build(citrea_rpc_url.clone())
+            .build(citrea_rpc_url)
             .wrap_err("Failed to create Citrea RPC client")?;
         let light_client_prover_client = HttpClientBuilder::default()
             .build(light_client_prover_url)
             .wrap_err("Failed to create Citrea LCP RPC client")?;
 
         Ok(CitreaClient {
-            rpc_url: citrea_rpc_url,
             client,
             light_client_prover_client,
             wallet_address,
@@ -502,6 +574,17 @@ trait LightClientProverRpc {
         &self,
         l1_height: u64,
     ) -> RpcResult<Option<sov_rollup_interface::rpc::LightClientProofResponse>>;
+}
+
+#[rpc(client, namespace = "eth")]
+pub trait CitreaRpc {
+    #[method(name = "getProof")]
+    async fn get_proof(
+        &self,
+        address: &str,
+        storage_keys: Vec<String>,
+        block: String,
+    ) -> RpcResult<serde_json::Value>;
 }
 
 // Ugly typedefs.
