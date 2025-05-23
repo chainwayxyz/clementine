@@ -21,17 +21,21 @@
 //! interface for communicating with these servers. It is located in
 //! `bin/cli.rs`.
 //!
-//! The [`cli`] module provides the command-line interface for Clementine. It is
-//! used in every binary.
+//! The [`cli`](cli) module provides the command-line interface for Clementine.
+//! It is used in every binary.
+//!
+//! The [`config`](config) module is also essential for Clementine to operate.
+//! It specifies essential variables for the protocol as well as the user's
+//! environment setup.
 //!
 //! ## Utilizing Actors
 //!
 //! The core behavior of Clementine's actors is defined in the respective
 //! modules:
 //!
-//! - [`operator`]
-//! - [`verifier`]
-//! - [`aggregator`]
+//! - [`operator`](operator)
+//! - [`verifier`](verifier)
+//! - [`aggregator`](aggregator)
 //!
 //! For all these modules, the [`actor`] module provides common utilities.
 //!
@@ -42,27 +46,63 @@
 //!
 //! The main server architecture is defined in the `rpc/clementine.proto` file.
 //! It is compiled to Rust code by the `tonic` library. Server logic for each
-//! actor is defined in the respective server module in the [`rpc`] module.
+//! actor is defined in the respective server module in the [`rpc`](rpc) module.
+//!
+//! ## Building Transactions and Managing Flow with Tasks
+//!
+//! Clementine operates on Bitcoin transactions. The [`builder`](builder) module
+//! provides utilities for building Bitcoin transactions based on the
+//! specification (detailed in the whitepaper). The [`builder`](builder) module
+//! can create a transaction according to the specification with the required
+//! signatures, addresses, and scripts.
+//!
+//! Clementine requires a few background tasks to be running in order to operate
+//! properly. The task interface is defined in the [`task`](task) module. These
+//! tasks are:
+//!
+//! - The [`bitcoin_syncer`](bitcoin_syncer) module syncs Bitcoin blocks and
+//!   transactions.
+//! - The [`tx_sender`](tx_sender) module sends transactions to the Bitcoin network
+//!   depending on the transaction type.
+//! - The [`states`](states) module provides state machine implementations for
+//!   managing some of the steps in the specification.
+//!
+//! There are other modules that are not tasks, but they are used in the tasks
+//! and are important for the flow of Clementine:
+//!
+//! - The [`header_chain_prover`](header_chain_prover) module accepts Bitcoin block headers
+//!   and prepares proofs for them.
+//!
+//! ### Communicating with the Outside
+//!
+//! Some steps require communicating with external systems:
+//!
+//! - The [`extended_rpc`](extended_rpc) module provides a client that talks with
+//!   the Bitcoin node.
+//! - The [`citrea`](citrea) module provides a client for interacting with Citrea.
+//! - The [`bitvm_client`](bitvm_client) module provides a client for BitVM.
+//! - The [`database`](database) module provides a database interface for
+//!   interacting with the PostgreSQL database.
 //!
 //! ## Development Guidelines
 //!
 //! ### Error Handling
 //!
 //! There are rules about error handling in Clementine. Please refer to the
-//! [`errors`] module for more information.
+//! [`errors`](errors) module for more information.
 //!
 //! ### Testing Clementine
 //!
 //! There are a few quirks about testing Clementine. One of the main ones is
 //! that there is no `tests` directory for integration tests. Rather, there is a
-//! `test` module, which is compiled only if `test` is enabled by Cargo (when
-//! running `cargo test`). That module provides common utilities for unit and
-//! integration testing, as well as integration tests themselves. This is a
+//! [`test`](test) module, which is compiled only if `test` is enabled by Cargo
+//! (when running `cargo test`). That module provides common utilities for unit
+//! and integration testing, as well as integration tests themselves. This is a
 //! workaround for having common test utilities between unit and integration
 //! tests.
 //!
-//! Please refer to the `test` module to check what utilities are available for
-//! testing and how to use them.
+//! Please refer to the [`test`](test) module to check what utilities are
+//! available for testing and how to use them.
 
 #![allow(clippy::too_many_arguments)]
 
