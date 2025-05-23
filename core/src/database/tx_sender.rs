@@ -324,13 +324,8 @@ impl Database {
         Ok(())
     }
 
-    /// Returns all unconfirmed fee payer transactions for a given bumped
-    /// transaction.
-    ///
-    /// Some fee payer TXs may not hit onchain, so we need to bump their fees.
-    /// These TXs should not be confirmed and should not be replaced by other
-    /// TXs. Replaced means that the TX was bumped and the replacement TX is in
-    /// the database.
+    /// Returns all unconfirmed fee payer transactions for a try-to-send tx.
+    /// Replaced (bumped) fee payers are not included.
     ///
     /// # Parameters
     ///
@@ -530,11 +525,14 @@ impl Database {
         Ok(())
     }
 
-    /// Returns sendable transactions that are not in the non-active list and
-    /// not in the cancelled list. The transactions must not be already
-    /// confirmed. The transactions must have a fee rate lower than the
-    /// provided fee rate or null. Transaction and UTXO timelocks must be also
-    /// passed.
+    /// Returns unconfirmed try-to-send transactions that satisfy all activation
+    /// conditions for sending:
+    ///
+    /// - Not in the non-active list
+    /// - Not in the cancelled list
+    /// - Transaction itself is not already confirmed
+    /// - Transaction and UTXO timelocks must be passed
+    /// - Fee rate is lower than the provided fee rate or null (deprecated)
     ///
     /// # Parameters
     ///
