@@ -42,7 +42,7 @@ jobs:
 
   udeps:
     name: Check unused dependencies
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-8
 
     steps:
       - name: Collect Workflow Telemetry
@@ -69,7 +69,7 @@ jobs:
 
   docs:
     name: Check documentation build
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-8
 
     steps:
       - name: Collect Workflow Telemetry
