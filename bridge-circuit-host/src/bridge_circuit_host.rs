@@ -135,14 +135,14 @@ pub fn prove_bridge_circuit(
     let env = env.build().unwrap();
     let prover = default_prover();
 
-    tracing::warn!("Checks complete, proving bridge circuit");
+    tracing::info!("Checks complete, proving bridge circuit");
 
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
         .unwrap()
         .receipt;
 
-    tracing::warn!("Bridge circuit proof generated");
+    tracing::info!("Bridge circuit proof generated");
 
     let succinct_receipt_journal: [u8; 32] =
         succinct_receipt.clone().journal.bytes.try_into().unwrap();
@@ -163,7 +163,7 @@ pub fn prove_bridge_circuit(
         )
     };
 
-    tracing::warn!("Bridge circuit Groth16 proof generated");
+    tracing::info!("Bridge circuit Groth16 proof generated");
 
     let risc0_g16_seal_vec = g16_proof.to_vec();
     let risc0_g16_256 = risc0_g16_seal_vec[0..256].try_into().unwrap();
