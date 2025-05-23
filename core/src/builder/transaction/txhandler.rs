@@ -4,7 +4,6 @@ use crate::builder::script::SpendPath;
 use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
 use crate::builder::transaction::TransactionType;
-use crate::constants::{BURN_SCRIPT, MIN_TAPROOT_AMOUNT};
 use crate::errors::{BridgeError, TxError};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
@@ -429,30 +428,6 @@ impl TxHandlerBuilder {
         self.txouts.push(output);
 
         self
-    }
-
-    pub fn add_burn_output(self) -> Self {
-        let total_in = self
-            .txins
-            .iter()
-            .map(|s| s.get_spendable().get_prevout().value)
-            .sum::<bitcoin::Amount>();
-        let total_out = self
-            .txouts
-            .iter()
-            .map(|s| s.txout().value)
-            .sum::<bitcoin::Amount>();
-
-        // do not add burn output if there is not enough sats left for new output and some fee
-        if total_in - total_out < MIN_TAPROOT_AMOUNT * 10 {
-            return self;
-        }
-        let burntxo = TxOut {
-            script_pubkey: BURN_SCRIPT.clone(),
-            value: total_in - total_out - MIN_TAPROOT_AMOUNT * 8, // leave some fee to prevent minfee errors
-        };
-
-        self.add_output(UnspentTxOut::from_partial(burntxo))
     }
 
     /// TODO: output likely fallible

@@ -9,6 +9,7 @@ members = [
 ] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]
+ctor = "0.4.2"
 hex = "0.4.3"
 lazy_static = { version = "1.5.0", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
@@ -110,11 +111,17 @@ hex-literal = "0.4.1"
 rustls-pki-types = "1.11.0"
 
 base64 = "0.22.1"
-vergen-git2 = { version = "1.0.0", features = ["build", "cargo", "rustc", "si"] }
+vergen-git2 = { version = "1.0.0", features = [
+  "build",
+  "cargo",
+  "rustc",
+  "si",
+] }
+
 
 
 [patch.crates-io]
-bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "9ff580e1d520379d21a4bdeacdb7ca6c60dcb8ae" }
+bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "5da45109a2de352472a6056ef90a517b66bc106f" }
 secp256k1 = { git = "https://github.com/jlest01/rust-secp256k1", rev = "1cc7410df436b73d06db3c8ff7cbb29a78916b06" }
 
 [profile.release]
