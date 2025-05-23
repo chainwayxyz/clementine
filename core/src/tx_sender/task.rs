@@ -39,7 +39,7 @@ impl Task for TxSenderTask {
     async fn run_once(&mut self) -> std::result::Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await.map_to_eyre()?;
 
-        let is_there_a_block_update = async {
+        let block_update_exists = async {
             let Some(event) = self
                 .db
                 .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.btc_syncer_consumer_id)
@@ -80,7 +80,7 @@ impl Task for TxSenderTask {
         .await?;
 
         // Pull in all block updates before trying to send.
-        if is_there_a_block_update {
+        if block_update_exists {
             return Ok(true);
         }
 
