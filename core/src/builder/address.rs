@@ -207,7 +207,7 @@ mod tests {
             &bitvm_client::UNSPENDABLE_XONLY_PUBKEY
                 .tap_tweak(&SECP, spend_info.merkle_root())
                 .0
-                .to_inner()
+                .to_x_only_public_key()
         ));
         assert_eq!(
             spend_info.internal_key(),
@@ -226,7 +226,7 @@ mod tests {
             &internal_key
                 .tap_tweak(&SECP, spend_info.merkle_root())
                 .0
-                .to_inner()
+                .to_x_only_public_key()
         ));
         assert_eq!(spend_info.internal_key(), internal_key);
         assert!(spend_info.merkle_root().is_none());
@@ -242,7 +242,7 @@ mod tests {
             &internal_key
                 .tap_tweak(&SECP, spend_info.merkle_root())
                 .0
-                .to_inner()
+                .to_x_only_public_key()
         ));
         assert_eq!(spend_info.internal_key(), internal_key);
         assert!(spend_info.merkle_root().is_some());
@@ -258,7 +258,7 @@ mod tests {
             &internal_key
                 .tap_tweak(&SECP, spend_info.merkle_root())
                 .0
-                .to_inner()
+                .to_x_only_public_key()
         ));
         assert_eq!(spend_info.internal_key(), internal_key);
         assert!(spend_info.merkle_root().is_some());

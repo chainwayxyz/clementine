@@ -863,8 +863,8 @@ async fn mock_citrea_run_truthful_opt_payout() {
             withdrawal_id: 0,
             input_signature: sig.serialize().to_vec(),
             input_outpoint: Some(withdrawal_utxo.into()),
-            output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
-            output_amount: payout_txout.txout().value.to_sat(),
+            output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+            output_amount: payout_txout.value.to_sat(),
         })
         .await
         .is_err());
@@ -891,8 +891,8 @@ async fn mock_citrea_run_truthful_opt_payout() {
             withdrawal_id: 0,
             input_signature: sig.serialize().to_vec(),
             input_outpoint: Some(withdrawal_utxo.into()),
-            output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
-            output_amount: payout_txout.txout().value.to_sat(),
+            output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+            output_amount: payout_txout.value.to_sat(),
         })
         .await
         .is_err());
@@ -912,8 +912,8 @@ async fn mock_citrea_run_truthful_opt_payout() {
                     withdrawal_id: 0,
                     input_signature: sig.serialize().to_vec(),
                     input_outpoint: Some(withdrawal_utxo.into()),
-                    output_script_pubkey: payout_txout.txout().script_pubkey.to_bytes(),
-                    output_amount: payout_txout.txout().value.to_sat(),
+                    output_script_pubkey: payout_txout.script_pubkey.to_bytes(),
+                    output_amount: payout_txout.value.to_sat(),
                 })
                 .await;
 
