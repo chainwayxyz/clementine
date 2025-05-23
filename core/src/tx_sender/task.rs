@@ -1,10 +1,13 @@
-use std::time::Duration;
+//! # Transaction Sender Task
+//!
+//! This module provides [`Task`] implementation for [`TxSender`].
+//!
+//! This task will fetch block events from Bitcoin Syncer and confirms or
+//! unconfirms transaction based on the event. Finally, it will try to send
+//! candidate transactions.
 
-use bitcoin::FeeRate;
-use tonic::async_trait;
-
+use super::TxSender;
 use crate::errors::ResultExt;
-
 use crate::task::{IgnoreError, WithDelay};
 use crate::{
     bitcoin_syncer::BitcoinSyncerEvent,
@@ -12,14 +15,16 @@ use crate::{
     errors::BridgeError,
     task::{IntoTask, Task, TaskExt},
 };
-
-use super::TxSender;
+use bitcoin::FeeRate;
+use std::time::Duration;
+use tonic::async_trait;
 
 const POLL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(100)
 } else {
     Duration::from_secs(1)
 };
+
 #[derive(Debug)]
 pub struct TxSenderTask {
     db: Database,
@@ -34,7 +39,7 @@ impl Task for TxSenderTask {
     async fn run_once(&mut self) -> std::result::Result<Self::Output, BridgeError> {
         let mut dbtx = self.db.begin_transaction().await.map_to_eyre()?;
 
-        let is_block_update = async {
+        let is_there_a_block_update = async {
             let Some(event) = self
                 .db
                 .fetch_next_bitcoin_syncer_evt(&mut dbtx, &self.inner.btc_syncer_consumer_id)
@@ -44,8 +49,11 @@ impl Task for TxSenderTask {
             };
 
             tracing::info!("TXSENDER: Event: {:?}", event);
+
             Ok::<_, BridgeError>(match event {
                 BitcoinSyncerEvent::NewBlock(block_id) => {
+                    tracing::info!("TXSENDER: Confirmed transactions for block {}", block_id);
+
                     self.db.confirm_transactions(&mut dbtx, block_id).await?;
                     self.current_tip_height = self
                         .db
@@ -56,13 +64,14 @@ impl Task for TxSenderTask {
                         ))?
                         .1;
 
-                    tracing::info!("TXSENDER: Confirmed transactions for block {}", block_id);
                     dbtx.commit().await?;
                     true
                 }
                 BitcoinSyncerEvent::ReorgedBlock(block_id) => {
                     tracing::info!("TXSENDER: Unconfirming transactions for block {}", block_id);
+
                     self.db.unconfirm_transactions(&mut dbtx, block_id).await?;
+
                     dbtx.commit().await?;
                     false
                 }
@@ -70,8 +79,8 @@ impl Task for TxSenderTask {
         }
         .await?;
 
-        if is_block_update {
-            // Pull in all block updates before trying to send.
+        // Pull in all block updates before trying to send.
+        if is_there_a_block_update {
             return Ok(true);
         }
 

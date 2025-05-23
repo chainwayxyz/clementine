@@ -130,6 +130,7 @@ create table if not exists bitcoin_syncer_event_handlers (
     created_at timestamp not null default now(),
     primary key (consumer_handle)
 );
+
 -------- TX SENDER --------
 DO $$ BEGIN IF NOT EXISTS (
     SELECT 1
@@ -138,7 +139,8 @@ DO $$ BEGIN IF NOT EXISTS (
 ) THEN CREATE TYPE fee_paying_type AS ENUM ('cpfp', 'rbf');
 END IF;
 END $$;
--- Table to store txs that needs to be fee bumped
+
+-- Transactions that are needed to be fee bumped.
 create table if not exists tx_sender_try_to_send_txs (
     id serial primary key,
     raw_tx bytea not null,
@@ -152,6 +154,8 @@ create table if not exists tx_sender_try_to_send_txs (
     created_at timestamp not null default now(),
     rbf_signing_info text
 );
+
+-- 
 create table if not exists tx_sender_rbf_txids (
     insertion_order serial not null,
     id int not null references tx_sender_try_to_send_txs(id),
@@ -159,7 +163,8 @@ create table if not exists tx_sender_rbf_txids (
     created_at timestamp not null default now(),
     primary key (id, txid)
 );
--- Table to store fee payer UTXOs
+
+-- Fee payer UTXO details
 create table if not exists tx_sender_fee_payer_utxos (
     id serial primary key,
     replacement_of_id int references tx_sender_fee_payer_utxos(id),
