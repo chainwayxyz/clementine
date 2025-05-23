@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-risc0-zkvm = { workspace = true, features = ["metal", "bonsai", "client", "prove"] }
+risc0-zkvm = { workspace = true, features = ["bonsai", "client", "prove"] }
 risc0-circuit-recursion = { workspace = true }
 risc0-zkp = { workspace = true }
 risc0-groth16 = { workspace = true }
@@ -45,10 +45,3 @@ eyre = { workspace = true }
 once_cell = { workspace = true }
 
 circuits-lib = { path = "../circuits-lib", features = ["not_patched"] }
-
-
-
-
-
-[features]
-metal = ["risc0-zkvm/metal"]

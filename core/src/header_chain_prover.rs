@@ -239,8 +239,10 @@ impl HeaderChainProver {
         let mut env = ExecutorEnv::builder();
 
         env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
+        tracing::info!("Input is provided for header chain circuit");
 
         if let Some(prev_receipt) = prev_receipt {
+            tracing::info!("Adding assumption for previous proof receipt");
             env.add_assumption(prev_receipt);
         }
 
@@ -248,6 +250,7 @@ impl HeaderChainProver {
             .build()
             .map_err(|e| eyre::eyre!(e))
             .wrap_err("Failed to build environment")?;
+        tracing::info!("Environment is built for header chain circuit");
 
         let prover = risc0_zkvm::default_prover();
 
@@ -604,15 +607,28 @@ mod tests {
             .await
             .unwrap();
 
-        let receipt = prover.prove_block_headers(None, vec![]).unwrap();
+        let genesis_hash = rpc.client.get_block_hash(0).await.unwrap();
+
+        let proof_for_height_0 = prover
+            .db
+            .get_block_proof_by_hash(None, genesis_hash)
+            .await
+            .unwrap(); // Should return genesis block proof
+
+        let receipt = prover
+            .prove_block_headers(proof_for_height_0, vec![])
+            .unwrap();
 
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
         println!("Proof journal output: {:?}", output);
 
-        assert_eq!(output.chain_state.block_height, u32::MAX); // risc0-to-bitvm2 related
+        assert_eq!(output.chain_state.block_height, 0);
         assert_eq!(
             output.chain_state.best_block_hash,
-            BlockHash::all_zeros().as_raw_hash().to_byte_array()
+            [
+                6, 34, 110, 70, 17, 26, 11, 89, 202, 175, 18, 96, 67, 235, 91, 191, 40, 195, 79,
+                58, 94, 51, 42, 31, 199, 178, 183, 60, 241, 136, 145, 15
+            ]
         );
     }
 
