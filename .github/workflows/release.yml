@@ -1,0 +1,85 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  linux_amd64_binary_extraction:
+    runs-on: ubicloud-standard-30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update && sudo apt -y install curl gcc cpp cmake clang llvm
+          sudo apt -y autoremove && sudo apt clean && sudo rm -rf /var/lib/apt/lists/*
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          rustup install 1.85.0
+          rustup default 1.85.0
+
+      - name: Install risc0
+        uses: ./.github/actions/install-risc0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Project
+        run: |
+          cargo build --release
+
+      - name: Upload clementine linux-amd64 Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: clementine-core-${{ github.ref_name }}-linux-amd64
+          path: target/release/clementine-core
+
+      - name: Upload clementine-cli linux-amd64 Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: clementine-cli-${{ github.ref_name }}-linux-amd64
+          path: target/release/clementine-cli
+
+  release:
+    needs:  linux_amd64_binary_extraction
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download linux-amd64 Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: clementine-core-${{ github.ref_name }}-linux-amd64
+          path: release
+
+      - name: rename file
+        run: |
+          mv release/clementine-core release/clementine-core-${{ github.ref_name }}-linux-amd64
+
+      - name: Download clementine-cli linux-amd64 Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: clementine-cli-${{ github.ref_name }}-linux-amd64
+          path: release
+
+      - name: rename file
+        run: |
+          mv release/clementine-cli release/clementine-cli-${{ github.ref_name }}-linux-amd64
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/clementine-core-${{ github.ref_name }}-linux-amd64
+            release/clementine-cli-${{ github.ref_name }}-linux-amd64
+          name: Release ${{ github.ref_name }}
+          body: |
+            This is the release for version ${{ github.ref_name }}.
+
+            It includes:
+            - clementine-core-${{ github.ref_name }}-linux-amd64
+            - clementine-cli-${{ github.ref_name }}-linux-amd64
+
+
