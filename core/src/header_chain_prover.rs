@@ -182,7 +182,51 @@ impl HeaderChainProver {
             db.set_block_proof(None, block_hash, proof)
                 .await
                 .map_to_eyre()?;
-        };
+        } else {
+            let genesis_block_hash = rpc
+                .client
+                .get_block_hash(config.protocol_paramset().genesis_height.into())
+                .await
+                .wrap_err(format!(
+                    "Failed to get genesis block hash at height {}",
+                    config.protocol_paramset().genesis_height
+                ))?;
+            let genesis_block_header = rpc
+                .client
+                .get_block_header(&genesis_block_hash)
+                .await
+                .wrap_err(format!(
+                    "Failed to get genesis block header at height {}",
+                    config.protocol_paramset().genesis_height
+                ))?;
+
+            let genesis_chain_state = HeaderChainProver::get_chain_state_from_height(
+                rpc.clone(),
+                config.protocol_paramset().genesis_height.into(),
+                config.protocol_paramset().network,
+            )
+            .await
+            .map_to_eyre()?;
+
+            let proof = HeaderChainProver::prove_genesis_block(
+                genesis_chain_state,
+                config.protocol_paramset().network,
+            )
+            .map_to_eyre()?;
+
+            let _ = db
+                .save_unproven_finalized_block(
+                    None,
+                    genesis_block_hash,
+                    genesis_block_header,
+                    config.protocol_paramset().genesis_height.into(),
+                )
+                .await;
+
+            db.set_block_proof(None, genesis_block_hash, proof)
+                .await
+                .map_to_eyre()?;
+        }
 
         Ok(HeaderChainProver {
             db,
@@ -414,7 +458,36 @@ impl HeaderChainProver {
             prev_proof,
             block_headers,
         };
+        Self::prove_with_input(input, prev_receipt, self.network)
+    }
 
+    pub fn prove_genesis_block(
+        genesis_chain_state: ChainState,
+        network: Network,
+    ) -> Result<Receipt, HeaderChainProverError> {
+        let image_id = match network {
+            Network::Bitcoin => *MAINNET_IMAGE_ID,
+            Network::Testnet => *TESTNET4_IMAGE_ID,
+            Network::Testnet4 => *TESTNET4_IMAGE_ID,
+            Network::Signet => *SIGNET_IMAGE_ID,
+            Network::Regtest => *REGTEST_IMAGE_ID,
+            _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
+        };
+        let header_chain_circuit_type = HeaderChainPrevProofType::GenesisBlock(genesis_chain_state);
+        let input = HeaderChainCircuitInput {
+            method_id: image_id,
+            prev_proof: header_chain_circuit_type,
+            block_headers: vec![],
+        };
+
+        Self::prove_with_input(input, None, network)
+    }
+
+    fn prove_with_input(
+        input: HeaderChainCircuitInput,
+        prev_receipt: Option<Receipt>,
+        network: Network,
+    ) -> Result<Receipt, HeaderChainProverError> {
         let mut env = ExecutorEnv::builder();
 
         env.write_slice(&borsh::to_vec(&input).wrap_err(BridgeError::BorshError)?);
@@ -430,7 +503,7 @@ impl HeaderChainProver {
 
         let prover = risc0_zkvm::default_prover();
 
-        let elf = match self.network {
+        let elf = match network {
             Network::Bitcoin => MAINNET_ELF,
             Network::Testnet => TESTNET4_ELF,
             Network::Testnet4 => TESTNET4_ELF,
