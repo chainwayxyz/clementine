@@ -120,6 +120,8 @@ pub struct ProtocolParamset {
     pub start_height: u32,
     /// Genesis height to sync the header chain proofs from
     pub genesis_height: u32,
+    /// Genesis chain state hash
+    pub genesis_chain_state_hash: [u8; 32],
     /// Batch size of the header chain proofs
     pub header_chain_proof_batch_size: u32,
     /// Bridge circuit method id
@@ -189,6 +191,9 @@ impl ProtocolParamset {
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
             genesis_height: read_string_from_env_then_parse::<u32>("GENESIS_HEIGHT")?,
+            genesis_chain_state_hash: convert_hex_string_to_bytes(
+                &read_string_from_env_then_parse::<String>("GENESIS_CHAIN_STATE_HASH")?,
+            )?,
             header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
                 "HEADER_CHAIN_PROOF_BATCH_SIZE",
             )?,
@@ -249,6 +254,10 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     finality_depth: 1,
     start_height: 190,
     genesis_height: 0,
+    genesis_chain_state_hash: [
+        237, 77, 36, 211, 175, 192, 133, 135, 219, 17, 148, 111, 103, 164, 129, 74, 77, 61, 13,
+        236, 151, 5, 232, 32, 68, 121, 107, 62, 146, 168, 95, 26,
+    ],
     header_chain_proof_batch_size: 100,
     bridge_circuit_method_id_constant: [255u8; 32],
 };

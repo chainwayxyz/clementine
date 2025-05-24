@@ -208,6 +208,16 @@ impl HeaderChainProver {
             .await
             .map_to_eyre()?;
 
+            let genesis_chain_state_hash = genesis_chain_state.to_hash();
+            if genesis_chain_state_hash != config.protocol_paramset().genesis_chain_state_hash {
+                return Err(eyre::eyre!(
+                    "Genesis chain state hash mismatch: {} != {}",
+                    hex::encode(genesis_chain_state_hash),
+                    hex::encode(config.protocol_paramset().genesis_chain_state_hash)
+                )
+                .into());
+            }
+
             let proof = HeaderChainProver::prove_genesis_block(
                 genesis_chain_state,
                 config.protocol_paramset().network,
