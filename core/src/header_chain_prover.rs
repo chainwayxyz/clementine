@@ -17,6 +17,7 @@ use bitcoin::block::Header;
 use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
 use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
+use circuits_lib::header_chain::mmr_guest::MMRGuest;
 use circuits_lib::header_chain::{
     BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader, HeaderChainCircuitInput,
     HeaderChainPrevProofType,
@@ -110,9 +111,13 @@ impl HeaderChainProver {
             ))
             .into());
         }
-        db.fetch_and_save_missing_blocks(&rpc, config.protocol_paramset().start_height)
-            .await
-            .wrap_err("Failed to save initial block infos")?;
+        db.fetch_and_save_missing_blocks(
+            &rpc,
+            config.protocol_paramset().genesis_height,
+            config.protocol_paramset().start_height,
+        )
+        .await
+        .wrap_err("Failed to save initial block infos")?;
 
         if let Some(proof_file) = &config.header_chain_proof_path {
             tracing::info!("Starting prover with assumption file {:?}.", proof_file);
@@ -187,6 +192,106 @@ impl HeaderChainProver {
                 .into(),
             network: config.protocol_paramset().network,
         })
+    }
+
+    pub async fn get_chain_state_from_height(
+        rpc: ExtendedRpc,
+        height: u64,
+        network: Network,
+    ) -> Result<ChainState, HeaderChainProverError> {
+        if height == 0 {
+            return Ok(ChainState::genesis_state());
+        }
+
+        if height <= 11 {
+            return Err(eyre::eyre!(
+                "Height is less than 11, can't generate chain state, Just use 0 :)"
+            )
+            .into());
+        }
+
+        let block_hash = rpc
+            .client
+            .get_block_hash(height)
+            .await
+            .wrap_err(format!("Failed to get block hash at height {}", height))?;
+
+        let block_header = rpc
+            .client
+            .get_block_header(&block_hash)
+            .await
+            .wrap_err(format!(
+                "Failed to get block header with block hash {}",
+                block_hash
+            ))?;
+
+        let mut last_11_block_timestamps: [u32; 11] = [0; 11];
+        let mut last_block_hash = block_hash;
+        let mut last_block_height = height;
+        for _ in 0..11 {
+            let block_header = rpc
+                .client
+                .get_block_header(&last_block_hash)
+                .await
+                .wrap_err(format!(
+                    "Failed to get block header with block hash {}",
+                    last_block_hash
+                ))?;
+
+            last_11_block_timestamps[last_block_height as usize % 11] = block_header.time;
+
+            last_block_hash = block_header.prev_blockhash;
+            last_block_height = last_block_height.wrapping_sub(1);
+        }
+
+        let epoch_start_block_height = height / 2016 * 2016;
+
+        let epoch_start_timestamp = if network == Network::Regtest {
+            0
+        } else {
+            let epoch_start_block_hash = rpc
+                .client
+                .get_block_hash(epoch_start_block_height)
+                .await
+                .wrap_err(format!(
+                    "Failed to get block hash at height {}",
+                    epoch_start_block_height
+                ))?;
+            let epoch_start_block_header = rpc
+                .client
+                .get_block_header(&epoch_start_block_hash)
+                .await
+                .wrap_err(format!(
+                    "Failed to get block header with block hash {}",
+                    epoch_start_block_hash
+                ))?;
+
+            epoch_start_block_header.time
+        };
+
+        let block_info = rpc
+            .client
+            .get_block_info(&block_hash)
+            .await
+            .wrap_err(format!(
+                "Failed to get block info with block hash {}",
+                block_hash
+            ))?;
+
+        let total_work = block_info.chainwork;
+
+        let total_work: [u8; 32] = total_work.try_into().expect("Total work is 32 bytes");
+
+        let chain_state = ChainState {
+            block_height: height as u32,
+            total_work,
+            best_block_hash: block_hash.to_byte_array(),
+            current_target_bits: block_header.bits.to_consensus(),
+            epoch_start_time: epoch_start_timestamp,
+            prev_11_timestamps: last_11_block_timestamps,
+            block_hashes_mmr: MMRGuest::new(),
+        };
+        Ok(chain_state)
     }
 
     /// Proves the work only proof for the given HCP receipt.
@@ -534,9 +639,12 @@ mod tests {
     use crate::header_chain_prover::HeaderChainProver;
     use crate::test::common::*;
     use crate::verifier::VerifierServer;
-    use bitcoin::{block::Header, hashes::Hash, BlockHash};
+    use bitcoin::{block::Header, hashes::Hash, BlockHash, Network};
     use bitcoincore_rpc::RpcApi;
-    use circuits_lib::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
+    use circuits_lib::header_chain::{
+        mmr_guest::MMRGuest, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
+    };
+    use secp256k1::rand::{self, Rng};
 
     /// Mines `block_num` amount of blocks (if not already mined) and returns
     /// the first `block_num` block headers in blockchain.
@@ -576,6 +684,96 @@ mod tests {
         headers
     }
 
+    #[ignore = "This test is requires env var at build time, but it works, try it out"]
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_generate_chain_state_from_height() {
+        // set BITCOIN_NETWORK to regtest
+        std::env::set_var("BITCOIN_NETWORK", "regtest");
+        let mut config = create_test_config_with_thread_name().await;
+        let regtest = create_regtest_rpc(&mut config).await;
+        let rpc = regtest.rpc().clone();
+        let db = Database::new(&config).await.unwrap();
+
+        // randomly select a number of blocks from 12 to 2116
+        let num_blocks: u64 = rand::thread_rng().gen_range(12..2116);
+
+        // Save some initial blocks.
+        let headers = mine_and_get_first_n_block_headers(rpc.clone(), db.clone(), num_blocks).await;
+
+        let chain_state = HeaderChainProver::get_chain_state_from_height(
+            rpc.clone(),
+            num_blocks,
+            Network::Regtest,
+        )
+        .await
+        .unwrap();
+
+        let mut expected_chain_state = ChainState::genesis_state();
+        expected_chain_state.apply_blocks(
+            headers
+                .iter()
+                .map(|header| CircuitBlockHeader::from(*header))
+                .collect::<Vec<_>>(),
+        );
+
+        expected_chain_state.block_hashes_mmr = MMRGuest::new();
+
+        println!("Chain state: {:#?}", chain_state);
+        println!("Expected chain state: {:#?}", expected_chain_state);
+
+        assert_eq!(chain_state, expected_chain_state);
+    }
+
+    #[ignore = "This test is requires env var at build time & testnet4, but it works, try it out"]
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_generate_chain_state_from_height_testnet4() {
+        // set BITCOIN_NETWORK to regtest
+        std::env::set_var("BITCOIN_NETWORK", "testnet4");
+        let rpc = ExtendedRpc::connect(
+            "http://127.0.0.1:48332".to_string(),
+            "admin".to_string(),
+            "admin".to_string(),
+        )
+        .await
+        .unwrap();
+
+        // randomly select a number of blocks from 12 to 2116
+        let num_blocks: u64 = rand::thread_rng().gen_range(12..2116);
+
+        // Save some initial blocks.
+        let mut headers = Vec::new();
+        for i in 0..=num_blocks {
+            let hash = rpc.client.get_block_hash(i).await.unwrap();
+            let header = rpc.client.get_block_header(&hash).await.unwrap();
+            headers.push(header);
+        }
+
+        let chain_state = HeaderChainProver::get_chain_state_from_height(
+            rpc.clone(),
+            num_blocks,
+            Network::Testnet4,
+        )
+        .await
+        .unwrap();
+
+        let mut expected_chain_state = ChainState::genesis_state();
+        expected_chain_state.apply_blocks(
+            headers
+                .iter()
+                .map(|header| CircuitBlockHeader::from(*header))
+                .collect::<Vec<_>>(),
+        );
+
+        expected_chain_state.block_hashes_mmr = MMRGuest::new();
+
+        println!("Chain state: {:#?}", chain_state);
+        println!("Expected chain state: {:#?}", expected_chain_state);
+
+        assert_eq!(chain_state, expected_chain_state);
+    }
+
     #[tokio::test]
     async fn test_fetch_and_save_missing_blocks() {
         // test these functions:
@@ -602,7 +800,11 @@ mod tests {
 
         prover
             .db
-            .fetch_and_save_missing_blocks(&rpc, current_height as u32 + 1)
+            .fetch_and_save_missing_blocks(
+                &rpc,
+                config.protocol_paramset().genesis_height,
+                current_height as u32 + 1,
+            )
             .await
             .unwrap();
 

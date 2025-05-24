@@ -1107,7 +1107,11 @@ where
 
         // update headers in case the sync (state machine handle_finalized_block) is behind
         self.db
-            .fetch_and_save_missing_blocks(&self.rpc, rpc_current_finalized_height + 1)
+            .fetch_and_save_missing_blocks(
+                &self.rpc,
+                self.config.protocol_paramset().genesis_height,
+                rpc_current_finalized_height + 1,
+            )
             .await?;
 
         let current_height = self
