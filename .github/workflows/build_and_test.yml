@@ -99,7 +99,7 @@ jobs:
 
   release_build_test:
     name: Test code with release build
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-30
     needs: release_build
 
     services:
