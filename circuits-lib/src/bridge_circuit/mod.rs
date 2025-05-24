@@ -165,6 +165,7 @@ pub fn bridge_circuit(guest: &impl ZkvmGuest, work_only_image_id: [u8; 32]) {
         *move_txid,
         round_txid,
         kickoff_round_vout,
+        input.hcp.genesis_state_hash,
     );
 
     let latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[12..32]
@@ -206,13 +207,14 @@ fn convert_to_groth16_and_verify(
     compressed_proof: &[u8; 128],
     total_work: [u8; 16],
     image_id: &[u8; 32],
+    genesis_state_hash: [u8; 32],
 ) -> bool {
     let seal = match CircuitGroth16Proof::from_compressed(compressed_proof) {
         Ok(seal) => seal,
         Err(_) => return false,
     };
 
-    let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work);
+    let groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work, genesis_state_hash);
     groth16_proof.verify(image_id)
 }
 
@@ -490,6 +492,7 @@ pub fn total_work_and_watchtower_flags(
             &commitment.compressed_g16_proof,
             commitment.total_work,
             work_only_image_id,
+            circuit_input.hcp.genesis_state_hash,
         ) {
             total_work = commitment.total_work;
             break;
@@ -533,6 +536,7 @@ pub fn deposit_constant(
     move_txid: [u8; 32],
     round_txid: [u8; 32],
     kickoff_round_vout: u32,
+    genesis_state_hash: [u8; 32],
 ) -> DepositConstant {
     // pubkeys are 32 bytes long
     let pubkey_concat = watchtower_pubkeys
@@ -549,6 +553,7 @@ pub fn deposit_constant(
         &watchtower_challenge_connector_start_idx.to_be_bytes()[..],
         &round_txid,
         &kickoff_round_vout.to_be_bytes()[..],
+        &genesis_state_hash,
     ]
     .concat();
 
@@ -672,6 +677,7 @@ mod tests {
             }],
             hcp: BlockHeaderCircuitOutput {
                 method_id: [0; 8],
+                genesis_state_hash: [0u8; 32],
                 chain_state: ChainState::new(),
             },
             payout_spv: SPV {

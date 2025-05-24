@@ -62,7 +62,10 @@ pub fn work_only_circuit(guest: &impl ZkvmGuest) {
         U256::from_be_bytes(input.header_chain_circuit_output.chain_state.total_work);
     let words = work_conversion(total_work_u256);
     // Due to the nature of borsh serialization, this will use little endian bytes in the items it serializes/deserializes
-    guest.commit(&WorkOnlyCircuitOutput { work_u128: words });
+    guest.commit(&WorkOnlyCircuitOutput {
+        work_u128: words,
+        genesis_state_hash: input.header_chain_circuit_output.genesis_state_hash,
+    });
 }
 
 /// Converts a `U256` work value into an array of four `u32` words. This conversion will use big endian words and big endian bytes

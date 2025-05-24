@@ -23,6 +23,7 @@ use bitvm::clementine::additional_disprove::{
 };
 use circuits_lib::bridge_circuit::deposit_constant;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
+use circuits_lib::header_chain::ChainState;
 use eyre::Context;
 use eyre::OptionExt;
 use std::collections::BTreeMap;
@@ -541,6 +542,8 @@ pub async fn create_txhandlers(
         .map(|xonly_pk| xonly_pk.serialize())
         .collect::<Vec<_>>();
 
+    let genesis_state_hash = ChainState::genesis_state().to_hash();
+
     let deposit_constant = deposit_constant(
         operator_xonly_pk.serialize(),
         watchtower_challenge_start_idx,
@@ -548,6 +551,7 @@ pub async fn create_txhandlers(
         move_txid,
         round_txid,
         vout,
+        genesis_state_hash,
     );
 
     let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)

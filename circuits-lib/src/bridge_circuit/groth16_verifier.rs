@@ -14,13 +14,14 @@ use hex::ToHex;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 
-pub fn create_output_digest(total_work: &[u8; 16]) -> [u8; 32] {
+pub fn create_output_digest(total_work: &[u8; 16], genesis_state_hash: &[u8; 32]) -> [u8; 32] {
     let total_work_digest: [u8; 32] = Sha256::digest(total_work).into();
     let len_output: u16 = 2;
 
     let output_pre_digest: [u8; 98] = [
         &OUTPUT_TAG,
         &total_work_digest[..],
+        &genesis_state_hash[..],
         &ASSUMPTIONS[..],
         &len_output.to_le_bytes(),
     ]
@@ -55,16 +56,19 @@ pub fn create_claim_digest(output_digest: &[u8; 32], pre_state: &[u8; 32]) -> [u
 pub struct CircuitGroth16WithTotalWork {
     groth16_seal: CircuitGroth16Proof,
     total_work: [u8; 16],
+    genesis_state_hash: [u8; 32],
 }
 
 impl CircuitGroth16WithTotalWork {
     pub fn new(
         groth16_seal: CircuitGroth16Proof,
         total_work: [u8; 16],
+        genesis_state_hash: [u8; 32],
     ) -> CircuitGroth16WithTotalWork {
         CircuitGroth16WithTotalWork {
             groth16_seal,
             total_work,
+            genesis_state_hash,
         }
     }
 
@@ -73,7 +77,7 @@ impl CircuitGroth16WithTotalWork {
         let prepared_vk: PreparedVerifyingKey<ark_ec::bn::Bn<ark_bn254::Config>> =
             CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();
 
-        let output_digest = create_output_digest(&self.total_work);
+        let output_digest = create_output_digest(&self.total_work, &self.genesis_state_hash);
 
         let claim_digest: [u8; 32] = create_claim_digest(&output_digest, pre_state);
 

@@ -29,11 +29,16 @@ pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
     let input: HeaderChainCircuitInput = guest.read_from_host();
     // println!("Detected network: {:?}", NETWORK_TYPE);
     // println!("NETWORK_CONSTANTS: {:?}", NETWORK_CONSTANTS);
+    let genesis_state_hash: [u8; 32];
     let mut chain_state = match input.prev_proof {
-        HeaderChainPrevProofType::GenesisBlock => ChainState::new(),
+        HeaderChainPrevProofType::GenesisBlock(genesis_state) => {
+            genesis_state_hash = genesis_state.to_hash();
+            genesis_state
+        }
         HeaderChainPrevProofType::PrevProof(prev_proof) => {
             assert_eq!(prev_proof.method_id, input.method_id);
             guest.verify(input.method_id, &prev_proof);
+            genesis_state_hash = prev_proof.genesis_state_hash;
             prev_proof.chain_state
         }
     };
@@ -42,6 +47,7 @@ pub fn header_chain_circuit(guest: &impl ZkvmGuest) {
 
     guest.commit(&BlockHeaderCircuitOutput {
         method_id: input.method_id,
+        genesis_state_hash,
         chain_state,
     });
     // let end = risc0_zkvm::guest::env::cycle_count();
@@ -212,6 +218,27 @@ impl ChainState {
             prev_11_timestamps: [0u32; 11],
             block_hashes_mmr: MMRGuest::new(),
         }
+    }
+
+    pub fn genesis_state() -> Self {
+        Self::new()
+    }
+
+    pub fn to_hash(&self) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(self.block_height.to_le_bytes());
+        hasher.update(self.total_work);
+        hasher.update(self.best_block_hash);
+        hasher.update(self.current_target_bits.to_le_bytes());
+        hasher.update(self.epoch_start_time.to_le_bytes());
+        for timestamp in self.prev_11_timestamps {
+            hasher.update(timestamp.to_le_bytes());
+        }
+        for hash in self.block_hashes_mmr.subroots.clone() {
+            hasher.update(hash);
+        }
+        hasher.update(self.block_hashes_mmr.size.to_le_bytes());
+        hasher.finalize().into()
     }
 
     pub fn apply_blocks(&mut self, block_headers: Vec<CircuitBlockHeader>) {
@@ -390,6 +417,7 @@ fn calculate_work(target: &[u8; 32]) -> U256 {
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BlockHeaderCircuitOutput {
     pub method_id: [u32; 8],
+    pub genesis_state_hash: [u8; 32],
     pub chain_state: ChainState,
 }
 
@@ -397,7 +425,7 @@ pub struct BlockHeaderCircuitOutput {
 /// The proof can be either None (implying the beginning) or a Succinct Risc0 proof.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub enum HeaderChainPrevProofType {
-    GenesisBlock,
+    GenesisBlock(ChainState),
     PrevProof(BlockHeaderCircuitOutput),
 }
 

@@ -88,6 +88,8 @@ where
         let state_manager =
             StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
 
+        tracing::info!("State manager created");
+
         let should_run_state_mgr = {
             #[cfg(test)]
             {
@@ -102,6 +104,7 @@ where
         if should_run_state_mgr {
             background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
             background_tasks.loop_and_monitor(state_manager.into_task());
+            tracing::info!("State manager tasks started");
         }
 
         // run payout checker task
@@ -110,8 +113,11 @@ where
                 .with_delay(PAYOUT_CHECKER_POLL_DELAY),
         );
 
+        tracing::info!("Payout checker task started");
+
         // track the operator's round state
         operator.track_rounds().await?;
+        tracing::info!("Operator round state tracked");
 
         Ok(Self {
             operator,
@@ -196,7 +202,7 @@ where
         )
         .await?;
 
-        tracing::debug!(
+        tracing::info!(
             "Operator xonly pk: {:?}, db created with name: {:?}",
             signer.xonly_public_key,
             config.db_name

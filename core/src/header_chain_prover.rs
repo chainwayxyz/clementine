@@ -18,7 +18,8 @@ use bitcoin::{hashes::Hash, BlockHash, Network};
 use bitcoincore_rpc::RpcApi;
 use circuits_lib::bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput};
 use circuits_lib::header_chain::{
-    BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
+    BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader, HeaderChainCircuitInput,
+    HeaderChainPrevProofType,
 };
 use eyre::{eyre, Context, OptionExt};
 use lazy_static::lazy_static;
@@ -297,7 +298,10 @@ impl HeaderChainProver {
                     _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
                 };
 
-                (HeaderChainPrevProofType::GenesisBlock, image_id)
+                (
+                    HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
+                    image_id,
+                )
             }
         };
         let input = HeaderChainCircuitInput {

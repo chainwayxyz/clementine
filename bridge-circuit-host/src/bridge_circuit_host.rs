@@ -300,7 +300,7 @@ mod tests {
         bridge_circuit::structs::WorkOnlyCircuitOutput,
         common::zkvm::ZkvmHost,
         header_chain::{
-            header_chain_circuit, BlockHeaderCircuitOutput, CircuitBlockHeader,
+            header_chain_circuit, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
             HeaderChainCircuitInput, HeaderChainPrevProofType,
         },
     };
@@ -390,7 +390,7 @@ mod tests {
 
         let input = HeaderChainCircuitInput {
             method_id: [0; 8],
-            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
             block_headers: headers[..4000].to_vec(),
         };
         host.write(&input);
@@ -436,7 +436,7 @@ mod tests {
         // Prepare the input for the circuit
         let header_chain_input = HeaderChainCircuitInput {
             method_id: testnet4_header_chain_method_id_from_elf,
-            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
             block_headers: headers[..10].to_vec(),
         };
 

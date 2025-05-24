@@ -103,6 +103,7 @@ pub struct WorkOnlyCircuitInput {
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitOutput {
     pub work_u128: [u32; 4],
+    pub genesis_state_hash: [u8; 32],
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
