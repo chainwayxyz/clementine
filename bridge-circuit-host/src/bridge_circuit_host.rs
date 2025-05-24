@@ -218,6 +218,7 @@ pub fn create_spv(
     block_hash_bytes: &[[u8; 32]],
     payment_block: bitcoin::Block,
     payment_block_height: u32,
+    genesis_block_height: u32,
     payment_tx_index: u32,
 ) -> SPV {
     let mut mmr_native = MMRNative::new();
@@ -231,7 +232,8 @@ pub fn create_spv(
         .map(|tx| CircuitTransaction(tx.clone()))
         .collect();
 
-    let mmr_inclusion_proof = mmr_native.generate_proof(payment_block_height);
+    let mmr_inclusion_proof =
+        mmr_native.generate_proof(payment_block_height - genesis_block_height);
 
     let block_mt = BitcoinMerkleTree::new_mid_state(&block_txids);
 
