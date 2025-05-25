@@ -206,9 +206,7 @@ impl Default for BridgeConfig {
             citrea_chain_id: 5655,
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
 
-            header_chain_proof_path: Some(
-                PathBuf::from_str("../core/tests/data/first_1.bin").expect("known valid input"),
-            ),
+            header_chain_proof_path: None,
 
             security_council: SecurityCouncil {
                 pks: vec![*UNSPENDABLE_XONLY_PUBKEY],

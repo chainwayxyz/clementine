@@ -257,8 +257,11 @@ pub async fn create_operator_grpc_server<C: CitreaClientT>(
     let addr: std::net::SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .wrap_err("Failed to parse address")?;
+
+    tracing::info!("Creating operator server");
     let operator = OperatorServer::<C>::new(config.clone()).await?;
 
+    tracing::info!("Creating ClementineOperatorServer");
     let svc = ClementineOperatorServer::new(operator);
     let (server_addr, shutdown_tx) =
         create_grpc_server(addr.into(), svc, "Operator", &config).await?;

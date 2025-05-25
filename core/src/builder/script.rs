@@ -8,7 +8,7 @@
 use crate::actor::WinternitzDerivationPath;
 use crate::config::protocol::ProtocolParamset;
 use crate::EVMAddress;
-use bitcoin::hashes::{hash160, Hash};
+use bitcoin::hashes::Hash;
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
@@ -390,8 +390,8 @@ impl PreimageRevealScript {
         let mut witness = Witness::new();
         #[cfg(debug_assertions)]
         assert_eq!(
-            hash160::Hash::hash(preimage.as_ref()),
-            hash160::Hash::from_byte_array(self.1),
+            bitcoin::hashes::hash160::Hash::hash(preimage.as_ref()),
+            bitcoin::hashes::hash160::Hash::from_byte_array(self.1),
             "Preimage does not match"
         );
 

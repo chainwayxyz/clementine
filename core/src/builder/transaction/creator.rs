@@ -548,6 +548,7 @@ pub async fn create_txhandlers(
         move_txid,
         round_txid,
         vout,
+        context.paramset.genesis_chain_state_hash,
     );
 
     let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)

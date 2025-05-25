@@ -62,21 +62,16 @@ pub fn work_only_circuit(guest: &impl ZkvmGuest) {
         U256::from_be_bytes(input.header_chain_circuit_output.chain_state.total_work);
     let words = work_conversion(total_work_u256);
     // Due to the nature of borsh serialization, this will use little endian bytes in the items it serializes/deserializes
-    guest.commit(&WorkOnlyCircuitOutput { work_u128: words });
+    guest.commit(&WorkOnlyCircuitOutput {
+        work_u128: words,
+        genesis_state_hash: input.header_chain_circuit_output.genesis_state_hash,
+    });
 }
 
-/// Converts a `U256` work value into an array of four `u32` words. This conversion will use big endian words and big endian bytes
-/// inside the words.
-fn work_conversion(work: U256) -> [u32; 4] {
+/// Converts a `U256` work value into big endian array of 16 bytes.
+fn work_conversion(work: U256) -> [u8; 16] {
     let (_, work): (U128, U128) = work.into();
-    let words: [u32; 4] = work
-        .to_be_bytes()
-        .chunks_exact(4)
-        .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
-        .collect::<Vec<u32>>()
-        .try_into()
-        .unwrap();
-    words
+    work.to_be_bytes()
 }
 
 #[cfg(test)]
@@ -87,15 +82,18 @@ mod tests {
     #[test]
     fn test_work_conversion_one() {
         let u128_one_words = work_conversion(U256::ONE);
-        assert_eq!(u128_one_words, [0, 0, 0, 1]);
+        assert_eq!(
+            u128_one_words,
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+        );
         let u128_one_borsh =
             borsh::to_vec(&u128_one_words).expect("Serialization to vec is infallible");
         assert_eq!(u128_one_borsh.len(), 16);
         assert_eq!(
             u128_one_borsh,
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
         );
-        let u128_one = borsh::from_slice::<[u32; 4]>(&u128_one_borsh)
+        let u128_one = borsh::from_slice::<[u8; 16]>(&u128_one_borsh)
             .expect("Deserialization from slice is infallible");
         assert_eq!(u128_one, u128_one_words);
     }
@@ -107,15 +105,15 @@ mod tests {
             1, 0, 1,
         ]);
         let work_words = work_conversion(work_bytes);
-        assert_eq!(work_words, [0, 0, 1, 65537]);
+        assert_eq!(work_words, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1]);
         let u128_one_borsh =
             borsh::to_vec(&work_words).expect("Serialization to vec is infallible");
         assert_eq!(u128_one_borsh.len(), 16);
         assert_eq!(
             u128_one_borsh,
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0]
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1]
         );
-        let u128_one = borsh::from_slice::<[u32; 4]>(&u128_one_borsh)
+        let u128_one = borsh::from_slice::<[u8; 16]>(&u128_one_borsh)
             .expect("Deserialization from slice is infallible");
         assert_eq!(u128_one, work_words);
     }
