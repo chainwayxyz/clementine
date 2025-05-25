@@ -329,6 +329,9 @@ impl HeaderChainProver {
 
         let total_work: [u8; 32] = total_work.try_into().expect("Total work is 32 bytes");
 
+        let mut block_hashes_mmr = MMRGuest::new();
+        block_hashes_mmr.append(block_hash.to_byte_array());
+
         let chain_state = ChainState {
             block_height: height as u32,
             total_work,
@@ -336,7 +339,7 @@ impl HeaderChainProver {
             current_target_bits: block_header.bits.to_consensus(),
             epoch_start_time: epoch_start_timestamp,
             prev_11_timestamps: last_11_block_timestamps,
-            block_hashes_mmr: MMRGuest::new(),
+            block_hashes_mmr,
         };
         Ok(chain_state)
     }

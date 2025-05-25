@@ -1122,7 +1122,11 @@ where
 
         let block_hashes = self
             .db
-            .get_block_info_from_range(None, 0, current_height)
+            .get_block_info_from_range(
+                None,
+                self.config.protocol_paramset().genesis_height as u64,
+                current_height,
+            )
             .await?;
 
         // find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)

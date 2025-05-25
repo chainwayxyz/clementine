@@ -424,7 +424,7 @@ mod tests {
         env::set_var("GENESIS_HEIGHT", "0");
         env::set_var(
             "GENESIS_CHAIN_STATE_HASH",
-            "352a7c630073b8b4141c01f65dd011b5a21b84ca2683a0a9f88b1f79aff56737",
+            "5f7302ad16c8bd9ef2f3be00c8199a86f9e0ba861484abb4af5f7e457f8c2216",
         );
         env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
         env::set_var(
