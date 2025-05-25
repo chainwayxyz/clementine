@@ -421,6 +421,11 @@ mod tests {
         env::set_var("LATEST_BLOCKHASH_TIMEOUT_TIMELOCK", "360");
         env::set_var("FINALITY_DEPTH", "1");
         env::set_var("START_HEIGHT", "8148");
+        env::set_var("GENESIS_HEIGHT", "0");
+        env::set_var(
+            "GENESIS_CHAIN_STATE_HASH",
+            "352a7c630073b8b4141c01f65dd011b5a21b84ca2683a0a9f88b1f79aff56737",
+        );
         env::set_var("HEADER_CHAIN_PROOF_BATCH_SIZE", "100");
         env::set_var(
             "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",

@@ -21,5 +21,7 @@ time_to_disprove = 648                      # BLOCKS_PER_DAY * 4 + BLOCKS_PER_DA
 latest_blockhash_timeout_timelock = 360     # BLOCKS_PER_DAY * 5 / 2
 finality_depth = 1
 start_height = 8148
+genesis_height = 0
+genesis_chain_state_hash = [53,42,124,99,0,115,184,180,20,28,1,246,93,208,17,181,162,27,132,202,38,131,160,169,248,139,31,121,175,245,103,55]
 header_chain_proof_batch_size = 100
 bridge_circuit_method_id_constant = [255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]
