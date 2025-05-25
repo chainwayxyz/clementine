@@ -255,8 +255,8 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     start_height: 190,
     genesis_height: 0,
     genesis_chain_state_hash: [
-        237, 77, 36, 211, 175, 192, 133, 135, 219, 17, 148, 111, 103, 164, 129, 74, 77, 61, 13,
-        236, 151, 5, 232, 32, 68, 121, 107, 62, 146, 168, 95, 26,
+        53, 42, 124, 99, 0, 115, 184, 180, 20, 28, 1, 246, 93, 208, 17, 181, 162, 27, 132, 202, 38,
+        131, 160, 105, 248, 139, 31, 121, 175, 245, 103, 55,
     ],
     header_chain_proof_batch_size: 100,
     bridge_circuit_method_id_constant: [255u8; 32],
