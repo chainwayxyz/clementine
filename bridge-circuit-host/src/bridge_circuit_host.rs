@@ -233,7 +233,7 @@ pub fn create_spv(
         .collect();
 
     let mmr_inclusion_proof =
-        mmr_native.generate_proof(payment_block_height - genesis_block_height);
+        mmr_native.generate_proof(payment_block_height - genesis_block_height - 1);
 
     let block_mt = BitcoinMerkleTree::new_mid_state(&block_txids);
 
