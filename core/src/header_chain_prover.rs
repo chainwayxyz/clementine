@@ -253,7 +253,6 @@ impl HeaderChainProver {
         height: u64,
         network: Network,
     ) -> Result<ChainState, HeaderChainProverError> {
-
         let block_hash = rpc
             .client
             .get_block_hash(height)
