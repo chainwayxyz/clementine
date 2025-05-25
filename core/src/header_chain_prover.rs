@@ -253,16 +253,6 @@ impl HeaderChainProver {
         height: u64,
         network: Network,
     ) -> Result<ChainState, HeaderChainProverError> {
-        if height == 0 {
-            return Ok(ChainState::genesis_state());
-        }
-
-        if height <= 11 {
-            return Err(eyre::eyre!(
-                "Height is less than 11, can't generate chain state, Just use 0 :)"
-            )
-            .into());
-        }
 
         let block_hash = rpc
             .client
@@ -296,6 +286,10 @@ impl HeaderChainProver {
 
             last_block_hash = block_header.prev_blockhash;
             last_block_height = last_block_height.wrapping_sub(1);
+
+            if last_block_hash.to_byte_array() == [0u8; 32] {
+                break;
+            }
         }
 
         let epoch_start_block_height = height / 2016 * 2016;
