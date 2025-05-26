@@ -1441,9 +1441,13 @@ where
                 old_move_txid,
                 new_move_txid
             );
-            self.db
+            let result = self
+                .db
                 .set_replacement_deposit_move_txid(Some(dbtx), old_move_txid, new_move_txid)
-                .await?;
+                .await;
+            if let Err(e) = result {
+                tracing::error!("Error setting replacement move txid: {:?}", e);
+            }
         }
 
         Ok(())
