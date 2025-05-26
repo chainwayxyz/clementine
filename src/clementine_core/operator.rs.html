@@ -1541,7 +1541,49 @@
 <a href="#1540" id="1540">1540</a>
 <a href="#1541" id="1541">1541</a>
 <a href="#1542" id="1542">1542</a>
-<a href="#1543" id="1543">1543</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1543" id="1543">1543</a>
+<a href="#1544" id="1544">1544</a>
+<a href="#1545" id="1545">1545</a>
+<a href="#1546" id="1546">1546</a>
+<a href="#1547" id="1547">1547</a>
+<a href="#1548" id="1548">1548</a>
+<a href="#1549" id="1549">1549</a>
+<a href="#1550" id="1550">1550</a>
+<a href="#1551" id="1551">1551</a>
+<a href="#1552" id="1552">1552</a>
+<a href="#1553" id="1553">1553</a>
+<a href="#1554" id="1554">1554</a>
+<a href="#1555" id="1555">1555</a>
+<a href="#1556" id="1556">1556</a>
+<a href="#1557" id="1557">1557</a>
+<a href="#1558" id="1558">1558</a>
+<a href="#1559" id="1559">1559</a>
+<a href="#1560" id="1560">1560</a>
+<a href="#1561" id="1561">1561</a>
+<a href="#1562" id="1562">1562</a>
+<a href="#1563" id="1563">1563</a>
+<a href="#1564" id="1564">1564</a>
+<a href="#1565" id="1565">1565</a>
+<a href="#1566" id="1566">1566</a>
+<a href="#1567" id="1567">1567</a>
+<a href="#1568" id="1568">1568</a>
+<a href="#1569" id="1569">1569</a>
+<a href="#1570" id="1570">1570</a>
+<a href="#1571" id="1571">1571</a>
+<a href="#1572" id="1572">1572</a>
+<a href="#1573" id="1573">1573</a>
+<a href="#1574" id="1574">1574</a>
+<a href="#1575" id="1575">1575</a>
+<a href="#1576" id="1576">1576</a>
+<a href="#1577" id="1577">1577</a>
+<a href="#1578" id="1578">1578</a>
+<a href="#1579" id="1579">1579</a>
+<a href="#1580" id="1580">1580</a>
+<a href="#1581" id="1581">1581</a>
+<a href="#1582" id="1582">1582</a>
+<a href="#1583" id="1583">1583</a>
+<a href="#1584" id="1584">1584</a>
+<a href="#1585" id="1585">1585</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::{BTreeMap, HashMap};
@@ -1710,33 +1752,75 @@
             .get_operator(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx), signer.xonly_public_key)
             .<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="kw">let </span>(collateral_funding_outpoint, reimburse_addr) = <span class="kw">match </span>op_data {
-            <span class="prelude-val">Some</span>(op_data) =&gt; (op_data.collateral_funding_outpoint, op_data.reimburse_addr),
-            <span class="prelude-val">None </span>=&gt; {
-                <span class="kw">let </span>outpoint = rpc
-                    .send_to_address(
-                        <span class="kw-2">&amp;</span>signer.address,
-                        config.protocol_paramset().collateral_funding_amount,
-                    )
-                    .<span class="kw">await</span><span class="question-mark">?</span>;
-
-                <span class="kw">let </span>reimburse_addr = rpc
-                    .client
-                    .get_new_address(<span class="prelude-val">Some</span>(<span class="string">"OperatorReimbursement"</span>), <span class="prelude-val">Some</span>(AddressType::Bech32m))
-                    .<span class="kw">await
-                    </span>.wrap_err(<span class="string">"Failed to get new address"</span>)<span class="question-mark">?
-                    </span>.assume_checked();
-                db.set_operator(
-                    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
-                    signer.xonly_public_key,
-                    reimburse_addr.to_string(),
-                    outpoint,
+            <span class="prelude-val">Some</span>(operator_data) =&gt; {
+                <span class="comment">// Operator data is already set in db, we don't actually need to do anything.
+                // set_operator_checked will give error if the values set in config and db doesn't match.
+                </span>(
+                    operator_data.collateral_funding_outpoint,
+                    operator_data.reimburse_addr,
                 )
-                .<span class="kw">await</span><span class="question-mark">?</span>;
+            }
+            <span class="prelude-val">None </span>=&gt; {
+                <span class="comment">// Operator data is not set in db, then we check if any collateral outpoint and reimbursement address is set in config.
+                // If so we create a new operator using those data, otherwise we generate new collateral outpoint and reimbursement address.
+                </span><span class="kw">let </span>reimburse_addr = <span class="kw">match </span><span class="kw-2">&amp;</span>config.operator_reimbursement_address {
+                    <span class="prelude-val">Some</span>(reimburse_addr) =&gt; {
+                        reimburse_addr
+                            .to_owned()
+                            .require_network(config.protocol_paramset().network)
+                            .wrap_err(<span class="macro">format!</span>(<span class="string">"Invalid operator reimbursement address provided in config: {:?} for network: {:?}"</span>, reimburse_addr, config.protocol_paramset().network))<span class="question-mark">?
+                    </span>}
+                    <span class="prelude-val">None </span>=&gt; {
+                        rpc
+                        .client
+                        .get_new_address(<span class="prelude-val">Some</span>(<span class="string">"OperatorReimbursement"</span>), <span class="prelude-val">Some</span>(AddressType::Bech32m))
+                        .<span class="kw">await
+                        </span>.wrap_err(<span class="string">"Failed to get new address"</span>)<span class="question-mark">?
+                        </span>.require_network(config.protocol_paramset().network)
+                        .wrap_err(<span class="macro">format!</span>(<span class="string">"Invalid operator reimbursement address generated for the network in config: {:?}
+                                Possibly the provided rpc's network and network given in config doesn't match"</span>, config.protocol_paramset().network))<span class="question-mark">?
+                    </span>}
+                };
+                <span class="kw">let </span>outpoint = <span class="kw">match </span><span class="kw-2">&amp;</span>config.operator_collateral_funding_outpoint {
+                    <span class="prelude-val">Some</span>(outpoint) =&gt; {
+                        <span class="comment">// check if outpoint exists on chain and has exactly collateral funding amount
+                        </span><span class="kw">let </span>collateral_tx = rpc
+                            .get_tx_of_txid(<span class="kw-2">&amp;</span>outpoint.txid)
+                            .<span class="kw">await
+                            </span>.wrap_err(<span class="string">"Failed to get collateral funding tx"</span>)<span class="question-mark">?</span>;
+                        <span class="kw">let </span>collateral_value = collateral_tx
+                            .output
+                            .get(outpoint.vout <span class="kw">as </span>usize)
+                            .ok_or_eyre(<span class="string">"Invalid vout index for collateral funding tx"</span>)<span class="question-mark">?
+                            </span>.value;
+                        <span class="kw">if </span>collateral_value != config.protocol_paramset().collateral_funding_amount
+                        {
+                            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(<span class="string">"Operator collateral funding outpoint given in config has a different amount than the one specified in config..
+                                Bridge collateral funnding amount: {:?}, Amount in given outpoint: {:?}"</span>, config.protocol_paramset().collateral_funding_amount, collateral_value).into());
+                        }
+                        <span class="kw-2">*</span>outpoint
+                    }
+                    <span class="prelude-val">None </span>=&gt; {
+                        <span class="comment">// create a new outpoint that has collateral funding amount
+                        </span>rpc.send_to_address(
+                            <span class="kw-2">&amp;</span>signer.address,
+                            config.protocol_paramset().collateral_funding_amount,
+                        )
+                        .<span class="kw">await</span><span class="question-mark">?
+                    </span>}
+                };
                 (outpoint, reimburse_addr)
             }
         };
-        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
 
+        db.set_operator(
+            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;mut </span>dbtx),
+            signer.xonly_public_key,
+            <span class="kw-2">&amp;</span>reimburse_addr,
+            collateral_funding_outpoint,
+        )
+        .<span class="kw">await</span><span class="question-mark">?</span>;
+        dbtx.commit().<span class="kw">await</span><span class="question-mark">?</span>;
         <span class="kw">let </span>citrea_client = C::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),

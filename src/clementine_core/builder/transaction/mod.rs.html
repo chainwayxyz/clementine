@@ -893,7 +893,9 @@
 <a href="#892" id="892">892</a>
 <a href="#893" id="893">893</a>
 <a href="#894" id="894">894</a>
-<a href="#895" id="895">895</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Builder
+<a href="#895" id="895">895</a>
+<a href="#896" id="896">896</a>
+<a href="#897" id="897">897</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Transaction Builder
 //!
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
@@ -1089,6 +1091,53 @@
     }
     <span class="kw">pub fn </span>get_num_operators(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
         <span class="self">self</span>.actors.operators.len()
+    }
+    <span class="doccomment">/// Returns the scripts for the deposit.
+    </span><span class="kw">pub fn </span>get_deposit_scripts(
+        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+        paramset: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>ProtocolParamset,
+    ) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;Arc&lt;<span class="kw">dyn </span>SpendableScript&gt;&gt;, BridgeError&gt; {
+        <span class="kw">let </span>nofn_xonly_pk = <span class="self">self</span>.get_nofn_xonly_pk()<span class="question-mark">?</span>;
+
+        <span class="kw">match </span><span class="kw-2">&amp;mut </span><span class="self">self</span>.deposit.deposit_type {
+            DepositType::BaseDeposit(original_deposit_data) =&gt; {
+                <span class="kw">let </span>deposit_script = Arc::new(BaseDepositScript::new(
+                    nofn_xonly_pk,
+                    original_deposit_data.evm_address,
+                ));
+
+                <span class="kw">let </span>recovery_script_pubkey = original_deposit_data
+                    .recovery_taproot_address
+                    .clone()
+                    .assume_checked()
+                    .script_pubkey();
+
+                <span class="kw">let </span>recovery_extracted_xonly_pk =
+                    XOnlyPublicKey::from_slice(<span class="kw-2">&amp;</span>recovery_script_pubkey.as_bytes()[<span class="number">2</span>..<span class="number">34</span>])
+                        .wrap_err(
+                            <span class="string">"Failed to extract xonly public key from recovery script pubkey"</span>,
+                        )<span class="question-mark">?</span>;
+
+                <span class="kw">let </span>script_timelock = Arc::new(TimelockScript::new(
+                    <span class="prelude-val">Some</span>(recovery_extracted_xonly_pk),
+                    paramset.user_takes_after,
+                ));
+
+                <span class="prelude-val">Ok</span>(<span class="macro">vec!</span>[deposit_script, script_timelock])
+            }
+            DepositType::ReplacementDeposit(replacement_deposit_data) =&gt; {
+                <span class="kw">let </span>deposit_script: Arc&lt;<span class="kw">dyn </span>SpendableScript&gt; =
+                    Arc::new(ReplacementDepositScript::new(
+                        nofn_xonly_pk,
+                        replacement_deposit_data.old_move_txid,
+                    ));
+                <span class="kw">let </span>security_council_script: Arc&lt;<span class="kw">dyn </span>SpendableScript&gt; = Arc::new(
+                    Multisig::from_security_council(<span class="self">self</span>.security_council.clone()),
+                );
+
+                <span class="prelude-val">Ok</span>(<span class="macro">vec!</span>[deposit_script, security_council_script])
+            }
+        }
     }
 }
 
@@ -1477,67 +1526,22 @@
         deposit_data.security_council.clone(),
     ));
 
-    <span class="kw">let </span>builder = <span class="kw">match </span><span class="kw-2">&amp;mut </span>deposit_data.deposit.deposit_type {
-        DepositType::BaseDeposit(original_deposit_data) =&gt; {
-            <span class="kw">let </span>deposit_script = Arc::new(BaseDepositScript::new(
-                nofn_xonly_pk,
-                original_deposit_data.evm_address,
-            ));
+    <span class="kw">let </span>deposit_scripts = deposit_data.get_deposit_scripts(paramset)<span class="question-mark">?</span>;
 
-            <span class="kw">let </span>recovery_script_pubkey = original_deposit_data
-                .recovery_taproot_address
-                .clone()
-                .assume_checked()
-                .script_pubkey();
-
-            <span class="kw">let </span>recovery_extracted_xonly_pk =
-                XOnlyPublicKey::from_slice(<span class="kw-2">&amp;</span>recovery_script_pubkey.as_bytes()[<span class="number">2</span>..<span class="number">34</span>])
-                    .wrap_err(<span class="string">"Failed to extract xonly public key from recovery script pubkey"</span>)<span class="question-mark">?</span>;
-
-            <span class="kw">let </span>script_timelock = Arc::new(TimelockScript::new(
-                <span class="prelude-val">Some</span>(recovery_extracted_xonly_pk),
-                paramset.user_takes_after,
-            ));
-
-            TxHandlerBuilder::new(TransactionType::MoveToVault)
-                .with_version(Version::non_standard(<span class="number">3</span>))
-                .add_input(
-                    NormalSignatureKind::NotStored,
-                    SpendableTxIn::from_scripts(
-                        deposit_outpoint,
-                        paramset.bridge_amount,
-                        <span class="macro">vec!</span>[deposit_script, script_timelock],
-                        <span class="prelude-val">None</span>,
-                        paramset.network,
-                    ),
-                    SpendPath::ScriptSpend(<span class="number">0</span>),
-                    DEFAULT_SEQUENCE,
-                )
-        }
-        DepositType::ReplacementDeposit(replacement_deposit_data) =&gt; {
-            <span class="kw">let </span>deposit_script = Arc::new(ReplacementDepositScript::new(
-                nofn_xonly_pk,
-                replacement_deposit_data.old_move_txid,
-            ));
-
-            TxHandlerBuilder::new(TransactionType::MoveToVault)
-                .with_version(Version::non_standard(<span class="number">3</span>))
-                .add_input(
-                    NormalSignatureKind::NotStored,
-                    SpendableTxIn::from_scripts(
-                        deposit_outpoint,
-                        paramset.bridge_amount,
-                        <span class="macro">vec!</span>[deposit_script, security_council_script.clone()],
-                        <span class="prelude-val">None</span>,
-                        paramset.network,
-                    ),
-                    SpendPath::ScriptSpend(<span class="number">0</span>),
-                    DEFAULT_SEQUENCE,
-                )
-        }
-    };
-
-    <span class="prelude-val">Ok</span>(builder
+    <span class="prelude-val">Ok</span>(TxHandlerBuilder::new(TransactionType::MoveToVault)
+        .with_version(Version::non_standard(<span class="number">3</span>))
+        .add_input(
+            NormalSignatureKind::NotStored,
+            SpendableTxIn::from_scripts(
+                deposit_outpoint,
+                paramset.bridge_amount,
+                deposit_scripts,
+                <span class="prelude-val">None</span>,
+                paramset.network,
+            ),
+            SpendPath::ScriptSpend(<span class="number">0</span>),
+            DEFAULT_SEQUENCE,
+        )
         .add_output(UnspentTxOut::from_scripts(
             paramset.bridge_amount - ANCHOR_AMOUNT,
             <span class="macro">vec!</span>[nofn_script, security_council_script],

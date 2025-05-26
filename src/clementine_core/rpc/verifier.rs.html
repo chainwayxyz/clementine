@@ -506,7 +506,21 @@
 <a href="#505" id="505">505</a>
 <a href="#506" id="506">506</a>
 <a href="#507" id="507">507</a>
-<a href="#508" id="508">508</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
+<a href="#508" id="508">508</a>
+<a href="#509" id="509">509</a>
+<a href="#510" id="510">510</a>
+<a href="#511" id="511">511</a>
+<a href="#512" id="512">512</a>
+<a href="#513" id="513">513</a>
+<a href="#514" id="514">514</a>
+<a href="#515" id="515">515</a>
+<a href="#516" id="516">516</a>
+<a href="#517" id="517">517</a>
+<a href="#518" id="518">518</a>
+<a href="#519" id="519">519</a>
+<a href="#520" id="520">520</a>
+<a href="#521" id="521">521</a>
+<a href="#522" id="522">522</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::clementine::{
     <span class="self">self</span>, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
     OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
     SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
@@ -627,6 +641,20 @@
         <span class="kw">let </span>(collateral_funding_outpoint, operator_xonly_pk, wallet_reimburse_address) =
             parser::operator::parse_details(<span class="kw-2">&amp;mut </span>in_stream).<span class="kw">await</span><span class="question-mark">?</span>;
 
+        <span class="comment">// check if address is valid
+        </span><span class="kw">let </span>wallet_reimburse_address_checked = wallet_reimburse_address
+            .clone()
+            .require_network(<span class="self">self</span>.verifier.config.protocol_paramset().network)
+            .map_err(|e| {
+                Status::invalid_argument(<span class="macro">format!</span>(
+                    <span class="string">"Invalid operator reimbursement address: {:?} for bitcoin network {:?} for operator {:?}. ParseError: {}"</span>,
+                    wallet_reimburse_address,
+                    <span class="self">self</span>.verifier.config.protocol_paramset().network,
+                    operator_xonly_pk,
+                    e
+                ))
+            })<span class="question-mark">?</span>;
+
         <span class="kw">let </span><span class="kw-2">mut </span>operator_kickoff_winternitz_public_keys = Vec::new();
         <span class="comment">// we need num_round_txs + 1 because the last round includes reimburse generators of previous round
         </span><span class="kw">for _ in </span><span class="number">0</span>..<span class="self">self</span>.verifier.config.get_num_kickoff_winternitz_pks() {
@@ -650,7 +678,7 @@
             .set_operator(
                 collateral_funding_outpoint,
                 operator_xonly_pk,
-                wallet_reimburse_address,
+                wallet_reimburse_address_checked,
                 operator_kickoff_winternitz_public_keys,
                 unspent_kickoff_sigs,
             )

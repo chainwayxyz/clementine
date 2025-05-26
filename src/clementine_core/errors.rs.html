@@ -255,7 +255,17 @@
 <a href="#254" id="254">254</a>
 <a href="#255" id="255">255</a>
 <a href="#256" id="256">256</a>
-<a href="#257" id="257">257</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
+<a href="#257" id="257">257</a>
+<a href="#258" id="258">258</a>
+<a href="#259" id="259">259</a>
+<a href="#260" id="260">260</a>
+<a href="#261" id="261">261</a>
+<a href="#262" id="262">262</a>
+<a href="#263" id="263">263</a>
+<a href="#264" id="264">264</a>
+<a href="#265" id="265">265</a>
+<a href="#266" id="266">266</a>
+<a href="#267" id="267">267</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Errors
 //!
 //! This module defines globally shared error messages, the crate-level error wrapper and extension traits for error/results.
 //! Our error paradigm is as follows:
@@ -383,6 +393,16 @@
     </span>VerifierNotFound(PublicKey),
     <span class="attr">#[error(<span class="string">"Deposit not found in DB: {0:?}"</span>)]
     </span>DepositNotFound(OutPoint),
+    <span class="attr">#[error(<span class="string">"Deposit is invalid"</span>)]
+    </span>InvalidDeposit,
+    <span class="attr">#[error(<span class="string">"Operator data mismatch. Data already stored in DB and received by set_operator doesn't match for xonly_pk: {0}"</span>)]
+    </span>OperatorDataMismatch(XOnlyPublicKey),
+    <span class="attr">#[error(<span class="string">"Operator winternitz public keys mismatch. Data already stored in DB doesn't match the new data for operator {0}"</span>)]
+    </span>OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey),
+    <span class="attr">#[error(<span class="string">"BitVM setup data mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}"</span>)]
+    </span>BitvmSetupDataMismatch(XOnlyPublicKey, OutPoint),
+    <span class="attr">#[error(<span class="string">"Operator challenge ack hashes mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}"</span>)]
+    </span>OperatorChallengeAckHashesMismatch(XOnlyPublicKey, OutPoint),
     <span class="attr">#[error(<span class="string">"Invalid BitVM public keys"</span>)]
     </span>InvalidBitVMPublicKeys,
     <span class="attr">#[error(<span class="string">"Invalid challenge ack hashes"</span>)]

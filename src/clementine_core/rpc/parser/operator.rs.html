@@ -162,8 +162,7 @@
 <a href="#161" id="161">161</a>
 <a href="#162" id="162">162</a>
 <a href="#163" id="163">163</a>
-<a href="#164" id="164">164</a>
-<a href="#165" id="165">165</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
+<a href="#164" id="164">164</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
     citrea::CitreaClientT,
     fetch_next_message_from_stream,
     operator::Operator,
@@ -176,8 +175,8 @@
     },
 };
 <span class="kw">use </span>bitcoin::{
-    hashes::Hash, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf,
-    XOnlyPublicKey,
+    address::NetworkUnchecked, hashes::Hash, secp256k1::schnorr::Signature, Address, Amount,
+    OutPoint, ScriptBuf, XOnlyPublicKey,
 };
 <span class="kw">use </span>bitvm::signatures::winternitz;
 <span class="kw">use </span>std::str::FromStr;
@@ -250,7 +249,7 @@
 /// - Wallet reimburse address
 </span><span class="kw">pub async fn </span>parse_details(
     stream: <span class="kw-2">&amp;mut </span>tonic::Streaming&lt;OperatorParams&gt;,
-) -&gt; <span class="prelude-ty">Result</span>&lt;(OutPoint, XOnlyPublicKey, Address), Status&gt; {
+) -&gt; <span class="prelude-ty">Result</span>&lt;(OutPoint, XOnlyPublicKey, Address&lt;NetworkUnchecked&gt;), Status&gt; {
     <span class="kw">let </span>operator_param = <span class="macro">fetch_next_message_from_stream!</span>(stream, response)<span class="question-mark">?</span>;
 
     <span class="kw">let </span>operator_config =
@@ -273,8 +272,7 @@
     <span class="kw">let </span>wallet_reimburse_address = Address::from_str(<span class="kw-2">&amp;</span>operator_config.wallet_reimburse_address)
         .map_err(|e| {
             Status::invalid_argument(<span class="macro">format!</span>(<span class="string">"Failed to parse wallet reimburse address: {:?}"</span>, e))
-        })<span class="question-mark">?
-        </span>.assume_checked();
+        })<span class="question-mark">?</span>;
 
     <span class="prelude-val">Ok</span>((
         collateral_funding_outpoint,
