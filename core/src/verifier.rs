@@ -31,12 +31,14 @@ use crate::task::IntoTask;
 use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
 use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
+use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitvm::signatures::winternitz;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit::parse_op_return_data;
 use eyre::{Context, OptionExt, Result};
 #[cfg(test)]
 use risc0_zkvm::is_dev_mode;
@@ -1406,24 +1408,52 @@ where
             }
             let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
             let payout_tx = &block.txdata[*payout_tx_idx];
-            let last_output = &payout_tx.output[payout_tx.output.len() - 1]
-                .script_pubkey
-                .to_bytes();
-            tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
+            // Find the output that contains OP_RETURN
+            let op_return_output = payout_tx.output.iter().find(|output| {
+                let script_bytes = output.script_pubkey.to_bytes();
+                !script_bytes.is_empty() && script_bytes[0] == OP_RETURN.to_u8()
+            });
 
-            let mut operator_xonly_pk_bytes = [0u8; 32]; // Empty 32-byte array to copy operator xonly pk
-                                                         // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
-            if last_output.len() - 2 != 32 {
+            // if there is no OP_RETURN either the payout is optimistic payout, or the payout was done incorrectly by some operator
+            // either way we should not concern ourselves with it, but operators may need manual reimbursement
+            let Some(op_return_output) = op_return_output else {
+                tracing::debug!("No OP_RETURN output found in payout tx: {:?}", payout_txid);
+                continue;
+            };
+
+            let op_return_bytes = parse_op_return_data(&op_return_output.script_pubkey);
+            let Some(op_return_bytes) = op_return_bytes else {
                 tracing::error!(
-                    "Invalid operator xonly pk length ({} != 32) in payout tx {}",
-                    last_output.len() - 2,
+                    "Failed to parse OP_RETURN data in payout tx {}",
                     payout_txid
                 );
-            }
-            operator_xonly_pk_bytes.copy_from_slice(&last_output[2..last_output.len()]);
+                continue;
+            };
 
-            let operator_xonly_pk = XOnlyPublicKey::from_slice(&operator_xonly_pk_bytes)
-                .expect("Invalid operator xonly_pk");
+            tracing::info!(
+                "op_return_output: {}, idx: {}",
+                hex::encode(op_return_bytes),
+                idx
+            );
+            // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
+            if op_return_bytes.len() != 32 {
+                tracing::error!(
+                    "Invalid operator xonly pk length ({} != 32) in payout tx OP_RETURN {}",
+                    op_return_bytes.len(),
+                    payout_txid
+                );
+                continue;
+            }
+
+            let operator_xonly_pk = XOnlyPublicKey::from_slice(op_return_bytes);
+
+            let Ok(operator_xonly_pk) = operator_xonly_pk else {
+                tracing::error!(
+                    "Invalid operator xonly pk in payout tx OP_RETURN {}",
+                    payout_txid
+                );
+                continue;
+            };
 
             payout_txs_and_payer_operator_idx.push((
                 idx,
@@ -1432,6 +1462,11 @@ where
                 block_hash,
             ));
         }
+
+        tracing::info!(
+            "Payout txs and payer operator idx: {:?}",
+            payout_txs_and_payer_operator_idx
+        );
 
         self.db
             .set_payout_txs_and_payer_operator_xonly_pk(
