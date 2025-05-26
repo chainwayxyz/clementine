@@ -942,7 +942,13 @@
 <a href="#941" id="941">941</a>
 <a href="#942" id="942">942</a>
 <a href="#943" id="943">943</a>
-<a href="#944" id="944">944</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
+<a href="#944" id="944">944</a>
+<a href="#945" id="945">945</a>
+<a href="#946" id="946">946</a>
+<a href="#947" id="947">947</a>
+<a href="#948" id="948">948</a>
+<a href="#949" id="949">949</a>
+<a href="#950" id="950">950</a></pre></div><pre class="rust"><code><span class="kw">pub mod </span>constants;
 <span class="kw">pub mod </span>groth16;
 <span class="kw">pub mod </span>groth16_verifier;
 <span class="kw">pub mod </span>lc_proof;
@@ -1109,6 +1115,7 @@
         <span class="kw-2">*</span>move_txid,
         round_txid,
         kickoff_round_vout,
+        input.hcp.genesis_state_hash,
     );
 
     <span class="kw">let </span>latest_blockhash: LatestBlockhash = input.hcp.chain_state.best_block_hash[<span class="number">12</span>..<span class="number">32</span>]
@@ -1150,13 +1157,14 @@
     compressed_proof: <span class="kw-2">&amp;</span>[u8; <span class="number">128</span>],
     total_work: [u8; <span class="number">16</span>],
     image_id: <span class="kw-2">&amp;</span>[u8; <span class="number">32</span>],
+    genesis_state_hash: [u8; <span class="number">32</span>],
 ) -&gt; bool {
     <span class="kw">let </span>seal = <span class="kw">match </span>CircuitGroth16Proof::from_compressed(compressed_proof) {
         <span class="prelude-val">Ok</span>(seal) =&gt; seal,
         <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; <span class="kw">return </span><span class="bool-val">false</span>,
     };
 
-    <span class="kw">let </span>groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work);
+    <span class="kw">let </span>groth16_proof = CircuitGroth16WithTotalWork::new(seal, total_work, genesis_state_hash);
     groth16_proof.verify(image_id)
 }
 
@@ -1434,6 +1442,7 @@
             <span class="kw-2">&amp;</span>commitment.compressed_g16_proof,
             commitment.total_work,
             work_only_image_id,
+            circuit_input.hcp.genesis_state_hash,
         ) {
             total_work = commitment.total_work;
             <span class="kw">break</span>;
@@ -1477,6 +1486,7 @@
     move_txid: [u8; <span class="number">32</span>],
     round_txid: [u8; <span class="number">32</span>],
     kickoff_round_vout: u32,
+    genesis_state_hash: [u8; <span class="number">32</span>],
 ) -&gt; DepositConstant {
     <span class="comment">// pubkeys are 32 bytes long
     </span><span class="kw">let </span>pubkey_concat = watchtower_pubkeys
@@ -1493,6 +1503,7 @@
         <span class="kw-2">&amp;</span>watchtower_challenge_connector_start_idx.to_be_bytes()[..],
         <span class="kw-2">&amp;</span>round_txid,
         <span class="kw-2">&amp;</span>kickoff_round_vout.to_be_bytes()[..],
+        <span class="kw-2">&amp;</span>genesis_state_hash,
     ]
     .concat();
 
@@ -1616,6 +1627,7 @@
             }],
             hcp: BlockHeaderCircuitOutput {
                 method_id: [<span class="number">0</span>; <span class="number">8</span>],
+                genesis_state_hash: [<span class="number">0u8</span>; <span class="number">32</span>],
                 chain_state: ChainState::new(),
             },
             payout_spv: SPV {

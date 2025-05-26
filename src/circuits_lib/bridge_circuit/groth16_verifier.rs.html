@@ -93,7 +93,19 @@
 <a href="#92" id="92">92</a>
 <a href="#93" id="93">93</a>
 <a href="#94" id="94">94</a>
-<a href="#95" id="95">95</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fr};
+<a href="#95" id="95">95</a>
+<a href="#96" id="96">96</a>
+<a href="#97" id="97">97</a>
+<a href="#98" id="98">98</a>
+<a href="#99" id="99">99</a>
+<a href="#100" id="100">100</a>
+<a href="#101" id="101">101</a>
+<a href="#102" id="102">102</a>
+<a href="#103" id="103">103</a>
+<a href="#104" id="104">104</a>
+<a href="#105" id="105">105</a>
+<a href="#106" id="106">106</a>
+<a href="#107" id="107">107</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_bn254::{Bn254, Fr};
 <span class="kw">use </span>ark_groth16::PreparedVerifyingKey;
 <span class="kw">use </span>ark_groth16::Proof;
 <span class="kw">use </span>ark_serialize::CanonicalDeserialize;
@@ -105,17 +117,23 @@
     PREPARED_VK,
 };
 <span class="kw">use </span><span class="kw">super</span>::groth16::CircuitGroth16Proof;
+<span class="kw">use </span><span class="kw">super</span>::structs::WorkOnlyCircuitOutput;
 <span class="kw">use </span>hex::ToHex;
 <span class="kw">use </span>sha2::{Digest, Sha256};
 <span class="kw">use </span>std::str::FromStr;
 
-<span class="kw">pub fn </span>create_output_digest(total_work: <span class="kw-2">&amp;</span>[u8; <span class="number">16</span>]) -&gt; [u8; <span class="number">32</span>] {
-    <span class="kw">let </span>total_work_digest: [u8; <span class="number">32</span>] = Sha256::digest(total_work).into();
+<span class="kw">pub fn </span>create_journal_digest(work_only_circuit_output: <span class="kw-2">&amp;</span>WorkOnlyCircuitOutput) -&gt; [u8; <span class="number">32</span>] {
+    <span class="kw">let </span>pre_digest = borsh::to_vec(work_only_circuit_output).unwrap();
+    Sha256::digest(pre_digest).into()
+}
+
+<span class="kw">pub fn </span>create_output_digest(work_only_circuit_output: <span class="kw-2">&amp;</span>WorkOnlyCircuitOutput) -&gt; [u8; <span class="number">32</span>] {
+    <span class="kw">let </span>journal_digest: [u8; <span class="number">32</span>] = create_journal_digest(work_only_circuit_output);
     <span class="kw">let </span>len_output: u16 = <span class="number">2</span>;
 
     <span class="kw">let </span>output_pre_digest: [u8; <span class="number">98</span>] = [
         <span class="kw-2">&amp;</span>OUTPUT_TAG,
-        <span class="kw-2">&amp;</span>total_work_digest[..],
+        <span class="kw-2">&amp;</span>journal_digest[..],
         <span class="kw-2">&amp;</span>ASSUMPTIONS[..],
         <span class="kw-2">&amp;</span>len_output.to_le_bytes(),
     ]
@@ -150,16 +168,19 @@
 <span class="kw">pub struct </span>CircuitGroth16WithTotalWork {
     groth16_seal: CircuitGroth16Proof,
     total_work: [u8; <span class="number">16</span>],
+    genesis_state_hash: [u8; <span class="number">32</span>],
 }
 
 <span class="kw">impl </span>CircuitGroth16WithTotalWork {
     <span class="kw">pub fn </span>new(
         groth16_seal: CircuitGroth16Proof,
         total_work: [u8; <span class="number">16</span>],
+        genesis_state_hash: [u8; <span class="number">32</span>],
     ) -&gt; CircuitGroth16WithTotalWork {
         CircuitGroth16WithTotalWork {
             groth16_seal,
             total_work,
+            genesis_state_hash,
         }
     }
 
@@ -168,7 +189,10 @@
         <span class="kw">let </span>prepared_vk: PreparedVerifyingKey&lt;ark_ec::bn::Bn&lt;ark_bn254::Config&gt;&gt; =
             CanonicalDeserialize::deserialize_uncompressed(PREPARED_VK).unwrap();
 
-        <span class="kw">let </span>output_digest = create_output_digest(<span class="kw-2">&amp;</span><span class="self">self</span>.total_work);
+        <span class="kw">let </span>output_digest = create_output_digest(<span class="kw-2">&amp;</span>WorkOnlyCircuitOutput {
+            work_u128: <span class="self">self</span>.total_work,
+            genesis_state_hash: <span class="self">self</span>.genesis_state_hash,
+        });
 
         <span class="kw">let </span>claim_digest: [u8; <span class="number">32</span>] = create_claim_digest(<span class="kw-2">&amp;</span>output_digest, pre_state);
 

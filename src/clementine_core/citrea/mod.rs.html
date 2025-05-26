@@ -596,7 +596,20 @@
 <a href="#595" id="595">595</a>
 <a href="#596" id="596">596</a>
 <a href="#597" id="597">597</a>
-<a href="#598" id="598">598</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a>
+<a href="#602" id="602">602</a>
+<a href="#603" id="603">603</a>
+<a href="#604" id="604">604</a>
+<a href="#605" id="605">605</a>
+<a href="#606" id="606">606</a>
+<a href="#607" id="607">607</a>
+<a href="#608" id="608">608</a>
+<a href="#609" id="609">609</a>
+<a href="#610" id="610">610</a>
+<a href="#611" id="611">611</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Citrea Related Utilities
 
 </span><span class="kw">use </span><span class="kw">crate</span>::citrea::BRIDGE_CONTRACT::DepositReplaced;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
@@ -918,6 +931,8 @@
             .wallet(EthereumWallet::from(key))
             .on_http(citrea_rpc_url.clone());
 
+        <span class="macro">tracing::info!</span>(<span class="string">"Provider created"</span>);
+
         <span class="kw">let </span>contract = BRIDGE_CONTRACT::new(
             BRIDGE_CONTRACT_ADDRESS
                 .parse()
@@ -925,12 +940,19 @@
             provider,
         );
 
+        <span class="macro">tracing::info!</span>(<span class="string">"Contract created"</span>);
+
         <span class="kw">let </span>client = HttpClientBuilder::default()
             .build(citrea_rpc_url)
             .wrap_err(<span class="string">"Failed to create Citrea RPC client"</span>)<span class="question-mark">?</span>;
+
+        <span class="macro">tracing::info!</span>(<span class="string">"Citrea RPC client created"</span>);
+
         <span class="kw">let </span>light_client_prover_client = HttpClientBuilder::default()
             .build(light_client_prover_url)
             .wrap_err(<span class="string">"Failed to create Citrea LCP RPC client"</span>)<span class="question-mark">?</span>;
+
+        <span class="macro">tracing::info!</span>(<span class="string">"Citrea LCP RPC client created"</span>);
 
         <span class="prelude-val">Ok</span>(CitreaClient {
             client,
@@ -1142,6 +1164,10 @@
         <span class="kw-2">&amp;</span><span class="self">self</span>,
         nofn_xonly_pk: XOnlyPublicKey,
     ) -&gt; <span class="prelude-ty">Result</span>&lt;(), BridgeError&gt; {
+        <span class="kw">if </span>std::env::var(<span class="string">"DISABLE_NOFN_CHECK"</span>).is_ok() {
+            <span class="kw">return </span><span class="prelude-val">Ok</span>(());
+        }
+
         <span class="kw">let </span>contract_nofn_xonly_pk = <span class="self">self
             </span>.contract
             .getAggregatedKey()

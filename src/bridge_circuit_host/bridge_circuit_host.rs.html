@@ -498,7 +498,9 @@
 <a href="#497" id="497">497</a>
 <a href="#498" id="498">498</a>
 <a href="#499" id="499">499</a>
-<a href="#500" id="500">500</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_snark, stark_to_succinct_dev_mode};
+<a href="#500" id="500">500</a>
+<a href="#501" id="501">501</a>
+<a href="#502" id="502">502</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::docker::{stark_to_snark, stark_to_succinct_dev_mode};
 <span class="kw">use </span><span class="kw">crate</span>::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
@@ -718,6 +720,7 @@
     block_hash_bytes: <span class="kw-2">&amp;</span>[[u8; <span class="number">32</span>]],
     payment_block: bitcoin::Block,
     payment_block_height: u32,
+    genesis_block_height: u32,
     payment_tx_index: u32,
 ) -&gt; SPV {
     <span class="kw">let </span><span class="kw-2">mut </span>mmr_native = MMRNative::new();
@@ -731,7 +734,8 @@
         .map(|tx| CircuitTransaction(tx.clone()))
         .collect();
 
-    <span class="kw">let </span>mmr_inclusion_proof = mmr_native.generate_proof(payment_block_height);
+    <span class="kw">let </span>mmr_inclusion_proof =
+        mmr_native.generate_proof(payment_block_height - genesis_block_height);
 
     <span class="kw">let </span>block_mt = BitcoinMerkleTree::new_mid_state(<span class="kw-2">&amp;</span>block_txids);
 
@@ -800,7 +804,7 @@
         bridge_circuit::structs::WorkOnlyCircuitOutput,
         common::zkvm::ZkvmHost,
         header_chain::{
-            header_chain_circuit, BlockHeaderCircuitOutput, CircuitBlockHeader,
+            header_chain_circuit, BlockHeaderCircuitOutput, ChainState, CircuitBlockHeader,
             HeaderChainCircuitInput, HeaderChainPrevProofType,
         },
     };
@@ -890,7 +894,7 @@
 
         <span class="kw">let </span>input = HeaderChainCircuitInput {
             method_id: [<span class="number">0</span>; <span class="number">8</span>],
-            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
             block_headers: headers[..<span class="number">4000</span>].to_vec(),
         };
         host.write(<span class="kw-2">&amp;</span>input);
@@ -936,7 +940,7 @@
         <span class="comment">// Prepare the input for the circuit
         </span><span class="kw">let </span>header_chain_input = HeaderChainCircuitInput {
             method_id: testnet4_header_chain_method_id_from_elf,
-            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            prev_proof: HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
             block_headers: headers[..<span class="number">10</span>].to_vec(),
         };
 

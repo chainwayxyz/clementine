@@ -1239,7 +1239,8 @@
 <a href="#1238" id="1238">1238</a>
 <a href="#1239" id="1239">1239</a>
 <a href="#1240" id="1240">1240</a>
-<a href="#1241" id="1241">1241</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::input::UtxoVout;
+<a href="#1241" id="1241">1241</a>
+<a href="#1242" id="1242">1242</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">super</span>::input::UtxoVout;
 <span class="kw">use </span><span class="kw">super</span>::operator_assert::{
     create_latest_blockhash_timeout_txhandler, create_latest_blockhash_txhandler,
 };
@@ -1789,6 +1790,7 @@
         move_txid,
         round_txid,
         vout,
+        context.paramset.genesis_chain_state_hash,
     );
 
     <span class="kw">let </span>payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx <span class="kw">as </span>usize)

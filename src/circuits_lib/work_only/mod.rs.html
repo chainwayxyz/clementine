@@ -118,9 +118,7 @@
 <a href="#117" id="117">117</a>
 <a href="#118" id="118">118</a>
 <a href="#119" id="119">119</a>
-<a href="#120" id="120">120</a>
-<a href="#121" id="121">121</a>
-<a href="#122" id="122">122</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
+<a href="#120" id="120">120</a></pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
     bridge_circuit::structs::{WorkOnlyCircuitInput, WorkOnlyCircuitOutput},
     common::{
         constants::{
@@ -184,21 +182,16 @@
         U256::from_be_bytes(input.header_chain_circuit_output.chain_state.total_work);
     <span class="kw">let </span>words = work_conversion(total_work_u256);
     <span class="comment">// Due to the nature of borsh serialization, this will use little endian bytes in the items it serializes/deserializes
-    </span>guest.commit(<span class="kw-2">&amp;</span>WorkOnlyCircuitOutput { work_u128: words });
+    </span>guest.commit(<span class="kw-2">&amp;</span>WorkOnlyCircuitOutput {
+        work_u128: words,
+        genesis_state_hash: input.header_chain_circuit_output.genesis_state_hash,
+    });
 }
 
-<span class="doccomment">/// Converts a `U256` work value into an array of four `u32` words. This conversion will use big endian words and big endian bytes
-/// inside the words.
-</span><span class="kw">fn </span>work_conversion(work: U256) -&gt; [u32; <span class="number">4</span>] {
+<span class="doccomment">/// Converts a `U256` work value into big endian array of 16 bytes.
+</span><span class="kw">fn </span>work_conversion(work: U256) -&gt; [u8; <span class="number">16</span>] {
     <span class="kw">let </span>(<span class="kw">_</span>, work): (U128, U128) = work.into();
-    <span class="kw">let </span>words: [u32; <span class="number">4</span>] = work
-        .to_be_bytes()
-        .chunks_exact(<span class="number">4</span>)
-        .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
-        .collect::&lt;Vec&lt;u32&gt;&gt;()
-        .try_into()
-        .unwrap();
-    words
+    work.to_be_bytes()
 }
 
 <span class="attr">#[cfg(test)]
@@ -209,15 +202,18 @@
     <span class="attr">#[test]
     </span><span class="kw">fn </span>test_work_conversion_one() {
         <span class="kw">let </span>u128_one_words = work_conversion(U256::ONE);
-        <span class="macro">assert_eq!</span>(u128_one_words, [<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>]);
+        <span class="macro">assert_eq!</span>(
+            u128_one_words,
+            [<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>]
+        );
         <span class="kw">let </span>u128_one_borsh =
             borsh::to_vec(<span class="kw-2">&amp;</span>u128_one_words).expect(<span class="string">"Serialization to vec is infallible"</span>);
         <span class="macro">assert_eq!</span>(u128_one_borsh.len(), <span class="number">16</span>);
         <span class="macro">assert_eq!</span>(
             u128_one_borsh,
-            <span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>]
+            <span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>]
         );
-        <span class="kw">let </span>u128_one = borsh::from_slice::&lt;[u32; <span class="number">4</span>]&gt;(<span class="kw-2">&amp;</span>u128_one_borsh)
+        <span class="kw">let </span>u128_one = borsh::from_slice::&lt;[u8; <span class="number">16</span>]&gt;(<span class="kw-2">&amp;</span>u128_one_borsh)
             .expect(<span class="string">"Deserialization from slice is infallible"</span>);
         <span class="macro">assert_eq!</span>(u128_one, u128_one_words);
     }
@@ -229,15 +225,15 @@
             <span class="number">1</span>, <span class="number">0</span>, <span class="number">1</span>,
         ]);
         <span class="kw">let </span>work_words = work_conversion(work_bytes);
-        <span class="macro">assert_eq!</span>(work_words, [<span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">65537</span>]);
+        <span class="macro">assert_eq!</span>(work_words, [<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>, <span class="number">1</span>]);
         <span class="kw">let </span>u128_one_borsh =
             borsh::to_vec(<span class="kw-2">&amp;</span>work_words).expect(<span class="string">"Serialization to vec is infallible"</span>);
         <span class="macro">assert_eq!</span>(u128_one_borsh.len(), <span class="number">16</span>);
         <span class="macro">assert_eq!</span>(
             u128_one_borsh,
-            <span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>]
+            <span class="macro">vec!</span>[<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">0</span>, <span class="number">1</span>]
         );
-        <span class="kw">let </span>u128_one = borsh::from_slice::&lt;[u32; <span class="number">4</span>]&gt;(<span class="kw-2">&amp;</span>u128_one_borsh)
+        <span class="kw">let </span>u128_one = borsh::from_slice::&lt;[u8; <span class="number">16</span>]&gt;(<span class="kw-2">&amp;</span>u128_one_borsh)
             .expect(<span class="string">"Deserialization from slice is infallible"</span>);
         <span class="macro">assert_eq!</span>(u128_one, work_words);
     }

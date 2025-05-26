@@ -593,7 +593,12 @@
 <a href="#592" id="592">592</a>
 <a href="#593" id="593">593</a>
 <a href="#594" id="594">594</a>
-<a href="#595" id="595">595</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Command Line Interface
+<a href="#595" id="595">595</a>
+<a href="#596" id="596">596</a>
+<a href="#597" id="597">597</a>
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Command Line Interface
 //!
 //! This module defines command line interface for server binaries. `Clap` is used
 //! for easy generation of help messages and handling arguments.
@@ -1016,6 +1021,11 @@
         env::set_var(<span class="string">"LATEST_BLOCKHASH_TIMEOUT_TIMELOCK"</span>, <span class="string">"360"</span>);
         env::set_var(<span class="string">"FINALITY_DEPTH"</span>, <span class="string">"1"</span>);
         env::set_var(<span class="string">"START_HEIGHT"</span>, <span class="string">"8148"</span>);
+        env::set_var(<span class="string">"GENESIS_HEIGHT"</span>, <span class="string">"0"</span>);
+        env::set_var(
+            <span class="string">"GENESIS_CHAIN_STATE_HASH"</span>,
+            <span class="string">"5f7302ad16c8bd9ef2f3be00c8199a86f9e0ba861484abb4af5f7e457f8c2216"</span>,
+        );
         env::set_var(<span class="string">"HEADER_CHAIN_PROOF_BATCH_SIZE"</span>, <span class="string">"100"</span>);
         env::set_var(
             <span class="string">"BRIDGE_CIRCUIT_METHOD_ID_CONSTANT"</span>,

@@ -1093,7 +1093,39 @@
 <a href="#1092" id="1092">1092</a>
 <a href="#1093" id="1093">1093</a>
 <a href="#1094" id="1094">1094</a>
-<a href="#1095" id="1095">1095</a></pre></div><pre class="rust"><code><span class="comment">// Implementation of this module is inspired by the Bitcoin Core source code and from here:
+<a href="#1095" id="1095">1095</a>
+<a href="#1096" id="1096">1096</a>
+<a href="#1097" id="1097">1097</a>
+<a href="#1098" id="1098">1098</a>
+<a href="#1099" id="1099">1099</a>
+<a href="#1100" id="1100">1100</a>
+<a href="#1101" id="1101">1101</a>
+<a href="#1102" id="1102">1102</a>
+<a href="#1103" id="1103">1103</a>
+<a href="#1104" id="1104">1104</a>
+<a href="#1105" id="1105">1105</a>
+<a href="#1106" id="1106">1106</a>
+<a href="#1107" id="1107">1107</a>
+<a href="#1108" id="1108">1108</a>
+<a href="#1109" id="1109">1109</a>
+<a href="#1110" id="1110">1110</a>
+<a href="#1111" id="1111">1111</a>
+<a href="#1112" id="1112">1112</a>
+<a href="#1113" id="1113">1113</a>
+<a href="#1114" id="1114">1114</a>
+<a href="#1115" id="1115">1115</a>
+<a href="#1116" id="1116">1116</a>
+<a href="#1117" id="1117">1117</a>
+<a href="#1118" id="1118">1118</a>
+<a href="#1119" id="1119">1119</a>
+<a href="#1120" id="1120">1120</a>
+<a href="#1121" id="1121">1121</a>
+<a href="#1122" id="1122">1122</a>
+<a href="#1123" id="1123">1123</a>
+<a href="#1124" id="1124">1124</a>
+<a href="#1125" id="1125">1125</a>
+<a href="#1126" id="1126">1126</a>
+<a href="#1127" id="1127">1127</a></pre></div><pre class="rust"><code><span class="comment">// Implementation of this module is inspired by the Bitcoin Core source code and from here:
 // https://github.com/ZeroSync/header_chain/tree/master/program/src/block_header.
 
 </span><span class="kw">use </span>std::cmp::Ordering;
@@ -1124,11 +1156,16 @@
     </span><span class="kw">let </span>input: HeaderChainCircuitInput = guest.read_from_host();
     <span class="comment">// println!("Detected network: {:?}", NETWORK_TYPE);
     // println!("NETWORK_CONSTANTS: {:?}", NETWORK_CONSTANTS);
-    </span><span class="kw">let </span><span class="kw-2">mut </span>chain_state = <span class="kw">match </span>input.prev_proof {
-        HeaderChainPrevProofType::GenesisBlock =&gt; ChainState::new(),
+    </span><span class="kw">let </span>genesis_state_hash: [u8; <span class="number">32</span>];
+    <span class="kw">let </span><span class="kw-2">mut </span>chain_state = <span class="kw">match </span>input.prev_proof {
+        HeaderChainPrevProofType::GenesisBlock(genesis_state) =&gt; {
+            genesis_state_hash = genesis_state.to_hash();
+            genesis_state
+        }
         HeaderChainPrevProofType::PrevProof(prev_proof) =&gt; {
             <span class="macro">assert_eq!</span>(prev_proof.method_id, input.method_id);
             guest.verify(input.method_id, <span class="kw-2">&amp;</span>prev_proof);
+            genesis_state_hash = prev_proof.genesis_state_hash;
             prev_proof.chain_state
         }
     };
@@ -1137,6 +1174,7 @@
 
     guest.commit(<span class="kw-2">&amp;</span>BlockHeaderCircuitOutput {
         method_id: input.method_id,
+        genesis_state_hash,
         chain_state,
     });
     <span class="comment">// let end = risc0_zkvm::guest::env::cycle_count();
@@ -1218,7 +1256,11 @@
 
 <span class="doccomment">/// An epoch should be two weeks (represented as number of seconds)
 /// seconds/minute * minutes/hour * hours/day * 14 days
-</span><span class="kw">const </span>EXPECTED_EPOCH_TIMESPAN: u32 = <span class="number">60 </span>* <span class="number">60 </span>* <span class="number">24 </span>* <span class="number">14</span>;
+/// For our custom signet, we use 10 seconds block time, see: https://github.com/chainwayxyz/bitcoin/releases/tag/v29-ten-secs-blocktime-tag
+</span><span class="kw">const </span>EXPECTED_EPOCH_TIMESPAN: u32 = <span class="kw">match </span><span class="macro">option_env!</span>(<span class="string">"BITCOIN_NETWORK"</span>) {
+    <span class="prelude-val">Some</span>(n) <span class="kw">if </span><span class="macro">matches!</span>(n.as_bytes(), <span class="string">b"signet"</span>) =&gt; <span class="number">60 </span>* <span class="number">24 </span>* <span class="number">14</span>,
+    <span class="kw">_ </span>=&gt; <span class="number">60 </span>* <span class="number">60 </span>* <span class="number">24 </span>* <span class="number">14</span>,
+};
 
 <span class="doccomment">/// Number of blocks per epoch
 </span><span class="kw">const </span>BLOCKS_PER_EPOCH: u32 = <span class="number">2016</span>;
@@ -1307,6 +1349,27 @@
             prev_11_timestamps: [<span class="number">0u32</span>; <span class="number">11</span>],
             block_hashes_mmr: MMRGuest::new(),
         }
+    }
+
+    <span class="kw">pub fn </span>genesis_state() -&gt; <span class="self">Self </span>{
+        <span class="self">Self</span>::new()
+    }
+
+    <span class="kw">pub fn </span>to_hash(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; [u8; <span class="number">32</span>] {
+        <span class="kw">let </span><span class="kw-2">mut </span>hasher = Sha256::new();
+        hasher.update(<span class="self">self</span>.block_height.to_le_bytes());
+        hasher.update(<span class="self">self</span>.total_work);
+        hasher.update(<span class="self">self</span>.best_block_hash);
+        hasher.update(<span class="self">self</span>.current_target_bits.to_le_bytes());
+        hasher.update(<span class="self">self</span>.epoch_start_time.to_le_bytes());
+        <span class="kw">for </span>timestamp <span class="kw">in </span><span class="self">self</span>.prev_11_timestamps {
+            hasher.update(timestamp.to_le_bytes());
+        }
+        <span class="kw">for </span>hash <span class="kw">in </span><span class="self">self</span>.block_hashes_mmr.subroots.clone() {
+            hasher.update(hash);
+        }
+        hasher.update(<span class="self">self</span>.block_hashes_mmr.size.to_le_bytes());
+        hasher.finalize().into()
     }
 
     <span class="kw">pub fn </span>apply_blocks(<span class="kw-2">&amp;mut </span><span class="self">self</span>, block_headers: Vec&lt;CircuitBlockHeader&gt;) {
@@ -1485,6 +1548,7 @@
 </span><span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 </span><span class="kw">pub struct </span>BlockHeaderCircuitOutput {
     <span class="kw">pub </span>method_id: [u32; <span class="number">8</span>],
+    <span class="kw">pub </span>genesis_state_hash: [u8; <span class="number">32</span>],
     <span class="kw">pub </span>chain_state: ChainState,
 }
 
@@ -1492,7 +1556,7 @@
 /// The proof can be either None (implying the beginning) or a Succinct Risc0 proof.
 </span><span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 </span><span class="kw">pub enum </span>HeaderChainPrevProofType {
-    GenesisBlock,
+    GenesisBlock(ChainState),
     PrevProof(BlockHeaderCircuitOutput),
 }
 

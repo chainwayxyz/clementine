@@ -500,7 +500,8 @@
 <a href="#499" id="499">499</a>
 <a href="#500" id="500">500</a>
 <a href="#501" id="501">501</a>
-<a href="#502" id="502">502</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::{Deref, DerefMut};
+<a href="#502" id="502">502</a>
+<a href="#503" id="503">503</a></pre></div><pre class="rust"><code><span class="kw">use </span>std::ops::{Deref, DerefMut};
 
 <span class="kw">use </span><span class="kw">crate</span>::common::constants::MAX_NUMBER_OF_WATCHTOWERS;
 <span class="kw">use </span>bitcoin::{hashes::Hash, Amount, ScriptBuf, Transaction, TxOut, Txid, Witness};
@@ -604,7 +605,8 @@
 
 <span class="attr">#[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 </span><span class="kw">pub struct </span>WorkOnlyCircuitOutput {
-    <span class="kw">pub </span>work_u128: [u32; <span class="number">4</span>],
+    <span class="kw">pub </span>work_u128: [u8; <span class="number">16</span>],
+    <span class="kw">pub </span>genesis_state_hash: [u8; <span class="number">32</span>],
 }
 
 <span class="attr">#[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]

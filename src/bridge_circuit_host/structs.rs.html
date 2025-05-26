@@ -408,7 +408,8 @@
 <a href="#407" id="407">407</a>
 <a href="#408" id="408">408</a>
 <a href="#409" id="409">409</a>
-<a href="#410" id="410">410</a></pre></div><pre class="rust"><code><span class="kw">use </span>alloy_rpc_types::EIP1186StorageProof;
+<a href="#410" id="410">410</a>
+<a href="#411" id="411">411</a></pre></div><pre class="rust"><code><span class="kw">use </span>alloy_rpc_types::EIP1186StorageProof;
 <span class="kw">use </span>ark_bn254::Bn254;
 <span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>bitcoin::{hashes::Hash, Network, Transaction, Txid, XOnlyPublicKey};
@@ -733,6 +734,7 @@
         deposit_storage_proof.value.to_be_bytes(),
         round_txid,
         kickff_round_vout,
+        input.hcp.genesis_state_hash,
     )
 }
 

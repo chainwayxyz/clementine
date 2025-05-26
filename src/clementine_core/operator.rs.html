@@ -1526,7 +1526,22 @@
 <a href="#1525" id="1525">1525</a>
 <a href="#1526" id="1526">1526</a>
 <a href="#1527" id="1527">1527</a>
-<a href="#1528" id="1528">1528</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1528" id="1528">1528</a>
+<a href="#1529" id="1529">1529</a>
+<a href="#1530" id="1530">1530</a>
+<a href="#1531" id="1531">1531</a>
+<a href="#1532" id="1532">1532</a>
+<a href="#1533" id="1533">1533</a>
+<a href="#1534" id="1534">1534</a>
+<a href="#1535" id="1535">1535</a>
+<a href="#1536" id="1536">1536</a>
+<a href="#1537" id="1537">1537</a>
+<a href="#1538" id="1538">1538</a>
+<a href="#1539" id="1539">1539</a>
+<a href="#1540" id="1540">1540</a>
+<a href="#1541" id="1541">1541</a>
+<a href="#1542" id="1542">1542</a>
+<a href="#1543" id="1543">1543</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::{BTreeMap, HashMap};
@@ -1616,6 +1631,8 @@
         </span><span class="kw">let </span>state_manager =
             StateManager::new(operator.db.clone(), operator.clone(), paramset).<span class="kw">await</span><span class="question-mark">?</span>;
 
+        <span class="macro">tracing::info!</span>(<span class="string">"State manager created"</span>);
+
         <span class="kw">let </span>should_run_state_mgr = {
             <span class="attr">#[cfg(test)]
             </span>{
@@ -1630,6 +1647,7 @@
         <span class="kw">if </span>should_run_state_mgr {
             background_tasks.loop_and_monitor(state_manager.block_fetcher_task().<span class="kw">await</span><span class="question-mark">?</span>);
             background_tasks.loop_and_monitor(state_manager.into_task());
+            <span class="macro">tracing::info!</span>(<span class="string">"State manager tasks started"</span>);
         }
 
         <span class="comment">// run payout checker task
@@ -1638,8 +1656,11 @@
                 .with_delay(PAYOUT_CHECKER_POLL_DELAY),
         );
 
+        <span class="macro">tracing::info!</span>(<span class="string">"Payout checker task started"</span>);
+
         <span class="comment">// track the operator's round state
         </span>operator.track_rounds().<span class="kw">await</span><span class="question-mark">?</span>;
+        <span class="macro">tracing::info!</span>(<span class="string">"Operator round state tracked"</span>);
 
         <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
             operator,
@@ -1724,7 +1745,7 @@
         )
         .<span class="kw">await</span><span class="question-mark">?</span>;
 
-        <span class="macro">tracing::debug!</span>(
+        <span class="macro">tracing::info!</span>(
             <span class="string">"Operator xonly pk: {:?}, db created with name: {:?}"</span>,
             signer.xonly_public_key,
             config.db_name
@@ -2629,7 +2650,11 @@
 
         <span class="comment">// update headers in case the sync (state machine handle_finalized_block) is behind
         </span><span class="self">self</span>.db
-            .fetch_and_save_missing_blocks(<span class="kw-2">&amp;</span><span class="self">self</span>.rpc, rpc_current_finalized_height + <span class="number">1</span>)
+            .fetch_and_save_missing_blocks(
+                <span class="kw-2">&amp;</span><span class="self">self</span>.rpc,
+                <span class="self">self</span>.config.protocol_paramset().genesis_height,
+                rpc_current_finalized_height + <span class="number">1</span>,
+            )
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="kw">let </span>current_height = <span class="self">self
@@ -2640,7 +2665,11 @@
 
         <span class="kw">let </span>block_hashes = <span class="self">self
             </span>.db
-            .get_block_info_from_range(<span class="prelude-val">None</span>, <span class="number">0</span>, current_height)
+            .get_block_info_from_range(
+                <span class="prelude-val">None</span>,
+                <span class="self">self</span>.config.protocol_paramset().genesis_height <span class="kw">as </span>u64,
+                current_height,
+            )
             .<span class="kw">await</span><span class="question-mark">?</span>;
 
         <span class="comment">// find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
@@ -2670,6 +2699,7 @@
             <span class="kw-2">&amp;</span>blockhashes_serialized,
             payout_block.clone(),
             payout_block_height,
+            <span class="self">self</span>.config.protocol_paramset().genesis_height,
             payout_tx_index <span class="kw">as </span>u32,
         );
         <span class="macro">tracing::info!</span>(<span class="string">"Calculated spv proof in send_asserts"</span>);

@@ -248,7 +248,20 @@
 <a href="#247" id="247">247</a>
 <a href="#248" id="248">248</a>
 <a href="#249" id="249">249</a>
-<a href="#250" id="250">250</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
+<a href="#250" id="250">250</a>
+<a href="#251" id="251">251</a>
+<a href="#252" id="252">252</a>
+<a href="#253" id="253">253</a>
+<a href="#254" id="254">254</a>
+<a href="#255" id="255">255</a>
+<a href="#256" id="256">256</a>
+<a href="#257" id="257">257</a>
+<a href="#258" id="258">258</a>
+<a href="#259" id="259">259</a>
+<a href="#260" id="260">260</a>
+<a href="#261" id="261">261</a>
+<a href="#262" id="262">262</a>
+<a href="#263" id="263">263</a></pre></div><pre class="rust"><code><span class="kw">use </span><span class="kw">crate</span>::config::env::read_string_from_env_then_parse;
 <span class="kw">use </span><span class="kw">crate</span>::errors::BridgeError;
 <span class="kw">use </span>bitcoin::{Amount, Network};
 <span class="kw">use </span>eyre::Context;
@@ -368,6 +381,10 @@
     </span><span class="kw">pub </span>finality_depth: u32,
     <span class="doccomment">/// start height to sync the chain from, i.e. the height bridge was deployed
     </span><span class="kw">pub </span>start_height: u32,
+    <span class="doccomment">/// Genesis height to sync the header chain proofs from
+    </span><span class="kw">pub </span>genesis_height: u32,
+    <span class="doccomment">/// Genesis chain state hash
+    </span><span class="kw">pub </span>genesis_chain_state_hash: [u8; <span class="number">32</span>],
     <span class="doccomment">/// Batch size of the header chain proofs
     </span><span class="kw">pub </span>header_chain_proof_batch_size: u32,
     <span class="doccomment">/// Bridge circuit method id
@@ -436,6 +453,10 @@
             time_to_disprove: read_string_from_env_then_parse::&lt;u16&gt;(<span class="string">"TIME_TO_DISPROVE"</span>)<span class="question-mark">?</span>,
             finality_depth: read_string_from_env_then_parse::&lt;u32&gt;(<span class="string">"FINALITY_DEPTH"</span>)<span class="question-mark">?</span>,
             start_height: read_string_from_env_then_parse::&lt;u32&gt;(<span class="string">"START_HEIGHT"</span>)<span class="question-mark">?</span>,
+            genesis_height: read_string_from_env_then_parse::&lt;u32&gt;(<span class="string">"GENESIS_HEIGHT"</span>)<span class="question-mark">?</span>,
+            genesis_chain_state_hash: convert_hex_string_to_bytes(
+                <span class="kw-2">&amp;</span>read_string_from_env_then_parse::&lt;String&gt;(<span class="string">"GENESIS_CHAIN_STATE_HASH"</span>)<span class="question-mark">?</span>,
+            )<span class="question-mark">?</span>,
             header_chain_proof_batch_size: read_string_from_env_then_parse::&lt;u32&gt;(
                 <span class="string">"HEADER_CHAIN_PROOF_BATCH_SIZE"</span>,
             )<span class="question-mark">?</span>,
@@ -495,6 +516,11 @@
     latest_blockhash_timeout_timelock: <span class="number">4 </span>* BLOCKS_PER_HOUR * <span class="number">5 </span>/ <span class="number">2</span>,
     finality_depth: <span class="number">1</span>,
     start_height: <span class="number">190</span>,
+    genesis_height: <span class="number">0</span>,
+    genesis_chain_state_hash: [
+        <span class="number">95</span>, <span class="number">115</span>, <span class="number">2</span>, <span class="number">173</span>, <span class="number">22</span>, <span class="number">200</span>, <span class="number">189</span>, <span class="number">158</span>, <span class="number">242</span>, <span class="number">243</span>, <span class="number">190</span>, <span class="number">0</span>, <span class="number">200</span>, <span class="number">25</span>, <span class="number">154</span>, <span class="number">134</span>, <span class="number">249</span>, <span class="number">224</span>, <span class="number">186</span>,
+        <span class="number">134</span>, <span class="number">20</span>, <span class="number">132</span>, <span class="number">171</span>, <span class="number">180</span>, <span class="number">175</span>, <span class="number">95</span>, <span class="number">126</span>, <span class="number">69</span>, <span class="number">127</span>, <span class="number">140</span>, <span class="number">34</span>, <span class="number">22</span>,
+    ],
     header_chain_proof_batch_size: <span class="number">100</span>,
     bridge_circuit_method_id_constant: [<span class="number">255u8</span>; <span class="number">32</span>],
 };
