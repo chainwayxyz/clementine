@@ -183,6 +183,8 @@ impl HeaderChainProver {
                 .await
                 .map_to_eyre()?;
         } else {
+            tracing::info!("Starting prover without assumption, proving genesis block");
+
             let genesis_block_hash = rpc
                 .client
                 .get_block_hash(config.protocol_paramset().genesis_height.into())
@@ -400,7 +402,7 @@ impl HeaderChainProver {
         &self,
         current_block_hash: BlockHash,
         block_headers: Vec<Header>,
-        previous_proof: Option<Receipt>,
+        previous_proof: Receipt,
     ) -> Result<Receipt, BridgeError> {
         tracing::debug!(
             "Prover starts proving {} blocks ending with block with hash {}",
@@ -430,41 +432,22 @@ impl HeaderChainProver {
     /// - [`Receipt`]: Proved block headers' proof receipt.
     fn prove_block_headers(
         &self,
-        prev_receipt: Option<Receipt>,
+        prev_receipt: Receipt,
         block_headers: Vec<CircuitBlockHeader>,
     ) -> Result<Receipt, HeaderChainProverError> {
         // Prepare proof input.
-        let (prev_proof, method_id) = match &prev_receipt {
-            Some(receipt) => {
-                let prev_output: BlockHeaderCircuitOutput =
-                    borsh::from_slice(&receipt.journal.bytes)
-                        .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
-                let method_id = prev_output.method_id;
+        let prev_output: BlockHeaderCircuitOutput = borsh::from_slice(&prev_receipt.journal.bytes)
+            .wrap_err(HeaderChainProverError::ProverDeSerializationError)?;
+        let method_id = prev_output.method_id;
 
-                (HeaderChainPrevProofType::PrevProof(prev_output), method_id)
-            }
-            None => {
-                let image_id = match self.network {
-                    Network::Bitcoin => *MAINNET_IMAGE_ID,
-                    Network::Testnet => *TESTNET4_IMAGE_ID,
-                    Network::Testnet4 => *TESTNET4_IMAGE_ID,
-                    Network::Signet => *SIGNET_IMAGE_ID,
-                    Network::Regtest => *REGTEST_IMAGE_ID,
-                    _ => Err(BridgeError::UnsupportedNetwork.into_eyre())?,
-                };
+        let prev_proof = HeaderChainPrevProofType::PrevProof(prev_output);
 
-                (
-                    HeaderChainPrevProofType::GenesisBlock(ChainState::genesis_state()),
-                    image_id,
-                )
-            }
-        };
         let input = HeaderChainCircuitInput {
             method_id,
             prev_proof,
             block_headers,
         };
-        Self::prove_with_input(input, prev_receipt, self.network)
+        Self::prove_with_input(input, Some(prev_receipt), self.network)
     }
 
     pub fn prove_genesis_block(
@@ -572,7 +555,7 @@ impl HeaderChainProver {
             .await?
             .ok_or(eyre::eyre!("No proven block found"))?;
         let receipt = self
-            .prove_and_save_block(block_hash, block_headers, Some(previous_proof))
+            .prove_and_save_block(block_hash, block_headers, previous_proof)
             .await?;
         tracing::info!("Generated new proof for height {}", height);
         Ok((receipt, height as u64))
@@ -697,7 +680,7 @@ impl HeaderChainProver {
             .collect::<Vec<_>>();
 
         let receipt = self
-            .prove_and_save_block(current_block_hash, block_headers, Some(prev_proof))
+            .prove_and_save_block(current_block_hash, block_headers, prev_proof)
             .await?;
         tracing::info!(
             "Receipt for block with hash {:?} and height with: {:?}: {:?}",
@@ -974,7 +957,7 @@ mod tests {
             .unwrap();
 
         let receipt = prover
-            .prove_and_save_block(hash, vec![header], Some(genesis_receipt))
+            .prove_and_save_block(hash, vec![header], genesis_receipt)
             .await
             .unwrap();
 
@@ -992,7 +975,10 @@ mod tests {
             .await
             .unwrap();
 
-        let receipt = prover.prove_block_headers(None, vec![]).unwrap();
+        let genesis_state = ChainState::genesis_state();
+
+        let receipt =
+            HeaderChainProver::prove_genesis_block(genesis_state, Network::Regtest).unwrap();
 
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
         println!("Proof journal output: {:?}", output);
@@ -1015,7 +1001,10 @@ mod tests {
             .unwrap();
 
         // Prove genesis block and get it's receipt.
-        let receipt = prover.prove_block_headers(None, vec![]).unwrap();
+        let genesis_state = ChainState::genesis_state();
+
+        let receipt =
+            HeaderChainProver::prove_genesis_block(genesis_state, Network::Regtest).unwrap();
 
         let block_headers = mine_and_get_first_n_block_headers(rpc, prover.db.clone(), 3)
             .await
@@ -1023,7 +1012,7 @@ mod tests {
             .map(|header| CircuitBlockHeader::from(*header))
             .collect::<Vec<_>>();
         let receipt = prover
-            .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
+            .prove_block_headers(receipt, block_headers[0..2].to_vec())
             .unwrap();
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
 

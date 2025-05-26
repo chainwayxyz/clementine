@@ -553,19 +553,23 @@ impl CitreaClientT for CitreaClient {
         &self,
         _nofn_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
-        // let contract_nofn_xonly_pk = self
-        //     .contract
-        //     .getAggregatedKey()
-        //     .call()
-        //     .await
-        //     .wrap_err("Failed to get script prefix")?
-        //     ._0;
+        if std::env::var("DISABLE_NOFN_CHECK").is_ok() {
+            return Ok(());
+        }
 
-        // let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(contract_nofn_xonly_pk.as_ref())
-        //     .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
-        // if contract_nofn_xonly_pk != nofn_xonly_pk {
-        //     return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
-        // }
+        let contract_nofn_xonly_pk = self
+            .contract
+            .getAggregatedKey()
+            .call()
+            .await
+            .wrap_err("Failed to get script prefix")?
+            ._0;
+
+        let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(contract_nofn_xonly_pk.as_ref())
+            .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
+        if contract_nofn_xonly_pk != nofn_xonly_pk {
+            return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
+        }
         Ok(())
     }
 }
