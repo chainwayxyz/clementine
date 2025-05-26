@@ -1,10 +1,9 @@
-use crate::docker::stark_to_snark;
+use crate::docker::{stark_to_snark, stark_to_succinct_dev_mode};
 use crate::structs::{
     BridgeCircuitBitvmInputs, BridgeCircuitHostParams, SuccinctBridgeCircuitPublicInputs,
 };
 use crate::utils::calculate_succinct_output_prefix;
 use ark_bn254::Bn254;
-use bitcoin::hashes::Hash;
 use bitcoin::Transaction;
 use borsh;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
@@ -18,7 +17,19 @@ use circuits_lib::common::constants::{
     TESTNET4_HEADER_CHAIN_METHOD_ID,
 };
 use circuits_lib::header_chain::mmr_native::MMRNative;
-use risc0_zkvm::{compute_image_id, default_prover, ExecutorEnv, ProverOpts, Receipt};
+use risc0_zkvm::{compute_image_id, default_prover, is_dev_mode, ExecutorEnv, ProverOpts, Receipt};
+
+pub const REGTEST_BRIDGE_CIRCUIT_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/regtest-bridge-circuit-guest.bin");
+
+pub const TESTNET4_BRIDGE_CIRCUIT_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
+
+pub const MAINNET_BRIDGE_CIRCUIT_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/mainnet-bridge-circuit-guest.bin");
+
+pub const SIGNET_BRIDGE_CIRCUIT_ELF: &[u8] =
+    include_bytes!("../../risc0-circuits/elfs/signet-bridge-circuit-guest.bin");
 
 const _BRIDGE_CIRCUIT_ELF: &[u8] =
     include_bytes!("../../risc0-circuits/elfs/testnet4-bridge-circuit-guest.bin");
@@ -124,14 +135,17 @@ pub fn prove_bridge_circuit(
     let env = env.build().unwrap();
     let prover = default_prover();
 
-    tracing::info!("PROVING Bridge CIRCUIT");
+    tracing::info!("Checks complete, proving bridge circuit");
 
     let succinct_receipt = prover
         .prove_with_opts(env, bridge_circuit_elf, &ProverOpts::succinct())
         .unwrap()
         .receipt;
 
-    let succinct_receipt_journal: [u8; 32] = succinct_receipt.journal.bytes.try_into().unwrap();
+    tracing::info!("Bridge circuit proof generated");
+
+    let succinct_receipt_journal: [u8; 32] =
+        succinct_receipt.clone().journal.bytes.try_into().unwrap();
 
     if *journal_hash.as_bytes() != succinct_receipt_journal {
         panic!("Journal hash mismatch");
@@ -140,10 +154,17 @@ pub fn prove_bridge_circuit(
     let bridge_circuit_method_id = compute_image_id(bridge_circuit_elf).unwrap();
     let combined_method_id_constant =
         calculate_succinct_output_prefix(bridge_circuit_method_id.as_bytes());
-    let (g16_proof, g16_output) = stark_to_snark(
-        succinct_receipt.inner.succinct().unwrap().clone(),
-        &succinct_receipt_journal,
-    );
+    let (g16_proof, g16_output) = if is_dev_mode() {
+        stark_to_succinct_dev_mode(succinct_receipt, &succinct_receipt_journal)
+    } else {
+        stark_to_snark(
+            succinct_receipt.inner.succinct().unwrap().clone(),
+            &succinct_receipt_journal,
+        )
+    };
+
+    tracing::info!("Bridge circuit Groth16 proof generated");
+
     let risc0_g16_seal_vec = g16_proof.to_vec();
     let risc0_g16_256 = risc0_g16_seal_vec[0..256].try_into().unwrap();
     let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
@@ -204,15 +225,15 @@ pub fn create_spv(
         mmr_native.append(*block_hash);
     }
 
-    let block_txids: Vec<[u8; 32]> = payment_block
+    let block_txids: Vec<CircuitTransaction> = payment_block
         .txdata
         .iter()
-        .map(|tx| tx.compute_txid().as_raw_hash().to_byte_array())
+        .map(|tx| CircuitTransaction(tx.clone()))
         .collect();
 
     let mmr_inclusion_proof = mmr_native.generate_proof(payment_block_height);
 
-    let block_mt = BitcoinMerkleTree::new(block_txids);
+    let block_mt = BitcoinMerkleTree::new_mid_state(&block_txids);
 
     let payout_tx_proof = block_mt.generate_proof(payment_tx_index);
 

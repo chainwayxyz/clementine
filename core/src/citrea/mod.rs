@@ -6,7 +6,7 @@ use crate::errors::BridgeError;
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},
     network::EthereumWallet,
-    primitives::U256,
+    primitives::{keccak256, U256},
     providers::{
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
@@ -14,16 +14,19 @@ use alloy::{
         },
         Provider, ProviderBuilder, RootProvider,
     },
-    rpc::types::{Filter, Log},
+    rpc::types::{EIP1186AccountProofResponse, Filter, Log},
     signers::{local::PrivateKeySigner, Signer},
     sol,
     sol_types::SolEvent,
     transports::http::reqwest::Url,
 };
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
+use bridge_circuit_host::receipt_from_inner;
+use circuits_lib::bridge_circuit::structs::{LightClientProof, StorageProof};
 use eyre::Context;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::proc_macros::rpc;
+use risc0_zkvm::{InnerReceipt, Receipt};
 use std::{fmt::Debug, time::Duration};
 use tonic::async_trait;
 
@@ -33,6 +36,10 @@ pub mod mock;
 pub const LIGHT_CLIENT_ADDRESS: &str = "0x3100000000000000000000000000000000000001";
 pub const BRIDGE_CONTRACT_ADDRESS: &str = "0x3100000000000000000000000000000000000002";
 pub const SATS_TO_WEI_MULTIPLIER: u64 = 10_000_000_000;
+const UTXOS_STORAGE_INDEX: [u8; 32] =
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000007");
+const DEPOSIT_STORAGE_INDEX: [u8; 32] =
+    hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000008");
 
 // Codegen from ABI file to interact with the contract.
 sol!(
@@ -108,7 +115,7 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
-    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError>;
+    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError>;
 
     /// Returns the L2 block height range for the given L1 block height.
     ///
@@ -156,6 +163,12 @@ pub trait CitreaClientT: Send + Sync + Debug + Clone + 'static {
         &self,
         nofn_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError>;
+
+    async fn get_storage_proof(
+        &self,
+        l2_height: u64,
+        deposit_index: u32,
+    ) -> Result<StorageProof, BridgeError>;
 }
 
 /// Citrea client is responsible for interacting with the Citrea EVM and Citrea
@@ -207,6 +220,86 @@ impl CitreaClient {
 
 #[async_trait]
 impl CitreaClientT for CitreaClient {
+    /// Fetches the storage proof for a given deposit index and transaction ID.
+    ///
+    /// This function interacts with an Citrea RPC endpoint to retrieve a storage proof,
+    /// which includes proof details for both the UTXO and the deposit index.
+    ///
+    /// # Arguments
+    /// * `l2_height` - A `u64` representing the L2 block height.
+    /// * `deposit_index` - A `u32` representing the deposit index.
+    ///
+    /// # Returns
+    /// Returns a `StorageProof` struct containing serialized storage proofs for the UTXO and deposit index.
+    async fn get_storage_proof(
+        &self,
+        l2_height: u64,
+        deposit_index: u32,
+    ) -> Result<StorageProof, BridgeError> {
+        let ind = deposit_index;
+        let tx_index: u32 = ind * 2;
+
+        let storage_address_wd_utxo_bytes = keccak256(UTXOS_STORAGE_INDEX);
+        let storage_address_wd_utxo: U256 = U256::from_be_bytes(
+            <[u8; 32]>::try_from(&storage_address_wd_utxo_bytes[..])
+                .wrap_err("Storage address wd utxo bytes slice with incorrect length")?,
+        );
+
+        // Storage key address calculation UTXO
+        let storage_key_wd_utxo: U256 = storage_address_wd_utxo + U256::from(tx_index);
+        let storage_key_wd_utxo_hex =
+            format!("0x{}", hex::encode(storage_key_wd_utxo.to_be_bytes::<32>()));
+
+        // Storage key address calculation Vout
+        let storage_key_vout: U256 = storage_address_wd_utxo + U256::from(tx_index + 1);
+        let storage_key_vout_hex =
+            format!("0x{}", hex::encode(storage_key_vout.to_be_bytes::<32>()));
+
+        // Storage key address calculation Deposit
+        let storage_address_deposit_bytes = keccak256(DEPOSIT_STORAGE_INDEX);
+        let storage_address_deposit: U256 = U256::from_be_bytes(
+            <[u8; 32]>::try_from(&storage_address_deposit_bytes[..])
+                .wrap_err("Storage address deposit bytes slice with incorrect length")?,
+        );
+
+        let storage_key_deposit: U256 = storage_address_deposit + U256::from(deposit_index);
+        let storage_key_deposit_hex = hex::encode(storage_key_deposit.to_be_bytes::<32>());
+        let storage_key_deposit_hex = format!("0x{}", storage_key_deposit_hex);
+
+        let response: serde_json::Value = self
+            .client
+            .get_proof(
+                BRIDGE_CONTRACT_ADDRESS,
+                vec![
+                    storage_key_wd_utxo_hex,
+                    storage_key_vout_hex,
+                    storage_key_deposit_hex,
+                ],
+                format!("0x{:x}", l2_height),
+            )
+            .await
+            .wrap_err("Failed to get storage proof from rpc")?;
+
+        let response: EIP1186AccountProofResponse = serde_json::from_value(response)
+            .wrap_err("Failed to deserialize EIP1186AccountProofResponse")?;
+
+        let serialized_utxo = serde_json::to_string(&response.storage_proof[0])
+            .wrap_err("Failed to serialize storage proof utxo")?;
+
+        let serialized_vout = serde_json::to_string(&response.storage_proof[1])
+            .wrap_err("Failed to serialize storage proof vout")?;
+
+        let serialized_deposit = serde_json::to_string(&response.storage_proof[2])
+            .wrap_err("Failed to serialize storage proof deposit")?;
+
+        Ok(StorageProof {
+            storage_proof_utxo: serialized_utxo,
+            storage_proof_vout: serialized_vout,
+            storage_proof_deposit_txid: serialized_deposit,
+            index: ind,
+        })
+    }
+
     async fn new(
         citrea_rpc_url: String,
         light_client_prover_url: String,
@@ -220,6 +313,8 @@ impl CitreaClientT for CitreaClient {
 
         let key = secret_key.with_chain_id(Some(chain_id.into()));
         let wallet_address = key.address();
+
+        tracing::info!("Wallet address: {}", wallet_address);
 
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(key))
@@ -284,7 +379,7 @@ impl CitreaClientT for CitreaClient {
                 .call()
                 .await;
             if deposit_txid.is_err() {
-                tracing::info!(
+                tracing::trace!(
                     "Deposit txid not found for index, error: {:?}",
                     deposit_txid
                 );
@@ -328,7 +423,7 @@ impl CitreaClientT for CitreaClient {
             let txid =
                 Txid::from_slice(txid.as_ref()).wrap_err("Failed to convert txid to Txid")?;
             let vout = withdrawal_utxo.outputId.0;
-            let vout = u32::from_be_bytes(vout);
+            let vout = u32::from_le_bytes(vout);
             let utxo = OutPoint { txid, vout };
             utxos.push((start_idx as u64, utxo));
             start_idx += 1;
@@ -339,7 +434,7 @@ impl CitreaClientT for CitreaClient {
     async fn get_light_client_proof(
         &self,
         l1_height: u64,
-    ) -> Result<Option<(u64, Vec<u8>)>, BridgeError> {
+    ) -> Result<Option<(LightClientProof, Receipt, u64)>, BridgeError> {
         let proof_result = self
             .light_client_prover_client
             .get_light_client_proof_by_l1_height(l1_height)
@@ -352,13 +447,22 @@ impl CitreaClientT for CitreaClient {
         );
 
         let ret = if let Some(proof_result) = proof_result {
+            let decoded: InnerReceipt = bincode::deserialize(&proof_result.proof)
+                .wrap_err("Failed to deserialize light client proof from citrea lcp")?;
+            let receipt = receipt_from_inner(decoded)
+                .wrap_err("Failed to create receipt from light client proof")?;
+
+            let l2_height = u64::try_from(proof_result.light_client_proof_output.last_l2_height)
+                .wrap_err("Failed to convert l2 height to u64")?;
+            let hex_l2_str = format!("0x{:x}", l2_height);
+
             Some((
-                proof_result
-                    .light_client_proof_output
-                    .last_l2_height
-                    .try_into()
-                    .wrap_err("Can't convert last_l2_height to u64")?,
-                proof_result.proof,
+                LightClientProof {
+                    lc_journal: receipt.journal.bytes.clone(),
+                    l2_height: hex_l2_str,
+                },
+                receipt,
+                l2_height,
             ))
         } else {
             None
@@ -398,8 +502,8 @@ impl CitreaClientT for CitreaClient {
                     block_height - 1
                 ))?;
 
-        let l2_height_end: u64 = proof_current.0;
-        let l2_height_start: u64 = proof_previous.0;
+        let l2_height_end: u64 = proof_current.2;
+        let l2_height_start: u64 = proof_previous.2;
 
         Ok((l2_height_start, l2_height_end))
     }
@@ -436,27 +540,23 @@ impl CitreaClientT for CitreaClient {
         Ok(replacement_move_txids)
     }
 
-    /// TODO: This is not the best way to do this, but it's a quick fix for now
     async fn check_nofn_correctness(
         &self,
-        _nofn_xonly_pk: XOnlyPublicKey,
+        nofn_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
-        // let script_prefix = self
-        //     .contract
-        //     .scriptPrefix()
-        //     .call()
-        //     .await
-        //     .wrap_err("Failed to get script prefix")?
-        //     ._0;
-        // if script_prefix.len() < 34 {
-        //     return Err(eyre::eyre!("script_prefix is too short").into());
-        // }
-        // let script_nofn_bytes = &script_prefix[2..2 + 32];
-        // let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(script_nofn_bytes)
-        //     .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
-        // if contract_nofn_xonly_pk != nofn_xonly_pk {
-        //     return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
-        // }
+        let contract_nofn_xonly_pk = self
+            .contract
+            .getAggregatedKey()
+            .call()
+            .await
+            .wrap_err("Failed to get script prefix")?
+            ._0;
+
+        let contract_nofn_xonly_pk = XOnlyPublicKey::from_slice(contract_nofn_xonly_pk.as_ref())
+            .wrap_err("Failed to convert citrea contract script nofn bytes to xonly pk")?;
+        if contract_nofn_xonly_pk != nofn_xonly_pk {
+            return Err(eyre::eyre!("Nofn of deposit does not match with citrea contract").into());
+        }
         Ok(())
     }
 }
@@ -469,6 +569,17 @@ trait LightClientProverRpc {
         &self,
         l1_height: u64,
     ) -> RpcResult<Option<sov_rollup_interface::rpc::LightClientProofResponse>>;
+}
+
+#[rpc(client, namespace = "eth")]
+pub trait CitreaRpc {
+    #[method(name = "getProof")]
+    async fn get_proof(
+        &self,
+        address: &str,
+        storage_keys: Vec<String>,
+        block: String,
+    ) -> RpcResult<serde_json::Value>;
 }
 
 // Ugly typedefs.
@@ -485,111 +596,3 @@ type CitreaContract = BRIDGE_CONTRACT::BRIDGE_CONTRACTInstance<
         RootProvider,
     >,
 >;
-
-#[cfg(test)]
-mod tests {
-    use crate::citrea::CitreaClientT;
-    use crate::citrea::BRIDGE_CONTRACT::Withdrawal;
-    use crate::test::common::citrea::get_bridge_params;
-    use crate::{
-        citrea::CitreaClient,
-        test::common::{
-            citrea::{self, SECRET_KEYS},
-            create_test_config_with_thread_name,
-        },
-    };
-    use alloy::providers::Provider;
-    use citrea_e2e::{
-        config::{BitcoinConfig, SequencerConfig, TestCaseConfig, TestCaseDockerConfig},
-        framework::TestFramework,
-        test_case::{TestCase, TestCaseRunner},
-    };
-    use tonic::async_trait;
-
-    struct CitreaGetLogsLimitCheck;
-    #[async_trait]
-    impl TestCase for CitreaGetLogsLimitCheck {
-        fn bitcoin_config() -> BitcoinConfig {
-            BitcoinConfig {
-                extra_args: vec![
-                    "-txindex=1",
-                    "-fallbackfee=0.000001",
-                    "-rpcallowip=0.0.0.0/0",
-                ],
-                ..Default::default()
-            }
-        }
-
-        fn test_config() -> TestCaseConfig {
-            TestCaseConfig {
-                with_batch_prover: false,
-                with_sequencer: true,
-                with_full_node: true,
-                docker: TestCaseDockerConfig {
-                    bitcoin: true,
-                    citrea: true,
-                },
-                ..Default::default()
-            }
-        }
-
-        fn sequencer_config() -> SequencerConfig {
-            SequencerConfig {
-                bridge_initialize_params: get_bridge_params().to_string(),
-                ..Default::default()
-            }
-        }
-
-        async fn run_test(&mut self, f: &mut TestFramework) -> citrea_e2e::Result<()> {
-            let (sequencer, _full_node, _, _, da) =
-                citrea::start_citrea(Self::sequencer_config(), f)
-                    .await
-                    .unwrap();
-
-            let mut config = create_test_config_with_thread_name().await;
-            citrea::update_config_with_citrea_e2e_values(&mut config, da, sequencer, None);
-
-            let citrea_client = CitreaClient::new(
-                config.citrea_rpc_url,
-                config.citrea_light_client_prover_url,
-                config.citrea_chain_id,
-                Some(SECRET_KEYS[0].to_string().parse().unwrap()),
-            )
-            .await
-            .unwrap();
-
-            let filter = citrea_client.contract.event_filter::<Withdrawal>().filter;
-            let start = 0;
-            let end = 1001;
-
-            // Generate blocks because Citrea will default `to_block` as the
-            // height if `to_block` is exceeded height.
-            for _ in start..end {
-                sequencer.client.send_publish_batch_request().await.unwrap();
-            }
-
-            let logs_from_citrea_module = citrea_client
-                .get_logs(filter.clone(), start, end)
-                .await
-                .unwrap();
-            println!("Logs from Citrea module: {:?}", logs_from_citrea_module);
-
-            let filter = filter.from_block(start).to_block(end);
-            let logs_from_direct_call = citrea_client.contract.provider().get_logs(&filter).await;
-            println!("Logs from direct call: {:?}", logs_from_direct_call);
-            assert!(logs_from_direct_call.is_err());
-
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
-    #[ignore = "Includes code that won't change much and the test itself is too flaky; Ignoring..."]
-    async fn citrea_get_logs_limit_check() -> citrea_e2e::Result<()> {
-        std::env::set_var(
-            "CITREA_DOCKER_IMAGE",
-            "chainwayxyz/citrea-test:46096297b7663a2e4a105b93e57e6dd3215af91c",
-        );
-        TestCaseRunner::new(CitreaGetLogsLimitCheck).run().await
-    }
-}
