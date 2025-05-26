@@ -30,23 +30,39 @@ pub type AssertTxHash = Vec<[u8; 32]>;
 pub type BitvmSetup = (AssertTxHash, RootHash, RootHash);
 
 impl Database {
-    /// TODO: wallet_address should have `Address` type.
+    /// Sets the operator details to the db.
+    /// This function additionally checks if the operator data already exists in the db.
+    /// As we don't want to overwrite operator data on the db, as it can prevent us slash malicious operators that signed
+    /// previous deposits. This function should give an error if an operator changed its data.
     pub async fn set_operator(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         xonly_pubkey: XOnlyPublicKey,
-        wallet_address: String,
+        wallet_address: &bitcoin::Address,
         collateral_funding_outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) VALUES ($1, $2, $3)
-                    ON CONFLICT DO NOTHING",
+            "INSERT INTO operators (xonly_pk, wallet_reimburse_address, collateral_funding_outpoint) 
+             VALUES ($1, $2, $3)
+             ON CONFLICT (xonly_pk) DO NOTHING",
         )
         .bind(XOnlyPublicKeyDB(xonly_pubkey))
-        .bind(wallet_address)
+        .bind(AddressDB(wallet_address.as_unchecked().clone()))
         .bind(OutPointDB(collateral_funding_outpoint));
 
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        let result = execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
+
+        // If no rows were affected, data already exists - check if it matches
+        if result.rows_affected() == 0 {
+            let existing = self.get_operator(tx, xonly_pubkey).await?;
+            if let Some(op) = existing {
+                if op.reimburse_addr != *wallet_address
+                    || op.collateral_funding_outpoint != collateral_funding_outpoint
+                {
+                    return Err(BridgeError::OperatorDataMismatch(xonly_pubkey));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -145,6 +161,9 @@ impl Database {
 
     /// Sets the unspent kickoff sigs received from operators during initial setup.
     /// Sigs of each round are stored together in the same row.
+    /// On conflict, do not update the existing sigs. Although techically, as long as kickoff winternitz keys
+    /// and operator data(collateral funding outpoint and reimburse address) are not changed, the sigs are still valid
+    /// even if they are changed.
     pub async fn set_unspent_kickoff_sigs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -234,22 +253,37 @@ impl Database {
     }
 
     /// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
+    /// On conflict, do not update the existing keys. This is very important, as otherwise the txids of
+    /// operators round tx's will change.
     pub async fn set_operator_kickoff_winternitz_public_keys(
         &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
+        mut tx: Option<DatabaseTransaction<'_, '_>>,
         operator_xonly_pk: XOnlyPublicKey,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
         let wpk = borsh::to_vec(&winternitz_public_key).wrap_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
-                "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) VALUES ($1, $2)
-                ON CONFLICT DO NOTHING;",
-            )
-            .bind(XOnlyPublicKeyDB(operator_xonly_pk))
-            .bind(wpk);
+            "INSERT INTO operator_winternitz_public_keys (xonly_pk, winternitz_public_keys) 
+             VALUES ($1, $2)
+             ON CONFLICT (xonly_pk) DO NOTHING",
+        )
+        .bind(XOnlyPublicKeyDB(operator_xonly_pk))
+        .bind(wpk);
 
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        let result = execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
+
+        // If no rows were affected, data already exists - check if it matches
+        if result.rows_affected() == 0 {
+            let existing = self
+                .get_operator_kickoff_winternitz_public_keys(tx, operator_xonly_pk)
+                .await?;
+            if existing != winternitz_public_key {
+                return Err(BridgeError::OperatorWinternitzPublicKeysMismatch(
+                    operator_xonly_pk,
+                ));
+            }
+        }
 
         Ok(())
     }
@@ -290,14 +324,28 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO operators_challenge_ack_hashes (xonly_pk, deposit_id, public_hashes)
              VALUES ($1, $2, $3)
-             ON CONFLICT (xonly_pk, deposit_id) DO UPDATE
-             SET public_hashes = EXCLUDED.public_hashes;",
+             ON CONFLICT (xonly_pk, deposit_id) DO NOTHING;",
         )
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(public_hashes);
 
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        let result = execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
+
+        // If no rows were affected, data already exists - check if it matches
+        if result.rows_affected() == 0 {
+            let existing = self
+                .get_operators_challenge_ack_hashes(tx, operator_xonly_pk, deposit_outpoint)
+                .await?;
+            if let Some(existing_hashes) = existing {
+                if existing_hashes != *public_hashes {
+                    return Err(BridgeError::OperatorChallengeAckHashesMismatch(
+                        operator_xonly_pk,
+                        deposit_outpoint,
+                    ));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -452,10 +500,17 @@ impl Database {
                 return Err(eyre!("Kickoff txid or signatures already set!").into());
             }
         }
+        // On conflict, the previous signatures are already valid. Signatures only depend on deposit_outpoint (which depends on nofn pk) and
+        // operator_xonly_pk (which includes collateral outpoint, reimbursement addr (these should be unchanged)). We add on conflict so it
+        // doesn't fail if the signatures are already set.
+        // Why do we need to do this? If deposit fails somehow just at the end because movetx
+        // signature fails to be collected, we might need to do a deposit again. Technically we can only collect movetx signature, not
+        // do the full deposit.
 
         let query = sqlx::query(
             "INSERT INTO deposit_signatures (deposit_id, operator_xonly_pk, round_idx, kickoff_idx, kickoff_txid, signatures)
-            VALUES ($1, $2, $3, $4, $5, $6);"
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT DO NOTHING;"
         )
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
@@ -554,7 +609,10 @@ impl Database {
         }
     }
 
-    /// Saves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
+    /// Sets BitVM setup data for a specific operator and deposit combination.
+    /// This function additionally checks if the BitVM setup data already exists in the db.
+    /// As we don't want to overwrite BitVM setup data on the db, as maliciously overwriting
+    /// can prevent us to regenerate previously signed kickoff tx's.
     pub async fn set_bitvm_setup(
         &self,
         mut tx: Option<DatabaseTransaction<'_, '_>>,
@@ -567,13 +625,11 @@ impl Database {
         let deposit_id = self
             .get_deposit_id(tx.as_deref_mut(), deposit_outpoint)
             .await?;
+
         let query = sqlx::query(
             "INSERT INTO bitvm_setups (xonly_pk, deposit_id, assert_tx_addrs, root_hash, latest_blockhash_root_hash)
              VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (xonly_pk, deposit_id) DO UPDATE
-             SET assert_tx_addrs = EXCLUDED.assert_tx_addrs,
-                 root_hash = EXCLUDED.root_hash,
-                 latest_blockhash_root_hash = EXCLUDED.latest_blockhash_root_hash;",
+             ON CONFLICT (xonly_pk, deposit_id) DO NOTHING;",
         )
         .bind(XOnlyPublicKeyDB(operator_xonly_pk))
         .bind(i32::try_from(deposit_id).wrap_err("Failed to convert deposit id to i32")?)
@@ -587,7 +643,26 @@ impl Database {
         .bind(root_hash.to_vec())
         .bind(latest_blockhash_root_hash.to_vec());
 
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
+        let result = execute_query_with_tx!(self.connection, tx.as_deref_mut(), query, execute)?;
+
+        // If no rows were affected, data already exists - check if it matches
+        if result.rows_affected() == 0 {
+            let existing = self
+                .get_bitvm_setup(tx, operator_xonly_pk, deposit_outpoint)
+                .await?;
+            if let Some((existing_addrs, existing_root, existing_blockhash)) = existing {
+                let new_addrs = assert_tx_addrs.as_ref();
+                if existing_addrs != new_addrs
+                    || existing_root != *root_hash
+                    || existing_blockhash != *latest_blockhash_root_hash
+                {
+                    return Err(BridgeError::BitvmSetupDataMismatch(
+                        operator_xonly_pk,
+                        deposit_outpoint,
+                    ));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -776,7 +851,7 @@ mod tests {
     use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 
     #[tokio::test]
-    async fn save_get_operators() {
+    async fn test_set_get_operator() {
         let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
         let mut ops = Vec::new();
@@ -804,13 +879,13 @@ mod tests {
                 },
             ));
         }
-        // add to db
+
+        // Test inserting multiple operators
         for x in ops.iter() {
-            database
-                .set_operator(None, x.0, x.1.to_string(), x.2)
-                .await
-                .unwrap();
+            database.set_operator(None, x.0, &x.1, x.2).await.unwrap();
         }
+
+        // Test getting all operators
         let res = database.get_operators(None).await.unwrap();
         assert_eq!(res.len(), ops.len());
         for i in 0..2 {
@@ -819,6 +894,7 @@ mod tests {
             assert_eq!(res[i].2, ops[i].2);
         }
 
+        // Test getting single operator
         let res_single = database
             .get_operator(None, operator_xonly_pks[1])
             .await
@@ -827,14 +903,68 @@ mod tests {
         assert_eq!(res_single.xonly_pk, ops[1].0);
         assert_eq!(res_single.reimburse_addr, ops[1].1);
         assert_eq!(res_single.collateral_funding_outpoint, ops[1].2);
+
+        // Test that we can insert the same data without errors
+        database
+            .set_operator(None, ops[0].0, &ops[0].1, ops[0].2)
+            .await
+            .unwrap();
+
+        // Test updating operator data
+        let new_reimburse_addr = Address::from_str("bc1qj2mw4uh24qf67kn4nyqfsnta0mmxcutvhkyfp9")
+            .unwrap()
+            .assume_checked();
+        let new_collateral_funding_outpoint = OutPoint {
+            txid: Txid::from_byte_array([2u8; 32]),
+            vout: 1,
+        };
+
+        // test that we can't update the reimburse address
+        assert!(database
+            .set_operator(
+                None,
+                operator_xonly_pks[0],
+                &reimburse_addrs[0],
+                new_collateral_funding_outpoint
+            )
+            .await
+            .is_err());
+
+        // test that we can't update the collateral funding outpoint
+        assert!(database
+            .set_operator(None, operator_xonly_pks[0], &new_reimburse_addr, ops[0].2)
+            .await
+            .is_err());
+
+        // test that we can't update both
+        assert!(database
+            .set_operator(
+                None,
+                operator_xonly_pks[0],
+                &new_reimburse_addr,
+                new_collateral_funding_outpoint
+            )
+            .await
+            .is_err());
+
+        // Verify data remains unchanged after failed updates
+        let res_unchanged = database
+            .get_operator(None, operator_xonly_pks[0])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(res_unchanged.xonly_pk, ops[0].0);
+        assert_eq!(res_unchanged.reimburse_addr, ops[0].1);
+        assert_eq!(res_unchanged.collateral_funding_outpoint, ops[0].2);
     }
 
     #[tokio::test]
-    async fn test_save_get_public_hashes() {
+    async fn test_set_get_operator_challenge_ack_hashes() {
         let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let public_hashes = vec![[1u8; 20], [2u8; 20]];
+        let new_public_hashes = vec![[3u8; 20], [4u8; 20]];
 
         let deposit_outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -844,13 +974,13 @@ mod tests {
         let operator_xonly_pk = generate_random_xonly_pk();
         let non_existant_xonly_pk = generate_random_xonly_pk();
 
-        // Save public hashes
+        // Test inserting new data
         database
             .set_operator_challenge_ack_hashes(
                 None,
                 operator_xonly_pk,
                 deposit_outpoint,
-                &public_hashes.clone(),
+                &public_hashes,
             )
             .await
             .unwrap();
@@ -860,8 +990,18 @@ mod tests {
             .get_operators_challenge_ack_hashes(None, operator_xonly_pk, deposit_outpoint)
             .await
             .unwrap();
+        assert_eq!(result, Some(public_hashes.clone()));
 
-        assert_eq!(result, Some(public_hashes));
+        // Test that we can insert the same data without errors
+        database
+            .set_operator_challenge_ack_hashes(
+                None,
+                operator_xonly_pk,
+                deposit_outpoint,
+                &public_hashes,
+            )
+            .await
+            .unwrap();
 
         // Test non-existent entry
         let non_existent = database
@@ -869,6 +1009,24 @@ mod tests {
             .await
             .unwrap();
         assert!(non_existent.is_none());
+
+        // Test that we can't update with different data
+        assert!(database
+            .set_operator_challenge_ack_hashes(
+                None,
+                operator_xonly_pk,
+                deposit_outpoint,
+                &new_public_hashes,
+            )
+            .await
+            .is_err());
+
+        // Verify data remains unchanged after failed update
+        let result = database
+            .get_operators_challenge_ack_hashes(None, operator_xonly_pk, deposit_outpoint)
+            .await
+            .unwrap();
+        assert_eq!(result, Some(public_hashes));
     }
 
     #[tokio::test]
@@ -964,14 +1122,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_save_get_bitvm_setup() {
+    async fn test_bitvm_setup() {
         let config = create_test_config_with_thread_name().await;
         let database = Database::new(&config).await.unwrap();
 
         let assert_tx_hashes: Vec<[u8; 32]> = vec![[1u8; 32], [4u8; 32]];
         let root_hash = [42u8; 32];
         let latest_blockhash_root_hash = [43u8; 32];
-        //let public_input_wots = vec![[1u8; 20], [2u8; 20]];
 
         let deposit_outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -980,7 +1137,7 @@ mod tests {
         let operator_xonly_pk = generate_random_xonly_pk();
         let non_existant_xonly_pk = generate_random_xonly_pk();
 
-        // Save BitVM setup
+        // Test inserting new BitVM setup
         database
             .set_bitvm_setup(
                 None,
@@ -999,10 +1156,22 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-
         assert_eq!(result.0, assert_tx_hashes);
         assert_eq!(result.1, root_hash);
         assert_eq!(result.2, latest_blockhash_root_hash);
+
+        // Test that we can insert the same data without errors
+        database
+            .set_bitvm_setup(
+                None,
+                operator_xonly_pk,
+                deposit_outpoint,
+                &assert_tx_hashes,
+                &root_hash,
+                &latest_blockhash_root_hash,
+            )
+            .await
+            .unwrap();
 
         // Test non-existent entry
         let non_existent = database
@@ -1010,6 +1179,73 @@ mod tests {
             .await
             .unwrap();
         assert!(non_existent.is_none());
+
+        // Test updating BitVM setup data
+        let new_assert_tx_hashes: Vec<[u8; 32]> = vec![[2u8; 32], [5u8; 32]];
+        let new_root_hash = [44u8; 32];
+        let new_latest_blockhash_root_hash = [45u8; 32];
+
+        // test that we can't update the assert_tx_hashes
+        assert!(database
+            .set_bitvm_setup(
+                None,
+                operator_xonly_pk,
+                deposit_outpoint,
+                &new_assert_tx_hashes,
+                &root_hash,
+                &latest_blockhash_root_hash,
+            )
+            .await
+            .is_err());
+
+        // test that we can't update the root_hash
+        assert!(database
+            .set_bitvm_setup(
+                None,
+                operator_xonly_pk,
+                deposit_outpoint,
+                &assert_tx_hashes,
+                &new_root_hash,
+                &latest_blockhash_root_hash,
+            )
+            .await
+            .is_err());
+
+        // test that we can't update the latest_blockhash_root_hash
+        assert!(database
+            .set_bitvm_setup(
+                None,
+                operator_xonly_pk,
+                deposit_outpoint,
+                &assert_tx_hashes,
+                &root_hash,
+                &new_latest_blockhash_root_hash,
+            )
+            .await
+            .is_err());
+
+        // test that we can't update all of them
+        assert!(database
+            .set_bitvm_setup(
+                None,
+                operator_xonly_pk,
+                deposit_outpoint,
+                &new_assert_tx_hashes,
+                &new_root_hash,
+                &new_latest_blockhash_root_hash,
+            )
+            .await
+            .is_err());
+
+        // Verify data remains unchanged after failed updates
+        let result = database
+            .get_bitvm_setup(None, operator_xonly_pk, deposit_outpoint)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.0, assert_tx_hashes);
+        assert_eq!(result.1, root_hash);
+        assert_eq!(result.2, latest_blockhash_root_hash);
     }
 
     #[tokio::test]
@@ -1031,6 +1267,7 @@ mod tests {
             .generate_assert_winternitz_pubkeys(deposit_outpoint)
             .unwrap();
 
+        // Test inserting new data
         database
             .set_operator_kickoff_winternitz_public_keys(None, op_xonly_pk, wpks.clone())
             .await
@@ -1041,6 +1278,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result, wpks);
+
+        // Test that we can insert the same data without errors
+        database
+            .set_operator_kickoff_winternitz_public_keys(None, op_xonly_pk, wpks.clone())
+            .await
+            .unwrap();
+
+        // Test that we can't update with different data
+        let different_wpks = operator
+            .generate_assert_winternitz_pubkeys(OutPoint {
+                txid: Txid::from_slice(&[0x46; 32]).unwrap(),
+                vout: 0x1F,
+            })
+            .unwrap();
+        assert!(database
+            .set_operator_kickoff_winternitz_public_keys(None, op_xonly_pk, different_wpks)
+            .await
+            .is_err());
 
         let non_existent = database
             .get_operator_kickoff_winternitz_public_keys(None, *UNSPENDABLE_XONLY_PUBKEY)

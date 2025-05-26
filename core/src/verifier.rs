@@ -1,7 +1,7 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
-use crate::builder::address::taproot_builder_with_scripts;
+use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::script::{extract_winternitz_commits, SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
@@ -270,6 +270,69 @@ where
         Ok(tagged_sigs)
     }
 
+    /// Checks if all operators in verifier's db are in the deposit.
+    /// Afterwards, it checks if the given deposit outpoint is valid. First it checks if the tx exists on chain,
+    /// then it checks if the amount in TxOut is equal to bridge_amount and if the script is correct.
+    async fn is_deposit_valid(&self, deposit_data: &mut DepositData) -> Result<bool, BridgeError> {
+        let operator_xonly_pks = deposit_data.get_operators();
+        // check if all operators are in the deposit
+        let are_all_operators_in_deposit = self
+            .db
+            .get_operators(None)
+            .await?
+            .into_iter()
+            .all(|(xonly_pk, _, _)| operator_xonly_pks.contains(&xonly_pk));
+        if !are_all_operators_in_deposit {
+            tracing::warn!("All operators are not in the deposit");
+            return Ok(false);
+        }
+        // check if deposit script is valid
+        let deposit_scripts: Vec<ScriptBuf> = deposit_data
+            .get_deposit_scripts(self.config.protocol_paramset())?
+            .into_iter()
+            .map(|s| s.to_script_buf())
+            .collect();
+        let deposit_txout_pubkey = create_taproot_address(
+            &deposit_scripts,
+            None,
+            self.config.protocol_paramset().network,
+        )
+        .0
+        .script_pubkey();
+        let deposit_outpoint = deposit_data.get_deposit_outpoint();
+        let deposit_txid = deposit_outpoint.txid;
+        let deposit_tx = self
+            .rpc
+            .get_tx_of_txid(&deposit_txid)
+            .await
+            .wrap_err("Deposit tx could not be found on chain")?;
+        let deposit_txout = deposit_tx
+            .output
+            .get(deposit_outpoint.vout as usize)
+            .ok_or(eyre::eyre!(
+                "Deposit vout not found in tx {}, vout: {}",
+                deposit_txid,
+                deposit_outpoint.vout
+            ))?;
+        if deposit_txout.value != self.config.protocol_paramset().bridge_amount {
+            tracing::warn!(
+                "Deposit amount is not correct, expected {}, got {}",
+                self.config.protocol_paramset().bridge_amount,
+                deposit_txout.value
+            );
+            return Ok(false);
+        }
+        if deposit_txout.script_pubkey != deposit_txout_pubkey {
+            tracing::warn!(
+                "Deposit script pubkey in deposit outpoint does not match the deposit data, expected {:?}, got {:?}",
+                deposit_txout_pubkey,
+                deposit_txout.script_pubkey
+            );
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     pub async fn set_operator(
         &self,
         collateral_funding_outpoint: OutPoint,
@@ -297,7 +360,7 @@ where
             .set_operator(
                 Some(&mut dbtx),
                 operator_xonly_pk,
-                wallet_reimburse_address.to_string(),
+                &wallet_reimburse_address,
                 collateral_funding_outpoint,
             )
             .await?;
@@ -377,6 +440,10 @@ where
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
+
+        if !self.is_deposit_valid(&mut deposit_data).await? {
+            return Err(BridgeError::InvalidDeposit);
+        }
 
         let verifier = self.clone();
         let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
@@ -476,6 +543,10 @@ where
         self.citrea_client
             .check_nofn_correctness(deposit_data.get_nofn_xonly_pk()?)
             .await?;
+
+        if !self.is_deposit_valid(deposit_data).await? {
+            return Err(BridgeError::InvalidDeposit);
+        }
 
         let mut tweak_cache = TweakCache::default();
         let deposit_blockhash = self

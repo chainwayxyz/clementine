@@ -88,6 +88,8 @@ where
         let state_manager =
             StateManager::new(operator.db.clone(), operator.clone(), paramset).await?;
 
+        tracing::info!("State manager created");
+
         let should_run_state_mgr = {
             #[cfg(test)]
             {
@@ -102,6 +104,7 @@ where
         if should_run_state_mgr {
             background_tasks.loop_and_monitor(state_manager.block_fetcher_task().await?);
             background_tasks.loop_and_monitor(state_manager.into_task());
+            tracing::info!("State manager tasks started");
         }
 
         // run payout checker task
@@ -110,8 +113,11 @@ where
                 .with_delay(PAYOUT_CHECKER_POLL_DELAY),
         );
 
+        tracing::info!("Payout checker task started");
+
         // track the operator's round state
         operator.track_rounds().await?;
+        tracing::info!("Operator round state tracked");
 
         Ok(Self {
             operator,
@@ -161,33 +167,75 @@ where
             .get_operator(Some(&mut dbtx), signer.xonly_public_key)
             .await?;
         let (collateral_funding_outpoint, reimburse_addr) = match op_data {
-            Some(op_data) => (op_data.collateral_funding_outpoint, op_data.reimburse_addr),
-            None => {
-                let outpoint = rpc
-                    .send_to_address(
-                        &signer.address,
-                        config.protocol_paramset().collateral_funding_amount,
-                    )
-                    .await?;
-
-                let reimburse_addr = rpc
-                    .client
-                    .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
-                    .await
-                    .wrap_err("Failed to get new address")?
-                    .assume_checked();
-                db.set_operator(
-                    Some(&mut dbtx),
-                    signer.xonly_public_key,
-                    reimburse_addr.to_string(),
-                    outpoint,
+            Some(operator_data) => {
+                // Operator data is already set in db, we don't actually need to do anything.
+                // set_operator_checked will give error if the values set in config and db doesn't match.
+                (
+                    operator_data.collateral_funding_outpoint,
+                    operator_data.reimburse_addr,
                 )
-                .await?;
+            }
+            None => {
+                // Operator data is not set in db, then we check if any collateral outpoint and reimbursement address is set in config.
+                // If so we create a new operator using those data, otherwise we generate new collateral outpoint and reimbursement address.
+                let reimburse_addr = match &config.operator_reimbursement_address {
+                    Some(reimburse_addr) => {
+                        reimburse_addr
+                            .to_owned()
+                            .require_network(config.protocol_paramset().network)
+                            .wrap_err(format!("Invalid operator reimbursement address provided in config: {:?} for network: {:?}", reimburse_addr, config.protocol_paramset().network))?
+                    }
+                    None => {
+                        rpc
+                        .client
+                        .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
+                        .await
+                        .wrap_err("Failed to get new address")?
+                        .require_network(config.protocol_paramset().network)
+                        .wrap_err(format!("Invalid operator reimbursement address generated for the network in config: {:?}
+                                Possibly the provided rpc's network and network given in config doesn't match", config.protocol_paramset().network))?
+                    }
+                };
+                let outpoint = match &config.operator_collateral_funding_outpoint {
+                    Some(outpoint) => {
+                        // check if outpoint exists on chain and has exactly collateral funding amount
+                        let collateral_tx = rpc
+                            .get_tx_of_txid(&outpoint.txid)
+                            .await
+                            .wrap_err("Failed to get collateral funding tx")?;
+                        let collateral_value = collateral_tx
+                            .output
+                            .get(outpoint.vout as usize)
+                            .ok_or_eyre("Invalid vout index for collateral funding tx")?
+                            .value;
+                        if collateral_value != config.protocol_paramset().collateral_funding_amount
+                        {
+                            return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different amount than the one specified in config..
+                                Bridge collateral funnding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_value).into());
+                        }
+                        *outpoint
+                    }
+                    None => {
+                        // create a new outpoint that has collateral funding amount
+                        rpc.send_to_address(
+                            &signer.address,
+                            config.protocol_paramset().collateral_funding_amount,
+                        )
+                        .await?
+                    }
+                };
                 (outpoint, reimburse_addr)
             }
         };
-        dbtx.commit().await?;
 
+        db.set_operator(
+            Some(&mut dbtx),
+            signer.xonly_public_key,
+            &reimburse_addr,
+            collateral_funding_outpoint,
+        )
+        .await?;
+        dbtx.commit().await?;
         let citrea_client = C::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
@@ -196,7 +244,7 @@ where
         )
         .await?;
 
-        tracing::debug!(
+        tracing::info!(
             "Operator xonly pk: {:?}, db created with name: {:?}",
             signer.xonly_public_key,
             config.db_name
@@ -1101,7 +1149,11 @@ where
 
         // update headers in case the sync (state machine handle_finalized_block) is behind
         self.db
-            .fetch_and_save_missing_blocks(&self.rpc, rpc_current_finalized_height + 1)
+            .fetch_and_save_missing_blocks(
+                &self.rpc,
+                self.config.protocol_paramset().genesis_height,
+                rpc_current_finalized_height + 1,
+            )
             .await?;
 
         let current_height = self
@@ -1112,7 +1164,11 @@ where
 
         let block_hashes = self
             .db
-            .get_block_info_from_range(None, 0, current_height)
+            .get_block_info_from_range(
+                None,
+                self.config.protocol_paramset().genesis_height as u64,
+                current_height,
+            )
             .await?;
 
         // find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
@@ -1142,6 +1198,7 @@ where
             &blockhashes_serialized,
             payout_block.clone(),
             payout_block_height,
+            self.config.protocol_paramset().genesis_height,
             payout_tx_index as u32,
         );
         tracing::info!("Calculated spv proof in send_asserts");
