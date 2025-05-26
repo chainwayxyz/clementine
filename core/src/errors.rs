@@ -136,6 +136,14 @@ pub enum BridgeError {
     BitvmSetupDataMismatch(XOnlyPublicKey, OutPoint),
     #[error("Operator challenge ack hashes mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
     OperatorChallengeAckHashesMismatch(XOnlyPublicKey, OutPoint),
+    #[error("Invalid BitVM public keys")]
+    InvalidBitVMPublicKeys,
+    #[error("Invalid challenge ack hashes")]
+    InvalidChallengeAckHashes,
+    #[error("Invalid operator index")]
+    InvalidOperatorIndex,
+    #[error("Invalid protocal paramset")]
+    InvalidProtocolParamset,
 
     // External crate error wrappers
     #[error("Failed to call database: {0}")]

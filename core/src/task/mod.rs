@@ -185,7 +185,7 @@ where
                 Ok(output)
             }
             Err(e) => {
-                tracing::error!(task=?self.inner, "Task error, suppressing due to buffer: {e:?}");
+                tracing::error!("Task error, suppressing due to buffer: {e:?}");
                 self.buffer.push(e);
                 if self.buffer.len() >= self.error_overflow_limit {
                     let mut base_error: eyre::Report =

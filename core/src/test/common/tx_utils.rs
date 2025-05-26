@@ -1,9 +1,11 @@
 use std::time::Duration;
 
 use crate::builder::transaction::TransactionType as TxType;
+use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::SignedTxsWithType;
-use crate::tx_sender::{FeePayingType, TxMetadata, TxSenderClient};
+use crate::tx_sender::{FeePayingType, RbfSigningInfo, TxMetadata, TxSenderClient};
 use bitcoin::consensus::{self};
 use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoincore_rpc::RpcApi;
@@ -21,13 +23,14 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     outpoint: OutPoint,
 ) -> Result<(), eyre::Error> {
     let mut timeout_counter = 300;
-    while rpc
+    while match rpc
         .client
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
         .await
-        .unwrap()
-        .is_some()
     {
+        Err(_) => true,
+        Ok(val) => val.is_some(),
+    } {
         // Mine more blocks and wait longer between checks
         let block_count = rpc.client.get_blockchain_info().await?.blocks;
         lc_prover
@@ -53,19 +56,53 @@ pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
     Ok(())
 }
 
+// Polls until a tx that spends the outpoint is in the mempool, without mining any blocks
+// After outpoint is spent, mine once to spend the utxo on chain
+pub async fn mine_once_after_outpoint_spent_in_mempool(
+    rpc: &ExtendedRpc,
+    outpoint: OutPoint,
+) -> Result<(), eyre::Error> {
+    let mut timeout_counter = 300;
+    while rpc
+        .client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))
+        .await
+        .unwrap()
+        .is_some()
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        timeout_counter -= 1;
+
+        if timeout_counter == 0 {
+            bail!(
+                "timeout while waiting for outpoint {:?} to be spent in mempool",
+                outpoint
+            );
+        }
+    }
+    rpc.mine_blocks(1).await?;
+    if rpc
+        .client
+        .get_tx_out(&outpoint.txid, outpoint.vout, Some(false))
+        .await?
+        .is_some()
+    {
+        bail!("Outpoint {:?} was not spent after waiting until it was spent in mempool and mining once", outpoint);
+    }
+
+    Ok(())
+}
+
 // Helper function to send a transaction and mine a block
 pub async fn send_tx(
     tx_sender: &TxSenderClient,
     rpc: &ExtendedRpc,
     raw_tx: &[u8],
     tx_type: TxType,
+    rbf_info: Option<RbfSigningInfo>,
 ) -> Result<()> {
     let tx: Transaction = consensus::deserialize(raw_tx).context("expected valid tx")?;
     let mut dbtx = tx_sender.test_dbtx().await.unwrap();
-    if let TxType::WatchtowerChallenge(_) = tx_type {
-        // Please manually insert it with the correct RBF spending info.
-        tracing::error!("Attempting to send watchtower challenge tx with send_tx which does not support RBF with PSBT");
-    }
 
     // Try to send the transaction with CPFP first
     tx_sender
@@ -79,12 +116,12 @@ pub async fn send_tx(
                 round_idx: None,
             }),
             &tx,
-            if tx_type == TxType::Challenge {
+            if tx_type == TxType::Challenge || matches!(tx_type, TxType::WatchtowerChallenge(_)) {
                 FeePayingType::RBF
             } else {
                 FeePayingType::CPFP
             },
-            None,
+            rbf_info,
             &[],
             &[],
             &[],
@@ -95,7 +132,7 @@ pub async fn send_tx(
 
     dbtx.commit().await?;
 
-    if tx_type == TxType::Challenge {
+    if matches!(tx_type, TxType::Challenge | TxType::WatchtowerChallenge(_)) {
         ensure_outpoint_spent(rpc, tx.input[0].previous_output).await?;
     } else {
         ensure_tx_onchain(rpc, tx.compute_txid()).await?;
@@ -190,8 +227,22 @@ pub async fn send_tx_with_type(
         .iter()
         .find(|tx| tx.transaction_type == Some(tx_type.into()))
         .unwrap();
-    send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type)
+    send_tx(tx_sender, rpc, round_tx.raw_tx.as_slice(), tx_type, None)
         .await
         .context(format!("failed to send {:?} transaction", tx_type))?;
     Ok(())
+}
+
+pub async fn create_tx_sender(
+    config: &BridgeConfig,
+    verifier_index: u32,
+) -> Result<(TxSenderClient, Database)> {
+    let verifier_config = {
+        let mut config = config.clone();
+        config.db_name += &verifier_index.to_string();
+        config
+    };
+    let db = Database::new(&verifier_config).await?;
+    let tx_sender = TxSenderClient::new(db.clone(), format!("tx_sender_test_{}", verifier_index));
+    Ok((tx_sender, db))
 }

@@ -425,6 +425,11 @@ mod tests {
             default_config.header_chain_proof_batch_size.to_string(),
         );
 
+        std::env::set_var(
+            "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
+            hex::encode(default_config.bridge_circuit_method_id_constant),
+        );
+
         assert_eq!(ProtocolParamset::from_env().unwrap(), default_config);
     }
 }

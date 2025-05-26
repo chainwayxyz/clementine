@@ -3,13 +3,14 @@ use super::clementine::{
     DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use super::clementine::{
-    AggregatorWithdrawResponse, Deposit, VergenResponse, VerifierPublicKeys, WithdrawParams,
+    AggregatorWithdrawResponse, Deposit, OptimisticPayoutParams, RawSignedTx, VergenResponse,
+    VerifierPublicKeys, WithdrawParams,
 };
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{
     combine_emergency_stop_txhandler, create_emergency_stop_txhandler,
-    create_move_to_vault_txhandler, Actors, DepositData, DepositInfo, Signed, TransactionType,
-    TxHandler,
+    create_move_to_vault_txhandler, create_optimistic_payout_txhandler, Actors, DepositData,
+    DepositInfo, Signed, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
 use crate::errors::ResultExt;
@@ -20,6 +21,7 @@ use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
 use crate::tx_sender::{FeePayingType, TxMetadata};
 use crate::utils::get_vergen_response;
+use crate::UTXO;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
@@ -30,7 +32,7 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
+use bitcoin::{TapSighash, TxOut, Txid, XOnlyPublicKey};
 use eyre::{Context, OptionExt};
 use futures::{
     future::try_join_all,
@@ -63,6 +65,32 @@ pub enum AggregatorError {
     RequestFailed { request_name: String },
 }
 
+async fn get_next_pub_nonces(
+    nonce_streams: &mut [impl Stream<Item = Result<MusigPubNonce, BridgeError>>
+              + Unpin
+              + Send
+              + 'static],
+) -> Result<Vec<MusigPubNonce>, BridgeError> {
+    Ok(try_join_all(
+        nonce_streams
+            .iter_mut()
+            .enumerate()
+            .map(|(i, s)| async move {
+                s.next()
+                    .await
+                    .transpose()? // Return the inner error if it exists
+                    .ok_or_else(|| -> eyre::Report {
+                        AggregatorError::InputStreamEndedEarlyUnknownSize {
+                            // Return an early end error if the stream is empty
+                            stream_name: format!("Nonce stream {i}"),
+                        }
+                        .into()
+                    })
+            }),
+    )
+    .await?)
+}
+
 /// For each expected sighash, we collect a batch of public nonces from all verifiers. We aggregate and send to the agg_nonce_sender. Then repeat for the next sighash.
 async fn nonce_aggregator(
     mut nonce_streams: Vec<
@@ -84,24 +112,11 @@ async fn nonce_aggregator(
 
         total_sigs += 1;
 
-        let pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
-            |(i, s)| async move {
-                s.next()
-                    .await
-                    .transpose()? // Return the inner error if it exists
-                    .ok_or_else(|| -> eyre::Report {
-                        AggregatorError::InputStreamEndedEarlyUnknownSize {
-                            // Return an early end error if the stream is empty
-                            stream_name: format!("Nonce stream {i}"),
-                        }
-                        .into()
-                    })
-            },
-        ))
-        .await
-        .wrap_err_with(|| {
-            format!("Failed to aggregate nonces for sighash with info: {siginfo:?}")
-        })?;
+        let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
+            .await
+            .wrap_err_with(|| {
+                format!("Failed to aggregate nonces for sighash with info: {siginfo:?}")
+            })?;
 
         tracing::debug!(
             "Received nonces for signature id {:?} in nonce_aggregator",
@@ -617,7 +632,11 @@ impl Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
 
-        // TODO: Sign the transaction correctly after we create taproot witness generation functions
+        tracing::info!(
+            "move_tx: {}",
+            hex::encode(bitcoin::consensus::serialize(&move_tx))
+        );
+
         Ok(move_txhandler.promote()?)
     }
 
@@ -808,6 +827,157 @@ impl Aggregator {
 impl ClementineAggregator for Aggregator {
     async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
         Ok(Response::new(get_vergen_response()))
+    }
+
+    async fn optimistic_payout(
+        &self,
+        request: tonic::Request<super::WithdrawParams>,
+    ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+        let withdraw_params = request.into_inner();
+        let (deposit_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
+            parser::operator::parse_withdrawal_sig_params(withdraw_params.clone()).await?;
+        // get which deposit the withdrawal belongs to
+        let withdrawal = self
+            .db
+            .get_move_to_vault_txid_from_citrea_deposit(None, deposit_id)
+            .await?;
+        if let Some(move_txid) = withdrawal {
+            // check if withdrawal utxo is correct
+            let withdrawal_utxo = self
+                .db
+                .get_withdrawal_utxo_from_citrea_withdrawal(None, deposit_id)
+                .await?
+                .ok_or(Status::invalid_argument(format!(
+                    "Withdrawal utxo not found for deposit id {}",
+                    deposit_id
+                )))?;
+            if withdrawal_utxo != input_outpoint {
+                return Err(Status::invalid_argument(format!(
+                    "Withdrawal utxo is not correct: {:?} != {:?}",
+                    withdrawal_utxo, input_outpoint
+                )));
+            }
+            let deposit_data = self
+                .db
+                .get_deposit_data_with_move_tx(None, move_txid)
+                .await?;
+            let mut deposit_data = deposit_data.ok_or(BridgeError::Error(format!(
+                "Deposit data not found for move txid {}",
+                move_txid
+            )))?;
+
+            // get which verifiers participated in the deposit to collect the optimistic payout tx signature
+            let verifiers = self.get_participating_verifiers(&deposit_data).await?;
+            let (first_responses, mut nonce_streams) =
+                create_nonce_streams(verifiers.clone(), 1).await?;
+            // collect nonces
+            let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
+                .await
+                .wrap_err("Failed to aggregate nonces for optimistic payout")
+                .map_to_status()
+                .map_err(|e| *e)?;
+            let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
+            // send the agg nonce to the verifiers to sign the optimistic payout tx
+            let verifier_clients = self.get_verifier_clients();
+            let payout_sigs = verifier_clients
+                .iter()
+                .zip(first_responses)
+                .map(|(client, first_response)| {
+                    let mut client = client.clone();
+                    let withdrawal_params = withdraw_params.clone();
+                    let agg_nonce_bytes = agg_nonce.serialize().to_vec();
+                    async move {
+                        client
+                            .optimistic_payout_sign(OptimisticPayoutParams {
+                                withdrawal: Some(withdrawal_params),
+                                agg_nonce: agg_nonce_bytes,
+                                nonce_gen: Some(first_response),
+                            })
+                            .await
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            // Prepare input and output of the payout transaction.
+            let withdrawal_prevout = self
+                .rpc
+                .get_txout_from_outpoint(&input_outpoint)
+                .await
+                .map_to_status()
+                .map_err(|e| *e)?;
+            let withdrawal_utxo = UTXO {
+                outpoint: input_outpoint,
+                txout: withdrawal_prevout,
+            };
+            let output_txout = TxOut {
+                value: output_amount,
+                script_pubkey: output_script_pubkey,
+            };
+
+            let mut opt_payout_txhandler = create_optimistic_payout_txhandler(
+                &mut deposit_data,
+                withdrawal_utxo,
+                output_txout,
+                input_signature,
+                self.config.protocol_paramset(),
+            )?;
+            // txin at index 1 is deposited utxo in movetx
+            let sighash = opt_payout_txhandler.calculate_script_spend_sighash_indexed(
+                1,
+                0,
+                bitcoin::TapSighashType::Default,
+            )?;
+
+            // calculate final sig
+            let payout_sig = try_join_all(payout_sigs).await?;
+            let musig_partial_sigs = payout_sig
+                .iter()
+                .map(|sig| MusigPartialSignature::from_slice(&sig.get_ref().partial_sig))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| Status::internal(format!("Failed to parse partial sig: {:?}", e)))?;
+
+            let final_sig = bitcoin::taproot::Signature {
+                signature: crate::musig2::aggregate_partial_signatures(
+                    &deposit_data.get_verifiers(),
+                    None,
+                    agg_nonce,
+                    &musig_partial_sigs,
+                    Message::from_digest(sighash.to_byte_array()),
+                )?,
+                sighash_type: bitcoin::TapSighashType::Default,
+            };
+
+            // set witness and send tx
+            opt_payout_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 1, 0)?;
+            let opt_payout_txhandler = opt_payout_txhandler.promote()?;
+            let opt_payout_tx = opt_payout_txhandler.get_cached_tx();
+            let mut dbtx = self.db.begin_transaction().await?;
+            self.tx_sender
+                .add_tx_to_queue(
+                    &mut dbtx,
+                    TransactionType::OptimisticPayout,
+                    opt_payout_tx,
+                    &[],
+                    None,
+                    &self.config,
+                    None,
+                )
+                .await
+                .map_err(BridgeError::from)?;
+            dbtx.commit().await.map_err(|e| {
+                Status::internal(format!(
+                    "Failed to commit db transaction to send optimistic payout tx: {}",
+                    e
+                ))
+            })?;
+
+            Ok(Response::new(RawSignedTx::from(opt_payout_tx)))
+        } else {
+            Err(Status::not_found(format!(
+                "Withdrawal with index {} not found.",
+                deposit_id
+            )))
+        }
     }
 
     async fn internal_send_tx(
