@@ -1583,7 +1583,12 @@
 <a href="#1582" id="1582">1582</a>
 <a href="#1583" id="1583">1583</a>
 <a href="#1584" id="1584">1584</a>
-<a href="#1585" id="1585">1585</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
+<a href="#1585" id="1585">1585</a>
+<a href="#1586" id="1586">1586</a>
+<a href="#1587" id="1587">1587</a>
+<a href="#1588" id="1588">1588</a>
+<a href="#1589" id="1589">1589</a>
+<a href="#1590" id="1590">1590</a></pre></div><pre class="rust"><code><span class="kw">use </span>ark_ff::PrimeField;
 <span class="kw">use </span>circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 <span class="kw">use </span>risc0_zkvm::is_dev_mode;
 <span class="kw">use </span>std::collections::{BTreeMap, HashMap};
@@ -2652,7 +2657,7 @@
             .ok_or(<span class="macro">eyre::eyre!</span>(<span class="string">"Kickoff txhandler not found in send_asserts"</span>))<span class="question-mark">?
             </span>.get_cached_tx();
 
-        <span class="kw">let </span>(payout_op_xonly_pk, payout_block_hash, payout_txid, deposit_idx) = <span class="self">self
+        <span class="kw">let </span>(payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = <span class="self">self
             </span>.db
             .get_payout_info_from_move_txid(<span class="prelude-val">None</span>, move_txid)
             .<span class="kw">await
@@ -2661,6 +2666,11 @@
                 <span class="string">"Payout info not found in db while sending asserts for move txid: {}"</span>,
                 move_txid
             ))<span class="question-mark">?</span>;
+
+        <span class="kw">let </span>payout_op_xonly_pk = payout_op_xonly_pk_opt.ok_or_eyre(<span class="macro">format!</span>(
+            <span class="string">"Payout operator xonly pk not found in payout info DB while sending asserts for deposit move txid: {}"</span>,
+            move_txid
+        ))<span class="question-mark">?</span>;
 
         <span class="macro">tracing::info!</span>(<span class="string">"Sending asserts for deposit_idx: {:?}"</span>, deposit_idx);
 
