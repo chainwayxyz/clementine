@@ -1144,8 +1144,13 @@ where
             return Ok(true);
         }
         let payout_info = payout_info?;
-        let Some((operator_xonly_pk, payout_blockhash, _, _)) = payout_info else {
+        let Some((operator_xonly_pk_opt, payout_blockhash, _, _)) = payout_info else {
             tracing::warn!("No payout info found in db, assuming malicious");
+            return Ok(true);
+        };
+
+        let Some(operator_xonly_pk) = operator_xonly_pk_opt else {
+            tracing::warn!("No operator xonly pk found in payout tx OP_RETURN, assuming malicious");
             return Ok(true);
         };
 
@@ -1485,38 +1490,19 @@ where
                 !script_bytes.is_empty() && script_bytes[0] == OP_RETURN.to_u8()
             });
 
-            // if there is no OP_RETURN either the payout is optimistic payout, or the payout was done incorrectly by some operator
-            // either way we should not concern ourselves with it, but operators may need manual reimbursement
-            let Some(op_return_output) = op_return_output else {
-                tracing::debug!("No OP_RETURN output found in payout tx: {:?}", payout_txid);
-                continue;
-            };
+            // If OP_RETURN doesn't exist in any outputs, or the data in OP_RETURN is not a valid xonly_pubkey,
+            // operator_xonly_pk will be set to None, and the corresponding column in DB set to NULL.
+            // This can happen if optimistic payout is used, or an operator constructs the payout tx wrong.
+            let operator_xonly_pk = op_return_output
+                .and_then(|output| parse_op_return_data(&output.script_pubkey))
+                .and_then(|bytes| XOnlyPublicKey::from_slice(bytes).ok());
 
-            let op_return_bytes = parse_op_return_data(&op_return_output.script_pubkey);
-            let Some(op_return_bytes) = op_return_bytes else {
-                tracing::error!(
-                    "Failed to parse OP_RETURN data in payout tx {}",
+            if operator_xonly_pk.is_none() {
+                tracing::info!(
+                    "No valid operator xonly pk found in payout tx: {:?}",
                     payout_txid
                 );
-                continue;
-            };
-
-            tracing::info!(
-                "op_return_output: {}, idx: {}",
-                hex::encode(op_return_bytes),
-                idx
-            );
-
-            let operator_xonly_pk = XOnlyPublicKey::from_slice(op_return_bytes);
-
-            let Ok(operator_xonly_pk) = operator_xonly_pk else {
-                tracing::error!(
-                    "Invalid operator xonly pk in payout tx {}, data in OP_RETURN: {:?}",
-                    payout_txid,
-                    hex::encode(op_return_bytes)
-                );
-                continue;
-            };
+            }
 
             payout_txs_and_payer_operator_idx.push((
                 idx,
