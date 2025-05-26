@@ -31,12 +31,14 @@ use crate::task::IntoTask;
 use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
 use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
+use bitcoin::opcodes::all::OP_RETURN;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
 use bitvm::signatures::winternitz;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
+use circuits_lib::bridge_circuit::parse_op_return_data;
 use eyre::{Context, OptionExt, Result};
 #[cfg(test)]
 use risc0_zkvm::is_dev_mode;
@@ -1142,8 +1144,13 @@ where
             return Ok(true);
         }
         let payout_info = payout_info?;
-        let Some((operator_xonly_pk, payout_blockhash, _, _)) = payout_info else {
+        let Some((operator_xonly_pk_opt, payout_blockhash, _, _)) = payout_info else {
             tracing::warn!("No payout info found in db, assuming malicious");
+            return Ok(true);
+        };
+
+        let Some(operator_xonly_pk) = operator_xonly_pk_opt else {
+            tracing::warn!("No operator xonly pk found in payout tx OP_RETURN, assuming malicious");
             return Ok(true);
         };
 
@@ -1477,24 +1484,25 @@ where
             }
             let payout_tx_idx = payout_tx_idx.expect("Payout tx not found in block cache");
             let payout_tx = &block.txdata[*payout_tx_idx];
-            let last_output = &payout_tx.output[payout_tx.output.len() - 1]
-                .script_pubkey
-                .to_bytes();
-            tracing::info!("last_output: {}, idx: {}", hex::encode(last_output), idx);
+            // Find the output that contains OP_RETURN
+            let op_return_output = payout_tx.output.iter().find(|output| {
+                let script_bytes = output.script_pubkey.to_bytes();
+                !script_bytes.is_empty() && script_bytes[0] == OP_RETURN.to_u8()
+            });
 
-            let mut operator_xonly_pk_bytes = [0u8; 32]; // Empty 32-byte array to copy operator xonly pk
-                                                         // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
-            if last_output.len() - 2 != 32 {
-                tracing::error!(
-                    "Invalid operator xonly pk length ({} != 32) in payout tx {}",
-                    last_output.len() - 2,
+            // If OP_RETURN doesn't exist in any outputs, or the data in OP_RETURN is not a valid xonly_pubkey,
+            // operator_xonly_pk will be set to None, and the corresponding column in DB set to NULL.
+            // This can happen if optimistic payout is used, or an operator constructs the payout tx wrong.
+            let operator_xonly_pk = op_return_output
+                .and_then(|output| parse_op_return_data(&output.script_pubkey))
+                .and_then(|bytes| XOnlyPublicKey::from_slice(bytes).ok());
+
+            if operator_xonly_pk.is_none() {
+                tracing::info!(
+                    "No valid operator xonly pk found in payout tx {:?} OP_RETURN. Either it is an optimistic payout or the operator constructed the payout tx wrong",
                     payout_txid
                 );
             }
-            operator_xonly_pk_bytes.copy_from_slice(&last_output[2..last_output.len()]);
-
-            let operator_xonly_pk = XOnlyPublicKey::from_slice(&operator_xonly_pk_bytes)
-                .expect("Invalid operator xonly_pk");
 
             payout_txs_and_payer_operator_idx.push((
                 idx,

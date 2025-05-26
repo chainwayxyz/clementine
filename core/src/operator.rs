@@ -1067,7 +1067,7 @@ where
             .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
             .get_cached_tx();
 
-        let (payout_op_xonly_pk, payout_block_hash, payout_txid, deposit_idx) = self
+        let (payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = self
             .db
             .get_payout_info_from_move_txid(None, move_txid)
             .await
@@ -1076,6 +1076,11 @@ where
                 "Payout info not found in db while sending asserts for move txid: {}",
                 move_txid
             ))?;
+
+        let payout_op_xonly_pk = payout_op_xonly_pk_opt.ok_or_eyre(format!(
+            "Payout operator xonly pk not found in payout info DB while sending asserts for deposit move txid: {}",
+            move_txid
+        ))?;
 
         tracing::info!("Sending asserts for deposit_idx: {:?}", deposit_idx);
 
