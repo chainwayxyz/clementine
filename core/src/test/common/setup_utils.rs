@@ -133,6 +133,10 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),
         "-maxtxfee=5".to_string(),
+        "-dustrelayfee=0".to_string(),  // Accept outputs of any size
+        "-minrelaytxfee=0".to_string(), // Relay transactions with zero fees
+        "-mintxfee=0".to_string(),      // Allow wallet to create zero-fee transactions
+        "-blockmintxfee=0".to_string(), // Allow mining of zero-fee transactions
     ];
 
     // Create log file in temp directory
