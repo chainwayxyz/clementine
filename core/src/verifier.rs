@@ -1499,7 +1499,7 @@ where
 
             if operator_xonly_pk.is_none() {
                 tracing::info!(
-                    "No valid operator xonly pk found in payout tx: {:?}",
+                    "No valid operator xonly pk found in payout tx {:?} OP_RETURN. Either it is an optimistic payout or the operator constructed the payout tx wrong",
                     payout_txid
                 );
             }
