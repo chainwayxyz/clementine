@@ -1435,22 +1435,14 @@ where
                 hex::encode(op_return_bytes),
                 idx
             );
-            // We remove the first 2 bytes which are OP_RETURN OP_PUSH, example: 6a0100
-            if op_return_bytes.len() != 32 {
-                tracing::error!(
-                    "Invalid operator xonly pk length ({} != 32) in payout tx OP_RETURN {}",
-                    op_return_bytes.len(),
-                    payout_txid
-                );
-                continue;
-            }
 
             let operator_xonly_pk = XOnlyPublicKey::from_slice(op_return_bytes);
 
             let Ok(operator_xonly_pk) = operator_xonly_pk else {
                 tracing::error!(
-                    "Invalid operator xonly pk in payout tx OP_RETURN {}",
-                    payout_txid
+                    "Invalid operator xonly pk in payout tx {}, data in OP_RETURN: {:?}",
+                    payout_txid,
+                    hex::encode(op_return_bytes)
                 );
                 continue;
             };
