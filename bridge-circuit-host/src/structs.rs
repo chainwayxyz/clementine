@@ -323,6 +323,7 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
         deposit_storage_proof.value.to_be_bytes(),
         round_txid,
         kickff_round_vout,
+        input.hcp.genesis_state_hash,
     )
 }
 
