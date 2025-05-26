@@ -128,7 +128,7 @@ pub enum BridgeError {
     DepositNotFound(OutPoint),
     #[error("Deposit is invalid")]
     InvalidDeposit,
-    #[error("Operator data mismatch. Data already stored in BD and received by set_operator doesn't match for xonly_pk: {0}")]
+    #[error("Operator data mismatch. Data already stored in DB and received by set_operator doesn't match for xonly_pk: {0}")]
     OperatorDataMismatch(XOnlyPublicKey),
     #[error("Operator winternitz public keys mismatch. Data already stored in DB doesn't match the new data for operator {0}")]
     OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey),
