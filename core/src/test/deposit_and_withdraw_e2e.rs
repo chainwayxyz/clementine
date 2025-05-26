@@ -553,7 +553,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             .collect::<Vec<Txid>>();
         for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
             assert!(
-                rpc.is_txid_in_chain(&txid).await.unwrap(),
+                rpc.is_tx_on_chain(&txid).await.unwrap(),
                 "Mini assert {} was not found in the chain",
                 idx
             );
