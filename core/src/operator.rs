@@ -162,7 +162,7 @@ where
             .await?;
         let (collateral_funding_outpoint, reimburse_addr) = match op_data {
             Some(operator_data) => {
-                // Operator data is already set in db, we don't actually need to do anyhing.
+                // Operator data is already set in db, we don't actually need to do anything.
                 // set_operator_checked will give error if the values set in config and db doesn't match.
                 (
                     operator_data.collateral_funding_outpoint,
