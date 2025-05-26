@@ -357,7 +357,7 @@ pub fn create_optimistic_payout_txhandler(
         )
         .add_output(output_txout)
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::non_ephemeral_anchor_output(),
         ))
         .finalize();
     txhandler.set_p2tr_key_spend_witness(&user_sig_wrapped, 0)?;

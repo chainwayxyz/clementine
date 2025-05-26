@@ -17,7 +17,7 @@ use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
-use crate::constants::{ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
+use crate::constants::{ANCHOR_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 use crate::database::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -847,11 +847,19 @@ where
         if move_txid.is_none() {
             return Err(eyre::eyre!("Deposit not found for id: {}", deposit_id).into());
         }
-        if output_amount > self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT {
+        if output_amount
+            > self.config.protocol_paramset().bridge_amount
+                - ANCHOR_AMOUNT
+                - NON_EPHEMERAL_ANCHOR_AMOUNT
+        {
+            // self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT is the sat value of output of move_tx
+            // NON_EPHEMERAL_ANCHOR_AMOUNT is the additional anchor that exists in optimistic payout tx
             return Err(eyre::eyre!(
                 "Output amount is greater than the bridge amount: {} > {}",
                 output_amount,
-                self.config.protocol_paramset().bridge_amount - ANCHOR_AMOUNT
+                self.config.protocol_paramset().bridge_amount
+                    - ANCHOR_AMOUNT
+                    - NON_EPHEMERAL_ANCHOR_AMOUNT
             )
             .into());
         }

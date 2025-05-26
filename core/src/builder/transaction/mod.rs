@@ -12,7 +12,7 @@ use crate::builder::transaction::operator_collateral::*;
 use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::ANCHOR_AMOUNT;
+use crate::constants::{ANCHOR_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 use crate::errors::BridgeError;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::grpc_transaction_id;
@@ -551,6 +551,15 @@ pub fn anyone_can_spend_txout() -> TxOut {
 pub fn anchor_output() -> TxOut {
     TxOut {
         value: ANCHOR_AMOUNT,
+        script_pubkey: ScriptBuf::from_hex("51024e73").expect("statically valid script"),
+    }
+}
+
+/// A non-ephemeral anchor output. It is used in tx's that should have a non-ephemeral anchor.
+/// Because ephemeral anchors force the tx to have 0 fee.
+pub fn non_ephemeral_anchor_output() -> TxOut {
+    TxOut {
+        value: NON_EPHEMERAL_ANCHOR_AMOUNT,
         script_pubkey: ScriptBuf::from_hex("51024e73").expect("statically valid script"),
     }
 }

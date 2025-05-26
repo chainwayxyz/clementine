@@ -3,6 +3,8 @@ use bitcoin::{Address, Amount, ScriptBuf};
 /// The amount of the P2A anchor output.
 pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(0);
 
+pub const NON_EPHEMERAL_ANCHOR_AMOUNT: Amount = Amount::from_sat(240);
+
 pub const DEFAULT_UTXO_AMOUNT: Amount = Amount::from_sat(0);
 
 /// The minimum possible amount that a UTXO can have when created into a Taproot address.
