@@ -63,6 +63,22 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_move_to_vault_txid_from_citrea_deposit(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        citrea_idx: u32,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>(
+            "SELECT move_to_vault_txid FROM withdrawals WHERE idx = $1",
+        )
+        .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?);
+
+        let result: Option<(TxidDB,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(result.map(|(move_to_vault_txid,)| move_to_vault_txid.0))
+    }
+
     pub async fn set_replacement_deposit_move_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -234,19 +250,21 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         move_to_vault_txid: Txid,
-    ) -> Result<Option<(XOnlyPublicKey, BlockHash)>, BridgeError> {
-        let query = sqlx::query_as::<_, (XOnlyPublicKeyDB, BlockHashDB)>(
-            "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash
+    ) -> Result<Option<(XOnlyPublicKey, BlockHash, Txid, i32)>, BridgeError> {
+        let query = sqlx::query_as::<_, (XOnlyPublicKeyDB, BlockHashDB, TxidDB, i32)>(
+            "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash, w.payout_txid, w.idx
              FROM withdrawals w
              WHERE w.move_to_vault_txid = $1",
         )
         .bind(TxidDB(move_to_vault_txid));
 
-        let result: Option<(XOnlyPublicKeyDB, BlockHashDB)> =
+        let result: Option<(XOnlyPublicKeyDB, BlockHashDB, TxidDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         result
-            .map(|(operator_xonly_pk, block_hash)| Ok((operator_xonly_pk.0, block_hash.0)))
+            .map(|(operator_xonly_pk, block_hash, txid, deposit_idx)| {
+                Ok((operator_xonly_pk.0, block_hash.0, txid.0, deposit_idx))
+            })
             .transpose()
     }
 
@@ -392,5 +410,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(withdrawal_utxo, utxo);
+
+        let move_txid = db
+            .get_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(move_txid, txid);
     }
 }

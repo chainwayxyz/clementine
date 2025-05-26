@@ -4,14 +4,13 @@ use crate::builder::script::SpendPath;
 use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
 use crate::builder::transaction::TransactionType;
-use crate::constants::{BURN_SCRIPT, MIN_TAPROOT_AMOUNT};
 use crate::errors::{BridgeError, TxError};
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
-use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
+use bitcoin::{absolute, OutPoint, Script, Sequence, TapNodeHash, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use eyre::{Context, OptionExt};
 use std::collections::BTreeMap;
@@ -63,6 +62,22 @@ impl<T: State> TxHandler<T> {
             txout.scripts().clone(),
             txout.spendinfo().clone(),
         )) // TODO: Can we get rid of clones?
+    }
+
+    pub fn get_merkle_root_of_txin(&self, idx: usize) -> Result<Option<TapNodeHash>, BridgeError> {
+        let txin = self
+            .txins
+            .get(idx)
+            .ok_or(TxError::TxInputNotFound)?
+            .get_spendable();
+        let merkle_root = txin
+            .get_spend_info()
+            .as_ref()
+            .ok_or(eyre::eyre!(
+                "Spend info not found for requested txin in get_merkle_root_of_txin"
+            ))?
+            .merkle_root();
+        Ok(merkle_root)
     }
 
     pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {
@@ -429,30 +444,6 @@ impl TxHandlerBuilder {
         self.txouts.push(output);
 
         self
-    }
-
-    pub fn add_burn_output(self) -> Self {
-        let total_in = self
-            .txins
-            .iter()
-            .map(|s| s.get_spendable().get_prevout().value)
-            .sum::<bitcoin::Amount>();
-        let total_out = self
-            .txouts
-            .iter()
-            .map(|s| s.txout().value)
-            .sum::<bitcoin::Amount>();
-
-        // do not add burn output if there is not enough sats left for new output and some fee
-        if total_in - total_out < MIN_TAPROOT_AMOUNT * 10 {
-            return self;
-        }
-        let burntxo = TxOut {
-            script_pubkey: BURN_SCRIPT.clone(),
-            value: total_in - total_out - MIN_TAPROOT_AMOUNT * 8, // leave some fee to prevent minfee errors
-        };
-
-        self.add_output(UnspentTxOut::from_partial(burntxo))
     }
 
     /// TODO: output likely fallible
