@@ -1455,11 +1455,6 @@ where
             ));
         }
 
-        tracing::info!(
-            "Payout txs and payer operator idx: {:?}",
-            payout_txs_and_payer_operator_idx
-        );
-
         self.db
             .set_payout_txs_and_payer_operator_xonly_pk(
                 Some(dbtx),
