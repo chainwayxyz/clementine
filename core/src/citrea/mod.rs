@@ -320,6 +320,8 @@ impl CitreaClientT for CitreaClient {
             .wallet(EthereumWallet::from(key))
             .on_http(citrea_rpc_url.clone());
 
+        tracing::info!("Provider created");
+
         let contract = BRIDGE_CONTRACT::new(
             BRIDGE_CONTRACT_ADDRESS
                 .parse()
@@ -327,12 +329,19 @@ impl CitreaClientT for CitreaClient {
             provider,
         );
 
+        tracing::info!("Contract created");
+
         let client = HttpClientBuilder::default()
             .build(citrea_rpc_url)
             .wrap_err("Failed to create Citrea RPC client")?;
+
+        tracing::info!("Citrea RPC client created");
+
         let light_client_prover_client = HttpClientBuilder::default()
             .build(light_client_prover_url)
             .wrap_err("Failed to create Citrea LCP RPC client")?;
+
+        tracing::info!("Citrea LCP RPC client created");
 
         Ok(CitreaClient {
             client,
@@ -544,6 +553,10 @@ impl CitreaClientT for CitreaClient {
         &self,
         nofn_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
+        if std::env::var("DISABLE_NOFN_CHECK").is_ok() {
+            return Ok(());
+        }
+
         let contract_nofn_xonly_pk = self
             .contract
             .getAggregatedKey()

@@ -416,6 +416,11 @@ mod tests {
         );
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
+        std::env::set_var("GENESIS_HEIGHT", default_config.genesis_height.to_string());
+        std::env::set_var(
+            "GENESIS_CHAIN_STATE_HASH",
+            hex::encode(default_config.genesis_chain_state_hash),
+        );
         std::env::set_var(
             "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
             default_config.latest_blockhash_timeout_timelock.to_string(),
