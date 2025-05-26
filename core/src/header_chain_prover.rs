@@ -971,9 +971,6 @@ mod tests {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
         let rpc = regtest.rpc().clone();
-        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
-            .await
-            .unwrap();
 
         let genesis_state = ChainState::genesis_state();
 
