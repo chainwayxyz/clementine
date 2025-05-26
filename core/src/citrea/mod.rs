@@ -551,7 +551,7 @@ impl CitreaClientT for CitreaClient {
 
     async fn check_nofn_correctness(
         &self,
-        _nofn_xonly_pk: XOnlyPublicKey,
+        nofn_xonly_pk: XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
         if std::env::var("DISABLE_NOFN_CHECK").is_ok() {
             return Ok(());
