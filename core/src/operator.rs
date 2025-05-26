@@ -209,7 +209,7 @@ where
             }
         };
 
-        db.set_operator_checked(
+        db.set_operator(
             Some(&mut dbtx),
             signer.xonly_public_key,
             &reimburse_addr,

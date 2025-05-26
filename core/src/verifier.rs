@@ -352,7 +352,7 @@ where
         let mut dbtx = self.db.begin_transaction().await?;
         // Save the operator details to the db
         self.db
-            .set_operator_checked(
+            .set_operator(
                 Some(&mut dbtx),
                 operator_xonly_pk,
                 &wallet_reimburse_address,
