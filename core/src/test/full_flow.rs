@@ -17,7 +17,7 @@ use crate::rpc::clementine::{
     Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
 };
 use crate::test::common::*;
-use crate::tx_sender::TxSenderClient;
+use crate::tx_sender::{RbfSigningInfo, TxSenderClient};
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;
@@ -34,7 +34,7 @@ async fn base_setup(
     (
         Vec<ClementineOperatorClient<tonic::transport::Channel>>,
         Vec<ClementineVerifierClient<tonic::transport::Channel>>,
-        TxSenderClient,
+        Vec<TxSenderClient>,
         DepositInfo,
         u32,
         TransactionRequest,
@@ -56,15 +56,19 @@ async fn base_setup(
         .try_into()
         .unwrap();
 
-    let verifier_0_config = {
-        let mut config = config.clone();
-        config.db_name += "0";
-        config
-    };
-    let tx_sender_db = Database::new(&verifier_0_config)
-        .await
-        .expect("failed to create database");
-    let tx_sender = TxSenderClient::new(tx_sender_db.clone(), "run_happy_path_2".to_string());
+    let mut tx_senders = Vec::new();
+    for i in 0..verifiers.len() {
+        let verifier_config = {
+            let mut config = config.clone();
+            config.db_name += &i.to_string();
+            config
+        };
+        let tx_sender_db = Database::new(&verifier_config)
+            .await
+            .expect("failed to create database");
+        let tx_sender = TxSenderClient::new(tx_sender_db.clone(), format!("full_flow_{}", i));
+        tx_senders.push(tx_sender);
+    }
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) =
         get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
@@ -137,7 +141,7 @@ async fn base_setup(
     Ok((
         operators,
         verifiers,
-        tx_sender,
+        tx_senders,
         deposit_info,
         kickoff_idx,
         base_tx_req,
@@ -253,7 +257,7 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     let (
         mut operators,
         _verifiers,
-        tx_sender,
+        tx_senders,
         _dep_params,
         _kickoff_idx,
         base_tx_req,
@@ -261,6 +265,8 @@ pub async fn run_happy_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         _cleanup,
         op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
+
+    let tx_sender = tx_senders[0].clone();
 
     tracing::info!("Sending round transaction");
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
@@ -325,7 +331,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
     let (
         mut operators,
         mut verifiers,
-        tx_sender,
+        tx_senders,
         deposit_info,
         kickoff_idx,
         base_tx_req,
@@ -333,6 +339,8 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         _cleanup,
         op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
+
+    let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
@@ -354,16 +362,22 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             .internal_create_watchtower_challenge(base_tx_req.clone())
             .await?
             .into_inner();
-        tracing::info!(
+        tracing::warn!(
             "Sending watchtower challenge transaction for watchtower {}",
             verifier_idx
         );
+        let rbf_info: Option<RbfSigningInfo> = watchtower_challenge_tx
+            .rbf_info
+            .map(|rbf_rpc| rbf_rpc.try_into().unwrap());
+
+        tracing::warn!("Watchtower challenge rbf info: {:?}", rbf_info);
 
         send_tx(
-            &tx_sender,
+            &tx_senders[verifier_idx].clone(),
             &rpc,
             watchtower_challenge_tx.raw_tx.as_slice(),
-            TxType::try_from(watchtower_challenge_tx.transaction_type.unwrap()).unwrap(),
+            TxType::WatchtowerChallenge(verifier_idx),
+            rbf_info,
         )
         .await
         .context(format!(
@@ -413,6 +427,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
             &rpc,
             tx.raw_tx.as_slice(),
             TxType::MiniAssert(assert_idx),
+            None,
         )
         .await
         .context(format!(
@@ -464,6 +479,7 @@ pub async fn run_happy_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Re
         &rpc,
         reimburse_tx.raw_tx.as_slice(),
         TxType::Reimburse,
+        None,
     )
     .await
     .context("failed to send reimburse transaction")?;
@@ -479,7 +495,7 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
     let (
         mut operators,
         _watchtowers,
-        tx_sender,
+        tx_senders,
         deposit_info,
         kickoff_idx,
         _base_tx_req,
@@ -487,6 +503,8 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
         _cleanup,
         op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
+
+    let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
@@ -533,6 +551,7 @@ pub async fn run_simple_assert_flow(config: &mut BridgeConfig, rpc: ExtendedRpc)
             &rpc,
             tx.raw_tx.as_slice(),
             tx.transaction_type.unwrap().try_into().unwrap(),
+            None,
         )
         .await?;
     }
@@ -558,7 +577,7 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let (
         _operators,
         mut verifiers,
-        tx_sender,
+        tx_senders,
         _dep_params,
         _kickoff_idx,
         base_tx_req,
@@ -566,6 +585,8 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         _cleanup,
         _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
+
+    let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
@@ -594,11 +615,15 @@ pub async fn run_bad_path_1(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         "Sending watchtower challenge transaction for watchtower {}",
         watchtower_idx
     );
+    let rbf_info: Option<RbfSigningInfo> = watchtower_challenge_tx
+        .rbf_info
+        .map(|rbf_rpc| rbf_rpc.try_into().unwrap());
     send_tx(
         &tx_sender,
         &rpc,
         watchtower_challenge_tx.raw_tx.as_slice(),
         TxType::WatchtowerChallenge(watchtower_idx),
+        rbf_info,
     )
     .await
     .context(format!(
@@ -640,7 +665,7 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let (
         _operators,
         _verifiers,
-        tx_sender,
+        tx_senders,
         _dep_params,
         _kickoff_idx,
         _base_tx_req,
@@ -648,6 +673,8 @@ pub async fn run_bad_path_2(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         _cleanup,
         _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
+
+    let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
@@ -687,7 +714,7 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
     let (
         _operators,
         _verifiers,
-        tx_sender,
+        tx_senders,
         _deposit_info,
         _kickoff_idx,
         _base_tx_req,
@@ -695,6 +722,8 @@ pub async fn run_bad_path_3(config: &mut BridgeConfig, rpc: ExtendedRpc) -> Resu
         _cleanup,
         _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
+
+    let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
@@ -776,7 +805,7 @@ pub async fn run_challenge_with_state_machine(
     let (
         mut operators,
         _verifiers,
-        tx_sender,
+        tx_senders,
         deposit_info,
         kickoff_idx,
         _base_tx_req,
@@ -784,6 +813,8 @@ pub async fn run_challenge_with_state_machine(
         _cleanup,
         op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
+
+    let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
@@ -888,7 +919,7 @@ pub async fn run_unspent_kickoffs_with_state_machine(
     let (
         _operators,
         _verifiers,
-        tx_sender,
+        tx_senders,
         _deposit_info,
         _kickoff_idx,
         _base_tx_req,
@@ -896,6 +927,8 @@ pub async fn run_unspent_kickoffs_with_state_machine(
         _cleanup,
         _op0_xonly_pk,
     ) = base_setup(config, &rpc).await?;
+
+    let tx_sender = tx_senders[0].clone();
 
     // Send Round Transaction
     tracing::info!("Sending round transaction");
@@ -1029,6 +1062,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "Tested/will be tested in mock_citrea_run_malicious"]
     async fn test_challenge_with_state_machine() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;

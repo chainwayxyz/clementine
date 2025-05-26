@@ -11,6 +11,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::Operator;
+use crate::tx_sender::RbfSigningInfo;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};
@@ -179,11 +180,11 @@ where
     C: CitreaClientT,
 {
     /// Creates and signs the watchtower challenge
-    pub async fn create_and_sign_watchtower_challenge(
+    pub async fn create_watchtower_challenge(
         &self,
         transaction_data: TransactionRequestData,
         commit_data: &[u8],
-    ) -> Result<(TransactionType, Transaction), BridgeError> {
+    ) -> Result<(TransactionType, Transaction, RbfSigningInfo), BridgeError> {
         if commit_data.len() != self.config.protocol_paramset().watchtower_challenge_bytes {
             return Err(TxError::IncorrectWatchtowerChallengeDataLength.into());
         }
@@ -223,21 +224,22 @@ where
 
         let watchtower_index = deposit_data.get_watchtower_index(&self.signer.xonly_public_key)?;
 
-        let mut watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
+        let watchtower_challenge_txhandler = create_watchtower_challenge_txhandler(
             &kickoff_txhandler,
             watchtower_index,
             commit_data,
             self.config.protocol_paramset(),
         )?;
 
-        self.signer
-            .tx_sign_and_fill_sigs(&mut watchtower_challenge_txhandler, &[], None)?;
-
-        let checked_txhandler = watchtower_challenge_txhandler.promote()?;
+        let merkle_root = watchtower_challenge_txhandler.get_merkle_root_of_txin(0)?;
 
         Ok((
             TransactionType::WatchtowerChallenge(watchtower_index),
-            checked_txhandler.get_cached_tx().clone(),
+            watchtower_challenge_txhandler.get_cached_tx().clone(),
+            RbfSigningInfo {
+                vout: 0,
+                tweak_merkle_root: merkle_root,
+            },
         ))
     }
 
@@ -317,6 +319,7 @@ where
     pub async fn create_assert_commitment_txs(
         &self,
         assert_data: TransactionRequestData,
+        commit_data: Vec<Vec<Vec<u8>>>,
     ) -> Result<Vec<(TransactionType, Transaction)>, BridgeError> {
         let deposit_data = self
             .db
@@ -324,6 +327,7 @@ where
             .await?
             .ok_or(BridgeError::DepositNotFound(assert_data.deposit_outpoint))?
             .1;
+
         let context = ContractContext::new_context_for_asserts(
             assert_data.kickoff_data,
             deposit_data.clone(),
@@ -357,9 +361,10 @@ where
             );
             let dummy_data: Vec<(Vec<u8>, WinternitzDerivationPath)> = derivations
                 .iter()
-                .map(|derivation| match derivation {
-                    WinternitzDerivationPath::BitvmAssert(len, _, _, _, _) => {
-                        (vec![0u8; *len as usize / 2], derivation.clone())
+                .zip(commit_data[idx].iter())
+                .map(|(derivation, commit_data)| match derivation {
+                    WinternitzDerivationPath::BitvmAssert(_len, _, _, _, _) => {
+                        (commit_data.clone(), derivation.clone())
                     }
                     _ => unreachable!(),
                 })

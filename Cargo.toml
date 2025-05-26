@@ -24,7 +24,7 @@ clap = "4.5.20"
 toml = "0.8.19"
 sqlx = { version = "0.8.3", default-features = false }
 serial_test = "3.2.0"
-tempfile = "3.16.0"
+tempfile = "3.8"
 eyre = { version = "0.6.12" }
 alloy = { version = "0.11.1", features = ["full"] }
 statig = { version = "0.3.0", features = ["async", "serde"] }
@@ -33,7 +33,7 @@ serde_with = "3.12.0"
 rand_chacha = "0.3.1"
 
 # Citrea dependencies
-citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "39e75ae22972ed2c3617392a504dac072d992cc4" }
+citrea-e2e = { git = "https://github.com/chainwayxyz/citrea-e2e", rev = "d45a29afa4de9d7e00dad9e8d9c59f95fe22e557" }
 sov-rollup-interface = { git = "https://github.com/chainwayxyz/citrea.git", rev = "b1fbe83fdd60d29", features = [
   "native",
 ] }
@@ -76,9 +76,9 @@ ripemd = "0.1.3"
 once_cell = "1.10.0"
 jmt = "0.11.0"
 derive_more = { version = "1.0.0", features = ["display"] }
-blake3 = "1.5.1"
+blake3 = "1.6.1"
 itertools = "0.14.0"
-bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "929c8e0" }
+bitvm = { git = "https://github.com/chainwayxyz/BitVM", rev = "a2c0810429f6b93568b2140e5476d2d70b5db3be" }
 
 ark-groth16 = { version = "0.5.0", default-features = false }
 ark-serialize = "0.5.0"

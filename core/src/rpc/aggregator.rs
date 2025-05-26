@@ -632,7 +632,11 @@ impl Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
 
-        // TODO: Sign the transaction correctly after we create taproot witness generation functions
+        tracing::info!(
+            "move_tx: {}",
+            hex::encode(bitcoin::consensus::serialize(&move_tx))
+        );
+
         Ok(move_txhandler.promote()?)
     }
 
@@ -956,6 +960,7 @@ impl ClementineAggregator for Aggregator {
                     &[],
                     None,
                     &self.config,
+                    None,
                 )
                 .await
                 .map_err(BridgeError::from)?;

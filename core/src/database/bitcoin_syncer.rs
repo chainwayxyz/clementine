@@ -105,11 +105,12 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let block_bytes = bitcoin::consensus::serialize(block);
         let query = sqlx::query(
-            "INSERT INTO bitcoin_blocks (height, block_data) VALUES ($1, $2)
-             ON CONFLICT (height) DO UPDATE SET block_data = $2",
+            "INSERT INTO bitcoin_blocks (height, block_data, block_hash) VALUES ($1, $2, $3)
+             ON CONFLICT (height) DO UPDATE SET block_data = $2, block_hash = $3",
         )
         .bind(i32::try_from(block_height).wrap_err(BridgeError::IntConversionError)?)
-        .bind(&block_bytes);
+        .bind(&block_bytes)
+        .bind(BlockHashDB(block.header.block_hash()));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -131,6 +132,29 @@ impl Database {
                 let block = bitcoin::consensus::deserialize(&bytes)
                     .wrap_err(BridgeError::IntConversionError)?;
                 Ok(Some(block))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn get_full_block_from_hash(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_hash: BlockHash,
+    ) -> Result<Option<(u32, bitcoin::Block)>, BridgeError> {
+        let query =
+            sqlx::query_as("SELECT height, block_data FROM bitcoin_blocks WHERE block_hash = $1")
+                .bind(BlockHashDB(block_hash));
+
+        let block_data: Option<(i32, Vec<u8>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match block_data {
+            Some((height_i32, bytes)) => {
+                let height = u32::try_from(height_i32).wrap_err(BridgeError::IntConversionError)?;
+                let block = bitcoin::consensus::deserialize(&bytes)
+                    .wrap_err(BridgeError::IntConversionError)?;
+                Ok(Some((height, block)))
             }
             None => Ok(None),
         }
@@ -422,6 +446,7 @@ mod tests {
 
         dbtx.commit().await.unwrap();
     }
+
     #[tokio::test]
     async fn test_store_and_get_block() {
         let db = setup_test_db().await;
@@ -449,6 +474,8 @@ mod tests {
             txdata: dummy_txs.clone(),
         };
 
+        let dummy_block_hash = dummy_block.block_hash();
+
         // Store the block
         db.store_full_block(None, &dummy_block, block_height)
             .await
@@ -462,19 +489,18 @@ mod tests {
             .unwrap();
 
         // Verify block fields match
-        assert_eq!(retrieved_block.header.version, dummy_block.header.version);
-        assert_eq!(
-            retrieved_block.header.prev_blockhash,
-            dummy_block.header.prev_blockhash
-        );
-        assert_eq!(
-            retrieved_block.header.merkle_root,
-            dummy_block.header.merkle_root
-        );
-        assert_eq!(retrieved_block.header.time, dummy_block.header.time);
-        assert_eq!(retrieved_block.header.bits, dummy_block.header.bits);
-        assert_eq!(retrieved_block.header.nonce, dummy_block.header.nonce);
-        assert_eq!(retrieved_block.txdata.len(), dummy_block.txdata.len());
+        assert_eq!(retrieved_block, dummy_block);
+
+        // Retrieve the block
+        let retrieved_block_from_hash = db
+            .get_full_block_from_hash(None, dummy_block_hash)
+            .await
+            .unwrap()
+            .unwrap()
+            .1;
+
+        // Verify block fields match
+        assert_eq!(retrieved_block_from_hash, dummy_block);
 
         // Non-existent block should return None
         assert!(db.get_full_block(None, 999).await.unwrap().is_none());
@@ -489,6 +515,8 @@ mod tests {
             txdata: dummy_txs.clone(),
         };
 
+        let updated_dummy_block_hash = updated_dummy_block.block_hash();
+
         db.store_full_block(None, &updated_dummy_block, block_height)
             .await
             .unwrap();
@@ -499,10 +527,15 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(
-            retrieved_updated_block.header.version,
-            bitcoin::block::Version::ONE
-        );
+        assert_eq!(updated_dummy_block, retrieved_updated_block);
+
+        let retrieved_updated_block_from_hash = db
+            .get_full_block_from_hash(None, updated_dummy_block_hash)
+            .await
+            .unwrap()
+            .unwrap()
+            .1;
+        assert_eq!(updated_dummy_block, retrieved_updated_block_from_hash);
     }
 
     #[tokio::test]
