@@ -21,7 +21,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::MIN_TAPROOT_AMOUNT;
+use crate::constants::{DEFAULT_UTXO_AMOUNT, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
@@ -92,7 +92,7 @@ pub fn create_round_txhandler(
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
         input_amount
-            - (paramset.kickoff_amount + MIN_TAPROOT_AMOUNT)
+            - (paramset.kickoff_amount + DEFAULT_UTXO_AMOUNT)
                 * (paramset.num_kickoffs_per_round as u64)
             - ANCHOR_AMOUNT,
         vec![],
@@ -117,7 +117,7 @@ pub fn create_round_txhandler(
     // Create reimburse utxos
     for _ in 0..paramset.num_kickoffs_per_round {
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            DEFAULT_UTXO_AMOUNT,
             vec![],
             Some(operator_xonly_pk),
             paramset.network,
@@ -279,10 +279,14 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
             Sequence::from_height(1),
         );
     }
-    tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
-        value: MIN_TAPROOT_AMOUNT,
-        script_pubkey: change_address.script_pubkey(),
-    }));
+    if DEFAULT_UTXO_AMOUNT.to_sat() > 0 {
+        // if we use standard tx's, kickoff utxo's will hold some sats so we can return the change to the change address
+        // but if weuse nonstandard tx's with 0 sat values then the change is 0 anyway, no need to add an output
+        tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: change_address.script_pubkey(),
+        }));
+    }
     tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(
         builder::transaction::anchor_output(),
     ));
