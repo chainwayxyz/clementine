@@ -968,10 +968,6 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn prove_block_headers_genesis() {
-        let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc().clone();
-
         let genesis_state = ChainState::genesis_state();
 
         let receipt =
