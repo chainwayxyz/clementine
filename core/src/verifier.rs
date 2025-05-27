@@ -9,13 +9,11 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    challenge::create_disprove_txhandler, create_round_txhandlers, KickoffWinternitzKeys,
-};
-use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
     create_optimistic_payout_txhandler, create_txhandlers, ContractContext, DepositData,
     KickoffData, OperatorData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
+use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
@@ -26,7 +24,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::context::DutyResult;
-use crate::states::{block_cache, kickoff, StateManager};
+use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
@@ -43,9 +41,6 @@ use bitvm::signatures::winternitz;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::parse_op_return_data;
 use eyre::{Context, ContextCompat, OptionExt, Result};
-use futures::SinkExt;
-#[cfg(test)]
-use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::pin;
@@ -1282,27 +1277,27 @@ where
 
         let (work_only_proof, work_output) = hcp_prover.prove_work_only(current_tip_hcp.0)?;
 
-        #[cfg(test)]
-        {
-            // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
-            // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
-            if is_dev_mode() {
-                tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
-                let g16_bytes = 128;
-                let mut challenge = vec![0u8; g16_bytes];
-                for (step, i) in (0..g16_bytes).step_by(32).enumerate() {
-                    if i < g16_bytes {
-                        challenge[i] = step as u8;
-                    }
-                }
-                let total_work = borsh::to_vec(&work_output.work_u128)
-                    .wrap_err("Couldn't serialize total work")?;
-                challenge.extend_from_slice(&total_work);
-                return self
-                    .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
-                    .await;
-            }
-        }
+        // #[cfg(test)]
+        // {
+        //     // if in test mode and risc0_dev_mode is enabled, we will not generate real proof
+        //     // if not in test mode, we should enforce RISC0_DEV_MODE to be disabled
+        //     if is_dev_mode() {
+        //         tracing::warn!("Warning, malicious kickoff detected but RISC0_DEV_MODE is enabled, will not generate real proof");
+        //         let g16_bytes = 128;
+        //         let mut challenge = vec![0u8; g16_bytes];
+        //         for (step, i) in (0..g16_bytes).step_by(32).enumerate() {
+        //             if i < g16_bytes {
+        //                 challenge[i] = step as u8;
+        //             }
+        //         }
+        //         let total_work = borsh::to_vec(&work_output.work_u128)
+        //             .wrap_err("Couldn't serialize total work")?;
+        //         challenge.extend_from_slice(&total_work);
+        //         return self
+        //             .queue_watchtower_challenge(kickoff_data, deposit_data, challenge)
+        //             .await;
+        //     }
+        // }
 
         let g16: [u8; 256] = work_only_proof
             .inner
@@ -1327,6 +1322,8 @@ where
         let total_work =
             borsh::to_vec(&work_output.work_u128).wrap_err("Couldn't serialize total work")?;
         commit_data.extend_from_slice(&total_work);
+
+        tracing::info!("Watchtower prepared commit data, trying to send watchtower challenge");
 
         self.queue_watchtower_challenge(kickoff_data, deposit_data, commit_data)
             .await
@@ -1603,6 +1600,9 @@ where
                 );
                 self.send_watchtower_challenge(kickoff_data, deposit_data)
                     .await?;
+
+                tracing::info!("Verifier sent watchtower challenge",);
+
                 Ok(DutyResult::Handled)
             }
             Duty::SendOperatorAsserts { .. } => Ok(DutyResult::Handled),
@@ -1680,21 +1680,28 @@ where
 
                     let mut disprove_txhandler = txhandlers
                         .get(&TransactionType::Disprove)
-                        .wrap_err("Disprove txhandler not found in txhandlers")?.clone();
+                        .wrap_err("Disprove txhandler not found in txhandlers")?
+                        .clone();
 
-                    let operators_sig = self.db.get_deposit_signatures(
-                        None,
-                        deposit_data.get_deposit_outpoint(),
-                        kickoff_data.operator_xonly_pk,
-                        kickoff_data.round_idx as usize,
-                        kickoff_data.kickoff_idx as usize,
-                    ).await?.ok_or_eyre(
-                        "No operator signature found for the disprove tx",
-                    )?;
+                    let operators_sig = self
+                        .db
+                        .get_deposit_signatures(
+                            None,
+                            deposit_data.get_deposit_outpoint(),
+                            kickoff_data.operator_xonly_pk,
+                            kickoff_data.round_idx as usize,
+                            kickoff_data.kickoff_idx as usize,
+                        )
+                        .await?
+                        .ok_or_eyre("No operator signature found for the disprove tx")?;
 
                     let mut tweak_cache = TweakCache::default();
 
-                    let result = self.signer.tx_sign_and_fill_sigs(&mut disprove_txhandler, operators_sig.as_ref(), Some(&mut tweak_cache));
+                    let result = self.signer.tx_sign_and_fill_sigs(
+                        &mut disprove_txhandler,
+                        operators_sig.as_ref(),
+                        Some(&mut tweak_cache),
+                    );
 
                     if let Err(e) = result {
                         tracing::error!(
@@ -1702,7 +1709,7 @@ where
                             verifier_xonly_pk,
                             e
                         );
-                        return Err(e.into());
+                        return Err(e);
                     }
 
                     let mut disprove_tx = disprove_txhandler.get_cached_tx().clone();
@@ -1714,25 +1721,23 @@ where
                         verifier_xonly_pk, kickoff_data, deposit_data
                     );
                     let mut dbtx = self.db.begin_transaction().await?;
-                     self.tx_sender
-                    .add_tx_to_queue(
-                        &mut dbtx,
-                        TransactionType::Disprove,
-                        &disprove_tx,
-                        &[],
-                        Some(TxMetadata {
-                            tx_type: TransactionType::Disprove,
-                            operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
-                            round_idx: Some(kickoff_data.round_idx),
-                            kickoff_idx: Some(kickoff_data.kickoff_idx as u32),
-                            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                        }),
-                        &self.config,
-                        None,
-                    )
-                    .await?;
-
-
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            &mut dbtx,
+                            TransactionType::Disprove,
+                            &disprove_tx,
+                            &[],
+                            Some(TxMetadata {
+                                tx_type: TransactionType::Disprove,
+                                operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                                round_idx: Some(kickoff_data.round_idx),
+                                kickoff_idx: Some(kickoff_data.kickoff_idx),
+                                deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                            }),
+                            &self.config,
+                            None,
+                        )
+                        .await?;
                 } else {
                     tracing::warn!(
                         "Verifier {:?} did not find additional disprove witness",

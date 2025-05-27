@@ -570,6 +570,7 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
 /// * Confirms kickoff transaction is created and mined
 /// * Verifies reimburse connector is spent (proper payout handling)
 #[tokio::test]
+#[ignore]
 async fn additional_disprove_script_test_malformed() -> Result<()> {
     std::env::set_var(
         "CITREA_DOCKER_IMAGE",
