@@ -49,7 +49,7 @@ pub use operator_collateral::{
 pub use operator_reimburse::{create_optimistic_payout_txhandler, create_payout_txhandler};
 pub use txhandler::Unsigned;
 
-mod challenge;
+pub mod challenge;
 mod creator;
 pub mod deposit_signature_owner;
 pub mod input;

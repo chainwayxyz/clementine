@@ -4,16 +4,14 @@ use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::{KickoffData, TransactionType};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
-use crate::rpc::clementine::{ TransactionRequest, WithdrawParams};
+use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender,
-    ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
-    generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool,
-    run_single_deposit,
+    generate_withdrawal_transaction_and_signature, mine_once_after_in_mempool, run_single_deposit,
 };
 use crate::test::full_flow::get_tx_from_signed_txs_with_type;
 use crate::tx_sender::{FeePayingType, TxMetadata};

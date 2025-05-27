@@ -7,8 +7,8 @@ mod state_manager;
 mod taproot;
 mod withdraw;
 
-mod bitvm_script;
 mod additional_disprove_scripts;
+mod bitvm_script;
 
 use ctor::ctor;
 
