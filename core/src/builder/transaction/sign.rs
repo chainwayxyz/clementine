@@ -424,6 +424,17 @@ where
 
         // get last 20 bytes of block_hash
         let block_hash = block_hash.to_byte_array();
+
+        #[cfg(test)]
+        let mut block_hash = block_hash;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.disrupt_block_hash_commit {
+                block_hash[31] ^= 0x01;
+            }
+        }
+
         let block_hash_last_20 = block_hash[block_hash.len() - 20..].to_vec();
 
         self.signer.tx_sign_winternitz(
