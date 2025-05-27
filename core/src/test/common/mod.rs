@@ -35,7 +35,7 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{taproot, Amount, BlockHash, OutPoint, Transaction, Txid, Witness};
 use bitcoincore_rpc::RpcApi;
-use citrea::{get_transaction_params, MockCitreaClient};
+use citrea::MockCitreaClient;
 use eyre::Context;
 use secp256k1::rand;
 pub use setup_utils::*;

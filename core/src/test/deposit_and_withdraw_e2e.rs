@@ -8,13 +8,12 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{
     KickoffData, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE,
 };
-use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::database::Database;
 use crate::rpc::clementine::{
     FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
-use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
+use crate::test::common::citrea::{get_citrea_safe_withdraw_params, MockCitreaClient, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
     ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
