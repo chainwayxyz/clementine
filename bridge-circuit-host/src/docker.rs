@@ -220,7 +220,7 @@ pub fn dev_stark_to_risc0_g16(receipt: Receipt, journal: &[u8]) -> Receipt {
     std::fs::write(work_dir.join("seal.r0"), identity_p254_seal_bytes.clone()).unwrap();
     let seal_path = work_dir.join("input.json");
     let proof_path = work_dir.join("proof.json");
-    let output_path = work_dir.join("public.json");
+    let _output_path = work_dir.join("public.json");
     // let mut seal_json = Vec::new();
     // to_json(&*identity_p254_seal_bytes, &mut seal_json).unwrap();
     // std::fs::write(seal_path.clone(), seal_json).unwrap();

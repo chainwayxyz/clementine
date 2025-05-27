@@ -27,7 +27,6 @@ use eyre::{eyre, Context, OptionExt};
 use lazy_static::lazy_static;
 use risc0_zkvm::is_dev_mode;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, ProverOpts, Receipt};
-use std::clone;
 use std::{
     fs::File,
     io::{BufReader, Read},

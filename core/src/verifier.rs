@@ -40,8 +40,6 @@ use bitvm::signatures::winternitz;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::parse_op_return_data;
 use eyre::{Context, OptionExt, Result};
-#[cfg(test)]
-use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::pin;
