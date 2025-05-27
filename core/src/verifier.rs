@@ -1682,21 +1682,28 @@ where
 
                     let mut disprove_txhandler = txhandlers
                         .get(&TransactionType::Disprove)
-                        .wrap_err("Disprove txhandler not found in txhandlers")?.clone();
+                        .wrap_err("Disprove txhandler not found in txhandlers")?
+                        .clone();
 
-                    let operators_sig = self.db.get_deposit_signatures(
-                        None,
-                        deposit_data.get_deposit_outpoint(),
-                        kickoff_data.operator_xonly_pk,
-                        kickoff_data.round_idx as usize,
-                        kickoff_data.kickoff_idx as usize,
-                    ).await?.ok_or_eyre(
-                        "No operator signature found for the disprove tx",
-                    )?;
+                    let operators_sig = self
+                        .db
+                        .get_deposit_signatures(
+                            None,
+                            deposit_data.get_deposit_outpoint(),
+                            kickoff_data.operator_xonly_pk,
+                            kickoff_data.round_idx as usize,
+                            kickoff_data.kickoff_idx as usize,
+                        )
+                        .await?
+                        .ok_or_eyre("No operator signature found for the disprove tx")?;
 
                     let mut tweak_cache = TweakCache::default();
 
-                    let result = self.signer.tx_sign_and_fill_sigs(&mut disprove_txhandler, operators_sig.as_ref(), Some(&mut tweak_cache));
+                    let result = self.signer.tx_sign_and_fill_sigs(
+                        &mut disprove_txhandler,
+                        operators_sig.as_ref(),
+                        Some(&mut tweak_cache),
+                    );
 
                     if let Err(e) = result {
                         tracing::error!(
@@ -1716,25 +1723,23 @@ where
                         verifier_xonly_pk, kickoff_data, deposit_data
                     );
                     let mut dbtx = self.db.begin_transaction().await?;
-                     self.tx_sender
-                    .add_tx_to_queue(
-                        &mut dbtx,
-                        TransactionType::Disprove,
-                        &disprove_tx,
-                        &[],
-                        Some(TxMetadata {
-                            tx_type: TransactionType::Disprove,
-                            operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
-                            round_idx: Some(kickoff_data.round_idx),
-                            kickoff_idx: Some(kickoff_data.kickoff_idx as u32),
-                            deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                        }),
-                        &self.config,
-                        None,
-                    )
-                    .await?;
-
-
+                    self.tx_sender
+                        .add_tx_to_queue(
+                            &mut dbtx,
+                            TransactionType::Disprove,
+                            &disprove_tx,
+                            &[],
+                            Some(TxMetadata {
+                                tx_type: TransactionType::Disprove,
+                                operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                                round_idx: Some(kickoff_data.round_idx),
+                                kickoff_idx: Some(kickoff_data.kickoff_idx as u32),
+                                deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                            }),
+                            &self.config,
+                            None,
+                        )
+                        .await?;
                 } else {
                     tracing::warn!(
                         "Verifier {:?} did not find additional disprove witness",
