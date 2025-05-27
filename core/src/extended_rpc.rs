@@ -100,13 +100,15 @@ impl ExtendedRpc {
     /// Retrieves the current blockchain height (number of blocks).
     ///
     /// # Returns
-    /// The current block height as a `u32`, or an error if it cannot be retrieved or converted.
+    ///
+    /// - [`u32`]: Current block height
     pub async fn get_current_chain_height(&self) -> Result<u32> {
         let height = self
             .client
             .get_block_count()
             .await
             .wrap_err("Failed to get block count")?;
+
         Ok(u32::try_from(height).wrap_err("Failed to convert block count to u32")?)
     }
 
@@ -525,10 +527,23 @@ mod tests {
     use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]
-    async fn new_extended_rpc() {
+    async fn new_extended_rpc_with_clone() {
         let mut config = create_test_config_with_thread_name().await;
         let regtest = create_regtest_rpc(&mut config).await;
-        let _should_not_panic = regtest.rpc();
+        let rpc = regtest.rpc();
+
+        rpc.mine_blocks(101).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+
+        let cloned_rpc = rpc.clone_inner().await.unwrap();
+        assert_eq!(cloned_rpc.url, rpc.url);
+        assert_eq!(cloned_rpc.auth, rpc.auth);
+        assert_eq!(cloned_rpc.client.get_block_count().await.unwrap(), height);
+        assert_eq!(
+            cloned_rpc.client.get_block_hash(height).await.unwrap(),
+            hash
+        );
     }
 
     #[tokio::test]
@@ -564,6 +579,7 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
         let height = rpc.client.get_block_count().await.unwrap();
+        assert_eq!(height as u32, rpc.get_current_chain_height().await.unwrap());
         let blockhash = rpc.client.get_block_hash(height).await.unwrap();
 
         // On chain.
