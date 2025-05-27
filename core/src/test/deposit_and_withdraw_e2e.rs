@@ -817,7 +817,7 @@ async fn mock_citrea_run_truthful() {
 
     let reimburse_connector = OutPoint {
         txid: kickoff_txid,
-        vout: 2,
+        vout: UtxoVout::ReimburseInKickoff.get_vout(),
     };
 
     // wait 3 seconds so fee payer txs are sent to mempool
@@ -837,7 +837,7 @@ async fn mock_citrea_run_truthful() {
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: 0,
+        vout: UtxoVout::Challenge.get_vout(),
     };
 
     tracing::warn!("Waiting for challenge");
@@ -1470,7 +1470,7 @@ async fn mock_citrea_run_malicious_after_exit() {
 
     let challenge_outpoint = OutPoint {
         txid: kickoff_txid,
-        vout: 0,
+        vout: UtxoVout::Challenge.get_vout(),
     };
 
     let challenge_spent_txid = get_txid_where_utxo_is_spent(&rpc, challenge_outpoint)
