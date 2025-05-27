@@ -13,6 +13,8 @@ use crate::builder::transaction::{
     create_optimistic_payout_txhandler, create_txhandlers, ContractContext, DepositData,
     KickoffData, OperatorData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
 };
+use bitvm::clementine::additional_disprove::validate_assertions_for_additional_script;
+use futures::SinkExt;
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;
 use crate::config::protocol::ProtocolParamset;
@@ -24,7 +26,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::context::DutyResult;
-use crate::states::{block_cache, StateManager};
+use crate::states::{block_cache, kickoff, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
@@ -39,7 +41,7 @@ use bitcoin::{OutPoint, TxOut};
 use bitvm::signatures::winternitz;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::parse_op_return_data;
-use eyre::{Context, OptionExt, Result};
+use eyre::{Context, ContextCompat, OptionExt, Result};
 #[cfg(test)]
 use risc0_zkvm::is_dev_mode;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
@@ -1610,12 +1612,69 @@ where
                 payout_blockhash,
                 latest_blockhash,
             } => {
+
+                let mut reimburse_db_cache = ReimburseDbCache::new_for_deposit(self.db.clone(), kickoff_data.operator_xonly_pk, deposit_data.get_deposit_outpoint(), self.config.protocol_paramset());
+
+                let additional_disprove_script = reimburse_db_cache.get_replaceable_additional_disprove_script().await?;
+
+                let g16_public_input_signature = operator_asserts.get(&1).wrap_err(
+                    "No g16 public input signature found in operator asserts"
+                )?;
+
+                let challenge_sending_watchtowers_signature = operator_asserts
+                    .get(&0)
+                    .wrap_err("No challenge sending watchtowers signature found in operator asserts")?;
+
+                let num_of_watchtowers = deposit_data
+                    .get_num_watchtowers();
+
+                let mut operator_acks_vec: Vec<Option<[u8; 20]>> = vec![None; num_of_watchtowers];
+
+                for (idx, witness) in operator_acks.iter() {
+                    let pre_image: [u8; 20] = witness.nth(1).wrap_err(
+                        "No pre-image found in operator ack witness",
+                    )?.try_into().wrap_err(
+                        "Invalid pre-image length, expected 20 bytes",
+                    )?;
+                    if *idx >= operator_acks_vec.len() {
+                        return Err(eyre::eyre!(
+                            "Operator ack index {} out of bounds for vec of length {}",
+                            idx,
+                            operator_acks_vec.len()
+                        )
+                        .into());
+                    }
+                    operator_acks_vec[*idx] = Some(pre_image);
+                }
+
+                let additional_disprove_witness = validate_assertions_for_additional_script(
+                    additional_disprove_script.clone(),
+                    g16_public_input_signature.clone(),
+                    payout_blockhash.clone(),
+                    latest_blockhash.clone(),
+                    challenge_sending_watchtowers_signature.clone(),
+                    operator_acks_vec,
+                );
+
+                if additional_disprove_witness = Some(additional_disprove_witness) {
+
+                    let disprove_txhandler = create_disprove_txhandler(
+                    )?;
+
+                } else {
+                    tracing::warn!(
+                        "Verifier {:?} did not find additional disprove witness",
+                        verifier_xonly_pk
+                    );
+                }
+
                 tracing::warn!(
                     "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?},
                     operator_acks: {:?}, payout_blockhash: {:?}, latest_blockhash: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(),
                     payout_blockhash.len(), latest_blockhash.len()
                 );
+
                 Ok(DutyResult::Handled)
             }
             Duty::SendLatestBlockhash { .. } => Ok(DutyResult::Handled),
