@@ -315,14 +315,7 @@ pub async fn create_actors<C: CitreaClientT>(
     ClementineAggregatorClient<Channel>,
     ActorsCleanup,
 ) {
-    let all_verifiers_secret_keys = config
-        .test_params
-        .all_verifiers_secret_keys
-        .clone()
-        .unwrap_or_else(|| {
-            panic!("All secret keys of the verifiers are required for testing");
-        });
-
+    let all_verifiers_secret_keys = config.test_params.all_verifiers_secret_keys.clone();
     // Collect all shutdown channels
     let mut shutdown_channels = Vec::new();
 
@@ -368,13 +361,7 @@ pub async fn create_actors<C: CitreaClientT>(
 
     shutdown_channels.extend(verifier_shutdown_channels);
 
-    let all_operators_secret_keys = config
-        .test_params
-        .all_operators_secret_keys
-        .clone()
-        .unwrap_or_else(|| {
-            panic!("All secret keys of the operators are required for testing");
-        });
+    let all_operators_secret_keys = config.test_params.all_operators_secret_keys.clone();
 
     // Create futures for operator Unix socket servers
     let operator_futures = all_operators_secret_keys

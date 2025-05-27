@@ -25,11 +25,7 @@ use std::sync::Arc;
 
 #[cfg(test)]
 fn get_verifiers_keys(config: &BridgeConfig) -> (Vec<Keypair>, XOnlyPublicKey, Vec<PublicKey>) {
-    let verifiers_secret_keys = config
-        .test_params
-        .all_verifiers_secret_keys
-        .clone()
-        .unwrap();
+    let verifiers_secret_keys = config.test_params.all_verifiers_secret_keys.clone();
 
     let verifiers_secret_public_keys: Vec<Keypair> = verifiers_secret_keys
         .iter()

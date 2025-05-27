@@ -917,11 +917,7 @@ mod tests {
         txs_operator_can_sign
             .extend((0..verifiers.len()).map(TransactionType::WatchtowerChallengeTimeout));
 
-        let all_operators_secret_keys = config
-            .test_params
-            .all_operators_secret_keys
-            .clone()
-            .unwrap();
+        let all_operators_secret_keys = config.test_params.all_operators_secret_keys.clone();
         let operator_xonly_pks: Vec<XOnlyPublicKey> = all_operators_secret_keys
             .iter()
             .map(|&sk| {

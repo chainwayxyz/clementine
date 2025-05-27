@@ -27,17 +27,15 @@ pub mod protocol;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestParams {
     pub should_run_state_manager: bool,
-    /// All Secret keys. Just for testing purposes.
-    pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
-    /// All Secret keys. Just for testing purposes.
-    pub all_operators_secret_keys: Option<Vec<SecretKey>>,
+    pub all_verifiers_secret_keys: Vec<SecretKey>,
+    pub all_operators_secret_keys: Vec<SecretKey>,
 }
 
 impl Default for TestParams {
     fn default() -> Self {
         Self {
             should_run_state_manager: true,
-            all_verifiers_secret_keys: Some(vec![
+            all_verifiers_secret_keys: vec![
                 SecretKey::from_str(
                     "1111111111111111111111111111111111111111111111111111111111111111",
                 )
@@ -54,8 +52,8 @@ impl Default for TestParams {
                     "4444444444444444444444444444444444444444444444444444444444444444",
                 )
                 .expect("known valid input"),
-            ]),
-            all_operators_secret_keys: Some(vec![
+            ],
+            all_operators_secret_keys: vec![
                 SecretKey::from_str(
                     "1111111111111111111111111111111111111111111111111111111111111111",
                 )
@@ -64,7 +62,7 @@ impl Default for TestParams {
                     "2222222222222222222222222222222222222222222222222222222222222222",
                 )
                 .expect("known valid input"),
-            ]),
+            ],
         }
     }
 }

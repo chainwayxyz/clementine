@@ -428,7 +428,6 @@ fn sign_nofn_deposit_tx(
         .test_params
         .all_verifiers_secret_keys
         .clone()
-        .unwrap()
         .iter()
         .map(|sk| Keypair::from_secret_key(&SECP, sk))
         .collect::<Vec<_>>();

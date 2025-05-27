@@ -111,11 +111,7 @@ async fn base_setup(
     .await?;
     tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
     let op0_xonly_pk = Actor::new(
-        config
-            .test_params
-            .all_operators_secret_keys
-            .clone()
-            .unwrap()[0],
+        config.test_params.all_operators_secret_keys.clone()[0],
         config.winternitz_secret_key,
         config.protocol_paramset().network,
     )
