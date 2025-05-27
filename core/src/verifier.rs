@@ -9,7 +9,7 @@ use crate::builder::sighash::{
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    challenge::create_disprove_txhandler, create_round_txhandlers, KickoffWinternitzKeys,
+    create_round_txhandlers, KickoffWinternitzKeys,
 };
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
@@ -26,7 +26,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::states::context::DutyResult;
-use crate::states::{block_cache, kickoff, StateManager};
+use crate::states::{block_cache, StateManager};
 use crate::states::{Duty, Owner};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
@@ -1711,7 +1711,7 @@ where
                             verifier_xonly_pk,
                             e
                         );
-                        return Err(e.into());
+                        return Err(e);
                     }
 
                     let mut disprove_tx = disprove_txhandler.get_cached_tx().clone();
@@ -1733,7 +1733,7 @@ where
                                 tx_type: TransactionType::Disprove,
                                 operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
                                 round_idx: Some(kickoff_data.round_idx),
-                                kickoff_idx: Some(kickoff_data.kickoff_idx as u32),
+                                kickoff_idx: Some(kickoff_data.kickoff_idx),
                                 deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                             }),
                             &self.config,
