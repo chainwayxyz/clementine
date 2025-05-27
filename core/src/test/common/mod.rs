@@ -425,6 +425,7 @@ fn sign_nofn_deposit_tx(
     );
 
     let kps = config
+        .test_params
         .all_verifiers_secret_keys
         .clone()
         .unwrap()
