@@ -427,7 +427,6 @@ fn sign_nofn_deposit_tx(
     let kps = config
         .test_params
         .all_verifiers_secret_keys
-        .clone()
         .iter()
         .map(|sk| Keypair::from_secret_key(&SECP, sk))
         .collect::<Vec<_>>();
