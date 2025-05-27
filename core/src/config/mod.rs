@@ -27,12 +27,14 @@ pub mod protocol;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestParams {
     pub should_run_state_manager: bool,
+    pub disrupt_block_hash_commit: bool,
 }
 
 impl Default for TestParams {
     fn default() -> Self {
         Self {
             should_run_state_manager: true,
+            disrupt_block_hash_commit: false,
         }
     }
 }
