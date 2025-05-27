@@ -72,6 +72,7 @@ pub fn prove_bridge_circuit(
     [u8; 31],
     BridgeCircuitBitvmInputs,
 ) {
+    tracing::info!("Starting bridge circuit proof generation");
     let bridge_circuit_input = bridge_circuit_host_params
         .clone()
         .into_bridge_circuit_input();
@@ -80,6 +81,7 @@ pub fn prove_bridge_circuit(
         borsh::to_vec(&bridge_circuit_input.hcp).expect("Could not serialize header chain output");
 
     if bridge_circuit_input.lcp.lc_journal != bridge_circuit_host_params.lcp_receipt.journal.bytes {
+        tracing::error!("Light client proof output mismatch");
         panic!("Light client proof output mismatch");
     }
 
@@ -92,6 +94,7 @@ pub fn prove_bridge_circuit(
     if header_chain_proof_output_serialized
         != bridge_circuit_host_params.headerchain_receipt.journal.bytes
     {
+        tracing::error!("Header chain proof output mismatch");
         panic!("Header chain proof output mismatch");
     }
 
@@ -109,6 +112,7 @@ pub fn prove_bridge_circuit(
         .verify(header_chain_method_id)
         .is_err()
     {
+        tracing::error!("Header chain receipt verification failed");
         panic!("Header chain receipt verification failed");
     }
 
@@ -120,6 +124,7 @@ pub fn prove_bridge_circuit(
             .block_hashes_mmr
             .clone(),
     ) {
+        tracing::error!("SPV verification failed");
         panic!("SPV verification failed");
     }
 
@@ -169,6 +174,10 @@ pub fn prove_bridge_circuit(
     let risc0_g16_256 = risc0_g16_seal_vec[0..256].try_into().unwrap();
     let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
     let ark_groth16_proof: ark_groth16::Proof<Bn254> = circuit_g16_proof.into();
+
+
+
+    tracing::info!("Latest block hash: {:?}", public_inputs.latest_block_hash.0);
 
     (
         ark_groth16_proof,
