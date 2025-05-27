@@ -8,6 +8,7 @@ mod taproot;
 mod withdraw;
 
 mod bitvm_script;
+mod additional_disprove_scripts;
 
 use ctor::ctor;
 

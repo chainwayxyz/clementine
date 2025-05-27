@@ -914,117 +914,6 @@ pub async fn run_challenge_with_state_machine(
     Ok(())
 }
 
-pub async fn run_additional_disprove_scripts(
-    config: &mut BridgeConfig,
-    rpc: ExtendedRpc,
-) -> Result<()> {
-    let (
-        mut operators,
-        _verifiers,
-        tx_senders,
-        deposit_info,
-        kickoff_idx,
-        _base_tx_req,
-        all_txs,
-        _cleanup,
-        op0_xonly_pk,
-    ) = base_setup(config, &rpc).await?;
-
-    let tx_sender = tx_senders[0].clone();
-
-    // Send Round Transaction
-    tracing::info!("Sending round transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Round).await?;
-
-    // Send Kickoff Transaction
-    tracing::info!("Sending kickoff transaction");
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Kickoff).await?;
-
-    // Send Challenge Transaction
-    send_tx_with_type(&rpc, &tx_sender, &all_txs, TxType::Challenge).await?;
-
-    let deposit_outpoint = deposit_info.deposit_outpoint;
-    let kickoff_tx = get_tx_from_signed_txs_with_type(&all_txs, TxType::Kickoff)?;
-    let kickoff_txid = kickoff_tx.compute_txid();
-
-    let watchtower_challenge_utxos = (0.._verifiers.len()).map(|i| OutPoint {
-        txid: kickoff_txid,
-        vout: UtxoVout::WatchtowerChallenge(i).get_vout(),
-    });
-
-    let watchtower_challenge_timeout_txids = (0.._verifiers.len())
-        .map(|i| {
-            let wtc =
-                get_tx_from_signed_txs_with_type(&all_txs, TxType::WatchtowerChallengeTimeout(i))
-                    .unwrap();
-            wtc.compute_txid()
-        })
-        .collect::<Vec<Txid>>();
-
-    // wait for necessary amount of blocks
-    rpc.mine_blocks(config.protocol_paramset().time_to_send_watchtower_challenge as u64)
-        .await?;
-
-    tracing::info!("Checking if watchtower challenge utxos were spent");
-    // check if watchtower challenge utxos were spent
-    for outpoint in watchtower_challenge_utxos {
-        ensure_outpoint_spent(&rpc, outpoint).await?;
-    }
-
-    tracing::info!("Checking if watchtower challenge timeouts were not sent");
-    // check if watchtower challenge timeouts were not sent
-    for txid in watchtower_challenge_timeout_txids {
-        assert!(!rpc.is_txid_in_chain(&txid).await?);
-    }
-
-    let latest_blockhash_outpoint = OutPoint {
-        txid: kickoff_txid,
-        vout: UtxoVout::LatestBlockhash.get_vout(),
-    };
-
-    ensure_outpoint_spent(&rpc, latest_blockhash_outpoint).await?;
-
-    // check if latest blockhash timeout was not sent
-    let latest_blockhash_timeout_txid =
-        get_tx_from_signed_txs_with_type(&all_txs, TxType::LatestBlockhashTimeout)?.compute_txid();
-    assert!(!rpc.is_txid_in_chain(&latest_blockhash_timeout_txid).await?);
-
-    // check if operator asserts are sent by state machine
-    // Get deposit data and kickoff ID for assert creation
-    let kickoff_data = KickoffData {
-        operator_xonly_pk: op0_xonly_pk,
-        round_idx: 0,
-        kickoff_idx,
-    };
-
-    // Create assert transactions for operator 0
-    let assert_txs = operators[0]
-        .internal_create_assert_commitment_txs(TransactionRequest {
-            kickoff_id: Some(kickoff_data.into()),
-            deposit_outpoint: Some(deposit_outpoint.into()),
-        })
-        .await?
-        .into_inner();
-
-    let operator_assert_txids =
-        (0..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
-            .map(|i| {
-                let assert_tx =
-                    get_tx_from_signed_txs_with_type(&assert_txs, TxType::MiniAssert(i)).unwrap();
-                assert_tx.compute_txid()
-            })
-            .collect::<Vec<Txid>>();
-
-    tracing::warn!("Checking if operator asserts were sent");
-    // check if operator asserts were sent
-    for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
-        tracing::warn!("operator assert {} ensure onchain", idx);
-        ensure_tx_onchain(&rpc, txid).await?;
-    }
-
-    Ok(())
-}
-
 // Operator successfully sends challenge timeout for one deposit, but doesnt
 // spend its remaining kickoffs, state machine should automatically send any
 // unspent kickoff connector tx to burn operators collateral
@@ -1185,18 +1074,6 @@ mod tests {
         let rpc = regtest.rpc().clone();
 
         run_challenge_with_state_machine(&mut config, rpc)
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_additional_disprove_scripts() {
-        let mut config = create_test_config_with_thread_name().await;
-        config.test_params.disrupt_block_hash_commit = true;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc().clone();
-
-        run_additional_disprove_scripts(&mut config, rpc)
             .await
             .unwrap();
     }
