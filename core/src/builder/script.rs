@@ -8,7 +8,7 @@
 use crate::actor::WinternitzDerivationPath;
 use crate::config::protocol::ProtocolParamset;
 use crate::EVMAddress;
-use bitcoin::hashes::{hash160, Hash};
+use bitcoin::hashes::Hash;
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
@@ -56,8 +56,8 @@ pub fn extract_winternitz_commits(
     for wt_path in wt_derive_paths.iter().rev() {
         let wt_params = wt_path.get_params();
         let message_digits =
-            (wt_params.byte_message_length() * 8).div_ceil(paramset.winternitz_log_d) as usize;
-        let checksum_digits = wt_params.total_length() as usize - message_digits;
+            (wt_params.message_byte_len() * 8).div_ceil(paramset.winternitz_log_d) as usize;
+        let checksum_digits = wt_params.total_digit_len() as usize - message_digits;
 
         let mut elements: Vec<&[u8]> = cur_witness_iter
             .by_ref()
@@ -390,8 +390,8 @@ impl PreimageRevealScript {
         let mut witness = Witness::new();
         #[cfg(debug_assertions)]
         assert_eq!(
-            hash160::Hash::hash(preimage.as_ref()),
-            hash160::Hash::from_byte_array(self.1),
+            bitcoin::hashes::hash160::Hash::hash(preimage.as_ref()),
+            bitcoin::hashes::hash160::Hash::from_byte_array(self.1),
             "Preimage does not match"
         );
 

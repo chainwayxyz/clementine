@@ -20,12 +20,13 @@ The repository includes:
 Before compiling Clementine:
 
 1. Install Rust: [rustup.rs](https://rustup.rs/)
-2. Install RiscZero: [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
+2. Install RiscZero (2.0.1): [dev.risczero.com/api/zkvm/install](https://dev.risczero.com/api/zkvm/install)
 
    ```bash
-   # Overwrite default versions
-   rzup install r0vm 1.2.0
-   rzup install rust 1.81.0
+   curl -L https://risczero.com/install | bash
+   rzup install cargo-risczero 2.0.1 # Or v2.0.1
+   rzup install r0vm 2.0.1
+   rzup install rust 1.85.0
    ```
 
 3. If on Mac, install XCode and its app from AppStore (if `xcrun metal` gives an error):

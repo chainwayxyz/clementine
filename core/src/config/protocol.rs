@@ -1,6 +1,7 @@
 use crate::config::env::read_string_from_env_then_parse;
 use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
+use eyre::Context;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::fs;
@@ -117,8 +118,14 @@ pub struct ProtocolParamset {
     pub finality_depth: u32,
     /// start height to sync the chain from, i.e. the height bridge was deployed
     pub start_height: u32,
+    /// Genesis height to sync the header chain proofs from
+    pub genesis_height: u32,
+    /// Genesis chain state hash
+    pub genesis_chain_state_hash: [u8; 32],
     /// Batch size of the header chain proofs
     pub header_chain_proof_batch_size: u32,
+    /// Bridge circuit method id
+    pub bridge_circuit_method_id_constant: [u8; 32],
 }
 
 impl ProtocolParamset {
@@ -183,16 +190,32 @@ impl ProtocolParamset {
             time_to_disprove: read_string_from_env_then_parse::<u16>("TIME_TO_DISPROVE")?,
             finality_depth: read_string_from_env_then_parse::<u32>("FINALITY_DEPTH")?,
             start_height: read_string_from_env_then_parse::<u32>("START_HEIGHT")?,
+            genesis_height: read_string_from_env_then_parse::<u32>("GENESIS_HEIGHT")?,
+            genesis_chain_state_hash: convert_hex_string_to_bytes(
+                &read_string_from_env_then_parse::<String>("GENESIS_CHAIN_STATE_HASH")?,
+            )?,
             header_chain_proof_batch_size: read_string_from_env_then_parse::<u32>(
                 "HEADER_CHAIN_PROOF_BATCH_SIZE",
             )?,
             latest_blockhash_timeout_timelock: read_string_from_env_then_parse::<u16>(
                 "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
             )?,
+            bridge_circuit_method_id_constant: convert_hex_string_to_bytes(
+                &read_string_from_env_then_parse::<String>("BRIDGE_CIRCUIT_METHOD_ID_CONSTANT")?,
+            )?,
         };
 
         Ok(config)
     }
+}
+
+fn convert_hex_string_to_bytes(hex: &str) -> Result<[u8; 32], BridgeError> {
+    let hex_decode = hex::decode(hex).wrap_err("Failed to decode hex string")?;
+    let hex_bytes: [u8; 32] = hex_decode
+        .as_slice()
+        .try_into()
+        .wrap_err("Hex string is not 32 bytes")?;
+    Ok(hex_bytes)
 }
 
 impl Default for ProtocolParamset {
@@ -214,7 +237,7 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     bridge_amount: Amount::from_sat(1_000_000_000),
     kickoff_amount: Amount::from_sat(55_000),
     operator_challenge_amount: Amount::from_sat(200_000_000),
-    collateral_funding_amount: Amount::from_sat(200_000_000),
+    collateral_funding_amount: Amount::from_sat(99_000_000),
     watchtower_challenge_bytes: 144,
     kickoff_blockhash_commit_length: 40,
     winternitz_log_d: WINTERNITZ_LOG_D,
@@ -229,6 +252,12 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     time_to_disprove: 4 * BLOCKS_PER_HOUR * 4 + 4 * BLOCKS_PER_HOUR / 2,
     latest_blockhash_timeout_timelock: 4 * BLOCKS_PER_HOUR * 5 / 2,
     finality_depth: 1,
-    start_height: 201,
+    start_height: 190,
+    genesis_height: 0,
+    genesis_chain_state_hash: [
+        95, 115, 2, 173, 22, 200, 189, 158, 242, 243, 190, 0, 200, 25, 154, 134, 249, 224, 186,
+        134, 20, 132, 171, 180, 175, 95, 126, 69, 127, 140, 34, 22,
+    ],
     header_chain_proof_batch_size: 100,
+    bridge_circuit_method_id_constant: [255u8; 32],
 };

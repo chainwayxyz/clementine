@@ -1,8 +1,8 @@
-use super::clementine::VergenResponse;
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, PartialSig, SignedTxWithType, SignedTxsWithType, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams,
+    OperatorParams, OptimisticPayoutParams, PartialSig, RawTxWithRbfInfo, SignedTxWithType,
+    SignedTxsWithType, VergenResponse, VerifierDepositFinalizeParams, VerifierDepositSignParams,
+    VerifierParams,
 };
 use super::error;
 use super::parser::ParserError;
@@ -33,30 +33,70 @@ where
         Ok(Response::new(get_vergen_response()))
     }
 
+    async fn optimistic_payout_sign(
+        &self,
+        request: Request<OptimisticPayoutParams>,
+    ) -> Result<Response<PartialSig>, Status> {
+        let params = request.into_inner();
+        let agg_nonce = MusigAggNonce::from_slice(params.agg_nonce.as_slice())
+            .map_err(|e| Status::invalid_argument(format!("Invalid musigagg nonce: {}", e)))?;
+        let nonce_session_id = params
+            .nonce_gen
+            .ok_or(Status::invalid_argument(
+                "Nonce params not found for optimistic payout",
+            ))?
+            .id;
+        let withdraw_params = params.withdrawal.ok_or(Status::invalid_argument(
+            "Withdrawal params not found for optimistic payout",
+        ))?;
+        let (withdrawal_id, input_signature, input_outpoint, output_script_pubkey, output_amount) =
+            parser::operator::parse_withdrawal_sig_params(withdraw_params).await?;
+        let partial_sig = self
+            .verifier
+            .sign_optimistic_payout(
+                nonce_session_id,
+                agg_nonce,
+                withdrawal_id,
+                input_signature,
+                input_outpoint,
+                output_script_pubkey,
+                output_amount,
+            )
+            .await?;
+        Ok(Response::new(partial_sig.into()))
+    }
+
     async fn internal_create_watchtower_challenge(
         &self,
         request: tonic::Request<super::TransactionRequest>,
-    ) -> std::result::Result<tonic::Response<super::SignedTxWithType>, tonic::Status> {
+    ) -> std::result::Result<tonic::Response<super::RawTxWithRbfInfo>, tonic::Status> {
         let transaction_request = request.into_inner();
         let transaction_data = parse_transaction_request(transaction_request)?;
 
-        let (tx_type, signed_tx) = self
+        let (_tx_type, signed_tx, rbf_info) = self
             .verifier
-            .create_and_sign_watchtower_challenge(
+            .create_watchtower_challenge(
                 transaction_data,
-                &vec![
-                    0u8;
-                    self.verifier
+                &{
+                    let challenge_bytes = self
+                        .verifier
                         .config
                         .protocol_paramset()
-                        .watchtower_challenge_bytes
-                ], // dummy challenge
+                        .watchtower_challenge_bytes;
+                    let mut challenge = vec![0u8; challenge_bytes];
+                    for (step, i) in (0..challenge_bytes).step_by(32).enumerate() {
+                        if i < challenge_bytes {
+                            challenge[i] = step as u8;
+                        }
+                    }
+                    challenge
+                }, // dummy challenge with 1u8, 2u8 every 32 bytes
             )
             .await?;
 
-        Ok(Response::new(SignedTxWithType {
-            transaction_type: Some(tx_type.into()),
+        Ok(Response::new(RawTxWithRbfInfo {
             raw_tx: bitcoin::consensus::serialize(&signed_tx),
+            rbf_info: Some(rbf_info.into()),
         }))
     }
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
@@ -78,6 +118,20 @@ where
 
         let (collateral_funding_outpoint, operator_xonly_pk, wallet_reimburse_address) =
             parser::operator::parse_details(&mut in_stream).await?;
+
+        // check if address is valid
+        let wallet_reimburse_address_checked = wallet_reimburse_address
+            .clone()
+            .require_network(self.verifier.config.protocol_paramset().network)
+            .map_err(|e| {
+                Status::invalid_argument(format!(
+                    "Invalid operator reimbursement address: {:?} for bitcoin network {:?} for operator {:?}. ParseError: {}",
+                    wallet_reimburse_address,
+                    self.verifier.config.protocol_paramset().network,
+                    operator_xonly_pk,
+                    e
+                ))
+            })?;
 
         let mut operator_kickoff_winternitz_public_keys = Vec::new();
         // we need num_round_txs + 1 because the last round includes reimburse generators of previous round
@@ -102,7 +156,7 @@ where
             .set_operator(
                 collateral_funding_outpoint,
                 operator_xonly_pk,
-                wallet_reimburse_address,
+                wallet_reimburse_address_checked,
                 operator_kickoff_winternitz_public_keys,
                 unspent_kickoff_sigs,
             )

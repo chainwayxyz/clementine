@@ -46,7 +46,7 @@ pub use creator::{
 pub use operator_collateral::{
     create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
 };
-pub use operator_reimburse::create_payout_txhandler;
+pub use operator_reimburse::{create_optimistic_payout_txhandler, create_payout_txhandler};
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -59,6 +59,8 @@ mod operator_reimburse;
 pub mod output;
 pub mod sign;
 mod txhandler;
+
+type HiddenNode<'a> = &'a [u8; 32];
 
 #[derive(Debug, Error)]
 pub enum TxError {
@@ -192,6 +194,53 @@ impl DepositData {
     }
     pub fn get_num_operators(&self) -> usize {
         self.actors.operators.len()
+    }
+    /// Returns the scripts for the deposit.
+    pub fn get_deposit_scripts(
+        &mut self,
+        paramset: &'static ProtocolParamset,
+    ) -> Result<Vec<Arc<dyn SpendableScript>>, BridgeError> {
+        let nofn_xonly_pk = self.get_nofn_xonly_pk()?;
+
+        match &mut self.deposit.deposit_type {
+            DepositType::BaseDeposit(original_deposit_data) => {
+                let deposit_script = Arc::new(BaseDepositScript::new(
+                    nofn_xonly_pk,
+                    original_deposit_data.evm_address,
+                ));
+
+                let recovery_script_pubkey = original_deposit_data
+                    .recovery_taproot_address
+                    .clone()
+                    .assume_checked()
+                    .script_pubkey();
+
+                let recovery_extracted_xonly_pk =
+                    XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
+                        .wrap_err(
+                            "Failed to extract xonly public key from recovery script pubkey",
+                        )?;
+
+                let script_timelock = Arc::new(TimelockScript::new(
+                    Some(recovery_extracted_xonly_pk),
+                    paramset.user_takes_after,
+                ));
+
+                Ok(vec![deposit_script, script_timelock])
+            }
+            DepositType::ReplacementDeposit(replacement_deposit_data) => {
+                let deposit_script: Arc<dyn SpendableScript> =
+                    Arc::new(ReplacementDepositScript::new(
+                        nofn_xonly_pk,
+                        replacement_deposit_data.old_move_txid,
+                    ));
+                let security_council_script: Arc<dyn SpendableScript> = Arc::new(
+                    Multisig::from_security_council(self.security_council.clone()),
+                );
+
+                Ok(vec![deposit_script, security_council_script])
+            }
+        }
     }
 }
 
@@ -367,6 +416,7 @@ pub enum TransactionType {
     ReplacementDeposit,
     LatestBlockhashTimeout,
     LatestBlockhash,
+    OptimisticPayout,
 }
 
 // converter from proto type to rust enum
@@ -401,6 +451,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     Normal::ReplacementDeposit => Ok(Self::ReplacementDeposit),
                     Normal::LatestBlockhashTimeout => Ok(Self::LatestBlockhashTimeout),
                     Normal::LatestBlockhash => Ok(Self::LatestBlockhash),
+                    Normal::OptimisticPayout => Ok(Self::OptimisticPayout),
                 }
             }
             grpc_transaction_id::Id::NumberedTransaction(transaction_id) => {
@@ -473,6 +524,9 @@ impl From<TransactionType> for GrpcTransactionId {
                 }
                 TransactionType::LatestBlockhash => {
                     NormalTransaction(Normal::LatestBlockhash as i32)
+                }
+                TransactionType::OptimisticPayout => {
+                    NormalTransaction(Normal::OptimisticPayout as i32)
                 }
                 TransactionType::WatchtowerChallenge(index) => {
                     NumberedTransaction(NumberedTransactionId {
@@ -575,67 +629,22 @@ pub fn create_move_to_vault_txhandler(
         deposit_data.security_council.clone(),
     ));
 
-    let builder = match &mut deposit_data.deposit.deposit_type {
-        DepositType::BaseDeposit(original_deposit_data) => {
-            let deposit_script = Arc::new(BaseDepositScript::new(
-                nofn_xonly_pk,
-                original_deposit_data.evm_address,
-            ));
+    let deposit_scripts = deposit_data.get_deposit_scripts(paramset)?;
 
-            let recovery_script_pubkey = original_deposit_data
-                .recovery_taproot_address
-                .clone()
-                .assume_checked()
-                .script_pubkey();
-
-            let recovery_extracted_xonly_pk =
-                XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])
-                    .wrap_err("Failed to extract xonly public key from recovery script pubkey")?;
-
-            let script_timelock = Arc::new(TimelockScript::new(
-                Some(recovery_extracted_xonly_pk),
-                paramset.user_takes_after,
-            ));
-
-            TxHandlerBuilder::new(TransactionType::MoveToVault)
-                .with_version(Version::non_standard(3))
-                .add_input(
-                    NormalSignatureKind::NotStored,
-                    SpendableTxIn::from_scripts(
-                        deposit_outpoint,
-                        paramset.bridge_amount,
-                        vec![deposit_script, script_timelock],
-                        None,
-                        paramset.network,
-                    ),
-                    SpendPath::ScriptSpend(0),
-                    DEFAULT_SEQUENCE,
-                )
-        }
-        DepositType::ReplacementDeposit(replacement_deposit_data) => {
-            let deposit_script = Arc::new(ReplacementDepositScript::new(
-                nofn_xonly_pk,
-                replacement_deposit_data.old_move_txid,
-            ));
-
-            TxHandlerBuilder::new(TransactionType::MoveToVault)
-                .with_version(Version::non_standard(3))
-                .add_input(
-                    NormalSignatureKind::NotStored,
-                    SpendableTxIn::from_scripts(
-                        deposit_outpoint,
-                        paramset.bridge_amount,
-                        vec![deposit_script, security_council_script.clone()],
-                        None,
-                        paramset.network,
-                    ),
-                    SpendPath::ScriptSpend(0),
-                    DEFAULT_SEQUENCE,
-                )
-        }
-    };
-
-    Ok(builder
+    Ok(TxHandlerBuilder::new(TransactionType::MoveToVault)
+        .with_version(Version::non_standard(3))
+        .add_input(
+            NormalSignatureKind::NotStored,
+            SpendableTxIn::from_scripts(
+                deposit_outpoint,
+                paramset.bridge_amount,
+                deposit_scripts,
+                None,
+                paramset.network,
+            ),
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
         .add_output(UnspentTxOut::from_scripts(
             paramset.bridge_amount - ANCHOR_AMOUNT,
             vec![nofn_script, security_council_script],
@@ -741,23 +750,64 @@ pub fn create_replacement_deposit_txhandler(
         .add_output(UnspentTxOut::from_partial(anchor_output())))
 }
 
-/// Helper function to create a taproot output that combines a script and a root hash
-pub fn create_taproot_output_with_hidden_node(
-    script: Arc<dyn SpendableScript>,
-    root_hash: &[u8; 32],
+pub fn create_disprove_taproot_output(
+    operator_timeout_script: Arc<dyn SpendableScript>,
+    additional_script: ScriptBuf,
+    disprove_root_hash: HiddenNode,
     amount: Amount,
     network: bitcoin::Network,
 ) -> UnspentTxOut {
     use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
     use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
 
-    let taproot_spend_info = TaprootBuilder::new()
-        .add_leaf(1, script.to_script_buf())
-        .expect("taptree with one node at depth 1 will accept a script node")
-        .add_hidden_node(1, TapNodeHash::from_byte_array(*root_hash))
-        .expect("empty taptree will accept a node at depth 1")
+    let builder = TaprootBuilder::new()
+        .add_leaf(1, operator_timeout_script.to_script_buf())
+        .expect("empty taptree will accept a script node")
+        .add_leaf(2, additional_script)
+        .expect("taptree with one node will accept a node at depth 2")
+        .add_hidden_node(2, TapNodeHash::from_byte_array(*disprove_root_hash))
+        .expect("taptree with two nodes will accept a node at depth 2");
+
+    let taproot_spend_info = builder
         .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
-        .expect("Taproot with 2 nodes at depth 1 should be valid");
+        .expect("cannot fail since it is a valid taptree");
+
+    let address = Address::p2tr(
+        &SECP,
+        *UNSPENDABLE_XONLY_PUBKEY,
+        taproot_spend_info.merkle_root(),
+        network,
+    );
+
+    UnspentTxOut::new(
+        TxOut {
+            value: amount,
+            script_pubkey: address.script_pubkey(),
+        },
+        vec![operator_timeout_script.clone()],
+        Some(taproot_spend_info),
+    )
+}
+
+/// Helper function to create a taproot output that combines a script and a root hash
+pub fn create_taproot_output_with_hidden_node(
+    script: Arc<dyn SpendableScript>,
+    hidden_node: HiddenNode,
+    amount: Amount,
+    network: bitcoin::Network,
+) -> UnspentTxOut {
+    use crate::bitvm_client::{SECP, UNSPENDABLE_XONLY_PUBKEY};
+    use bitcoin::taproot::{TapNodeHash, TaprootBuilder};
+
+    let builder = TaprootBuilder::new()
+        .add_leaf(1, script.to_script_buf())
+        .expect("empty taptree will accept a script node")
+        .add_hidden_node(1, TapNodeHash::from_byte_array(*hidden_node))
+        .expect("taptree with one node will accept a node at depth 1");
+
+    let taproot_spend_info = builder
+        .finalize(&SECP, *UNSPENDABLE_XONLY_PUBKEY)
+        .expect("cannot fail since it is a valid taptree");
 
     let address = Address::p2tr(
         &SECP,

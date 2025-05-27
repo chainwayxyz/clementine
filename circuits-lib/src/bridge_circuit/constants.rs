@@ -3,13 +3,13 @@ use ark_ff::BigInt;
 use hex_literal::hex;
 
 pub static MAINNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("b192e93809581f8fdc1e4df0886bb5668fa1443567b7cf5ccd516392a1c7659a");
+    hex!("d3fea5928fb96b92f03a3350c930188ec43cb90b66396c11ba6b8abd76fdb067");
 pub static TESTNET4_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("a196330eb8889df6bccaf2a13a86f4240396ac0ef28070cd2c2058b5def78a6e");
+    hex!("b33746e0ae0df55ff68ceb4bba891395fe0b4a09daa88ab9f71e6be101d051b4");
 pub static REGTEST_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("d8d296a67e0a2635621c225c9d35814975c5512fbfc98d6eb1f0867617786450");
+    hex!("60efa9ed605763009bd33fd5024701052ac5d6f6f6265d9290675224b4ed26ef");
 pub static SIGNET_WORK_ONLY_METHOD_ID: [u8; 32] =
-    hex!("2f3cf54cd18bcd1ed368563929eca5bec65bd48bf09d642a6f8128c7c7ec9951");
+    hex!("6c4d45ee4bfc515841d4e8a7ec3f3bb2bb47a7f336313cb6c1a203c6af837bee");
 
 // GROTH16 RELATED CONSTANTS
 pub static POST_STATE: [u8; 32] =

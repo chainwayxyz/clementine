@@ -7,7 +7,7 @@ use super::{
     wrapper::{BlockHashDB, BlockHeaderDB},
     Database, DatabaseTransaction,
 };
-use crate::{errors::BridgeError, execute_query_with_tx};
+use crate::{errors::BridgeError, execute_query_with_tx, extended_rpc::ExtendedRpc};
 use bitcoin::{
     block::{self, Header},
     BlockHash,
@@ -26,12 +26,75 @@ impl Database {
         block_height: u64,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4)",
+                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4)
+                ON CONFLICT (block_hash) DO NOTHING",
             )
             .bind(BlockHashDB(block_hash)).bind(BlockHeaderDB(block_header)).bind(BlockHashDB(block_header.prev_blockhash)).bind(block_height as i64);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
+        Ok(())
+    }
+
+    /// Collect block info from rpc and save it to hcp table.
+    async fn save_block_infos_within_range(
+        &self,
+        rpc: &ExtendedRpc,
+        height_start: u32,
+        height_end: u32,
+    ) -> Result<(), BridgeError> {
+        const BATCH_SIZE: u32 = 100;
+
+        for batch_start in (height_start..=height_end).step_by(BATCH_SIZE as usize) {
+            let batch_end = std::cmp::min(batch_start + BATCH_SIZE - 1, height_end);
+
+            // Collect all block headers in this batch
+            let mut block_infos = Vec::with_capacity((batch_end - batch_start + 1) as usize);
+            for height in batch_start..=batch_end {
+                let (block_hash, block_header) =
+                    rpc.get_block_header_by_height(height as u64).await?;
+                block_infos.push((block_hash, block_header, height));
+            }
+
+            // Save all blocks in this batch
+            let mut db_tx = self.begin_transaction().await?;
+            for (block_hash, block_header, height) in block_infos {
+                self.save_unproven_finalized_block(
+                    Some(&mut db_tx),
+                    block_hash,
+                    block_header,
+                    height as u64,
+                )
+                .await?;
+            }
+            db_tx.commit().await?;
+        }
+        Ok(())
+    }
+
+    /// This function assumes there are no blocks or some contiguous blocks starting from 0 already in the table.
+    /// Saves the block hashes and headers until given height(exclusive)
+    /// as they are needed for spv and hcp proofs.
+    pub async fn fetch_and_save_missing_blocks(
+        &self,
+        rpc: &ExtendedRpc,
+        genesis_height: u32,
+        until_height: u32,
+    ) -> Result<(), BridgeError> {
+        if until_height == 0 {
+            return Ok(());
+        }
+        let max_height = self.get_latest_finalized_block_height(None).await?;
+        if let Some(max_height) = max_height {
+            if max_height < until_height as u64 {
+                self.save_block_infos_within_range(rpc, max_height as u32 + 1, until_height - 1)
+                    .await?;
+            }
+        } else {
+            tracing::debug!("Saving blocks from start until {}", until_height);
+            self.save_block_infos_within_range(rpc, genesis_height, until_height - 1)
+                .await?;
+        }
         Ok(())
     }
 
@@ -61,6 +124,34 @@ impl Database {
             .collect::<Vec<_>>();
 
         Ok(result)
+    }
+
+    /// Returns the previous block hash and header for a given block hash.
+    ///
+    /// # Returns
+    ///
+    /// Returns `None` if the block hash is not found.
+    ///
+    /// - [`BlockHash`] - Previous block's hash
+    /// - [`Header`] - Block's header
+    /// - [`u32`] - Block's height
+    pub async fn get_block_info_from_hash_hcp(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_hash: BlockHash,
+    ) -> Result<Option<(BlockHash, Header, u32)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT prev_block_hash, block_header, height FROM header_chain_proofs WHERE block_hash = $1",
+        )
+        .bind(BlockHashDB(block_hash));
+        let result: Option<(BlockHashDB, BlockHeaderDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        result
+            .map(|result| -> Result<(BlockHash, Header, u32), BridgeError> {
+                let height = result.2.try_into().wrap_err("Can't convert i64 to u32")?;
+                Ok((result.0 .0, result.1 .0, height))
+            })
+            .transpose()
     }
 
     /// Returns latest finalized blocks height from the database.
@@ -201,6 +292,43 @@ impl Database {
             ORDER BY height DESC
             LIMIT 1;",
         );
+
+        let result: Option<(BlockHashDB, BlockHeaderDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        let result = match result {
+            Some(result) => {
+                let height = result.2.try_into().wrap_err("Can't convert i64 to u64")?;
+                Some((result.0 .0, result.1 .0, height))
+            }
+            None => None,
+        };
+
+        Ok(result)
+    }
+
+    /// Gets the latest block's info that it's proven and has height less than or equal to the given height.
+    ///
+    /// # Returns
+    ///
+    /// Returns `None` if no block is proven.
+    ///
+    /// - [`BlockHash`] - Hash of the block
+    /// - [`Header`] - Header of the block
+    /// - [`u64`] - Height of the block
+    pub async fn get_latest_proven_block_info_until_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        height: u32,
+    ) -> Result<Option<(BlockHash, Header, u64)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT block_hash, block_header, height
+            FROM header_chain_proofs
+            WHERE proof IS NOT NULL AND height <= $1
+            ORDER BY height DESC
+            LIMIT 1;",
+        )
+        .bind(height as i64);
 
         let result: Option<(BlockHashDB, BlockHeaderDB, i64)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
