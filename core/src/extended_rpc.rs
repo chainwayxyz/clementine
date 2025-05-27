@@ -141,15 +141,17 @@ impl ExtendedRpc {
         Ok(blockhash)
     }
 
-    /// Retrieves the block header for a given block height.
+    /// Retrieves the block header and hash for a given block height.
     ///
     /// # Arguments
-    /// * `height` - The block height for which to retrieve the header.
+    ///
+    /// * `height`: Target block height.
     ///
     /// # Returns
-    /// A tuple containing the `bitcoin::BlockHash` and `bitcoin::block::Header`,
-    /// or an error if the block or header cannot be retrieved.
-    pub async fn get_block_header_by_height(
+    ///
+    /// - ([`bitcoin::BlockHash`], [`bitcoin::block::Header`]): A tuple
+    ///   containing the block hash and header.
+    pub async fn get_block_info_by_height(
         &self,
         height: u64,
     ) -> Result<(bitcoin::BlockHash, bitcoin::block::Header)> {
@@ -165,15 +167,18 @@ impl ExtendedRpc {
                 "Couldn't retrieve block header with block hash {} from rpc",
                 block_hash
             ))?;
+
         Ok((block_hash, block_header))
     }
 
     /// Gets the transactions that created the inputs of a given transaction.
     ///
     /// # Arguments
+    ///
     /// * `tx` - The transaction to get the previous transactions for
     ///
     /// # Returns
+    ///
     /// A vector of transactions that created the inputs of the given transaction.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_prevout_txs(
@@ -596,6 +601,11 @@ mod tests {
         let txout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
         assert_eq!(txout.value, amount);
         assert_eq!(rpc.get_tx_of_txid(&txid).await.unwrap(), tx);
+
+        let height = rpc.get_current_chain_height().await.unwrap();
+        let (hash, header) = rpc.get_block_info_by_height(height.into()).await.unwrap();
+        assert_eq!(blockhash, hash);
+        assert_eq!(rpc.client.get_block_header(&hash).await.unwrap(), header);
     }
 
     #[tokio::test]
