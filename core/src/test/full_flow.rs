@@ -44,17 +44,17 @@ async fn base_setup(
     ),
     eyre::Error,
 > {
-    tracing::info!("Setting up environment and actors");
-    let (verifiers, mut operators, mut aggregator, cleanup) =
-        create_actors::<MockCitreaClient>(config).await;
-
-    tracing::info!("Setting up aggregator");
-    let verifiers_public_keys: Vec<PublicKey> = aggregator
-        .setup(Request::new(Empty {}))
-        .await?
-        .into_inner()
-        .try_into()
-        .unwrap();
+    let (
+        verifiers,
+        mut operators,
+        mut _aggregator,
+        cleanup,
+        deposit_info,
+        _move_txid,
+        deposit_blockhash,
+        _verifiers_public_keys,
+    ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), None).await?;
+    let deposit_outpoint = deposit_info.deposit_outpoint;
 
     let mut tx_senders = Vec::new();
     for i in 0..verifiers.len() {
@@ -69,54 +69,19 @@ async fn base_setup(
         let tx_sender = TxSenderClient::new(tx_sender_db.clone(), format!("full_flow_{}", i));
         tx_senders.push(tx_sender);
     }
-    let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) =
-        get_deposit_address(config, evm_address, verifiers_public_keys.clone())?;
-    tracing::info!("Generated deposit address: {}", deposit_address);
-    let recovery_taproot_address = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    )
-    .address;
     let withdrawal_amount = config.protocol_paramset().bridge_amount.to_sat()
         - (2 * config
             .operator_withdrawal_fee_sats
             .expect("exists in test config")
             .to_sat());
     tracing::info!("Withdrawal amount set to: {} sats", withdrawal_amount);
-    tracing::info!("Making deposit transaction");
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-        .await?;
-    rpc.mine_blocks(18).await?;
-    tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
-    let deposit_info = DepositInfo {
-        deposit_outpoint,
-        deposit_type: DepositType::BaseDeposit(BaseDepositData {
-            evm_address,
-            recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
-        }),
-    };
-
-    let dep_params: Deposit = deposit_info.clone().into();
-
-    tracing::info!("Creating move transaction");
-    let move_tx_response = aggregator.new_deposit(dep_params).await?.into_inner();
-    ensure_tx_onchain(
-        rpc,
-        Txid::from_byte_array(move_tx_response.txid.clone().try_into().unwrap()),
-    )
-    .await?;
-    tracing::info!("Move transaction sent: {:x?}", move_tx_response.txid);
     let op0_xonly_pk = Actor::new(
         config.all_operators_secret_keys.clone().unwrap()[0],
         config.winternitz_secret_key,
         config.protocol_paramset().network,
     )
     .xonly_public_key;
-    let deposit_blockhash = rpc.get_blockhash_of_tx(&deposit_outpoint.txid).await?;
     let kickoff_idx = get_kickoff_utxos_to_sign(
         config.protocol_paramset(),
         op0_xonly_pk,
@@ -138,6 +103,7 @@ async fn base_setup(
         .internal_create_signed_txs(base_tx_req.clone())
         .await?
         .into_inner();
+
     Ok((
         operators,
         verifiers,

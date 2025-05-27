@@ -1,5 +1,4 @@
-use std::time::Duration;
-
+use super::{mine_once_after_in_mempool, poll_until_condition};
 use crate::builder::transaction::TransactionType as TxType;
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -13,8 +12,7 @@ use citrea_e2e::bitcoin::DEFAULT_FINALITY_DEPTH;
 use citrea_e2e::config::LightClientProverConfig;
 use citrea_e2e::node::Node;
 use eyre::{bail, Context, Result};
-
-use super::{mine_once_after_in_mempool, poll_until_condition};
+use std::time::Duration;
 
 // Cannot use ensure_async due to `Send` requirement being broken upstream
 pub async fn ensure_outpoint_spent_while_waiting_for_light_client_sync(
