@@ -19,7 +19,7 @@ use crate::config::protocol::ProtocolParamset;
 use crate::config::BridgeConfig;
 use crate::constants::{ANCHOR_AMOUNT, TEN_MINUTES_IN_SECS};
 use crate::database::{Database, DatabaseTransaction};
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, TxError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
@@ -36,10 +36,12 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
-use bitvm::clementine::additional_disprove::validate_assertions_for_additional_script;
+use bitvm::clementine::additional_disprove::{replace_placeholders_in_script, validate_assertions_for_additional_script};
 use bitvm::signatures::winternitz;
+use bridge_circuit_host::config;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
-use circuits_lib::bridge_circuit::parse_op_return_data;
+use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
+use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use eyre::{Context, ContextCompat, OptionExt, Result};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1621,9 +1623,68 @@ where
                     self.config.protocol_paramset(),
                 );
 
-                let additional_disprove_script = reimburse_db_cache
+                let context = ContractContext::new_context_for_kickoffs(
+                    kickoff_data,
+                    deposit_data.clone(),
+                    self.config.protocol_paramset(),
+                );
+                let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
+                let txhandlers = create_txhandlers(
+                    TransactionType::Kickoff,
+                    context,
+                    &mut TxHandlerCache::new(),
+                    &mut db_cache,
+                )
+                .await?;
+
+                let move_txid = txhandlers
+                    .get(&TransactionType::MoveToVault)
+                    .ok_or(TxError::TxHandlerNotFound(TransactionType::MoveToVault))?
+                    .get_txid()
+                    .to_byte_array();
+
+                let round_txid = txhandlers
+                    .get(&TransactionType::Round)
+                    .ok_or(TxError::TxHandlerNotFound(TransactionType::Round))?
+                    .get_txid()
+                    .to_byte_array();
+
+                let vout = kickoff_data.kickoff_idx;
+
+                let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+
+                let watchtower_xonly_pk = deposit_data.get_watchtowers();
+                let watchtower_pubkeys = watchtower_xonly_pk
+                    .iter()
+                    .map(|xonly_pk| xonly_pk.serialize())
+                    .collect::<Vec<_>>();
+                
+                let deposit_constant = deposit_constant(
+                    kickoff_data.operator_xonly_pk.serialize(),
+                    watchtower_challenge_start_idx,
+                    &watchtower_pubkeys,
+                    move_txid,
+                    round_txid,
+                    vout,
+                    self.config.protocol_paramset.genesis_chain_state_hash,
+                );
+
+                let kickoff_winternitz_keys = reimburse_db_cache.get_kickoff_winternitz_keys().await?.clone();
+                
+                let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(kickoff_data.round_idx as usize)
+                    [kickoff_data.kickoff_idx as usize]
+                    .clone();
+
+
+                let replaceable_additional_disprove_script = reimburse_db_cache
                     .get_replaceable_additional_disprove_script()
                     .await?;
+
+                let additional_disprove_script = replace_placeholders_in_script(
+                    replaceable_additional_disprove_script.clone(),
+                    payout_tx_blockhash_pk,
+                    deposit_constant.0,
+                );
 
                 let g16_public_input_signature = operator_asserts
                     .get(&1)
@@ -1654,6 +1715,12 @@ where
                     operator_acks_vec[*idx] = Some(pre_image);
                 }
 
+                // latest blockhash 
+                tracing::info!(
+                    "latest blockhash witbess {:?}",
+                    latest_blockhash
+                );
+
                 let additional_disprove_witness = validate_assertions_for_additional_script(
                     additional_disprove_script.clone(),
                     g16_public_input_signature.clone(),
@@ -1663,21 +1730,12 @@ where
                     operator_acks_vec,
                 );
 
-                if let Some(additional_disprove_witness) = additional_disprove_witness {
-                    let context = ContractContext::new_context_for_kickoffs(
-                        kickoff_data,
-                        deposit_data.clone(),
-                        self.config.protocol_paramset(),
-                    );
-                    let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
-                    let txhandlers = create_txhandlers(
-                        TransactionType::Kickoff,
-                        context,
-                        &mut TxHandlerCache::new(),
-                        &mut db_cache,
-                    )
-                    .await?;
+                tracing::info!(
+                    "Additional disprove witness: {:?}",
+                    additional_disprove_witness
+                );
 
+                if let Some(additional_disprove_witness) = additional_disprove_witness {
                     let mut disprove_txhandler = txhandlers
                         .get(&TransactionType::Disprove)
                         .wrap_err("Disprove txhandler not found in txhandlers")?

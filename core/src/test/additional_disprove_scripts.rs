@@ -37,9 +37,9 @@ use citrea_e2e::{
     Result,
 };
 
-struct CitreaDepositAndWithdrawE2E;
+struct AdditionalDisproveTest;
 #[async_trait]
-impl TestCase for CitreaDepositAndWithdrawE2E {
+impl TestCase for AdditionalDisproveTest {
     fn bitcoin_config() -> BitcoinConfig {
         BitcoinConfig {
             extra_args: vec![
@@ -576,5 +576,5 @@ async fn additional_disprove_script_test_malformed() -> Result<()> {
         "CITREA_DOCKER_IMAGE",
         "chainwayxyz/citrea-test:35ec72721c86c8e0cbc272f992eeadfcdc728102",
     );
-    TestCaseRunner::new(CitreaDepositAndWithdrawE2E).run().await
+    TestCaseRunner::new(AdditionalDisproveTest).run().await
 }
