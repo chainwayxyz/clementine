@@ -15,6 +15,9 @@ use crate::{
     extended_rpc::ExtendedRpc,
 };
 
+#[cfg(test)]
+use std::env;
+
 mod client;
 mod cpfp;
 mod rbf;
@@ -323,6 +326,15 @@ impl TxSender {
 
         if !txs.is_empty() {
             tracing::debug!("Trying to send {} sendable txs ", txs.len());
+        }
+
+        #[cfg(test)]
+        {
+            if env::var("TXSENDER_DBG_INACTIVE_TXS").is_ok() {
+                self.db
+                    .debug_inactive_txs(new_fee_rate, current_tip_height)
+                    .await;
+            }
         }
 
         for id in txs {

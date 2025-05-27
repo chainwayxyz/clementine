@@ -55,6 +55,7 @@ pub async fn get_clients<CLIENT, F>(
     endpoints: Vec<String>,
     connect: F,
     config: &crate::config::BridgeConfig,
+    use_client_cert: bool,
 ) -> Result<Vec<CLIENT>, BridgeError>
 where
     F: FnOnce(Channel) -> CLIENT + Copy,
@@ -68,9 +69,18 @@ where
     }
 
     // Get certificate paths from config or use defaults
+    let client_ca_cert = tokio::fs::read(&config.ca_cert_path)
+        .await
+        .wrap_err(format!(
+            "Failed to read CA certificate from {}",
+            config.ca_cert_path.display()
+        ))?;
+
+    let client_ca = Certificate::from_pem(client_ca_cert);
+
+    // Get certificate paths from config or use defaults
     let client_cert_path = &config.client_cert_path.clone();
     let client_key_path = &config.client_key_path.clone();
-    let ca_cert_path = &config.ca_cert_path.clone();
 
     // Load client certificate and key
     let client_cert = tokio::fs::read(&client_cert_path).await.map_err(|e| {
@@ -89,29 +99,23 @@ where
         ))
     })?;
 
-    let client_identity = Identity::from_pem(client_cert, client_key);
-
-    // Load CA certificate
-    let ca_cert = tokio::fs::read(&ca_cert_path).await.wrap_err_with(|| {
-        format!(
-            "Failed to read CA certificate from {}",
-            ca_cert_path.display()
-        )
-    })?;
-
-    let ca_certificate = Certificate::from_pem(ca_cert);
-
-    // Configure TLS
-    let tls_config = ClientTlsConfig::new()
-        .ca_certificate(ca_certificate)
-        .domain_name("localhost")
-        .identity(client_identity);
-
     futures::future::try_join_all(
         endpoints
             .into_iter()
             .map(|endpoint| {
-                let tls_config = tls_config.clone();
+                let client_cert = client_cert.clone();
+                let client_key = client_key.clone();
+                let client_ca = client_ca.clone();
+
+                let tls_config = if use_client_cert {
+                    let client_identity = Identity::from_pem(client_cert, client_key);
+                    ClientTlsConfig::new()
+                        .identity(client_identity)
+                        .ca_certificate(client_ca)
+                } else {
+                    ClientTlsConfig::new().ca_certificate(client_ca)
+                };
+
                 async move {
                     let channel = if endpoint.starts_with("unix://") {
                         #[cfg(unix)]

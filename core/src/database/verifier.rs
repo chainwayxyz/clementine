@@ -63,6 +63,22 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_move_to_vault_txid_from_citrea_deposit(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        citrea_idx: u32,
+    ) -> Result<Option<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>(
+            "SELECT move_to_vault_txid FROM withdrawals WHERE idx = $1",
+        )
+        .bind(i32::try_from(citrea_idx).wrap_err("Failed to convert citrea index to i32")?);
+
+        let result: Option<(TxidDB,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(result.map(|(move_to_vault_txid,)| move_to_vault_txid.0))
+    }
+
     pub async fn set_replacement_deposit_move_txid(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -182,7 +198,7 @@ impl Database {
         payout_txs_and_payer_operator_xonly_pk: Vec<(
             u32,
             Txid,
-            XOnlyPublicKey,
+            Option<XOnlyPublicKey>,
             bitcoin::BlockHash,
         )>,
     ) -> Result<(), BridgeError> {
@@ -196,7 +212,7 @@ impl Database {
                 Ok((
                     i32::try_from(*idx).wrap_err("Failed to convert payout index to i32")?,
                     TxidDB(*txid),
-                    XOnlyPublicKeyDB(*operator_xonly_pk),
+                    operator_xonly_pk.map(XOnlyPublicKeyDB),
                     BlockHashDB(*block_hash),
                 ))
             })
@@ -234,19 +250,26 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         move_to_vault_txid: Txid,
-    ) -> Result<Option<(XOnlyPublicKey, BlockHash)>, BridgeError> {
-        let query = sqlx::query_as::<_, (XOnlyPublicKeyDB, BlockHashDB)>(
-            "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash
+    ) -> Result<Option<(Option<XOnlyPublicKey>, BlockHash, Txid, i32)>, BridgeError> {
+        let query = sqlx::query_as::<_, (Option<XOnlyPublicKeyDB>, BlockHashDB, TxidDB, i32)>(
+            "SELECT w.payout_payer_operator_xonly_pk, w.payout_tx_blockhash, w.payout_txid, w.idx
              FROM withdrawals w
              WHERE w.move_to_vault_txid = $1",
         )
         .bind(TxidDB(move_to_vault_txid));
 
-        let result: Option<(XOnlyPublicKeyDB, BlockHashDB)> =
+        let result: Option<(Option<XOnlyPublicKeyDB>, BlockHashDB, TxidDB, i32)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         result
-            .map(|(operator_xonly_pk, block_hash)| Ok((operator_xonly_pk.0, block_hash.0)))
+            .map(|(operator_xonly_pk, block_hash, txid, deposit_idx)| {
+                Ok((
+                    operator_xonly_pk.map(|pk| pk.0),
+                    block_hash.0,
+                    txid.0,
+                    deposit_idx,
+                ))
+            })
             .transpose()
     }
 
@@ -372,7 +395,7 @@ mod tests {
 
         db.set_payout_txs_and_payer_operator_xonly_pk(
             Some(&mut dbtx),
-            vec![(index, txid, operator_xonly_pk, block_hash)],
+            vec![(index, txid, Some(operator_xonly_pk), block_hash)],
         )
         .await
         .unwrap();
@@ -392,5 +415,71 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(withdrawal_utxo, utxo);
+
+        let move_txid = db
+            .get_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(move_txid, txid);
+
+        // Test payout info retrieval with Some operator xonly pk
+        let payout_info = db
+            .get_payout_info_from_move_txid(Some(&mut dbtx), move_txid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(payout_info.0, Some(operator_xonly_pk));
+        assert_eq!(payout_info.1, block_hash);
+        assert_eq!(payout_info.2, txid);
+        assert_eq!(payout_info.3, index as i32);
+
+        // Test with None operator xonly pk (optimistic payout or incorrect payout)
+        let index2 = 0x2F;
+        let txid2 = Txid::from_byte_array([0x55; 32]);
+        let utxo2 = bitcoin::OutPoint {
+            txid: bitcoin::Txid::from_byte_array([0x55; 32]),
+            vout: 1,
+        };
+
+        db.add_txid_to_block(&mut dbtx, block_id, &txid2)
+            .await
+            .unwrap();
+        db.insert_spent_utxo(&mut dbtx, block_id, &txid2, &utxo2.txid, utxo2.vout.into())
+            .await
+            .unwrap();
+
+        db.set_move_to_vault_txid_from_citrea_deposit(Some(&mut dbtx), index2, &txid2)
+            .await
+            .unwrap();
+        db.set_withdrawal_utxo_from_citrea_withdrawal(Some(&mut dbtx), index2, utxo2, block_id)
+            .await
+            .unwrap();
+
+        // Set payout with None operator xonly pk
+        db.set_payout_txs_and_payer_operator_xonly_pk(
+            Some(&mut dbtx),
+            vec![(index2, txid2, None, block_hash)],
+        )
+        .await
+        .unwrap();
+
+        // Test payout info retrieval with None operator xonly pk
+        let payout_info2 = db
+            .get_payout_info_from_move_txid(Some(&mut dbtx), txid2)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(payout_info2.0, None); // No operator xonly pk
+        assert_eq!(payout_info2.1, block_hash);
+        assert_eq!(payout_info2.2, txid2);
+        assert_eq!(payout_info2.3, index2 as i32);
+
+        // Verify we now have 2 payout transactions
+        let all_txs = db
+            .get_payout_txs_for_withdrawal_utxos(Some(&mut dbtx), block_id)
+            .await
+            .unwrap();
+        assert_eq!(all_txs.len(), 2);
     }
 }

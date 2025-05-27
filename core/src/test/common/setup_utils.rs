@@ -1,7 +1,6 @@
 //! # Testing Utilities
 
 use crate::builder::script::SpendPath;
-use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
 use crate::citrea::CitreaClientT;
 use crate::database::DatabaseTransaction;
@@ -93,7 +92,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     // Create temporary directory for bitcoin data
     let data_dir = TempDir::new()
         .expect("Failed to create temporary directory")
-        .into_path();
+        .keep();
     let bitcoin_rpc_debug = std::env::var("BITCOIN_RPC_DEBUG").map(|d| !d.is_empty()) == Ok(true);
 
     // Get available ports for RPC
@@ -441,6 +440,7 @@ pub async fn create_actors<C: CitreaClientT>(
             .collect::<Vec<_>>(),
         ClementineVerifierClient::new,
         &verifier_configs[0],
+        false,
     )
     .await
     .expect("could not connect to verifiers");
@@ -452,6 +452,7 @@ pub async fn create_actors<C: CitreaClientT>(
             .collect::<Vec<_>>(),
         ClementineOperatorClient::new,
         &operator_configs[0],
+        false,
     )
     .await
     .expect("could not connect to operators");
@@ -460,6 +461,7 @@ pub async fn create_actors<C: CitreaClientT>(
         vec![format!("unix://{}", aggregator_path.display())],
         ClementineAggregatorClient::new,
         &verifier_configs[0],
+        false,
     )
     .await
     .expect("could not connect to aggregator")
@@ -516,7 +518,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     rpc: &ExtendedRpc,
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
-) -> (UTXO, UnspentTxOut, schnorr::Signature) {
+) -> (UTXO, bitcoin::TxOut, schnorr::Signature) {
     let signer = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
@@ -529,6 +531,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .send_to_address(&signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)
         .await
         .expect("Failed to send to address");
+
     let dust_utxo = UTXO {
         outpoint: dust_outpoint,
         txout: bitcoin::TxOut {
@@ -547,7 +550,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
         value: withdrawal_amount,
         script_pubkey: withdrawal_address.script_pubkey(),
     };
-    let txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
+    let unspent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
         .add_input(
@@ -556,7 +559,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
             SpendPath::KeySpend,
             builder::transaction::DEFAULT_SEQUENCE,
         )
-        .add_output(txout.clone())
+        .add_output(unspent_txout.clone())
         .finalize();
 
     let sighash = tx

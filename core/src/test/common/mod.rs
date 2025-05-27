@@ -24,8 +24,9 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::{Deposit, Empty, FeeType, RawSignedTx, SendTxRequest};
+use crate::rpc::clementine::{Deposit, Empty};
 use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
+use crate::tx_sender::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
@@ -40,7 +41,7 @@ use secp256k1::rand;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
-use tx_utils::get_txid_where_utxo_is_spent;
+use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 pub mod citrea;
 mod setup_utils;
@@ -351,41 +352,46 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .into_inner()
         .try_into()?;
 
-    // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    // sleep 6 seconds so that tx_sender can send the fee_payer_tx to the mempool
+    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
     // mine 1 block
     rpc.mine_blocks(1).await?;
 
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 
-    let transaction = rpc
-        .client
-        .get_raw_transaction(&move_txid, None)
-        .await
-        .expect("a");
-    let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
-        .client
-        .get_raw_transaction_info(&move_txid, None)
-        .await
-        .expect("a");
-    let block: bitcoincore_rpc::json::GetBlockResult = rpc
-        .client
-        .get_block_info(&tx_info.blockhash.unwrap())
-        .await
-        .expect("a");
-    let block_height = block.height;
-    let block = rpc
-        .client
-        .get_block(&tx_info.blockhash.unwrap())
-        .await
-        .expect("a");
-    let transaction_params =
-        get_transaction_params(transaction.clone(), block, block_height as u32, move_txid);
-    println!("Move tx Transaction params: {:?}", transaction_params);
-    println!(
-        "Move tx: {:?}",
-        hex::encode(bitcoin::consensus::serialize(&transaction))
-    );
+    // let transaction = rpc
+    //     .client
+    //     .get_raw_transaction(&move_txid, None)
+    //     .await
+    //     .expect("a");
+    // let tx_info: bitcoincore_rpc::json::GetRawTransactionResult = rpc
+    //     .client
+    //     .get_raw_transaction_info(&move_txid, None)
+    //     .await
+    //     .expect("a");
+    // let block: bitcoincore_rpc::json::GetBlockResult = rpc
+    //     .client
+    //     .get_block_info(&tx_info.blockhash.unwrap())
+    //     .await
+    //     .expect("a");
+    // let block_height = block.height;
+    // let block = rpc
+    //     .client
+    //     .get_block(&tx_info.blockhash.unwrap())
+    //     .await
+    //     .expect("a");
+    // let transaction_params = get_citrea_deposit_params(
+    //     &rpc,
+    //     transaction.clone(),
+    //     block,
+    //     block_height as u32,
+    //     move_txid,
+    // ).await?;
+    // println!("Move tx Transaction params: {:?}", transaction_params);
+    // println!(
+    //     "Move tx: {:?}",
+    //     hex::encode(bitcoin::consensus::serialize(&transaction))
+    // );
 
     Ok((
         verifiers,
@@ -594,14 +600,23 @@ pub async fn run_replacement_deposit(
         config.security_council.clone(),
     );
 
-    aggregator
-        .internal_send_tx(SendTxRequest {
-            raw_tx: Some(RawSignedTx::from(&replacement_deposit_tx)),
-            fee_type: FeeType::Cpfp as i32,
-        })
+    let (tx_sender, tx_sender_db) = create_tx_sender(config, 0).await?;
+    let mut db_commit = tx_sender_db.begin_transaction().await?;
+    tx_sender
+        .insert_try_to_send(
+            &mut db_commit,
+            None,
+            &replacement_deposit_tx,
+            FeePayingType::CPFP,
+            None,
+            &[],
+            &[],
+            &[],
+            &[],
+        )
         .await
-        .wrap_err("Error while sending replacement deposit tx")?;
-
+        .unwrap();
+    db_commit.commit().await?;
     // sleep 3 seconds so that tx_sender can send the fee_payer_tx to the mempool
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 

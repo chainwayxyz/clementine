@@ -166,6 +166,7 @@ enum NormalTransactionId {
     REPLACEMENT_DEPOSIT = 17;
     LATEST_BLOCKHASH_TIMEOUT = 18;
     LATEST_BLOCKHASH = 19;
+    OPTIMISTIC_PAYOUT = 20;
 }
 
 enum NumberedTransactionType {
@@ -375,6 +376,8 @@ service ClementineOperator {
   rpc InternalFinalizedPayout(FinalizedPayoutParams) returns (Txid) {}
 
   rpc InternalEndRound(Empty) returns (Empty) {}
+
+  rpc Vergen(Empty) returns (VergenResponse) {}
 }
 
 // Verifier --------------------------------------------------------------------
@@ -402,6 +405,12 @@ message NonceGenResponse {
     NonceGenFirstResponse first_response = 1;
     bytes pub_nonce = 2;
   }
+}
+
+message OptimisticPayoutParams {
+  WithdrawParams withdrawal = 1;
+  NonceGenFirstResponse nonce_gen = 2;
+  bytes agg_nonce = 3;
 }
 
 message VerifierDepositSignParams {
@@ -475,6 +484,11 @@ message XOnlyPublicKeys {
   repeated bytes xonly_public_keys = 1;
 }
 
+
+message VergenResponse {
+  string response = 1;
+}
+
 service ClementineVerifier {
   // Returns verifiers' metadata. Needs to be called once per setup.
   //
@@ -508,6 +522,9 @@ service ClementineVerifier {
   rpc DepositSign(stream VerifierDepositSignParams)
     returns (stream PartialSig) {}
 
+  // Signs the optimistic payout tx with given aggNonce and withdrawal info.
+  rpc OptimisticPayoutSign(OptimisticPayoutParams) returns (PartialSig) {}
+
   // Verifies every signature and signs move_tx.
   //
   // Used by aggregator inside new_deposit
@@ -536,7 +553,9 @@ service ClementineVerifier {
 
   // Signs the verifiers own watchtower challenge tx in the corresponding
   // kickoff and returns the signed raw tx
-  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (SignedTxWithType) {}
+  rpc InternalCreateWatchtowerChallenge(TransactionRequest) returns (RawTxWithRbfInfo) {}
+
+  rpc Vergen(Empty) returns (VergenResponse) {}
 }
 
 // Aggregator ------------------------------------------------------------------
@@ -561,6 +580,16 @@ message SignedTxWithType {
 
 message SignedTxsWithType {
   repeated SignedTxWithType signed_txs = 1;
+}
+
+message RbfSigningInfoRpc {
+  bytes merkle_root = 1;
+  uint32 vout = 2;
+}
+
+message RawTxWithRbfInfo {
+  bytes raw_tx = 1;
+  RbfSigningInfoRpc rbf_info = 2;
 }
 
 message AggregatorWithdrawResponse {
@@ -600,6 +629,9 @@ service ClementineAggregator {
   rpc Withdraw(WithdrawParams)
     returns (AggregatorWithdrawResponse) {}
 
+  // Perform an optimistic payout to reimburse a peg-out from Citrea
+  rpc OptimisticPayout(WithdrawParams) returns (RawSignedTx)  {}
+
   // Send a pre-signed tx to the network
   rpc InternalSendTx(SendTxRequest) returns (Empty) {}
 
@@ -608,4 +640,6 @@ service ClementineAggregator {
   // Tx will have around 3 sats/vbyte fee.
   // Set add_anchor to true to add an anchor output for cpfp..
   rpc InternalCreateEmergencyStopTx(CreateEmergencyStopTxRequest) returns (SignedTxWithType) {}
+
+  rpc Vergen(Empty) returns (VergenResponse) {}
 }

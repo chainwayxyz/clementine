@@ -26,7 +26,7 @@ use tonic::Status;
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
 /// It will have in total 3 * num_operator + 1 aggregated nonces.
-/// [0] -> Aggregated nonce for the move transaction.
+/// \[0\] -> Aggregated nonce for the move transaction.
 /// [1..num_operator + 1] -> Aggregated nonces for the operator_takes transactions.
 /// [num_operator + 1..2 * num_operator + 1] -> Aggregated nonces for the slash_or_take transactions.
 /// [2 * num_operator + 1..3 * num_operator + 1] -> Aggregated nonces for the burn transactions.
@@ -71,12 +71,22 @@ impl Aggregator {
                 ))?;
 
         // Create clients to connect to all verifiers
-        let verifier_clients =
-            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::new, &config).await?;
+        let verifier_clients = rpc::get_clients(
+            verifier_endpoints,
+            ClementineVerifierClient::new,
+            &config,
+            true,
+        )
+        .await?;
 
         // Create clients to connect to all operators
-        let operator_clients =
-            rpc::get_clients(operator_endpoints, ClementineOperatorClient::new, &config).await?;
+        let operator_clients = rpc::get_clients(
+            operator_endpoints,
+            ClementineOperatorClient::new,
+            &config,
+            true,
+        )
+        .await?;
 
         let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
 

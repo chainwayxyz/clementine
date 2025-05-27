@@ -102,7 +102,8 @@ pub struct WorkOnlyCircuitInput {
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct WorkOnlyCircuitOutput {
-    pub work_u128: [u32; 4],
+    pub work_u128: [u8; 16],
+    pub genesis_state_hash: [u8; 32],
 }
 
 #[derive(Eq, PartialEq, Clone, Debug, BorshDeserialize, BorshSerialize)]
@@ -285,7 +286,7 @@ impl WatchtowerInput {
 
 #[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
 pub struct BridgeCircuitInput {
-    pub kickoff_tx_id: CircuitTxid, // BridgeCircuitTransaction
+    pub kickoff_tx: CircuitTransaction,
     // Add all watchtower pubkeys as global input as Vec<[u8; 32]> Which should be shorter than or equal to 160 elements
     pub all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>, // Per watchtower [u8; 34] or OP_PUSHNUM_1 OP_PUSHBYTES_32 <TweakedXOnlyPublicKey> which is [u8; 32]
     pub watchtower_inputs: Vec<WatchtowerInput>,
@@ -300,7 +301,7 @@ pub struct BridgeCircuitInput {
 #[allow(clippy::too_many_arguments)]
 impl BridgeCircuitInput {
     pub fn new(
-        kickoff_tx_id: Txid,
+        kickoff_tx: Transaction,
         watchtower_inputs: Vec<WatchtowerInput>,
         all_tweaked_watchtower_pubkeys: Vec<[u8; 32]>,
         hcp: BlockHeaderCircuitOutput,
@@ -311,7 +312,7 @@ impl BridgeCircuitInput {
         watchtower_challenge_connector_start_idx: u16,
     ) -> Self {
         Self {
-            kickoff_tx_id: CircuitTxid::from(kickoff_tx_id),
+            kickoff_tx: CircuitTransaction::from(kickoff_tx),
             watchtower_inputs,
             hcp,
             payout_spv,

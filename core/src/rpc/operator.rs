@@ -2,19 +2,22 @@ use super::clementine::clementine_operator_server::ClementineOperator;
 use super::clementine::{
     self, ChallengeAckDigest, DepositParams, DepositSignSession, Empty, FinalizedPayoutParams,
     OperatorKeys, OperatorParams, SchnorrSig, SignedTxWithType, SignedTxsWithType,
-    TransactionRequest, WithdrawParams, WithdrawResponse, WithdrawalFinalizedParams,
-    XOnlyPublicKeyRpc,
+    TransactionRequest, VergenResponse, WithdrawParams, WithdrawResponse,
+    WithdrawalFinalizedParams, XOnlyPublicKeyRpc,
 };
 use super::error::*;
 use super::parser::ParserError;
+use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::transaction::sign::create_and_sign_txs;
 use crate::builder::transaction::DepositData;
 use crate::citrea::CitreaClientT;
 use crate::operator::OperatorServer;
 use crate::rpc::parser;
 use crate::rpc::parser::parse_transaction_request;
+use crate::utils::get_vergen_response;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint};
+use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use futures::TryFutureExt;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -27,6 +30,10 @@ where
 {
     type DepositSignStream = ReceiverStream<Result<SchnorrSig, Status>>;
     type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
+
+    async fn vergen(&self, _request: Request<Empty>) -> Result<Response<VergenResponse>, Status> {
+        Ok(Response::new(get_vergen_response()))
+    }
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(
@@ -165,7 +172,17 @@ where
 
         let raw_txs = self
             .operator
-            .create_assert_commitment_txs(tx_req_data)
+            .create_assert_commitment_txs(
+                tx_req_data,
+                ClementineBitVMPublicKeys::get_assert_commit_data(
+                    (
+                        [[0u8; 32]; NUM_PUBS],
+                        [[0u8; 32]; NUM_U256],
+                        [[0u8; 16]; NUM_HASH],
+                    ),
+                    &[0u8; 20],
+                ),
+            )
             .await?;
 
         Ok(Response::new(SignedTxsWithType {
