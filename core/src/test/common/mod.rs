@@ -25,7 +25,7 @@ use crate::musig2::{
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use crate::rpc::clementine::{Deposit, Empty};
+use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
 use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
 use crate::tx_sender::FeePayingType;
 use crate::EVMAddress;
@@ -251,10 +251,18 @@ pub async fn run_multiple_deposits<C: CitreaClientT>(
 
         let deposit: Deposit = deposit_info.into();
 
-        let move_txid: Txid = aggregator
+        let movetx = aggregator
             .new_deposit(deposit)
             .await
             .wrap_err("Error while making a deposit")?
+            .into_inner();
+        let move_txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(movetx),
+            })
+            .await
+            .expect("failed to send movetx")
             .into_inner()
             .try_into()?;
         rpc.mine_blocks(1).await?;

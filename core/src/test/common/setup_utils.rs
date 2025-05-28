@@ -1,9 +1,7 @@
 //! # Testing Utilities
 
 use crate::builder::script::SpendPath;
-use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::TransactionType;
-use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
 use crate::citrea::CitreaClientT;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -580,7 +578,7 @@ pub fn get_available_port() -> u16 {
 #[derive(Debug, Clone, Default)]
 pub struct MockOwner {
     #[cfg(feature = "state-machine")]
-    cached_duties: Arc<Mutex<Vec<Duty>>>,
+    cached_duties: std::sync::Arc<tokio::sync::Mutex<Vec<crate::states::Duty>>>,
 }
 
 #[allow(unused_variables)]
@@ -604,7 +602,6 @@ mod states {
     use crate::states::{Duty, Owner};
     use std::collections::BTreeMap;
     use std::sync::Arc;
-    use tokio::sync::Mutex;
     use tonic::async_trait;
 
     // Implement the Owner trait for MockOwner

@@ -13,8 +13,8 @@ use clementine_core::{
         self, clementine_aggregator_client::ClementineAggregatorClient,
         clementine_operator_client::ClementineOperatorClient,
         clementine_verifier_client::ClementineVerifierClient, deposit::DepositData, Actors,
-        BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, VerifierPublicKeys,
-        XOnlyPublicKeys,
+        BaseDeposit, Deposit, Empty, Outpoint, ReplacementDeposit, SendMoveTxRequest,
+        VerifierPublicKeys, XOnlyPublicKeys,
     },
     EVMAddress,
 };
@@ -535,7 +535,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let deposit = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid,
+                        txid: deposit_outpoint_txid.clone(),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::BaseDeposit(BaseDeposit {
@@ -544,6 +544,16 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                             .assume_checked()
                             .to_string(),
                     })),
+                })
+                .await
+                .expect("Failed to make a request");
+            let deposit = aggregator
+                .send_move_to_vault_tx(SendMoveTxRequest {
+                    raw_tx: Some(deposit.into_inner()),
+                    deposit_outpoint: Some(Outpoint {
+                        txid: deposit_outpoint_txid,
+                        vout: deposit_outpoint_vout,
+                    }),
                 })
                 .await
                 .expect("Failed to make a request");
@@ -797,7 +807,7 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
             let deposit = aggregator
                 .new_deposit(Deposit {
                     deposit_outpoint: Some(Outpoint {
-                        txid: deposit_outpoint_txid,
+                        txid: deposit_outpoint_txid.clone(),
                         vout: deposit_outpoint_vout,
                     }),
                     deposit_data: Some(DepositData::ReplacementDeposit(ReplacementDeposit {
@@ -805,6 +815,16 @@ async fn handle_aggregator_call(url: String, command: AggregatorCommands) {
                             txid: old_move_txid,
                         }),
                     })),
+                })
+                .await
+                .expect("Failed to make a request");
+            let deposit = aggregator
+                .send_move_to_vault_tx(SendMoveTxRequest {
+                    raw_tx: Some(deposit.into_inner()),
+                    deposit_outpoint: Some(Outpoint {
+                        txid: deposit_outpoint_txid,
+                        vout: deposit_outpoint_vout,
+                    }),
                 })
                 .await
                 .expect("Failed to make a request");

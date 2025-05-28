@@ -11,8 +11,8 @@ use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
     create_emergency_stop_txhandler, create_move_to_vault_txhandler,
-    create_optimistic_payout_txhandler, create_txhandlers, ContractContext, DepositData,
-    KickoffData, OperatorData, ReimburseDbCache, TransactionType, TxHandler, TxHandlerCache,
+    create_optimistic_payout_txhandler, DepositData, KickoffData, OperatorData, TransactionType,
+    TxHandler,
 };
 use crate::builder::transaction::{create_round_txhandlers, KickoffWinternitzKeys};
 use crate::citrea::CitreaClientT;

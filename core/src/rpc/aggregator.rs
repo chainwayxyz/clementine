@@ -604,8 +604,6 @@ impl Aggregator {
 
         // Put the signature in the tx
         move_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
-        // Add fee bumper.
-        let move_tx = move_txhandler.get_cached_tx();
 
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
         Ok(move_txhandler.promote()?)

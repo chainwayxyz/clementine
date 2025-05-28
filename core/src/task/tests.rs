@@ -3,8 +3,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use tokio::time::sleep;
-#[cfg(feature = "state-machine")]
-use tonic::async_trait;
 
 use crate::errors::BridgeError;
 use crate::utils::NamedEntity;

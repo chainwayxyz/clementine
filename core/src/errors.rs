@@ -216,7 +216,7 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
     }
 
     fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
-        Ok(self.map_err(ErrorExt::into_status)?)
+        self.map_err(ErrorExt::into_status)
     }
 }
 
