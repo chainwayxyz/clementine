@@ -556,7 +556,7 @@ impl Aggregator {
         Ok(operator_sigs)
     }
 
-    async fn send_movetx(
+    async fn create_movetx(
         &self,
         partial_sigs: Vec<Vec<u8>>,
         movetx_agg_nonce: MusigAggNonce,
@@ -591,31 +591,6 @@ impl Aggregator {
         move_txhandler.set_p2tr_script_spend_witness(&[final_sig.as_ref()], 0, 0)?;
         // Add fee bumper.
         let move_tx = move_txhandler.get_cached_tx();
-
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .insert_try_to_send(
-                &mut dbtx,
-                Some(TxMetadata {
-                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                    operator_xonly_pk: None,
-                    round_idx: None,
-                    kickoff_idx: None,
-                    tx_type: TransactionType::MoveToVault,
-                }),
-                move_tx,
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await
-            .map_err(BridgeError::from)?;
-        dbtx.commit()
-            .await
-            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
 
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
         Ok(move_txhandler.promote()?)
@@ -1189,8 +1164,9 @@ impl ClementineAggregator for Aggregator {
         .await?;
 
         let signed_movetx_handler = self
-            .send_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
+            .create_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
             .await?;
+
         let txid = *signed_movetx_handler.get_txid();
 
         Ok(Response::new(txid.into()))
@@ -1268,6 +1244,50 @@ impl ClementineAggregator for Aggregator {
             transaction_type: Some(TransactionType::EmergencyStop.into()),
             raw_tx: bitcoin::consensus::serialize(&combined_stop_tx).to_vec(),
         }))
+    }
+
+    async fn send_move_to_vault_tx(
+        &self,
+        request: Request<clementine::RawSignedTx>,
+    ) -> Result<Response<clementine::Txid>, Status> {
+        #[cfg(not(feature = "state-machine"))]
+        {
+            let _ = request;
+            return Err(Status::unimplemented(
+                "Automation is disabled, cannot automatically send move to vault tx.",
+            ));
+        }
+
+        #[cfg(feature = "state-machine")]
+        {
+            let movetx = request.into_inner().raw_tx;
+
+            let mut dbtx = self.db.begin_transaction().await?;
+            self.tx_sender
+                .insert_try_to_send(
+                    &mut dbtx,
+                    Some(TxMetadata {
+                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                        operator_xonly_pk: None,
+                        round_idx: None,
+                        kickoff_idx: None,
+                        tx_type: TransactionType::MoveToVault,
+                    }),
+                    &movetx,
+                    FeePayingType::CPFP,
+                    None,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+                .map_err(BridgeError::from)?;
+            dbtx.commit()
+                .await
+                .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+            Ok(Response::new(Txid::from_txid(txid).into()))
+        }
     }
 }
 

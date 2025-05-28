@@ -28,6 +28,7 @@ pub mod servers;
 #[cfg(feature = "state-machine")]
 pub mod states;
 pub mod task;
+#[cfg(feature = "state-machine")]
 pub mod tx_sender;
 pub mod utils;
 pub mod verifier;

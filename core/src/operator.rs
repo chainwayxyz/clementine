@@ -19,8 +19,10 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-use crate::tx_sender::TxSenderClient;
-use crate::tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata};
+#[cfg(feature = "state-machine")]
+use crate::tx_sender::{
+    ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata, TxSenderClient,
+};
 use crate::utils::NamedEntity;
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;

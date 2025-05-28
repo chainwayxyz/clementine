@@ -21,6 +21,7 @@ mod header_chain_prover;
 mod operator;
 #[cfg(feature = "state-machine")]
 mod state_machine;
+#[cfg(feature = "state-machine")]
 mod tx_sender;
 mod verifier;
 mod wrapper;

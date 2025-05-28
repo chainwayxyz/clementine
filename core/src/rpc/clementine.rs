@@ -1794,7 +1794,7 @@ pub mod clementine_aggregator_client {
         pub async fn new_deposit(
             &mut self,
             request: impl tonic::IntoRequest<super::Deposit>,
-        ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1861,6 +1861,32 @@ pub mod clementine_aggregator_client {
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new("clementine.ClementineAggregator", "InternalSendTx"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn send_move_to_vault_tx(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RawSignedTx>,
+        ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/SendMoveToVaultTx",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineAggregator",
+                        "SendMoveToVaultTx",
+                    ),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -3502,7 +3528,7 @@ pub mod clementine_aggregator_server {
         async fn new_deposit(
             &self,
             request: tonic::Request<super::Deposit>,
-        ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// Call's withdraw on all operators
         /// Used by the clementine-backend service to initiate a withdrawal
         async fn withdraw(
@@ -3517,6 +3543,10 @@ pub mod clementine_aggregator_server {
             &self,
             request: tonic::Request<super::SendTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        async fn send_move_to_vault_tx(
+            &self,
+            request: tonic::Request<super::RawSignedTx>,
+        ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
         /// Creates an emergency stop tx that won't be broadcasted.
         /// Tx will have around 3 sats/vbyte fee.
         /// Set add_anchor to true to add an anchor output for cpfp..
@@ -3710,7 +3740,7 @@ pub mod clementine_aggregator_server {
                     impl<
                         T: ClementineAggregator,
                     > tonic::server::UnaryService<super::Deposit> for NewDepositSvc<T> {
-                        type Response = super::Txid;
+                        type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -3828,6 +3858,55 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InternalSendTxSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/SendMoveToVaultTx" => {
+                    #[allow(non_camel_case_types)]
+                    struct SendMoveToVaultTxSvc<T: ClementineAggregator>(pub Arc<T>);
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::RawSignedTx>
+                    for SendMoveToVaultTxSvc<T> {
+                        type Response = super::Txid;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RawSignedTx>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::send_move_to_vault_tx(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = SendMoveToVaultTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

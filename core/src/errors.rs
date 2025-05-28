@@ -60,16 +60,15 @@
 //! }
 //! ```
 
-#[cfg(feature = "state-machine")]
-use crate::states::StateMachineError;
 use crate::{
     actor::VerificationError,
     builder::transaction::input::SpendableTxInError,
     extended_rpc::BitcoinRPCError,
     header_chain_prover::HeaderChainProverError,
     rpc::{aggregator::AggregatorError, ParserError},
-    tx_sender::SendTxError,
 };
+#[cfg(feature = "state-machine")]
+use crate::{states::StateMachineError, tx_sender::SendTxError};
 use bitcoin::{secp256k1::PublicKey, OutPoint, XOnlyPublicKey};
 use clap::builder::StyledStr;
 use core::fmt::Debug;
@@ -92,6 +91,7 @@ pub enum BridgeError {
     Prover(#[from] HeaderChainProverError),
     #[error("Failed to build transactions: {0}")]
     Transaction(#[from] TxError),
+    #[cfg(feature = "state-machine")]
     #[error("Failed to send transactions: {0}")]
     SendTx(#[from] SendTxError),
     #[error("Aggregator error: {0}")]
