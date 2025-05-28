@@ -1,7 +1,13 @@
+use ark_ff::PrimeField;
+use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
+use risc0_zkvm::is_dev_mode;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
-use crate::bitvm_client::SECP;
+use crate::bitvm_client::{ClementineBitVMPublicKeys, SECP};
+use crate::builder::script::extract_winternitz_commits;
 use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureInfo};
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
@@ -16,6 +22,9 @@ use crate::database::Database;
 use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::header_chain_prover::HeaderChainProver;
+use crate::states::context::DutyResult;
+use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
@@ -34,8 +43,15 @@ use bitcoin::{
 };
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::RpcApi;
+use bitvm::chunk::api::generate_assertions;
 use bitvm::signatures::winternitz;
-use eyre::Context;
+use bridge_circuit_host::bridge_circuit_host::{
+    create_spv, prove_bridge_circuit, MAINNET_BRIDGE_CIRCUIT_ELF, REGTEST_BRIDGE_CIRCUIT_ELF,
+    SIGNET_BRIDGE_CIRCUIT_ELF, TESTNET4_BRIDGE_CIRCUIT_ELF,
+};
+use bridge_circuit_host::structs::{BridgeCircuitHostParams, WatchtowerContext};
+use bridge_circuit_host::utils::{get_ark_verifying_key, get_ark_verifying_key_dev_mode_bridge};
+use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -63,6 +79,7 @@ pub struct Operator<C: CitreaClientT> {
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
     pub tx_sender: TxSenderClient,
+    pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
 }
 
@@ -104,9 +121,12 @@ where
                 .with_delay(PAYOUT_CHECKER_POLL_DELAY),
         );
 
+        tracing::info!("Payout checker task started");
+
         // track the operator's round state
         #[cfg(feature = "state-machine")]
         operator.track_rounds().await?;
+        tracing::info!("Operator round state tracked");
 
         Ok(Self {
             operator,
@@ -156,33 +176,75 @@ where
             .get_operator(Some(&mut dbtx), signer.xonly_public_key)
             .await?;
         let (collateral_funding_outpoint, reimburse_addr) = match op_data {
-            Some(op_data) => (op_data.collateral_funding_outpoint, op_data.reimburse_addr),
-            None => {
-                let outpoint = rpc
-                    .send_to_address(
-                        &signer.address,
-                        config.protocol_paramset().collateral_funding_amount,
-                    )
-                    .await?;
-
-                let reimburse_addr = rpc
-                    .client
-                    .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
-                    .await
-                    .wrap_err("Failed to get new address")?
-                    .assume_checked();
-                db.set_operator(
-                    Some(&mut dbtx),
-                    signer.xonly_public_key,
-                    reimburse_addr.to_string(),
-                    outpoint,
+            Some(operator_data) => {
+                // Operator data is already set in db, we don't actually need to do anything.
+                // set_operator_checked will give error if the values set in config and db doesn't match.
+                (
+                    operator_data.collateral_funding_outpoint,
+                    operator_data.reimburse_addr,
                 )
-                .await?;
+            }
+            None => {
+                // Operator data is not set in db, then we check if any collateral outpoint and reimbursement address is set in config.
+                // If so we create a new operator using those data, otherwise we generate new collateral outpoint and reimbursement address.
+                let reimburse_addr = match &config.operator_reimbursement_address {
+                    Some(reimburse_addr) => {
+                        reimburse_addr
+                            .to_owned()
+                            .require_network(config.protocol_paramset().network)
+                            .wrap_err(format!("Invalid operator reimbursement address provided in config: {:?} for network: {:?}", reimburse_addr, config.protocol_paramset().network))?
+                    }
+                    None => {
+                        rpc
+                        .client
+                        .get_new_address(Some("OperatorReimbursement"), Some(AddressType::Bech32m))
+                        .await
+                        .wrap_err("Failed to get new address")?
+                        .require_network(config.protocol_paramset().network)
+                        .wrap_err(format!("Invalid operator reimbursement address generated for the network in config: {:?}
+                                Possibly the provided rpc's network and network given in config doesn't match", config.protocol_paramset().network))?
+                    }
+                };
+                let outpoint = match &config.operator_collateral_funding_outpoint {
+                    Some(outpoint) => {
+                        // check if outpoint exists on chain and has exactly collateral funding amount
+                        let collateral_tx = rpc
+                            .get_tx_of_txid(&outpoint.txid)
+                            .await
+                            .wrap_err("Failed to get collateral funding tx")?;
+                        let collateral_value = collateral_tx
+                            .output
+                            .get(outpoint.vout as usize)
+                            .ok_or_eyre("Invalid vout index for collateral funding tx")?
+                            .value;
+                        if collateral_value != config.protocol_paramset().collateral_funding_amount
+                        {
+                            return Err(eyre::eyre!("Operator collateral funding outpoint given in config has a different amount than the one specified in config..
+                                Bridge collateral funnding amount: {:?}, Amount in given outpoint: {:?}", config.protocol_paramset().collateral_funding_amount, collateral_value).into());
+                        }
+                        *outpoint
+                    }
+                    None => {
+                        // create a new outpoint that has collateral funding amount
+                        rpc.send_to_address(
+                            &signer.address,
+                            config.protocol_paramset().collateral_funding_amount,
+                        )
+                        .await?
+                    }
+                };
                 (outpoint, reimburse_addr)
             }
         };
-        dbtx.commit().await?;
 
+        db.set_operator(
+            Some(&mut dbtx),
+            signer.xonly_public_key,
+            &reimburse_addr,
+            collateral_funding_outpoint,
+        )
+        .await?;
+        dbtx.commit().await?;
         let citrea_client = C::new(
             config.citrea_rpc_url.clone(),
             config.citrea_light_client_prover_url.clone(),
@@ -191,11 +253,13 @@ where
         )
         .await?;
 
-        tracing::debug!(
+        tracing::info!(
             "Operator xonly pk: {:?}, db created with name: {:?}",
             signer.xonly_public_key,
             config.db_name
         );
+
+        let header_chain_prover = HeaderChainProver::new(&config, rpc.clone()).await?;
 
         Ok(Operator {
             rpc,
@@ -205,6 +269,7 @@ where
             collateral_funding_outpoint,
             tx_sender,
             citrea_client,
+            header_chain_prover,
             reimburse_addr,
         })
     }
@@ -754,6 +819,7 @@ where
                             &signed_txs,
                             tx_metadata,
                             &self.config,
+                            None,
                         )
                         .await?;
                 }
@@ -804,7 +870,7 @@ where
             create_round_nth_txhandler(
                 self.signer.xonly_public_key,
                 self.collateral_funding_outpoint,
-                Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
+                self.config.protocol_paramset().collateral_funding_amount,
                 current_round_index as usize,
                 &kickoff_wpks,
                 self.config.protocol_paramset(),
@@ -813,7 +879,7 @@ where
         let (mut next_round_txhandler, _) = create_round_nth_txhandler(
             self.signer.xonly_public_key,
             self.collateral_funding_outpoint,
-            Amount::from_sat(200_000_000), // TODO: Get this from protocol constants config
+            self.config.protocol_paramset().collateral_funding_amount,
             current_round_index as usize + 1,
             &kickoff_wpks,
             self.config.protocol_paramset(),
@@ -984,16 +1050,248 @@ where
         &self,
         kickoff_data: KickoffData,
         deposit_data: DepositData,
-        _watchtower_challenges: HashMap<usize, Transaction>,
+        watchtower_challenges: HashMap<usize, Transaction>,
         _payout_blockhash: Witness,
-        _latest_blockhash: Witness,
+        latest_blockhash: Witness,
     ) -> Result<(), BridgeError> {
-        let assert_txs = self
-            .create_assert_commitment_txs(TransactionRequestData {
-                kickoff_data,
-                deposit_outpoint: deposit_data.get_deposit_outpoint(),
-            })
+        let context = ContractContext::new_context_for_kickoffs(
+            kickoff_data,
+            deposit_data.clone(),
+            self.config.protocol_paramset(),
+        );
+        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
+        let txhandlers = create_txhandlers(
+            TransactionType::Kickoff,
+            context,
+            &mut TxHandlerCache::new(),
+            &mut db_cache,
+        )
+        .await?;
+        let move_txid = txhandlers
+            .get(&TransactionType::MoveToVault)
+            .ok_or(eyre::eyre!(
+                "Move to vault txhandler not found in send_asserts"
+            ))?
+            .get_cached_tx()
+            .compute_txid();
+        let kickoff_tx = txhandlers
+            .get(&TransactionType::Kickoff)
+            .ok_or(eyre::eyre!("Kickoff txhandler not found in send_asserts"))?
+            .get_cached_tx();
+
+        let (payout_op_xonly_pk_opt, payout_block_hash, payout_txid, deposit_idx) = self
+            .db
+            .get_payout_info_from_move_txid(None, move_txid)
+            .await
+            .wrap_err("Failed to get payout info from db during sending asserts.")?
+            .ok_or_eyre(format!(
+                "Payout info not found in db while sending asserts for move txid: {}",
+                move_txid
+            ))?;
+
+        let payout_op_xonly_pk = payout_op_xonly_pk_opt.ok_or_eyre(format!(
+            "Payout operator xonly pk not found in payout info DB while sending asserts for deposit move txid: {}",
+            move_txid
+        ))?;
+
+        tracing::info!("Sending asserts for deposit_idx: {:?}", deposit_idx);
+
+        if payout_op_xonly_pk != kickoff_data.operator_xonly_pk {
+            return Err(eyre::eyre!(
+                "Payout operator xonly pk does not match kickoff operator xonly pk in send_asserts"
+            )
+            .into());
+        }
+
+        let (payout_block_height, payout_block) = self
+            .db
+            .get_full_block_from_hash(None, payout_block_hash)
+            .await?
+            .ok_or_eyre(format!(
+                "Payout block {:?} {:?} not found in db",
+                payout_op_xonly_pk, payout_block_hash
+            ))?;
+
+        let payout_tx_index = payout_block
+            .txdata
+            .iter()
+            .position(|tx| tx.compute_txid() == payout_txid)
+            .ok_or_eyre(format!(
+                "Payout txid {:?} not found in block {:?} {:?}",
+                payout_txid, payout_op_xonly_pk, payout_block_hash
+            ))?;
+        let payout_tx = &payout_block.txdata[payout_tx_index];
+        tracing::debug!("Calculated payout tx in send_asserts: {:?}", payout_tx);
+
+        let (light_client_proof, lcp_receipt, l2_height) = self
+            .citrea_client
+            .get_light_client_proof(payout_block_height as u64)
+            .await
+            .wrap_err("Failed to get light client proof for payout block height")?
+            .ok_or_eyre("Light client proof is not available for payout block height")?;
+        tracing::info!("Got light client proof in send_asserts");
+
+        let storage_proof = self
+            .citrea_client
+            .get_storage_proof(l2_height, deposit_idx as u32)
+            .await
+            .wrap_err(format!(
+                "Failed to get storage proof for move txid {:?}, l2 height {}, deposit_idx {}",
+                move_txid, l2_height, deposit_idx
+            ))?;
+
+        tracing::debug!("Got storage proof in send_asserts {:?}", storage_proof);
+
+        // get committed latest blockhash
+        let wt_derive_path = ClementineBitVMPublicKeys::get_latest_blockhash_derivation(
+            deposit_data.get_deposit_outpoint(),
+            self.config.protocol_paramset(),
+        );
+        let commits = extract_winternitz_commits(
+            latest_blockhash,
+            &[wt_derive_path],
+            self.config.protocol_paramset(),
+        )?;
+
+        let latest_blockhash = commits
+            .first()
+            .ok_or_eyre("Failed to get latest blockhash in send_asserts")?
+            .to_owned();
+
+        let rpc_current_finalized_height = self
+            .rpc
+            .get_current_chain_height()
+            .await?
+            .saturating_sub(self.config.protocol_paramset().finality_depth);
+
+        // update headers in case the sync (state machine handle_finalized_block) is behind
+        self.db
+            .fetch_and_save_missing_blocks(
+                &self.rpc,
+                self.config.protocol_paramset().genesis_height,
+                rpc_current_finalized_height + 1,
+            )
             .await?;
+
+        let current_height = self
+            .db
+            .get_latest_finalized_block_height(None)
+            .await?
+            .ok_or_eyre("Failed to get current finalized block height")?;
+
+        let block_hashes = self
+            .db
+            .get_block_info_from_range(
+                None,
+                self.config.protocol_paramset().genesis_height as u64,
+                current_height,
+            )
+            .await?;
+
+        // find out which blockhash is latest_blockhash (only last 20 bytes is commited to Witness)
+        let latest_blockhash_index = block_hashes
+            .iter()
+            .position(|(block_hash, _)| {
+                block_hash.to_byte_array()[12..].to_vec() == latest_blockhash
+            })
+            .ok_or_eyre("Failed to find latest blockhash in send_asserts")?;
+
+        let latest_blockhash = block_hashes[latest_blockhash_index].0;
+
+        let (current_hcp, hcp_height) = self
+            .header_chain_prover
+            .prove_till_hash(latest_blockhash)
+            .await?;
+        tracing::info!("Got header chain proof in send_asserts");
+
+        let blockhashes_serialized: Vec<[u8; 32]> = block_hashes
+            .iter()
+            .take(hcp_height as usize + 1) // height 0 included
+            .map(|(block_hash, _)| block_hash.to_byte_array())
+            .collect::<Vec<_>>();
+
+        let spv = create_spv(
+            payout_tx.clone(),
+            &blockhashes_serialized,
+            payout_block.clone(),
+            payout_block_height,
+            self.config.protocol_paramset().genesis_height,
+            payout_tx_index as u32,
+        );
+        tracing::info!("Calculated spv proof in send_asserts");
+
+        let mut wt_contexts = Vec::new();
+        for (_, tx) in watchtower_challenges.iter() {
+            wt_contexts.push(WatchtowerContext {
+                watchtower_tx: tx.clone(),
+                prevout_txs: self.rpc.get_prevout_txs(tx).await?,
+            });
+        }
+
+        let watchtower_challenge_connector_start_idx =
+            (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+
+        let bridge_circuit_host_params = BridgeCircuitHostParams::new_with_wt_tx(
+            kickoff_tx.clone(),
+            spv,
+            current_hcp,
+            light_client_proof,
+            lcp_receipt,
+            storage_proof,
+            self.config.protocol_paramset().network,
+            &wt_contexts,
+            watchtower_challenge_connector_start_idx,
+        )
+        .wrap_err("Failed to create bridge circuit host params in send_asserts")?;
+
+        let bridge_circuit_elf = match self.config.protocol_paramset().network {
+            bitcoin::Network::Bitcoin => MAINNET_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Testnet4 => TESTNET4_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Signet => SIGNET_BRIDGE_CIRCUIT_ELF,
+            bitcoin::Network::Regtest => REGTEST_BRIDGE_CIRCUIT_ELF,
+            _ => {
+                return Err(eyre::eyre!(
+                    "Unsupported network {:?} in send_asserts",
+                    self.config.protocol_paramset().network
+                )
+                .into())
+            }
+        };
+        tracing::info!("Starting proving bridge circuit to send asserts");
+        let (g16_proof, g16_output, public_inputs) =
+            prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
+        tracing::info!("Proved bridge circuit in send_asserts");
+        let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
+
+        let asserts = if cfg!(test) && is_dev_mode() {
+            generate_assertions(
+                g16_proof,
+                vec![public_input_scalar],
+                &get_ark_verifying_key_dev_mode_bridge(),
+            )
+            .map_err(|e| eyre::eyre!("Failed to generate dev mode assertions: {}", e))?
+        } else {
+            generate_assertions(
+                g16_proof,
+                vec![public_input_scalar],
+                &get_ark_verifying_key(),
+            )
+            .map_err(|e| eyre::eyre!("Failed to generate assertions: {}", e))?
+        };
+
+        let assert_txs = self
+            .create_assert_commitment_txs(
+                TransactionRequestData {
+                    kickoff_data,
+                    deposit_outpoint: deposit_data.get_deposit_outpoint(),
+                },
+                ClementineBitVMPublicKeys::get_assert_commit_data(
+                    asserts,
+                    &public_inputs.challenge_sending_watchtowers,
+                ),
+            )
+            .await?;
+
         let mut dbtx = self.db.begin_transaction().await?;
         for (tx_type, tx) in assert_txs {
             self.tx_sender
@@ -1010,6 +1308,7 @@ where
                         deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
                     }),
                     &self.config,
+                    None,
                 )
                 .await?;
         }
@@ -1033,6 +1332,7 @@ where
         deposit_data: DepositData,
         latest_blockhash: BlockHash,
     ) -> Result<(), BridgeError> {
+        tracing::warn!("Operator sending latest blockhash");
         let deposit_outpoint = deposit_data.get_deposit_outpoint();
         let (tx_type, tx) = self
             .create_latest_blockhash_tx(
@@ -1061,6 +1361,7 @@ where
                     deposit_outpoint: Some(deposit_outpoint),
                 }),
                 &self.config,
+                None,
             )
             .await?;
         dbtx.commit().await?;
@@ -1122,6 +1423,49 @@ mod states {
                     )
                     .await?;
                     Ok(DutyResult::Handled)
+                }
+                Duty::VerifierDisprove { .. } => Ok(DutyResult::Handled),
+                Duty::SendLatestBlockhash {
+                    kickoff_data,
+                    deposit_data,
+                    latest_blockhash,
+                } => {
+                    tracing::warn!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
+                    self.send_latest_blockhash(kickoff_data, deposit_data, latest_blockhash)
+                        .await?;
+                    Ok(DutyResult::Handled)
+                }
+                Duty::CheckIfKickoff {
+                    txid,
+                    block_height,
+                    witness,
+                    challenged_before: _,
+                } => {
+                    tracing::debug!(
+                        "Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
+                        self.signer.xonly_public_key,
+                        txid,
+                        block_height,
+                    );
+                    let kickoff_data = self
+                        .db
+                        .get_deposit_data_with_kickoff_txid(None, txid)
+                        .await?;
+                    if let Some((deposit_data, kickoff_data)) = kickoff_data {
+                        // add kickoff machine if there is a new kickoff
+                        let mut dbtx = self.db.begin_transaction().await?;
+                        StateManager::<Self>::dispatch_new_kickoff_machine(
+                            self.db.clone(),
+                            &mut dbtx,
+                            kickoff_data,
+                            deposit_data,
+                            watchtower_challenges,
+                            payout_blockhash,
+                            latest_blockhash,
+                        )
+                        .await?;
+                        Ok(DutyResult::Handled)
+                    }
                 }
                 Duty::SendLatestBlockhash {
                     kickoff_data,

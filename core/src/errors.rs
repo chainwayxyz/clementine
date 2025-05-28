@@ -128,6 +128,24 @@ pub enum BridgeError {
     VerifierNotFound(PublicKey),
     #[error("Deposit not found in DB: {0:?}")]
     DepositNotFound(OutPoint),
+    #[error("Deposit is invalid")]
+    InvalidDeposit,
+    #[error("Operator data mismatch. Data already stored in DB and received by set_operator doesn't match for xonly_pk: {0}")]
+    OperatorDataMismatch(XOnlyPublicKey),
+    #[error("Operator winternitz public keys mismatch. Data already stored in DB doesn't match the new data for operator {0}")]
+    OperatorWinternitzPublicKeysMismatch(XOnlyPublicKey),
+    #[error("BitVM setup data mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
+    BitvmSetupDataMismatch(XOnlyPublicKey, OutPoint),
+    #[error("Operator challenge ack hashes mismatch. Data already stored in DB doesn't match the new data for operator {0} and deposit {1:?}")]
+    OperatorChallengeAckHashesMismatch(XOnlyPublicKey, OutPoint),
+    #[error("Invalid BitVM public keys")]
+    InvalidBitVMPublicKeys,
+    #[error("Invalid challenge ack hashes")]
+    InvalidChallengeAckHashes,
+    #[error("Invalid operator index")]
+    InvalidOperatorIndex,
+    #[error("Invalid protocal paramset")]
+    InvalidProtocolParamset,
 
     // External crate error wrappers
     #[error("Failed to call database: {0}")]

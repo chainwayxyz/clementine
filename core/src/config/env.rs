@@ -2,7 +2,7 @@
 
 use super::BridgeConfig;
 use crate::{builder::transaction::SecurityCouncil, errors::BridgeError};
-use bitcoin::{secp256k1::SecretKey, Amount};
+use bitcoin::{address::NetworkUnchecked, secp256k1::SecretKey, Amount};
 use std::{path::PathBuf, str::FromStr};
 
 pub(crate) fn read_string_from_env(env_var: &'static str) -> Result<String, BridgeError> {
@@ -45,39 +45,6 @@ impl BridgeConfig {
                         .collect::<Vec<String>>()
                 });
 
-        let all_verifiers_secret_keys =
-            if let Ok(all_verifiers_secret_keys) = std::env::var("ALL_VERIFIERS_SECRET_KEYS") {
-                Some(
-                    all_verifiers_secret_keys
-                        .split(",")
-                        .collect::<Vec<&str>>()
-                        .iter()
-                        .map(|x| SecretKey::from_str(x))
-                        .collect::<Result<Vec<SecretKey>, _>>()
-                        .map_err(|e| {
-                            BridgeError::EnvVarMalformed("ALL_VERIFIERS_SECRET_KEYS", e.to_string())
-                        })?,
-                )
-            } else {
-                None
-            };
-        let all_operators_secret_keys =
-            if let Ok(all_operators_secret_keys) = std::env::var("ALL_OPERATORS_SECRET_KEYS") {
-                Some(
-                    all_operators_secret_keys
-                        .split(",")
-                        .collect::<Vec<&str>>()
-                        .iter()
-                        .map(|x| SecretKey::from_str(x))
-                        .collect::<Result<Vec<SecretKey>, _>>()
-                        .map_err(|e| {
-                            BridgeError::EnvVarMalformed("ALL_OPERATORS_SECRET_KEYS", e.to_string())
-                        })?,
-                )
-            } else {
-                None
-            };
-
         let winternitz_secret_key = if let Ok(sk) = std::env::var("WINTERNITZ_SECRET_KEY") {
             Some(sk.parse::<SecretKey>().map_err(|e| {
                 BridgeError::EnvVarMalformed("WINTERNITZ_SECRET_KEY", e.to_string())
@@ -105,6 +72,40 @@ impl BridgeConfig {
                 None
             };
 
+        let operator_reimbursement_address = if let Ok(operator_reimbursement_address) =
+            std::env::var("OPERATOR_REIMBURSEMENT_ADDRESS")
+        {
+            Some(
+                operator_reimbursement_address
+                    .parse::<bitcoin::Address<NetworkUnchecked>>()
+                    .map_err(|e| {
+                        BridgeError::EnvVarMalformed(
+                            "OPERATOR_REIMBURSEMENT_ADDRESS",
+                            e.to_string(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        let operator_collateral_funding_outpoint = if let Ok(operator_collateral_funding_outpoint) =
+            std::env::var("OPERATOR_COLLATERAL_FUNDING_OUTPOINT")
+        {
+            Some(
+                operator_collateral_funding_outpoint
+                    .parse::<bitcoin::OutPoint>()
+                    .map_err(|e| {
+                        BridgeError::EnvVarMalformed(
+                            "OPERATOR_COLLATERAL_FUNDING_OUTPOINT",
+                            e.to_string(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
         // TLS certificate and key paths
         let server_cert_path = read_string_from_env("SERVER_CERT_PATH").map(PathBuf::from)?;
         let server_key_path = read_string_from_env("SERVER_KEY_PATH").map(PathBuf::from)?;
@@ -128,6 +129,8 @@ impl BridgeConfig {
             secret_key: read_string_from_env_then_parse::<SecretKey>("SECRET_KEY")?,
             winternitz_secret_key,
             operator_withdrawal_fee_sats,
+            operator_reimbursement_address,
+            operator_collateral_funding_outpoint,
             bitcoin_rpc_url: read_string_from_env("BITCOIN_RPC_URL")?,
             bitcoin_rpc_user: read_string_from_env("BITCOIN_RPC_USER")?,
             bitcoin_rpc_password: read_string_from_env("BITCOIN_RPC_PASSWORD")?,
@@ -143,8 +146,6 @@ impl BridgeConfig {
             header_chain_proof_path,
             verifier_endpoints,
             operator_endpoints,
-            all_verifiers_secret_keys,
-            all_operators_secret_keys,
             security_council,
 
             client_verification,
@@ -244,24 +245,25 @@ mod tests {
         if let Some(ref operator_endpoints) = default_config.operator_endpoints {
             std::env::set_var("OPERATOR_ENDPOINTS", operator_endpoints.join(","));
         }
-        if let Some(ref all_verifiers_secret_keys) = default_config.all_verifiers_secret_keys {
+
+        if let Some(ref operator_reimbursement_address) =
+            default_config.operator_reimbursement_address
+        {
             std::env::set_var(
-                "ALL_VERIFIERS_SECRET_KEYS",
-                all_verifiers_secret_keys
-                    .iter()
-                    .map(|sk| sk.display_secret().to_string())
-                    .collect::<Vec<String>>()
-                    .join(","),
+                "OPERATOR_REIMBURSEMENT_ADDRESS",
+                operator_reimbursement_address
+                    .to_owned()
+                    .assume_checked()
+                    .to_string(),
             );
         }
-        if let Some(ref all_operators_secret_keys) = default_config.all_operators_secret_keys {
+
+        if let Some(ref operator_collateral_funding_outpoint) =
+            default_config.operator_collateral_funding_outpoint
+        {
             std::env::set_var(
-                "ALL_OPERATORS_SECRET_KEYS",
-                all_operators_secret_keys
-                    .iter()
-                    .map(|sk| sk.display_secret().to_string())
-                    .collect::<Vec<String>>()
-                    .join(","),
+                "OPERATOR_COLLATERAL_FUNDING_OUTPOINT",
+                operator_collateral_funding_outpoint.to_string(),
             );
         }
 
@@ -359,6 +361,11 @@ mod tests {
         );
         std::env::set_var("FINALITY_DEPTH", default_config.finality_depth.to_string());
         std::env::set_var("START_HEIGHT", default_config.start_height.to_string());
+        std::env::set_var("GENESIS_HEIGHT", default_config.genesis_height.to_string());
+        std::env::set_var(
+            "GENESIS_CHAIN_STATE_HASH",
+            hex::encode(default_config.genesis_chain_state_hash),
+        );
         std::env::set_var(
             "LATEST_BLOCKHASH_TIMEOUT_TIMELOCK",
             default_config.latest_blockhash_timeout_timelock.to_string(),
@@ -366,6 +373,11 @@ mod tests {
         std::env::set_var(
             "HEADER_CHAIN_PROOF_BATCH_SIZE",
             default_config.header_chain_proof_batch_size.to_string(),
+        );
+
+        std::env::set_var(
+            "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
+            hex::encode(default_config.bridge_circuit_method_id_constant),
         );
 
         assert_eq!(ProtocolParamset::from_env().unwrap(), default_config);

@@ -337,6 +337,15 @@ pub mod nonce_gen_response {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OptimisticPayoutParams {
+    #[prost(message, optional, tag = "1")]
+    pub withdrawal: ::core::option::Option<WithdrawParams>,
+    #[prost(message, optional, tag = "2")]
+    pub nonce_gen: ::core::option::Option<NonceGenFirstResponse>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub agg_nonce: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierDepositSignParams {
     #[prost(oneof = "verifier_deposit_sign_params::Params", tags = "1, 2")]
     pub params: ::core::option::Option<verifier_deposit_sign_params::Params>,
@@ -486,6 +495,20 @@ pub struct SignedTxWithType {
 pub struct SignedTxsWithType {
     #[prost(message, repeated, tag = "1")]
     pub signed_txs: ::prost::alloc::vec::Vec<SignedTxWithType>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RbfSigningInfoRpc {
+    #[prost(bytes = "vec", tag = "1")]
+    pub merkle_root: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "2")]
+    pub vout: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RawTxWithRbfInfo {
+    #[prost(bytes = "vec", tag = "1")]
+    pub raw_tx: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "2")]
+    pub rbf_info: ::core::option::Option<RbfSigningInfoRpc>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AggregatorWithdrawResponse {
@@ -694,6 +717,7 @@ pub enum NormalTransactionId {
     ReplacementDeposit = 17,
     LatestBlockhashTimeout = 18,
     LatestBlockhash = 19,
+    OptimisticPayout = 20,
 }
 impl NormalTransactionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -722,6 +746,7 @@ impl NormalTransactionId {
             Self::ReplacementDeposit => "REPLACEMENT_DEPOSIT",
             Self::LatestBlockhashTimeout => "LATEST_BLOCKHASH_TIMEOUT",
             Self::LatestBlockhash => "LATEST_BLOCKHASH",
+            Self::OptimisticPayout => "OPTIMISTIC_PAYOUT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -747,6 +772,7 @@ impl NormalTransactionId {
             "REPLACEMENT_DEPOSIT" => Some(Self::ReplacementDeposit),
             "LATEST_BLOCKHASH_TIMEOUT" => Some(Self::LatestBlockhashTimeout),
             "LATEST_BLOCKHASH" => Some(Self::LatestBlockhash),
+            "OPTIMISTIC_PAYOUT" => Some(Self::OptimisticPayout),
             _ => None,
         }
     }
@@ -1460,6 +1486,33 @@ pub mod clementine_verifier_client {
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "DepositSign"));
             self.inner.streaming(req, path, codec).await
         }
+        /// Signs the optimistic payout tx with given aggNonce and withdrawal info.
+        pub async fn optimistic_payout_sign(
+            &mut self,
+            request: impl tonic::IntoRequest<super::OptimisticPayoutParams>,
+        ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/OptimisticPayoutSign",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineVerifier",
+                        "OptimisticPayoutSign",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// Verifies every signature and signs move_tx.
         ///
         /// Used by aggregator inside new_deposit
@@ -1586,7 +1639,7 @@ pub mod clementine_verifier_client {
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::RawTxWithRbfInfo>,
             tonic::Status,
         > {
             self.inner
@@ -1838,6 +1891,33 @@ pub mod clementine_aggregator_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineAggregator", "Withdraw"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// Perform an optimistic payout to reimburse a peg-out from Citrea
+        pub async fn optimistic_payout(
+            &mut self,
+            request: impl tonic::IntoRequest<super::WithdrawParams>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/OptimisticPayout",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineAggregator",
+                        "OptimisticPayout",
+                    ),
+                );
             self.inner.unary(req, path, codec).await
         }
         /// Send a pre-signed tx to the network
@@ -2798,6 +2878,11 @@ pub mod clementine_verifier_server {
             tonic::Response<Self::DepositSignStream>,
             tonic::Status,
         >;
+        /// Signs the optimistic payout tx with given aggNonce and withdrawal info.
+        async fn optimistic_payout_sign(
+            &self,
+            request: tonic::Request<super::OptimisticPayoutParams>,
+        ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status>;
         /// Verifies every signature and signs move_tx.
         ///
         /// Used by aggregator inside new_deposit
@@ -2844,7 +2929,7 @@ pub mod clementine_verifier_server {
             &self,
             request: tonic::Request<super::TransactionRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::SignedTxWithType>,
+            tonic::Response<super::RawTxWithRbfInfo>,
             tonic::Status,
         >;
         async fn vergen(
@@ -3163,6 +3248,55 @@ pub mod clementine_verifier_server {
                     };
                     Box::pin(fut)
                 }
+                "/clementine.ClementineVerifier/OptimisticPayoutSign" => {
+                    #[allow(non_camel_case_types)]
+                    struct OptimisticPayoutSignSvc<T: ClementineVerifier>(pub Arc<T>);
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::UnaryService<super::OptimisticPayoutParams>
+                    for OptimisticPayoutSignSvc<T> {
+                        type Response = super::PartialSig;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::OptimisticPayoutParams>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineVerifier>::optimistic_payout_sign(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = OptimisticPayoutSignSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/clementine.ClementineVerifier/DepositFinalize" => {
                     #[allow(non_camel_case_types)]
                     struct DepositFinalizeSvc<T: ClementineVerifier>(pub Arc<T>);
@@ -3362,7 +3496,7 @@ pub mod clementine_verifier_server {
                         T: ClementineVerifier,
                     > tonic::server::UnaryService<super::TransactionRequest>
                     for InternalCreateWatchtowerChallengeSvc<T> {
-                        type Response = super::SignedTxWithType;
+                        type Response = super::RawTxWithRbfInfo;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
@@ -3538,6 +3672,11 @@ pub mod clementine_aggregator_server {
             tonic::Response<super::AggregatorWithdrawResponse>,
             tonic::Status,
         >;
+        /// Perform an optimistic payout to reimburse a peg-out from Citrea
+        async fn optimistic_payout(
+            &self,
+            request: tonic::Request<super::WithdrawParams>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// Send a pre-signed tx to the network
         async fn internal_send_tx(
             &self,
@@ -3809,6 +3948,55 @@ pub mod clementine_aggregator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = WithdrawSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineAggregator/OptimisticPayout" => {
+                    #[allow(non_camel_case_types)]
+                    struct OptimisticPayoutSvc<T: ClementineAggregator>(pub Arc<T>);
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::WithdrawParams>
+                    for OptimisticPayoutSvc<T> {
+                        type Response = super::RawSignedTx;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::WithdrawParams>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineAggregator>::optimistic_payout(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = OptimisticPayoutSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

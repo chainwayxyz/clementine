@@ -3,6 +3,7 @@
 use crate::builder::script::SpendPath;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::TransactionType;
+use crate::builder::transaction::{ContractContext, TransactionType, TxHandler};
 use crate::citrea::CitreaClientT;
 use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -89,7 +90,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     // Create temporary directory for bitcoin data
     let data_dir = TempDir::new()
         .expect("Failed to create temporary directory")
-        .into_path();
+        .keep();
     let bitcoin_rpc_debug = std::env::var("BITCOIN_RPC_DEBUG").map(|d| !d.is_empty()) == Ok(true);
 
     // Get available ports for RPC
@@ -312,10 +313,7 @@ pub async fn create_actors<C: CitreaClientT>(
     ClementineAggregatorClient<Channel>,
     ActorsCleanup,
 ) {
-    let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
-        panic!("All secret keys of the verifiers are required for testing");
-    });
-
+    let all_verifiers_secret_keys = &config.test_params.all_verifiers_secret_keys;
     // Collect all shutdown channels
     let mut shutdown_channels = Vec::new();
 
@@ -361,9 +359,7 @@ pub async fn create_actors<C: CitreaClientT>(
 
     shutdown_channels.extend(verifier_shutdown_channels);
 
-    let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
-        panic!("All secret keys of the operators are required for testing");
-    });
+    let all_operators_secret_keys = &config.test_params.all_operators_secret_keys;
 
     // Create futures for operator Unix socket servers
     let operator_futures = all_operators_secret_keys
@@ -515,7 +511,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
     rpc: &ExtendedRpc,
     withdrawal_address: &bitcoin::Address,
     withdrawal_amount: bitcoin::Amount,
-) -> (UTXO, UnspentTxOut, schnorr::Signature) {
+) -> (UTXO, bitcoin::TxOut, schnorr::Signature) {
     let signer = Actor::new(
         config.secret_key,
         config.winternitz_secret_key,
@@ -528,6 +524,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
         .send_to_address(&signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)
         .await
         .expect("Failed to send to address");
+
     let dust_utxo = UTXO {
         outpoint: dust_outpoint,
         txout: bitcoin::TxOut {
@@ -546,7 +543,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
         value: withdrawal_amount,
         script_pubkey: withdrawal_address.script_pubkey(),
     };
-    let txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
+    let unspent_txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
     let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
         .add_input(
@@ -555,7 +552,7 @@ pub async fn generate_withdrawal_transaction_and_signature(
             SpendPath::KeySpend,
             builder::transaction::DEFAULT_SEQUENCE,
         )
-        .add_output(txout.clone())
+        .add_output(unspent_txout.clone())
         .finalize();
 
     let sighash = tx
