@@ -1458,57 +1458,13 @@ mod states {
                             self.db.clone(),
                             &mut dbtx,
                             kickoff_data,
-                            deposit_data,
-                            watchtower_challenges,
-                            payout_blockhash,
-                            latest_blockhash,
-                        )
-                        .await?;
-                        Ok(DutyResult::Handled)
-                    }
-                }
-                Duty::SendLatestBlockhash {
-                    kickoff_data,
-                    deposit_data,
-                    latest_blockhash,
-                } => {
-                    tracing::warn!("Operator {:?} called send latest blockhash with kickoff_id: {:?}, deposit_data: {:?}, latest_blockhash: {:?}", self.signer.xonly_public_key, kickoff_data, deposit_data, latest_blockhash);
-                    self.send_latest_blockhash(kickoff_data, deposit_data, latest_blockhash)
-                        .await?;
-                    Ok(DutyResult::Handled)
-                }
-                Duty::VerifierDisprove { .. } => Ok(DutyResult::Handled),
-                Duty::CheckIfKickoff {
-                    txid,
-                    block_height,
-                    witness,
-                    challenged_before: _,
-                } => {
-                    tracing::debug!(
-                        "Operator {:?} called check if kickoff with txid: {:?}, block_height: {:?}",
-                        self.signer.xonly_public_key,
-                        txid,
-                        block_height,
-                    );
-                    let kickoff_data = self
-                        .db
-                        .get_deposit_data_with_kickoff_txid(None, txid)
-                        .await?;
-                    if let Some((deposit_data, kickoff_data)) = kickoff_data {
-                        // add kickoff machine if there is a new kickoff
-                        let mut dbtx = self.db.begin_transaction().await?;
-                        StateManager::<Self>::dispatch_new_kickoff_machine(
-                            self.db.clone(),
-                            &mut dbtx,
-                            kickoff_data,
                             block_height,
                             deposit_data,
                             witness,
                         )
                         .await?;
-                        dbtx.commit().await?;
+                        Ok(DutyResult::Handled)
                     }
-                    Ok(DutyResult::Handled)
                 }
             }
         }
