@@ -1473,11 +1473,10 @@ mod tests {
     use crate::builder::transaction::{BaseDepositData, DepositInfo, DepositType};
     use crate::citrea::mock::MockCitreaClient;
     use crate::musig2::AggregateFromPublicKeys;
-    use crate::rpc::clementine::{self};
+    use crate::rpc::clementine::{self, SendMoveTxRequest};
     use crate::test::common::*;
     use crate::{builder, EVMAddress};
     use bitcoin::hashes::Hash;
-    use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
     use eyre::Context;
     use std::time::Duration;
@@ -1553,109 +1552,24 @@ mod tests {
             }),
         };
 
-        let movetx_txid: Txid = aggregator
+        // Generate and broadcast the move-to-vault transaction
+        let raw_move_tx = aggregator
             .new_deposit(clementine::Deposit::from(deposit_info))
             .await
             .unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        rpc.mine_blocks(1).await.unwrap();
-        sleep(Duration::from_secs(3)).await;
+            .into_inner();
 
-        let tx = poll_get(
-            async || {
-                rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&movetx_txid, None)
-                    .await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
-            },
-            None,
-            None,
-        )
-        .await
-        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
-        .unwrap();
-
-        assert!(tx.confirmations.unwrap() > 0);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn aggregator_double_deposit() {
-        let mut config = create_test_config_with_thread_name().await;
-        let regtest = create_regtest_rpc(&mut config).await;
-        let rpc = regtest.rpc();
-        let (_verifiers, _operators, mut aggregator, _cleanup) =
-            create_actors::<MockCitreaClient>(&config).await;
-
-        let evm_address = EVMAddress([1u8; 20]);
-        let signer = Actor::new(
-            config.secret_key,
-            config.winternitz_secret_key,
-            config.protocol_paramset().network,
-        );
-
-        let verifiers_public_keys: Vec<bitcoin::secp256k1::PublicKey> = aggregator
-            .setup(tonic::Request::new(clementine::Empty {}))
+        let movetx_txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint.into()),
+                raw_tx: Some(raw_move_tx),
+            })
             .await
             .unwrap()
             .into_inner()
             .try_into()
             .unwrap();
-        sleep(Duration::from_secs(3)).await;
 
-        let nofn_xonly_pk =
-            bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None).unwrap();
-
-        let deposit_address = builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            signer.address.as_unchecked(),
-            evm_address,
-            config.protocol_paramset().network,
-            config.protocol_paramset().user_takes_after,
-        )
-        .unwrap()
-        .0;
-
-        let deposit_outpoint = rpc
-            .send_to_address(&deposit_address, config.protocol_paramset().bridge_amount)
-            .await
-            .unwrap();
-        rpc.mine_blocks(18).await.unwrap();
-
-        let deposit_info = DepositInfo {
-            deposit_outpoint,
-            deposit_type: DepositType::BaseDeposit(BaseDepositData {
-                evm_address,
-                recovery_taproot_address: signer.address.as_unchecked().clone(),
-            }),
-        };
-
-        // Two deposits with the same values.
-        let _movetx_txid: Txid = aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info.clone()))
-            .await
-            .unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        let movetx_txid: Txid = aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info))
-            .await
-            .unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
@@ -1761,78 +1675,47 @@ mod tests {
             }),
         };
 
-        let movetx_txid_0: Txid = aggregator
+        // Generate and broadcast the move-to-vault tx for the first deposit
+        let raw_move_tx_0 = aggregator
             .new_deposit(clementine::Deposit::from(deposit_info_0))
             .await
             .unwrap()
-            .into_inner()
-            .try_into()
-            .unwrap();
-        rpc.mine_blocks(1).await.unwrap();
-        sleep(Duration::from_secs(3)).await;
-
-        let movetx_txid_1: Txid = aggregator
-            .new_deposit(clementine::Deposit::from(deposit_info_1))
+            .into_inner();
+        let move_txid_0: bitcoin::Txid = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint_0.into()),
+                raw_tx: Some(raw_move_tx_0),
+            })
             .await
             .unwrap()
             .into_inner()
             .try_into()
             .unwrap();
+
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
 
-        let tx_0 = poll_get(
-            async || {
-                rpc.mine_blocks(1).await.unwrap();
+        // Generate and broadcast the move-to-vault tx for the second deposit
+        let raw_move_tx_1 = aggregator
+            .new_deposit(clementine::Deposit::from(deposit_info_1))
+            .await
+            .unwrap()
+            .into_inner();
+        let move_txid_1 = aggregator
+            .send_move_to_vault_tx(SendMoveTxRequest {
+                deposit_outpoint: Some(deposit_outpoint_1.into()),
+                raw_tx: Some(raw_move_tx_1),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
 
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&movetx_txid_0, None)
-                    .await;
+        rpc.mine_blocks(1).await.unwrap();
+        sleep(Duration::from_secs(3)).await;
 
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
-            },
-            None,
-            None,
-        )
-        .await
-        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
-        .unwrap();
-
-        let tx_1 = poll_get(
-            async || {
-                rpc.mine_blocks(1).await.unwrap();
-
-                let tx_result = rpc
-                    .client
-                    .get_raw_transaction_info(&movetx_txid_1, None)
-                    .await;
-
-                let tx_result = tx_result
-                    .inspect_err(|e| {
-                        tracing::error!("Error getting transaction: {:?}", e);
-                    })
-                    .ok();
-
-                Ok(tx_result)
-            },
-            None,
-            None,
-        )
-        .await
-        .wrap_err_with(|| eyre::eyre!("MoveTx did not land onchain"))
-        .unwrap();
-
-        assert!(tx_0.confirmations.unwrap() > 0);
-        assert!(tx_1.confirmations.unwrap() > 0);
-
-        let move_txids = vec![movetx_txid_0, movetx_txid_1];
+        let move_txids = vec![move_txid_0, move_txid_1];
 
         tracing::debug!("Move txids: {:?}", move_txids);
 

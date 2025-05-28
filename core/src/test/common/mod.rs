@@ -353,10 +353,19 @@ pub async fn run_single_deposit<C: CitreaClientT>(
 
     let deposit: Deposit = deposit_info.clone().into();
 
-    let move_txid: Txid = aggregator
+    let movetx = aggregator
         .new_deposit(deposit)
         .await
-        .wrap_err("Error while making a deposit")?
+        .wrap_err("Error while making a deposit")
+        .expect("failed to make deposit")
+        .into_inner();
+    let move_txid = aggregator
+        .send_move_to_vault_tx(SendMoveTxRequest {
+            deposit_outpoint: Some(deposit_outpoint.into()),
+            raw_tx: Some(movetx),
+        })
+        .await
+        .expect("failed to send movetx")
         .into_inner()
         .try_into()?;
 
@@ -654,10 +663,20 @@ pub async fn run_replacement_deposit(
 
     let deposit: Deposit = deposit_info.clone().into();
 
-    let move_txid: Txid = aggregator
+    // First create the raw signed move-to-vault transaction for the replacement deposit
+    let raw_signed_tx = aggregator
         .new_deposit(deposit)
         .await
         .wrap_err("Error while making a deposit")?
+        .into_inner();
+    // Broadcast the move-to-vault transaction and get its Txid
+    let move_txid: Txid = aggregator
+        .send_move_to_vault_tx(SendMoveTxRequest {
+            deposit_outpoint: Some(deposit_info.deposit_outpoint.into()),
+            raw_tx: Some(raw_signed_tx),
+        })
+        .await
+        .wrap_err("Error sending replacement deposit move-to-vault tx")?
         .into_inner()
         .try_into()?;
 
