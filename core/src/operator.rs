@@ -1,8 +1,7 @@
 use ark_ff::PrimeField;
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
 use risc0_zkvm::is_dev_mode;
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::actor::{Actor, TweakCache, WinternitzDerivationPath};
@@ -23,15 +22,9 @@ use crate::database::DatabaseTransaction;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::header_chain_prover::HeaderChainProver;
-use crate::states::context::DutyResult;
-use crate::states::{block_cache, Duty, Owner, StateManager};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-#[cfg(feature = "state-machine")]
-use crate::tx_sender::{
-    ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata, TxSenderClient,
-};
 use crate::utils::NamedEntity;
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
@@ -56,11 +49,16 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
 #[cfg(feature = "state-machine")]
-use crate::{states::StateManager, task::IntoTask};
+use crate::{
+    builder::transaction::ContractContext,
+    states::StateManager,
+    task::IntoTask,
+    tx_sender::{
+        ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata, TxSenderClient,
+    },
+};
 #[cfg(feature = "state-machine")]
 use bitcoin::Witness;
-#[cfg(feature = "state-machine")]
-use std::collections::HashMap;
 
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
@@ -125,8 +123,10 @@ where
 
         // track the operator's round state
         #[cfg(feature = "state-machine")]
-        operator.track_rounds().await?;
-        tracing::info!("Operator round state tracked");
+        {
+            operator.track_rounds().await?;
+            tracing::info!("Operator round state tracked");
+        }
 
         Ok(Self {
             operator,
@@ -1059,11 +1059,12 @@ where
             deposit_data.clone(),
             self.config.protocol_paramset(),
         );
-        let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
-        let txhandlers = create_txhandlers(
+        let mut db_cache =
+            crate::builder::transaction::ReimburseDbCache::from_context(self.db.clone(), &context);
+        let txhandlers = builder::transaction::create_txhandlers(
             TransactionType::Kickoff,
             context,
-            &mut TxHandlerCache::new(),
+            &mut crate::builder::transaction::TxHandlerCache::new(),
             &mut db_cache,
         )
         .await?;
@@ -1463,8 +1464,9 @@ mod states {
                             witness,
                         )
                         .await?;
-                        Ok(DutyResult::Handled)
+                        dbtx.commit().await?;
                     }
+                    Ok(DutyResult::Handled)
                 }
             }
         }

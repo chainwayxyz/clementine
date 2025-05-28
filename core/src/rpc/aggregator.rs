@@ -845,8 +845,7 @@ impl ClementineAggregator for Aggregator {
             let pub_nonces = get_next_pub_nonces(&mut nonce_streams)
                 .await
                 .wrap_err("Failed to aggregate nonces for optimistic payout")
-                .map_to_status()
-                .map_err(|e| *e)?;
+                .map_to_status()?;
             let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
             // send the agg nonce to the verifiers to sign the optimistic payout tx
             let verifier_clients = self.get_verifier_clients();
@@ -874,8 +873,7 @@ impl ClementineAggregator for Aggregator {
                 .rpc
                 .get_txout_from_outpoint(&input_outpoint)
                 .await
-                .map_to_status()
-                .map_err(|e| *e)?;
+                .map_to_status()?;
             let withdrawal_utxo = UTXO {
                 outpoint: input_outpoint,
                 txout: withdrawal_prevout,
@@ -1084,7 +1082,7 @@ impl ClementineAggregator for Aggregator {
     async fn new_deposit(
         &self,
         request: Request<Deposit>,
-    ) -> Result<Response<clementine::Txid>, Status> {
+    ) -> Result<Response<clementine::RawSignedTx>, Status> {
         let deposit_info: DepositInfo = request.into_inner().try_into()?;
 
         let deposit_data = DepositData {
@@ -1189,8 +1187,7 @@ impl ClementineAggregator for Aggregator {
             .rpc
             .get_blockhash_of_tx(&deposit_data.get_deposit_outpoint().txid)
             .await
-            .map_to_status()
-            .map_err(|e| *e)?;
+            .map_to_status()?;
 
         let verifiers_public_keys = deposit_data.get_verifiers();
 
@@ -1333,9 +1330,11 @@ impl ClementineAggregator for Aggregator {
             .create_movetx(move_to_vault_sigs, movetx_agg_nonce, deposit_params)
             .await?;
 
-        let txid = *signed_movetx_handler.get_txid();
+        let raw_signed_tx = RawSignedTx {
+            raw_tx: bitcoin::consensus::serialize(&signed_movetx_handler.get_cached_tx()),
+        };
 
-        Ok(Response::new(txid.into()))
+        Ok(Response::new(raw_signed_tx))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -1414,7 +1413,7 @@ impl ClementineAggregator for Aggregator {
 
     async fn send_move_to_vault_tx(
         &self,
-        request: Request<clementine::RawSignedTx>,
+        request: Request<clementine::SendMoveTxRequest>,
     ) -> Result<Response<clementine::Txid>, Status> {
         #[cfg(not(feature = "state-machine"))]
         {
@@ -1426,14 +1425,26 @@ impl ClementineAggregator for Aggregator {
 
         #[cfg(feature = "state-machine")]
         {
-            let movetx = request.into_inner().raw_tx;
+            let request = request.into_inner();
+            let movetx = bitcoin::consensus::deserialize(
+                &request
+                    .raw_tx
+                    .ok_or_eyre("raw_tx is required")
+                    .map_to_status()?
+                    .raw_tx,
+            )
+            .wrap_err("Failed to deserialize movetx")
+            .map_to_status()?;
 
             let mut dbtx = self.db.begin_transaction().await?;
             self.tx_sender
                 .insert_try_to_send(
                     &mut dbtx,
                     Some(TxMetadata {
-                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                        deposit_outpoint: request
+                            .deposit_outpoint
+                            .map(TryInto::try_into)
+                            .transpose()?,
                         operator_xonly_pk: None,
                         round_idx: None,
                         kickoff_idx: None,
@@ -1452,7 +1463,8 @@ impl ClementineAggregator for Aggregator {
             dbtx.commit()
                 .await
                 .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
-            Ok(Response::new(Txid::from_txid(txid).into()))
+
+            Ok(Response::new(movetx.compute_txid().into()))
         }
     }
 }

@@ -193,7 +193,7 @@ pub trait ResultExt: Sized {
     type Output;
 
     fn map_to_eyre(self) -> Result<Self::Output, eyre::Report>;
-    fn map_to_status(self) -> Result<Self::Output, Box<tonic::Status>>;
+    fn map_to_status(self) -> Result<Self::Output, tonic::Status>;
 }
 
 impl<T: Into<BridgeError>> ErrorExt for T {
@@ -215,7 +215,7 @@ impl<U: Sized, T: Into<BridgeError>> ResultExt for Result<U, T> {
         self.map_err(ErrorExt::into_eyre)
     }
 
-    fn map_to_status(self) -> Result<Self::Output, Box<tonic::Status>> {
+    fn map_to_status(self) -> Result<Self::Output, tonic::Status> {
         Ok(self.map_err(ErrorExt::into_status)?)
     }
 }

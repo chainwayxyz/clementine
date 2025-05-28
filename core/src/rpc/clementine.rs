@@ -522,6 +522,13 @@ pub struct CreateEmergencyStopTxRequest {
     #[prost(bool, tag = "2")]
     pub add_anchor: bool,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SendMoveTxRequest {
+    #[prost(message, optional, tag = "1")]
+    pub raw_tx: ::core::option::Option<RawSignedTx>,
+    #[prost(message, optional, tag = "2")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum NormalSignatureKind {
@@ -1946,7 +1953,7 @@ pub mod clementine_aggregator_client {
         }
         pub async fn send_move_to_vault_tx(
             &mut self,
-            request: impl tonic::IntoRequest<super::RawSignedTx>,
+            request: impl tonic::IntoRequest<super::SendMoveTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status> {
             self.inner
                 .ready()
@@ -3684,7 +3691,7 @@ pub mod clementine_aggregator_server {
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         async fn send_move_to_vault_tx(
             &self,
-            request: tonic::Request<super::RawSignedTx>,
+            request: tonic::Request<super::SendMoveTxRequest>,
         ) -> std::result::Result<tonic::Response<super::Txid>, tonic::Status>;
         /// Creates an emergency stop tx that won't be broadcasted.
         /// Tx will have around 3 sats/vbyte fee.
@@ -4066,7 +4073,7 @@ pub mod clementine_aggregator_server {
                     struct SendMoveToVaultTxSvc<T: ClementineAggregator>(pub Arc<T>);
                     impl<
                         T: ClementineAggregator,
-                    > tonic::server::UnaryService<super::RawSignedTx>
+                    > tonic::server::UnaryService<super::SendMoveTxRequest>
                     for SendMoveToVaultTxSvc<T> {
                         type Response = super::Txid;
                         type Future = BoxFuture<
@@ -4075,7 +4082,7 @@ pub mod clementine_aggregator_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::RawSignedTx>,
+                            request: tonic::Request<super::SendMoveTxRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {

@@ -1,7 +1,6 @@
 use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
-use crate::builder::address::taproot_builder_with_scripts;
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
 use crate::builder::block_cache;
 use crate::builder::script::{extract_winternitz_commits, SpendableScript, WinternitzCommit};
@@ -1760,6 +1759,10 @@ mod states {
                 block_height,
             )
             .await?;
+
+            tracing::info!("Getting payout txids for block height: {:?}", block_height);
+            self.update_finalized_payouts(&mut dbtx, block_id, &block_cache)
+                .await?;
 
             if let Some(header_chain_prover) = &self.header_chain_prover {
                 header_chain_prover
