@@ -342,11 +342,7 @@
 <a href="#341" id="341">341</a>
 <a href="#342" id="342">342</a>
 <a href="#343" id="343">343</a>
-<a href="#344" id="344">344</a>
-<a href="#345" id="345">345</a>
-<a href="#346" id="346">346</a>
-<a href="#347" id="347">347</a>
-<a href="#348" id="348">348</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
+<a href="#344" id="344">344</a></pre></div><pre class="rust"><code><span class="doccomment">//! # Configuration Options
 //!
 //! This module defines configuration options.
 //!
@@ -375,12 +371,42 @@
 <span class="attr">#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 </span><span class="kw">pub struct </span>TestParams {
     <span class="kw">pub </span>should_run_state_manager: bool,
+    <span class="kw">pub </span>all_verifiers_secret_keys: Vec&lt;SecretKey&gt;,
+    <span class="kw">pub </span>all_operators_secret_keys: Vec&lt;SecretKey&gt;,
 }
 
 <span class="kw">impl </span>Default <span class="kw">for </span>TestParams {
     <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
         <span class="self">Self </span>{
             should_run_state_manager: <span class="bool-val">true</span>,
+            all_verifiers_secret_keys: <span class="macro">vec!</span>[
+                SecretKey::from_str(
+                    <span class="string">"1111111111111111111111111111111111111111111111111111111111111111"</span>,
+                )
+                .expect(<span class="string">"known valid input"</span>),
+                SecretKey::from_str(
+                    <span class="string">"2222222222222222222222222222222222222222222222222222222222222222"</span>,
+                )
+                .expect(<span class="string">"known valid input"</span>),
+                SecretKey::from_str(
+                    <span class="string">"3333333333333333333333333333333333333333333333333333333333333333"</span>,
+                )
+                .expect(<span class="string">"known valid input"</span>),
+                SecretKey::from_str(
+                    <span class="string">"4444444444444444444444444444444444444444444444444444444444444444"</span>,
+                )
+                .expect(<span class="string">"known valid input"</span>),
+            ],
+            all_operators_secret_keys: <span class="macro">vec!</span>[
+                SecretKey::from_str(
+                    <span class="string">"1111111111111111111111111111111111111111111111111111111111111111"</span>,
+                )
+                .expect(<span class="string">"known valid input"</span>),
+                SecretKey::from_str(
+                    <span class="string">"2222222222222222222222222222222222222222222222222222222222222222"</span>,
+                )
+                .expect(<span class="string">"known valid input"</span>),
+            ],
         }
     }
 }
@@ -481,11 +507,6 @@
     /// Aggregator's client cert should be equal to the this certificate.
     </span><span class="kw">pub </span>aggregator_cert_path: PathBuf,
 
-    <span class="doccomment">/// All Secret keys. Just for testing purposes.
-    </span><span class="kw">pub </span>all_verifiers_secret_keys: <span class="prelude-ty">Option</span>&lt;Vec&lt;SecretKey&gt;&gt;,
-    <span class="doccomment">/// All Secret keys. Just for testing purposes.
-    </span><span class="kw">pub </span>all_operators_secret_keys: <span class="prelude-ty">Option</span>&lt;Vec&lt;SecretKey&gt;&gt;,
-
     <span class="attr">#[cfg(test)]
     #[serde(skip)]
     </span><span class="kw">pub </span>test_params: TestParams,
@@ -570,35 +591,6 @@
                 pks: <span class="macro">vec!</span>[<span class="kw-2">*</span>UNSPENDABLE_XONLY_PUBKEY],
                 threshold: <span class="number">1</span>,
             },
-
-            all_verifiers_secret_keys: <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[
-                SecretKey::from_str(
-                    <span class="string">"1111111111111111111111111111111111111111111111111111111111111111"</span>,
-                )
-                .expect(<span class="string">"known valid input"</span>),
-                SecretKey::from_str(
-                    <span class="string">"2222222222222222222222222222222222222222222222222222222222222222"</span>,
-                )
-                .expect(<span class="string">"known valid input"</span>),
-                SecretKey::from_str(
-                    <span class="string">"3333333333333333333333333333333333333333333333333333333333333333"</span>,
-                )
-                .expect(<span class="string">"known valid input"</span>),
-                SecretKey::from_str(
-                    <span class="string">"4444444444444444444444444444444444444444444444444444444444444444"</span>,
-                )
-                .expect(<span class="string">"known valid input"</span>),
-            ]),
-            all_operators_secret_keys: <span class="prelude-val">Some</span>(<span class="macro">vec!</span>[
-                SecretKey::from_str(
-                    <span class="string">"1111111111111111111111111111111111111111111111111111111111111111"</span>,
-                )
-                .expect(<span class="string">"known valid input"</span>),
-                SecretKey::from_str(
-                    <span class="string">"2222222222222222222222222222222222222222222222222222222222222222"</span>,
-                )
-                .expect(<span class="string">"known valid input"</span>),
-            ]),
 
             winternitz_secret_key: <span class="prelude-val">Some</span>(
                 SecretKey::from_str(

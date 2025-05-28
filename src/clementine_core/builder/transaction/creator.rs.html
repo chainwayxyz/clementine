@@ -2159,7 +2159,7 @@
         txs_operator_can_sign
             .extend((<span class="number">0</span>..verifiers.len()).map(TransactionType::WatchtowerChallengeTimeout));
 
-        <span class="kw">let </span>all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap();
+        <span class="kw">let </span>all_operators_secret_keys = <span class="kw-2">&amp;</span>config.test_params.all_operators_secret_keys;
         <span class="kw">let </span>operator_xonly_pks: Vec&lt;XOnlyPublicKey&gt; = all_operators_secret_keys
             .iter()
             .map(|<span class="kw-2">&amp;</span>sk| {
