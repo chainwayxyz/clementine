@@ -3,8 +3,10 @@ use crate::bitvm_client::{self, SECP};
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::{KickoffData, TransactionType};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
+use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
+use crate::states::round;
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
     create_tx_sender, ensure_outpoint_spent,
@@ -38,6 +40,13 @@ use citrea_e2e::{
     test_case::{TestCase, TestCaseRunner},
     Result,
 };
+use once_cell::sync::Lazy;
+
+static PROTOCOL_PARAMSET: Lazy<ProtocolParamset> = Lazy::new(|| {
+    let mut paramset = ProtocolParamset::default();
+    paramset.disprove_timeout_timelock = 65535;
+    paramset
+});
 
 struct AdditionalDisproveTest;
 #[async_trait]
@@ -97,8 +106,13 @@ impl TestCase for AdditionalDisproveTest {
                 .unwrap();
 
         let mut config = create_test_config_with_thread_name().await;
+        config.protocol_paramset = &PROTOCOL_PARAMSET;
+        config.test_params.disrupt_block_hash_commit = true;
 
-        config.test_params.disrupt_block_hash_commit = false;
+        tracing::debug!(
+            "disprove timeout is set to: {:?}",
+            config.protocol_paramset().disprove_timeout_timelock
+        );
 
         let lc_prover = lc_prover.unwrap();
         let batch_prover = batch_prover.unwrap();
@@ -248,10 +262,7 @@ impl TestCase for AdditionalDisproveTest {
         .await
         .unwrap();
 
-        tracing::info!("Params: {:?}", params);
-
         let withdrawal_utxo = withdrawal_utxo_with_txout.outpoint;
-        tracing::debug!("Created withdrawal UTXO: {:?}", withdrawal_utxo);
 
         // Without a withdrawal in Citrea, operator can't withdraw.
         assert!(operators[0]
@@ -415,11 +426,6 @@ impl TestCase for AdditionalDisproveTest {
             .await?
             .expect("Payout must be handled");
 
-        let reimburse_connector = OutPoint {
-            txid: kickoff_txid,
-            vout: UtxoVout::ReimburseInKickoff.get_vout(),
-        };
-
         // wait 3 seconds so fee payer txs are sent to mempool
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         // mine 1 block to make sure the fee payer txs are in the next block
@@ -517,38 +523,32 @@ impl TestCase for AdditionalDisproveTest {
             .wait_for_l1_height(kickoff_block_height as u64, None)
             .await?;
 
-        // Ensure the reimburse connector is spent
+        let first_assert_utxo = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::Assert(0).get_vout(),
+        };
+
         ensure_outpoint_spent_while_waiting_for_light_client_sync(
             &rpc,
             lc_prover,
-            reimburse_connector,
+            first_assert_utxo,
         )
         .await
         .unwrap();
 
-        // Create assert transactions for operator 0
         let assert_txs = operators[0]
             .internal_create_assert_commitment_txs(base_tx_req)
             .await?
             .into_inner();
 
-        // check if asserts were sent due to challenge
-        let operator_assert_txids = (0
-            ..bitvm_client::ClementineBitVMPublicKeys::number_of_assert_txs())
-            .map(|i| {
-                let assert_tx =
-                    get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(i))
-                        .unwrap();
-                assert_tx.compute_txid()
-            })
-            .collect::<Vec<Txid>>();
-        for (idx, txid) in operator_assert_txids.into_iter().enumerate() {
-            assert!(
-                rpc.is_txid_in_chain(&txid).await.unwrap(),
-                "Mini assert {} was not found in the chain",
-                idx
-            );
-        }
+        let assert_tx =
+            get_tx_from_signed_txs_with_type(&assert_txs, TransactionType::MiniAssert(0)).unwrap();
+        let txid = assert_tx.compute_txid();
+
+        assert!(
+            rpc.is_txid_in_chain(&txid).await.unwrap(),
+            "Mini assert 0 was not found in the chain",
+        );
 
         let disprove_outpoint = OutPoint {
             txid: kickoff_txid,
@@ -562,6 +562,20 @@ impl TestCase for AdditionalDisproveTest {
         )
         .await
         .unwrap();
+
+        let round_txid = kickoff_tx.input[0].previous_output.txid;
+
+        let burn_connector = OutPoint {
+            txid: round_txid,
+            vout: UtxoVout::BurnConnector.get_vout(),
+        };
+
+        let disprove_tx = rpc.client.get_raw_transaction(&txid, None).await?;
+
+        assert!(
+            disprove_tx.input[1].previous_output == burn_connector,
+            "Disprove tx input does not match burn connector outpoint"
+        );
 
         tracing::info!("Disprove txid: {:?}", txid);
 

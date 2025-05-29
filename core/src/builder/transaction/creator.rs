@@ -17,7 +17,7 @@ use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use bitcoin::hashes::Hash;
-use bitcoin::key::{Secp256k1, TapTweak};
+use bitcoin::key::Secp256k1;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{OutPoint, XOnlyPublicKey};
 use bitvm::clementine::additional_disprove::{
@@ -244,11 +244,6 @@ impl ReimburseDbCache {
             .ok_or(BridgeError::InvalidChallengeAckHashes)?;
 
         let bitvm_keys = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
-
-        tracing::info!(
-            "bride circut method id constant: {:?}",
-            self.paramset.bridge_circuit_method_id_constant
-        );
 
         let script = create_additional_replacable_disprove_script_with_dummy(
             self.paramset.bridge_circuit_method_id_constant,
@@ -555,8 +550,7 @@ pub async fn create_txhandlers(
                         .get_nofn_xonly_pk()
                         .expect("nofn key must exist"),
                 ),
-                paramset
-                    .watchtower_challenge_timeout_timelock,
+                paramset.watchtower_challenge_timeout_timelock,
             ));
 
             let builder = TaprootBuilder::new();
@@ -570,8 +564,6 @@ pub async fn create_txhandlers(
         })
         .collect::<Vec<_>>();
 
-    tracing::info!{"watchtower_pubkeys - create tx handler: {:?}", watchtower_pubkeys};
-
     let deposit_constant = deposit_constant(
         operator_xonly_pk.serialize(),
         watchtower_challenge_start_idx,
@@ -580,6 +572,13 @@ pub async fn create_txhandlers(
         round_txid,
         vout,
         context.paramset.genesis_chain_state_hash,
+    );
+
+    tracing::debug!(
+        "Deposit constant for {:?}: {:?} - depoist outpoint: {:?}",
+        operator_xonly_pk,
+        deposit_constant.0,
+        deposit_data.get_deposit_outpoint(),
     );
 
     let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)
