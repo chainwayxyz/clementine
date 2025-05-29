@@ -175,9 +175,27 @@ pub fn prove_bridge_circuit(
     let circuit_g16_proof = CircuitGroth16Proof::from_seal(risc0_g16_256);
     let ark_groth16_proof: ark_groth16::Proof<Bn254> = circuit_g16_proof.into();
 
+    let deposit_constant = public_inputs.deposit_constant;
 
+    tracing::info!("Deposit constant: {:?}", deposit_constant.0);
 
     tracing::info!("Latest block hash: {:?}", public_inputs.latest_block_hash.0);
+    tracing::info!(
+        "Challenge sending watchtowers: {:?}",
+        public_inputs.challenge_sending_watchtowers.0
+    );
+
+    tracing::info!(
+        "Payout tx block hash: {:?}",
+        public_inputs.payout_tx_block_hash.0
+    );
+
+    tracing::info!(
+        "Combined method ID constant: {:?}",
+        combined_method_id_constant
+    );
+
+    tracing::info!("g16 public output: {:?}", g16_output);
 
     (
         ark_groth16_proof,

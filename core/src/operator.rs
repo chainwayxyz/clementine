@@ -1182,9 +1182,7 @@ where
         #[cfg(test)]
         {
             if self.config.test_params.disrupt_block_hash_commit {
-                tracing::info!(
-                    "Correcting latest blockhash for testing purposes",
-                );
+                tracing::info!("Correcting latest blockhash for testing purposes",);
                 latest_blockhash[19] ^= 0x01;
             }
         }

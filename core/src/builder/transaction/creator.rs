@@ -6,7 +6,7 @@ use super::{remove_txhandler_from_map, DepositData, KickoffData, RoundTxInput};
 use crate::actor::Actor;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder;
-use crate::builder::script::WinternitzCommit;
+use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
 use crate::builder::transaction::{
     create_assert_timeout_txhandlers, create_challenge_timeout_txhandler, create_kickoff_txhandler,
     create_mini_asserts, create_round_txhandler, create_unspent_kickoff_txhandlers, AssertScripts,
@@ -17,6 +17,8 @@ use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::PublicHash;
 use bitcoin::hashes::Hash;
+use bitcoin::key::{Secp256k1, TapTweak};
+use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{OutPoint, XOnlyPublicKey};
 use bitvm::clementine::additional_disprove::{
     create_additional_replacable_disprove_script_with_dummy, replace_placeholders_in_script,
@@ -242,6 +244,11 @@ impl ReimburseDbCache {
             .ok_or(BridgeError::InvalidChallengeAckHashes)?;
 
         let bitvm_keys = ClementineBitVMPublicKeys::from_flattened_vec(&bitvm_wpks);
+
+        tracing::info!(
+            "bride circut method id constant: {:?}",
+            self.paramset.bridge_circuit_method_id_constant
+        );
 
         let script = create_additional_replacable_disprove_script_with_dummy(
             self.paramset.bridge_circuit_method_id_constant,
@@ -533,13 +540,37 @@ pub async fn create_txhandlers(
         .get_txid()
         .to_byte_array();
 
-    let vout = kickoff_data.kickoff_idx;
+    let vout = kickoff_data.kickoff_idx + 1; // TODO: Extract directly from round tx - not safe
     let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+    let secp = Secp256k1::verification_only();
+
     let watchtower_xonly_pk = deposit_data.get_watchtowers();
     let watchtower_pubkeys = watchtower_xonly_pk
         .iter()
-        .map(|xonly_pk| xonly_pk.serialize())
+        .map(|xonly_pk| {
+            let nofn_2week = Arc::new(TimelockScript::new(
+                Some(
+                    deposit_data
+                        .clone()
+                        .get_nofn_xonly_pk()
+                        .expect("nofn key must exist"),
+                ),
+                paramset
+                    .watchtower_challenge_timeout_timelock,
+            ));
+
+            let builder = TaprootBuilder::new();
+            let tweaked = builder
+                .add_leaf(0, nofn_2week.to_script_buf())
+                .expect("Valid script leaf")
+                .finalize(&secp, *xonly_pk)
+                .expect("taproot finalize must succeed");
+
+            tweaked.output_key().serialize()
+        })
         .collect::<Vec<_>>();
+
+    tracing::info!{"watchtower_pubkeys - create tx handler: {:?}", watchtower_pubkeys};
 
     let deposit_constant = deposit_constant(
         operator_xonly_pk.serialize(),

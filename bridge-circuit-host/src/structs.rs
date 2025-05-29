@@ -219,7 +219,7 @@ fn get_wt_inputs(
         .collect()
 }
 
-fn get_all_pubkeys(
+pub fn get_all_pubkeys(
     kickoff_tx: &Transaction,
     watchtower_challenge_connector_start_idx: u16,
 ) -> Result<Vec<XOnlyPublicKey>, BridgeCircuitHostParamsError> {
@@ -309,6 +309,15 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
         .txid
         .to_byte_array();
 
+    if input.kickoff_tx.input[0]
+        .previous_output
+        .txid
+        .to_byte_array()
+        != round_txid
+    {
+        panic!("Kickoff transaction input does not match the expected round txid");
+    }
+
     let kickff_round_vout = input.kickoff_tx.input[0].previous_output.vout;
 
     let operator_xonlypk: [u8; 32] = parse_op_return_data(&last_output.script_pubkey)
@@ -316,11 +325,22 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
         .try_into()
         .expect("Invalid operator xonlypk");
 
+    let deposit_value_bytes: [u8; 32] = deposit_storage_proof.value.to_be_bytes::<32>();
+
+    tracing::info!("all inputs of the deposit constant");
+    tracing::info!("{:?}", operator_xonlypk);
+    tracing::info!("{:?}", input.watchtower_challenge_connector_start_idx);
+    tracing::info!("{:?}", input.all_tweaked_watchtower_pubkeys);
+    tracing::info!("{:?}", deposit_value_bytes);
+    tracing::info!("{:?}", round_txid);
+    tracing::info!("{:?}", kickff_round_vout);
+    tracing::info!("{:?}", input.hcp.genesis_state_hash);
+
     deposit_constant(
         operator_xonlypk,
         input.watchtower_challenge_connector_start_idx,
         &input.all_tweaked_watchtower_pubkeys,
-        deposit_storage_proof.value.to_be_bytes(),
+        deposit_value_bytes,
         round_txid,
         kickff_round_vout,
         input.hcp.genesis_state_hash,

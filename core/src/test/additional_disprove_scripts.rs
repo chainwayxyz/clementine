@@ -7,7 +7,9 @@ use crate::database::Database;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
+    create_tx_sender, ensure_outpoint_spent,
+    ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
+    get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
 use crate::test::common::{
@@ -96,7 +98,7 @@ impl TestCase for AdditionalDisproveTest {
 
         let mut config = create_test_config_with_thread_name().await;
 
-        config.test_params.disrupt_block_hash_commit = true;
+        config.test_params.disrupt_block_hash_commit = false;
 
         let lc_prover = lc_prover.unwrap();
         let batch_prover = batch_prover.unwrap();
@@ -547,6 +549,22 @@ impl TestCase for AdditionalDisproveTest {
                 idx
             );
         }
+
+        let disprove_outpoint = OutPoint {
+            txid: kickoff_txid,
+            vout: UtxoVout::Disprove.get_vout(),
+        };
+
+        let txid = get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync(
+            &rpc,
+            lc_prover,
+            disprove_outpoint,
+        )
+        .await
+        .unwrap();
+
+        tracing::info!("Disprove txid: {:?}", txid);
+
         Ok(())
     }
 }
