@@ -55,7 +55,7 @@ jobs:
         uses: aig787/cargo-udeps-action@v1
         with:
           version: "latest"
-          args: "--workspace --all-features --all-targets $AUTOMATION_ARGS"
+          args: "--workspace --all-features --all-targets ${{ env.AUTOMATION_ARGS }}"
 
   docs:
     name: Check documentation build
