@@ -577,7 +577,7 @@ pub fn get_available_port() -> u16 {
 // Mock implementation of the Owner trait for testing
 #[derive(Debug, Clone, Default)]
 pub struct MockOwner {
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     cached_duties: std::sync::Arc<tokio::sync::Mutex<Vec<crate::states::Duty>>>,
 }
 
@@ -592,7 +592,7 @@ impl NamedEntity for MockOwner {
     const ENTITY_NAME: &'static str = "test_owner";
 }
 
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 mod states {
     use super::*;
     use crate::builder::block_cache;

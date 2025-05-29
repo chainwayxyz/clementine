@@ -758,7 +758,7 @@ impl Aggregator {
         Ok(combined_stop_tx)
     }
 
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     pub async fn send_emergency_stop_tx(
         &self,
         tx: bitcoin::Transaction,
@@ -920,7 +920,7 @@ impl ClementineAggregator for Aggregator {
             let opt_payout_txhandler = opt_payout_txhandler.promote()?;
             let opt_payout_tx = opt_payout_txhandler.get_cached_tx();
 
-            #[cfg(feature = "state-machine")]
+            #[cfg(feature = "automation")]
             {
                 tracing::info!("Sending optimistic payout tx via tx_sender");
 
@@ -958,11 +958,11 @@ impl ClementineAggregator for Aggregator {
         &self,
         request: Request<clementine::SendTxRequest>,
     ) -> Result<Response<Empty>, Status> {
-        #[cfg(not(feature = "state-machine"))]
+        #[cfg(not(feature = "automation"))]
         {
             Err(Status::unimplemented("Automation is not enabled"))
         }
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         {
             let send_tx_req = request.into_inner();
             let fee_type = send_tx_req.fee_type();
@@ -1428,7 +1428,7 @@ impl ClementineAggregator for Aggregator {
         &self,
         request: Request<clementine::SendMoveTxRequest>,
     ) -> Result<Response<clementine::Txid>, Status> {
-        #[cfg(not(feature = "state-machine"))]
+        #[cfg(not(feature = "automation"))]
         {
             let _ = request;
             return Err(Status::unimplemented(
@@ -1436,7 +1436,7 @@ impl ClementineAggregator for Aggregator {
             ));
         }
 
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         {
             let request = request.into_inner();
             let movetx = bitcoin::consensus::deserialize(

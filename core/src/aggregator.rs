@@ -1,7 +1,7 @@
 use crate::builder::transaction::DepositData;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::{DepositParams, OperatorKeysWithDeposit};
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 use crate::tx_sender::TxSenderClient;
 use crate::{
     builder::{self},
@@ -37,7 +37,7 @@ pub struct Aggregator {
     pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     pub(crate) tx_sender: TxSenderClient,
     operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
@@ -90,7 +90,7 @@ impl Aggregator {
         )
         .await?;
 
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(db.clone(), "aggregator".to_string());
 
         tracing::info!(
@@ -109,7 +109,7 @@ impl Aggregator {
             rpc,
             db,
             config,
-            #[cfg(feature = "state-machine")]
+            #[cfg(feature = "automation")]
             tx_sender,
             verifier_clients,
             operator_clients,

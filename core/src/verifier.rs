@@ -26,7 +26,7 @@ use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
 use crate::utils::TxMetadata;
@@ -85,7 +85,7 @@ where
         .await?;
 
         // initialize and run automation features
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         {
             // TODO: Removing index causes to remove the index from the tx_sender handle as well
             let tx_sender = TxSender::new(
@@ -146,7 +146,7 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     pub tx_sender: TxSenderClient,
     pub header_chain_prover: Option<HeaderChainProver>,
     pub citrea_client: C,
@@ -186,7 +186,7 @@ where
         };
 
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
         let header_chain_prover = if std::env::var("ENABLE_HEADER_CHAIN_PROVER").is_ok() {
@@ -201,7 +201,7 @@ where
             db: db.clone(),
             config: config.clone(),
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
-            #[cfg(feature = "state-machine")]
+            #[cfg(feature = "automation")]
             tx_sender,
             header_chain_prover,
             citrea_client,
@@ -395,7 +395,7 @@ where
                 .await?;
         }
 
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         {
             let operator_data = OperatorData {
                 xonly_pk: operator_xonly_pk,
@@ -1261,7 +1261,7 @@ where
                 | TransactionType::KickoffNotFinalized
                 | TransactionType::LatestBlockhashTimeout
                 | TransactionType::OperatorChallengeNack(_) => {
-                    #[cfg(feature = "state-machine")]
+                    #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
                             dbtx,
@@ -1360,35 +1360,34 @@ where
             )
             .await?;
 
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         {
-        let mut dbtx = self.db.begin_transaction().await?;
+            let mut dbtx = self.db.begin_transaction().await?;
 
-        self.tx_sender
-            .add_tx_to_queue(
-                &mut dbtx,
-                tx_type,
-                &challenge_tx,
-                &[],
-                Some(TxMetadata {
+            self.tx_sender
+                .add_tx_to_queue(
+                    &mut dbtx,
                     tx_type,
-                    operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
-                    round_idx: Some(kickoff_data.round_idx),
-                    kickoff_idx: Some(kickoff_data.kickoff_idx),
-                    deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                }),
-                &self.config,
-                Some(rbf_info),
-            )
-            .await?;
+                    &challenge_tx,
+                    &[],
+                    Some(TxMetadata {
+                        tx_type,
+                        operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
+                        round_idx: Some(kickoff_data.round_idx),
+                        kickoff_idx: Some(kickoff_data.kickoff_idx),
+                        deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
+                    }),
+                    &self.config,
+                    Some(rbf_info),
+                )
+                .await?;
 
-        dbtx.commit().await?;
+            dbtx.commit().await?;
             tracing::info!(
                 "Commited watchtower challenge, commit data: {:?}",
                 commit_data
             );
         }
-   
 
         Ok(())
     }
@@ -1563,7 +1562,7 @@ where
                 if used_kickoffs.contains(&kickoff_idx) {
                     continue;
                 }
-                #[cfg(feature = "state-machine")]
+                #[cfg(feature = "automation")]
                 self.tx_sender
                     .add_tx_to_queue(
                         &mut dbtx,
@@ -1595,7 +1594,7 @@ where
     const ENTITY_NAME: &'static str = "verifier";
 }
 
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 mod states {
     use super::*;
     use crate::builder::transaction::{

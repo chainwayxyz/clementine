@@ -4,7 +4,7 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
-  AUTOMATION_ARGS: --feature state-machine
+  AUTOMATION_ARGS: --feature automation
   CARGOFLAGS: --workspace --all-targets
   CARGOFLAGS_AUTOMATION: --workspace --all-targets $AUTOMATION_ARGS
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error

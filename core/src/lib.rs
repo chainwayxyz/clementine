@@ -26,10 +26,10 @@ pub mod musig2;
 pub mod operator;
 pub mod rpc;
 pub mod servers;
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 pub mod states;
 pub mod task;
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 pub mod tx_sender;
 pub mod utils;
 pub mod verifier;

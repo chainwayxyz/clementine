@@ -48,7 +48,7 @@ use eyre::{Context, OptionExt};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 use crate::{
     builder::transaction::ContractContext,
     states::StateManager,
@@ -56,7 +56,7 @@ use crate::{
     tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
     utils::{FeePayingType, TxMetadata},
 };
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 use bitcoin::Witness;
 
 pub type SecretPreimage = [u8; 20];
@@ -75,7 +75,7 @@ pub struct Operator<C: CitreaClientT> {
     pub config: BridgeConfig,
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     pub tx_sender: TxSenderClient,
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -90,7 +90,7 @@ where
         let mut background_tasks = BackgroundTaskManager::default();
 
         // initialize and run state manager
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         {
             let paramset = config.protocol_paramset();
             let state_manager =
@@ -122,7 +122,7 @@ where
         tracing::info!("Payout checker task started");
 
         // track the operator's round state
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         {
             operator.track_rounds().await?;
             tracing::info!("Operator round state tracked");
@@ -161,7 +161,7 @@ where
         )
         .await?;
 
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         let tx_sender = TxSenderClient::new(
             db.clone(),
             format!("operator_{:?}", signer.xonly_public_key).to_string(),
@@ -268,7 +268,7 @@ where
             signer,
             config,
             collateral_funding_outpoint,
-            #[cfg(feature = "state-machine")]
+            #[cfg(feature = "automation")]
             tx_sender,
             citrea_client,
             header_chain_prover,
@@ -276,7 +276,7 @@ where
         })
     }
 
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     pub async fn send_initial_round_tx(&self, round_tx: &Transaction) -> Result<(), BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
         self.tx_sender
@@ -347,7 +347,7 @@ where
             .clone()
             .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
 
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         self.send_initial_round_tx(first_round_tx.get_cached_tx())
             .await?;
 
@@ -419,7 +419,7 @@ where
     }
 
     /// Creates the round state machine by adding a system event to the database
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     pub async fn track_rounds(&self) -> Result<(), BridgeError> {
         let mut dbtx = self.db.begin_transaction().await?;
         // set operators own kickoff winternitz public keys before creating the round state machine
@@ -821,7 +821,7 @@ where
                 | TransactionType::ChallengeTimeout
                 | TransactionType::DisproveTimeout
                 | TransactionType::Reimburse => {
-                    #[cfg(feature = "state-machine")]
+                    #[cfg(feature = "automation")]
                     self.tx_sender
                         .add_tx_to_queue(
                             dbtx,
@@ -859,7 +859,7 @@ where
         Ok(kickoff_txid)
     }
 
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     pub async fn end_round<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,
@@ -1057,7 +1057,7 @@ where
         Ok(())
     }
 
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     async fn send_asserts(
         &self,
         kickoff_data: KickoffData,
@@ -1329,7 +1329,7 @@ where
         Ok(())
     }
 
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     fn data(&self) -> OperatorData {
         OperatorData {
             xonly_pk: self.signer.xonly_public_key,
@@ -1338,7 +1338,7 @@ where
         }
     }
 
-    #[cfg(feature = "state-machine")]
+    #[cfg(feature = "automation")]
     async fn send_latest_blockhash(
         &self,
         kickoff_data: KickoffData,
@@ -1389,7 +1389,7 @@ where
     const ENTITY_NAME: &'static str = "operator";
 }
 
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 mod states {
     use super::*;
     use crate::builder::transaction::{

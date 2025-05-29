@@ -44,9 +44,9 @@ use tonic::Request;
 
 pub mod citrea;
 mod setup_utils;
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 pub mod tx_utils;
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 /// Generate a random XOnlyPublicKey

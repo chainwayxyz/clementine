@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.85.0"
 
 [features]
-state-machine = []
+automation = []
 
 [build-dependencies]
 tonic-build = "0.12"

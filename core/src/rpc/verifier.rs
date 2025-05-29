@@ -508,7 +508,7 @@ where
         &self,
         request: tonic::Request<super::TxDebugRequest>,
     ) -> std::result::Result<tonic::Response<super::TxDebugInfo>, tonic::Status> {
-        #[cfg(not(feature = "state-machine"))]
+        #[cfg(not(feature = "automation"))]
         {
             Err(tonic::Status::unimplemented(
                 "Automation is not enabled, TxSender is not running.",
@@ -516,7 +516,7 @@ where
         }
 
         // Get debug info from tx_sender
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         {
             let tx_id = request.into_inner().tx_id;
 

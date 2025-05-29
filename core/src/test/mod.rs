@@ -1,11 +1,11 @@
 pub mod common;
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 mod deposit_and_withdraw_e2e;
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 mod full_flow;
 mod musig2;
 mod rpc_auth;
-#[cfg(feature = "state-machine")]
+#[cfg(feature = "automation")]
 mod state_manager;
 mod taproot;
 mod withdraw;

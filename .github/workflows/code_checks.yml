@@ -3,7 +3,7 @@ name: Code Checks
 on: [push]
 
 env:
-  AUTOMATION_ARGS: --feature state-machine
+  AUTOMATION_ARGS: --feature automation
   CARGO_TERM_COLOR: always
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1

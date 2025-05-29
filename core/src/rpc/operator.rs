@@ -296,7 +296,7 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Empty>, Status> {
-        #[cfg(feature = "state-machine")]
+        #[cfg(feature = "automation")]
         {
             let mut dbtx = self.operator.db.begin_transaction().await?;
 
@@ -306,9 +306,9 @@ where
             Ok(Response::new(Empty {}))
         }
 
-        #[cfg(not(feature = "state-machine"))]
+        #[cfg(not(feature = "automation"))]
         Err(Status::unimplemented(
-            "This method is only available in state-machine mode",
+            "This method is only available in automation mode",
         ))
     }
 
