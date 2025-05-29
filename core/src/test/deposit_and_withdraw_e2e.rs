@@ -25,7 +25,7 @@ use crate::test::common::{
     poll_get, poll_until_condition, run_single_deposit,
 };
 use crate::test::full_flow::get_tx_from_signed_txs_with_type;
-use crate::tx_sender::{FeePayingType, TxMetadata};
+use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
     extended_rpc::ExtendedRpc,

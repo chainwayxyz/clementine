@@ -19,8 +19,8 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::VerifierDepositSignParams;
 use crate::rpc::parser;
-use crate::tx_sender::{FeePayingType, TxMetadata};
 use crate::utils::get_vergen_response;
+use crate::utils::{FeePayingType, TxMetadata};
 use crate::UTXO;
 use crate::{
     aggregator::Aggregator,
@@ -758,6 +758,7 @@ impl Aggregator {
         Ok(combined_stop_tx)
     }
 
+    #[cfg(feature = "state-machine")]
     pub async fn send_emergency_stop_tx(
         &self,
         tx: bitcoin::Transaction,
@@ -918,25 +919,31 @@ impl ClementineAggregator for Aggregator {
             opt_payout_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 1, 0)?;
             let opt_payout_txhandler = opt_payout_txhandler.promote()?;
             let opt_payout_tx = opt_payout_txhandler.get_cached_tx();
-            let mut dbtx = self.db.begin_transaction().await?;
-            self.tx_sender
-                .add_tx_to_queue(
-                    &mut dbtx,
-                    TransactionType::OptimisticPayout,
-                    opt_payout_tx,
-                    &[],
-                    None,
-                    &self.config,
-                    None,
-                )
-                .await
-                .map_err(BridgeError::from)?;
-            dbtx.commit().await.map_err(|e| {
-                Status::internal(format!(
-                    "Failed to commit db transaction to send optimistic payout tx: {}",
-                    e
-                ))
-            })?;
+
+            #[cfg(feature = "state-machine")]
+            {
+                tracing::info!("Sending optimistic payout tx via tx_sender");
+
+                let mut dbtx = self.db.begin_transaction().await?;
+                self.tx_sender
+                    .add_tx_to_queue(
+                        &mut dbtx,
+                        TransactionType::OptimisticPayout,
+                        opt_payout_tx,
+                        &[],
+                        None,
+                        &self.config,
+                        None,
+                    )
+                    .await
+                    .map_err(BridgeError::from)?;
+                dbtx.commit().await.map_err(|e| {
+                    Status::internal(format!(
+                        "Failed to commit db transaction to send optimistic payout tx: {}",
+                        e
+                    ))
+                })?;
+            }
 
             Ok(Response::new(RawSignedTx::from(opt_payout_tx)))
         } else {
@@ -951,31 +958,39 @@ impl ClementineAggregator for Aggregator {
         &self,
         request: Request<clementine::SendTxRequest>,
     ) -> Result<Response<Empty>, Status> {
-        let send_tx_req = request.into_inner();
-        let fee_type = send_tx_req.fee_type();
-        let signed_tx: bitcoin::Transaction = send_tx_req
-            .raw_tx
-            .ok_or(Status::invalid_argument("Missing raw_tx"))?
-            .try_into()?;
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .insert_try_to_send(
-                &mut dbtx,
-                None,
-                &signed_tx,
-                fee_type.try_into()?,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
-            .await
-            .map_err(BridgeError::from)?;
-        dbtx.commit()
-            .await
-            .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
-        Ok(Response::new(Empty {}))
+        #[cfg(not(feature = "state-machine"))]
+        {
+            Err(Status::unimplemented("Automation is not enabled"))
+        }
+        #[cfg(feature = "state-machine")]
+        {
+            let send_tx_req = request.into_inner();
+            let fee_type = send_tx_req.fee_type();
+            let signed_tx: bitcoin::Transaction = send_tx_req
+                .raw_tx
+                .ok_or(Status::invalid_argument("Missing raw_tx"))?
+                .try_into()?;
+
+            let mut dbtx = self.db.begin_transaction().await?;
+            self.tx_sender
+                .insert_try_to_send(
+                    &mut dbtx,
+                    None,
+                    &signed_tx,
+                    fee_type.try_into()?,
+                    None,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                )
+                .await
+                .map_err(BridgeError::from)?;
+            dbtx.commit()
+                .await
+                .map_err(|e| Status::internal(format!("Failed to commit db transaction: {}", e)))?;
+            Ok(Response::new(Empty {}))
+        }
     }
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

@@ -11,7 +11,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::{BridgeError, TxError};
 use crate::operator::Operator;
-use crate::tx_sender::RbfSigningInfo;
+use crate::utils::RbfSigningInfo;
 use crate::verifier::Verifier;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, OutPoint, Transaction, XOnlyPublicKey};

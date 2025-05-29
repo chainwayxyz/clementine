@@ -25,7 +25,7 @@ use crate::header_chain_prover::HeaderChainProver;
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::payout_checker::{PayoutCheckerTask, PAYOUT_CHECKER_POLL_DELAY};
 use crate::task::TaskExt;
-use crate::utils::NamedEntity;
+use crate::utils::{NamedEntity, TxMetadata};
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
@@ -53,9 +53,8 @@ use crate::{
     builder::transaction::ContractContext,
     states::StateManager,
     task::IntoTask,
-    tx_sender::{
-        ActivatedWithOutpoint, ActivatedWithTxid, FeePayingType, TxMetadata, TxSenderClient,
-    },
+    tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
+    utils::{FeePayingType, TxMetadata},
 };
 #[cfg(feature = "state-machine")]
 use bitcoin::Witness;
@@ -76,6 +75,7 @@ pub struct Operator<C: CitreaClientT> {
     pub config: BridgeConfig,
     pub collateral_funding_outpoint: OutPoint,
     pub(crate) reimburse_addr: Address,
+    #[cfg(feature = "state-machine")]
     pub tx_sender: TxSenderClient,
     pub header_chain_prover: HeaderChainProver,
     pub citrea_client: C,
@@ -161,6 +161,7 @@ where
         )
         .await?;
 
+        #[cfg(feature = "state-machine")]
         let tx_sender = TxSenderClient::new(
             db.clone(),
             format!("operator_{:?}", signer.xonly_public_key).to_string(),
@@ -267,11 +268,38 @@ where
             signer,
             config,
             collateral_funding_outpoint,
+            #[cfg(feature = "state-machine")]
             tx_sender,
             citrea_client,
             header_chain_prover,
             reimburse_addr,
         })
+    }
+
+    #[cfg(feature = "state-machine")]
+    pub async fn send_initial_round_tx(&self, round_tx: &Transaction) -> Result<(), BridgeError> {
+        let mut dbtx = self.db.begin_transaction().await?;
+        self.tx_sender
+            .insert_try_to_send(
+                &mut dbtx,
+                Some(TxMetadata {
+                    tx_type: TransactionType::Round,
+                    operator_xonly_pk: None,
+                    round_idx: Some(0),
+                    kickoff_idx: None,
+                    deposit_outpoint: None,
+                }),
+                round_tx,
+                FeePayingType::CPFP,
+                None,
+                &[],
+                &[],
+                &[],
+                &[],
+            )
+            .await?;
+        dbtx.commit().await?;
+        Ok(())
     }
 
     /// Returns an operator's winternitz public keys and challenge ackpreimages
@@ -319,27 +347,9 @@ where
             .clone()
             .tx_sign_and_fill_sigs(&mut first_round_tx, &[], None)?;
 
-        let mut dbtx = self.db.begin_transaction().await?;
-        self.tx_sender
-            .insert_try_to_send(
-                &mut dbtx,
-                Some(TxMetadata {
-                    tx_type: TransactionType::Round,
-                    operator_xonly_pk: None,
-                    round_idx: Some(0),
-                    kickoff_idx: None,
-                    deposit_outpoint: None,
-                }),
-                first_round_tx.get_cached_tx(),
-                FeePayingType::CPFP,
-                None,
-                &[],
-                &[],
-                &[],
-                &[],
-            )
+        #[cfg(feature = "state-machine")]
+        self.send_initial_round_tx(first_round_tx.get_cached_tx())
             .await?;
-        dbtx.commit().await?;
 
         tokio::spawn(async move {
             for wpk in wpks {
@@ -811,6 +821,7 @@ where
                 | TransactionType::ChallengeTimeout
                 | TransactionType::DisproveTimeout
                 | TransactionType::Reimburse => {
+                    #[cfg(feature = "state-machine")]
                     self.tx_sender
                         .add_tx_to_queue(
                             dbtx,
@@ -848,6 +859,7 @@ where
         Ok(kickoff_txid)
     }
 
+    #[cfg(feature = "state-machine")]
     pub async fn end_round<'a>(
         &'a self,
         dbtx: DatabaseTransaction<'a, '_>,

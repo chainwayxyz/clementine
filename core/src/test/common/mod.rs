@@ -27,7 +27,7 @@ use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::clementine::{Deposit, Empty, SendMoveTxRequest};
 use crate::rpc::clementine::{NormalSignatureKind, TaggedSignature};
-use crate::tx_sender::FeePayingType;
+use crate::utils::FeePayingType;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::key::Keypair;
@@ -41,11 +41,13 @@ use secp256k1::rand;
 pub use setup_utils::*;
 use tonic::transport::Channel;
 use tonic::Request;
-use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 pub mod citrea;
 mod setup_utils;
+#[cfg(feature = "state-machine")]
 pub mod tx_utils;
+#[cfg(feature = "state-machine")]
+use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
 /// Generate a random XOnlyPublicKey
 pub fn generate_random_xonly_pk() -> XOnlyPublicKey {

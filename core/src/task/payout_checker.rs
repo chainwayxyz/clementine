@@ -70,6 +70,7 @@ where
             .await?;
 
         // TODO: Remove this, for now, we can end round after handling a single payout
+        #[cfg(feature = "state-machine")]
         self.operator.end_round(&mut dbtx).await?;
 
         self.db

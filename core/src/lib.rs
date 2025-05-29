@@ -4,6 +4,7 @@
 //! Clementine Core provides core functionalities for Clementine to operate.
 
 #![allow(clippy::too_many_arguments)]
+#![allow(warnings)]
 
 use bitcoin::{OutPoint, Txid};
 use serde::{Deserialize, Serialize};

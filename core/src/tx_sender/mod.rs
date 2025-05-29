@@ -8,11 +8,13 @@ use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::ResultExt;
+use crate::utils::FeePayingType;
 use crate::{
     actor::Actor,
     builder::{self, transaction::TransactionType},
     database::Database,
     extended_rpc::ExtendedRpc,
+    utils::TxMetadata,
 };
 
 #[cfg(test)]
@@ -61,33 +63,6 @@ pub struct TxSender {
     cached_spendinfo: TaprootSpendInfo,
 }
 
-/// Information to re-sign an RBF transaction.
-/// Specifically the merkle root of the taproot to keyspend with and the output index of the utxo to be
-/// re-signed.
-///
-/// - Not needed for SinglePlusAnyoneCanPay RBF txs.
-/// - Not needed for CPFP.
-/// - Only signs for a keypath spend
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct RbfSigningInfo {
-    pub vout: u32,
-    pub tweak_merkle_root: Option<TapNodeHash>,
-}
-
-/// Specifies the fee bumping strategy used for a transaction.
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, sqlx::Type)]
-#[sqlx(type_name = "fee_paying_type", rename_all = "lowercase")]
-pub enum FeePayingType {
-    /// Child-Pays-For-Parent: A new "child" transaction is created, spending an output
-    /// from the original "parent" transaction. The child pays a high fee, sufficient
-    /// to cover both its own cost and the parent's fee deficit, incentivizing miners
-    /// to confirm both together. Specifically, we utilize "fee payer" UTXOs.
-    CPFP,
-    /// Replace-By-Fee: The original unconfirmed transaction is replaced with a new
-    /// version that includes a higher fee. The original transaction must signal
-    /// RBF enablement (e.g., via nSequence). Bitcoin Core's `bumpfee` RPC is often used.
-    RBF,
-}
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ActivatedWithTxid {
@@ -101,33 +76,6 @@ pub struct ActivatedWithOutpoint {
     pub relative_block_height: u32,
 }
 
-#[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct TxMetadata {
-    pub deposit_outpoint: Option<OutPoint>,
-    pub operator_xonly_pk: Option<XOnlyPublicKey>,
-    pub round_idx: Option<u32>,
-    pub kickoff_idx: Option<u32>,
-    pub tx_type: TransactionType,
-}
-impl std::fmt::Debug for TxMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut dbg_struct = f.debug_struct("TxMetadata");
-        if let Some(deposit_outpoint) = self.deposit_outpoint {
-            dbg_struct.field("deposit_outpoint", &deposit_outpoint);
-        }
-        if let Some(operator_xonly_pk) = self.operator_xonly_pk {
-            dbg_struct.field("operator_xonly_pk", &operator_xonly_pk);
-        }
-        if let Some(round_idx) = self.round_idx {
-            dbg_struct.field("round_idx", &round_idx);
-        }
-        if let Some(kickoff_idx) = self.kickoff_idx {
-            dbg_struct.field("kickoff_idx", &kickoff_idx);
-        }
-        dbg_struct.field("tx_type", &self.tx_type);
-        dbg_struct.finish()
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum SendTxError {

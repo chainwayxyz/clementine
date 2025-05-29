@@ -26,8 +26,10 @@ use crate::header_chain_prover::{HeaderChainProver, HeaderChainProverError};
 use crate::rpc::clementine::{NormalSignatureKind, OperatorKeys, TaggedSignature};
 use crate::task::manager::BackgroundTaskManager;
 use crate::task::IntoTask;
-use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
+#[cfg(feature = "state-machine")]
+use crate::tx_sender::{TxSender, TxSenderClient};
 use crate::utils::NamedEntity;
+use crate::utils::TxMetadata;
 use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_RETURN;
@@ -82,20 +84,19 @@ where
         )
         .await?;
 
-        // TODO: Removing index causes to remove the index from the tx_sender handle as well
-        let tx_sender = TxSender::new(
-            verifier.signer.clone(),
-            rpc.clone(),
-            verifier.db.clone(),
-            "verifier_".to_string(),
-            config.protocol_paramset().network,
-        );
-
-        background_tasks.loop_and_monitor(tx_sender.into_task());
-
-        // initialize and run state manager
+        // initialize and run automation features
         #[cfg(feature = "state-machine")]
         {
+            // TODO: Removing index causes to remove the index from the tx_sender handle as well
+            let tx_sender = TxSender::new(
+                verifier.signer.clone(),
+                rpc.clone(),
+                verifier.db.clone(),
+                "verifier_".to_string(),
+                config.protocol_paramset().network,
+            );
+
+            background_tasks.loop_and_monitor(tx_sender.into_task());
             let state_manager = crate::states::StateManager::new(
                 db.clone(),
                 verifier.clone(),
@@ -145,6 +146,7 @@ pub struct Verifier<C: CitreaClientT> {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
+    #[cfg(feature = "state-machine")]
     pub tx_sender: TxSenderClient,
     pub header_chain_prover: Option<HeaderChainProver>,
     pub citrea_client: C,
@@ -184,6 +186,7 @@ where
         };
 
         // TODO: Removing index causes to remove the index from the tx_sender handle as well
+        #[cfg(feature = "state-machine")]
         let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
 
         let header_chain_prover = if std::env::var("ENABLE_HEADER_CHAIN_PROVER").is_ok() {
@@ -198,6 +201,7 @@ where
             db: db.clone(),
             config: config.clone(),
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
+            #[cfg(feature = "state-machine")]
             tx_sender,
             header_chain_prover,
             citrea_client,
@@ -1257,6 +1261,7 @@ where
                 | TransactionType::KickoffNotFinalized
                 | TransactionType::LatestBlockhashTimeout
                 | TransactionType::OperatorChallengeNack(_) => {
+                    #[cfg(feature = "state-machine")]
                     self.tx_sender
                         .add_tx_to_queue(
                             dbtx,
@@ -1355,7 +1360,10 @@ where
             )
             .await?;
 
+        #[cfg(feature = "state-machine")]
+        {
         let mut dbtx = self.db.begin_transaction().await?;
+
         self.tx_sender
             .add_tx_to_queue(
                 &mut dbtx,
@@ -1375,10 +1383,12 @@ where
             .await?;
 
         dbtx.commit().await?;
-        tracing::info!(
-            "Commited watchtower challenge, commit data: {:?}",
-            commit_data
-        );
+            tracing::info!(
+                "Commited watchtower challenge, commit data: {:?}",
+                commit_data
+            );
+        }
+   
 
         Ok(())
     }
@@ -1553,6 +1563,7 @@ where
                 if used_kickoffs.contains(&kickoff_idx) {
                     continue;
                 }
+                #[cfg(feature = "state-machine")]
                 self.tx_sender
                     .add_tx_to_queue(
                         &mut dbtx,

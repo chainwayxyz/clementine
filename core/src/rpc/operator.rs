@@ -296,10 +296,20 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Empty>, Status> {
-        let mut dbtx = self.operator.db.begin_transaction().await?;
-        self.operator.end_round(&mut dbtx).await?;
-        dbtx.commit().await.expect("Failed to commit transaction");
-        Ok(Response::new(Empty {}))
+        #[cfg(feature = "state-machine")]
+        {
+            let mut dbtx = self.operator.db.begin_transaction().await?;
+
+            self.operator.end_round(&mut dbtx).await?;
+
+            dbtx.commit().await.expect("Failed to commit transaction");
+            Ok(Response::new(Empty {}))
+        }
+
+        #[cfg(not(feature = "state-machine"))]
+        Err(Status::unimplemented(
+            "This method is only available in state-machine mode",
+        ))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

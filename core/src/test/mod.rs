@@ -1,5 +1,7 @@
 pub mod common;
+#[cfg(feature = "state-machine")]
 mod deposit_and_withdraw_e2e;
+#[cfg(feature = "state-machine")]
 mod full_flow;
 mod musig2;
 mod rpc_auth;
