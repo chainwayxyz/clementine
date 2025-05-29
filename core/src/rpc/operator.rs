@@ -308,7 +308,7 @@ where
 
         #[cfg(not(feature = "automation"))]
         Err(Status::unimplemented(
-            "This method is only available in automation mode",
+            "Automation is not enabled. Operator does not manage its rounds",
         ))
     }
 
