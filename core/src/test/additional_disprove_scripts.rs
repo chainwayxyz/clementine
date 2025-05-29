@@ -1,16 +1,14 @@
 use super::common::citrea::get_bridge_params;
-use crate::bitvm_client::{self, SECP};
+use crate::bitvm_client::SECP;
 use crate::builder::transaction::input::UtxoVout;
 use crate::builder::transaction::{KickoffData, TransactionType};
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
 use crate::config::protocol::ProtocolParamset;
 use crate::database::Database;
 use crate::rpc::clementine::{TransactionRequest, WithdrawParams};
-use crate::states::round;
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent,
-    ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
+    create_tx_sender, ensure_outpoint_spent_while_waiting_for_light_client_sync,
     get_txid_where_utxo_is_spent_while_waiting_for_light_client_sync,
     mine_once_after_outpoint_spent_in_mempool,
 };
@@ -42,10 +40,9 @@ use citrea_e2e::{
 };
 use once_cell::sync::Lazy;
 
-static PROTOCOL_PARAMSET: Lazy<ProtocolParamset> = Lazy::new(|| {
-    let mut paramset = ProtocolParamset::default();
-    paramset.disprove_timeout_timelock = 65535;
-    paramset
+static PROTOCOL_PARAMSET: Lazy<ProtocolParamset> = Lazy::new(|| ProtocolParamset {
+    disprove_timeout_timelock: 65535,
+    ..Default::default()
 });
 
 struct AdditionalDisproveTest;
