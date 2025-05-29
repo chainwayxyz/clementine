@@ -1488,6 +1488,7 @@ mod tests {
     use crate::citrea::mock::MockCitreaClient;
     use crate::musig2::AggregateFromPublicKeys;
     use crate::rpc::clementine::{self, RawSignedTx, SendMoveTxRequest};
+    use crate::test::common::tx_utils::ensure_tx_onchain;
     use crate::test::common::*;
     use crate::{builder, EVMAddress};
     use bitcoin::hashes::Hash;
@@ -1821,6 +1822,9 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
         sleep(Duration::from_secs(3)).await;
+        ensure_tx_onchain(rpc, move_txid_0)
+            .await
+            .expect("failed to get movetx_0 on chain");
 
         // Generate and broadcast the move-to-vault tx for the second deposit
         let raw_move_tx_1 = aggregator
@@ -1840,6 +1844,9 @@ mod tests {
             .unwrap();
 
         rpc.mine_blocks(1).await.unwrap();
+        ensure_tx_onchain(rpc, move_txid_1)
+            .await
+            .expect("failed to get movetx_1 on chain");
         sleep(Duration::from_secs(3)).await;
 
         let move_txids = vec![move_txid_0, move_txid_1];
