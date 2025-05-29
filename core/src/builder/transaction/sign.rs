@@ -431,13 +431,8 @@ where
         #[cfg(test)]
         {
             if self.config.test_params.disrupt_block_hash_commit {
-                tracing::info!(
-                    "Disrupting block hash commitment for testing purposes"
-                );
-                tracing::info!(
-                    "Original block hash: {:?}",
-                    block_hash
-                );
+                tracing::info!("Disrupting block hash commitment for testing purposes");
+                tracing::info!("Original block hash: {:?}", block_hash);
                 block_hash[31] ^= 0x01;
             }
         }
@@ -461,7 +456,7 @@ where
 
         let latest_blockhash_txhandler = latest_blockhash_txhandler.promote()?;
 
-        // log the block hash witness 
+        // log the block hash witness
         tracing::info!(
             "Latest blockhash tx created with block hash witness: {:?}",
             latest_blockhash_txhandler.get_cached_tx().input

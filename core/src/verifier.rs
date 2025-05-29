@@ -2,7 +2,10 @@ use crate::actor::{verify_schnorr, Actor, TweakCache, WinternitzDerivationPath};
 use crate::bitcoin_syncer::BitcoinSyncer;
 use crate::bitvm_client::ClementineBitVMPublicKeys;
 use crate::builder::address::{create_taproot_address, taproot_builder_with_scripts};
-use crate::builder::script::{extract_winternitz_commits, SpendableScript, WinternitzCommit};
+use crate::builder::script::{
+    extract_winternitz_commits, extract_winternitz_commits_with_sigs, SpendableScript,
+    TimelockScript, WinternitzCommit,
+};
 use crate::builder::sighash::{
     create_nofn_sighash_stream, create_operator_sighash_stream, PartialSignatureInfo, SignatureInfo,
 };
@@ -31,14 +34,18 @@ use crate::task::IntoTask;
 use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
 use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
+use bitcoin::key::{Secp256k1, TapTweak};
 use bitcoin::opcodes::all::OP_RETURN;
+use bitcoin::opcodes::OP_TRUE;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
-use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
+use bitcoin::taproot::{LeafVersion, TaprootBuilder};
+use bitcoin::{Address, Amount, Script, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
-use bitvm::clementine::additional_disprove::{replace_placeholders_in_script, validate_assertions_for_additional_script};
+use bitvm::clementine::additional_disprove::{
+    replace_placeholders_in_script, validate_assertions_for_additional_script,
+};
 use bitvm::signatures::winternitz;
-use bridge_circuit_host::config;
 use circuits_lib::bridge_circuit::groth16::CircuitGroth16Proof;
 use circuits_lib::bridge_circuit::{deposit_constant, parse_op_return_data};
 use circuits_lib::common::constants::{FIRST_FIVE_OUTPUTS, NUMBER_OF_ASSERT_TXS};
@@ -1629,8 +1636,9 @@ where
                     self.config.protocol_paramset(),
                 );
                 let mut db_cache = ReimburseDbCache::from_context(self.db.clone(), &context);
+
                 let txhandlers = create_txhandlers(
-                    TransactionType::Kickoff,
+                    TransactionType::AllNeededForDeposit,
                     context,
                     &mut TxHandlerCache::new(),
                     &mut db_cache,
@@ -1649,16 +1657,54 @@ where
                     .get_txid()
                     .to_byte_array();
 
-                let vout = kickoff_data.kickoff_idx;
+                let vout = kickoff_data.kickoff_idx + 1;
 
-                let watchtower_challenge_start_idx = (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+                let watchtower_challenge_start_idx =
+                    (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
+
+                let secp = Secp256k1::verification_only();
 
                 let watchtower_xonly_pk = deposit_data.get_watchtowers();
                 let watchtower_pubkeys = watchtower_xonly_pk
                     .iter()
-                    .map(|xonly_pk| xonly_pk.serialize())
+                    .map(|xonly_pk| {
+                        // Create timelock script that this watchtower key will commit to
+                        let nofn_2week = Arc::new(TimelockScript::new(
+                            Some(
+                                deposit_data
+                                    .clone()
+                                    .get_nofn_xonly_pk()
+                                    .expect("nofn key must exist"),
+                            ),
+                            self.config
+                                .protocol_paramset
+                                .watchtower_challenge_timeout_timelock,
+                        ));
+
+                        let builder = TaprootBuilder::new();
+                        let tweaked = builder
+                            .add_leaf(0, nofn_2week.to_script_buf())
+                            .expect("Valid script leaf")
+                            .finalize(&secp, *xonly_pk)
+                            .expect("taproot finalize must succeed");
+
+                        tweaked.output_key().serialize()
+                    })
                     .collect::<Vec<_>>();
-                
+
+                tracing::info!("all inputs of the deposit constant");
+
+                tracing::info!("{:?}", kickoff_data.operator_xonly_pk.serialize());
+                tracing::info!("{:?}", watchtower_challenge_start_idx);
+                tracing::info!("{:?}", watchtower_pubkeys);
+                tracing::info!("{:?}", move_txid);
+                tracing::info!("{:?}", round_txid);
+                tracing::info!("{:?}", vout);
+                tracing::info!(
+                    "{:?}",
+                    self.config.protocol_paramset.genesis_chain_state_hash
+                );
+
                 let deposit_constant = deposit_constant(
                     kickoff_data.operator_xonly_pk.serialize(),
                     watchtower_challenge_start_idx,
@@ -1669,12 +1715,17 @@ where
                     self.config.protocol_paramset.genesis_chain_state_hash,
                 );
 
-                let kickoff_winternitz_keys = reimburse_db_cache.get_kickoff_winternitz_keys().await?.clone();
-                
-                let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(kickoff_data.round_idx as usize)
-                    [kickoff_data.kickoff_idx as usize]
+                tracing::info!("Deposit constant - verifier: {:?}", deposit_constant);
+
+                let kickoff_winternitz_keys = reimburse_db_cache
+                    .get_kickoff_winternitz_keys()
+                    .await?
                     .clone();
 
+                let payout_tx_blockhash_pk = kickoff_winternitz_keys
+                    .get_keys_for_round(kickoff_data.round_idx as usize)
+                    [kickoff_data.kickoff_idx as usize]
+                    .clone();
 
                 let replaceable_additional_disprove_script = reimburse_db_cache
                     .get_replaceable_additional_disprove_script()
@@ -1686,19 +1737,103 @@ where
                     deposit_constant.0,
                 );
 
-                let g16_public_input_signature = operator_asserts
-                    .get(&1)
-                    .wrap_err("No g16 public input signature found in operator asserts")?;
+                let witness = operator_asserts
+                    .get(&0)
+                    .wrap_err("No witness found in operator asserts")?
+                    .clone();
 
-                let challenge_sending_watchtowers_signature = operator_asserts.get(&0).wrap_err(
-                    "No challenge sending watchtowers signature found in operator asserts",
+                let deposit_outpoint = deposit_data.get_deposit_outpoint();
+                let paramset = self.config.protocol_paramset();
+
+                let commits = extract_winternitz_commits_with_sigs(
+                    witness,
+                    &[
+                        WinternitzDerivationPath::BitvmAssert(
+                            20 * 2,
+                            2,
+                            0,
+                            deposit_outpoint,
+                            paramset,
+                        ),
+                        WinternitzDerivationPath::BitvmAssert(
+                            32 * 2,
+                            3,
+                            0,
+                            deposit_outpoint,
+                            paramset,
+                        ),
+                        WinternitzDerivationPath::BitvmAssert(
+                            32 * 2,
+                            4,
+                            12,
+                            deposit_outpoint,
+                            paramset,
+                        ),
+                        WinternitzDerivationPath::BitvmAssert(
+                            32 * 2,
+                            4,
+                            13,
+                            deposit_outpoint,
+                            paramset,
+                        ),
+                        WinternitzDerivationPath::BitvmAssert(
+                            16 * 2,
+                            5,
+                            360,
+                            deposit_outpoint,
+                            paramset,
+                        ),
+                        WinternitzDerivationPath::BitvmAssert(
+                            16 * 2,
+                            5,
+                            361,
+                            deposit_outpoint,
+                            paramset,
+                        ),
+                        WinternitzDerivationPath::BitvmAssert(
+                            16 * 2,
+                            5,
+                            362,
+                            deposit_outpoint,
+                            paramset,
+                        ),
+                    ],
+                    self.config.protocol_paramset(),
                 )?;
+
+                let mut challenge_sending_watchtowers_signature = Witness::new();
+                let len = commits.len();
+
+                for elem in commits[len - 1].iter() {
+                    challenge_sending_watchtowers_signature.push(elem);
+                }
+
+                tracing::info!(
+                    "Challenge sending watchtowers signature: {:?}",
+                    challenge_sending_watchtowers_signature
+                );
+
+                let mut g16_public_input_signature = Witness::new();
+
+                for elem in commits[len - 2].iter() {
+                    g16_public_input_signature.push(elem);
+                }
+
+                tracing::info!(
+                    "G16 public input signature: {:?}",
+                    g16_public_input_signature
+                );
 
                 let num_of_watchtowers = deposit_data.get_num_watchtowers();
 
                 let mut operator_acks_vec: Vec<Option<[u8; 20]>> = vec![None; num_of_watchtowers];
 
                 for (idx, witness) in operator_acks.iter() {
+                    tracing::info!(
+                        "Processing operator ack for idx: {}, witness: {:?}",
+                        idx,
+                        witness
+                    );
                     let pre_image: [u8; 20] = witness
                         .nth(1)
                         .wrap_err("No pre-image found in operator ack witness")?
@@ -1715,17 +1850,41 @@ where
                     operator_acks_vec[*idx] = Some(pre_image);
                 }
 
-                // latest blockhash 
-                tracing::info!(
-                    "latest blockhash witbess {:?}",
-                    latest_blockhash
-                );
+                let latest_blockhash: Vec<Vec<u8>> = latest_blockhash
+                    .iter()
+                    .skip(1)
+                    .take(88)
+                    .map(|x| x.to_vec())
+                    .collect();
+
+                let mut latest_blockhash_new = Witness::new();
+                for element in latest_blockhash {
+                    latest_blockhash_new.push(element);
+                }
+
+                let payout_blockhash: Vec<Vec<u8>> = payout_blockhash
+                    .iter()
+                    .skip(1)
+                    .take(88)
+                    .map(|x| x.to_vec())
+                    .collect();
+
+                let mut payout_blockhash_new = Witness::new();
+                for element in payout_blockhash {
+                    payout_blockhash_new.push(element);
+                }
+
+                // latest blockhash
+                tracing::info!("latest blockhash witbess {:?}", latest_blockhash_new);
+
+                // payout blockhash
+                tracing::info!("payout blockhash witbess {:?}", payout_blockhash_new);
 
                 let additional_disprove_witness = validate_assertions_for_additional_script(
                     additional_disprove_script.clone(),
                     g16_public_input_signature.clone(),
-                    payout_blockhash.clone(),
-                    latest_blockhash.clone(),
+                    payout_blockhash_new.clone(),
+                    latest_blockhash_new.clone(),
                     challenge_sending_watchtowers_signature.clone(),
                     operator_acks_vec,
                 );
@@ -1740,6 +1899,19 @@ where
                         .get(&TransactionType::Disprove)
                         .wrap_err("Disprove txhandler not found in txhandlers")?
                         .clone();
+
+                    let disprove_input = additional_disprove_witness
+                        .iter()
+                        .map(|x| x.to_vec())
+                        .collect::<Vec<_>>();
+
+                    let result =
+                        disprove_txhandler.set_p2tr_script_spend_witness(&disprove_input, 0, 1);
+
+                    if let Err(e) = result {
+                        tracing::error!("Error setting disprove input witness: {:?}", e);
+                        return Err(e);
+                    }
 
                     let operators_sig = self
                         .db
@@ -1770,9 +1942,9 @@ where
                         return Err(e);
                     }
 
-                    let mut disprove_tx = disprove_txhandler.get_cached_tx().clone();
+                    let disprove_tx = disprove_txhandler.get_cached_tx().clone();
 
-                    disprove_tx.input[0].witness = additional_disprove_witness;
+                    tracing::info!("Disprove_tx: {:?}", disprove_tx.compute_txid());
 
                     tracing::debug!(
                         "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
@@ -1807,7 +1979,7 @@ where
                     "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?},
                     operator_acks: {:?}, payout_blockhash: {:?}, latest_blockhash: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(),
-                    payout_blockhash.len(), latest_blockhash.len()
+                    payout_blockhash_new.len(), latest_blockhash_new.len()
                 );
 
                 Ok(DutyResult::Handled)

@@ -123,6 +123,10 @@ mod tests {
             &groth16_public_input_wsk,
             TEST_GROTH16_PUBLIC_INPUT.as_ref(),
         );
+        println!(
+            "Groth16 public input witness: {:?}",
+            groth16_public_input_witness
+        );
 
         let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &payout_tx_block_hash_params,
