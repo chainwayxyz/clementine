@@ -327,15 +327,6 @@ fn host_deposit_constant(input: &BridgeCircuitInput) -> DepositConstant {
 
     let deposit_value_bytes: [u8; 32] = deposit_storage_proof.value.to_be_bytes::<32>();
 
-    tracing::info!("all inputs of the deposit constant");
-    tracing::info!("{:?}", operator_xonlypk);
-    tracing::info!("{:?}", input.watchtower_challenge_connector_start_idx);
-    tracing::info!("{:?}", input.all_tweaked_watchtower_pubkeys);
-    tracing::info!("{:?}", deposit_value_bytes);
-    tracing::info!("{:?}", round_txid);
-    tracing::info!("{:?}", kickff_round_vout);
-    tracing::info!("{:?}", input.hcp.genesis_state_hash);
-
     deposit_constant(
         operator_xonlypk,
         input.watchtower_challenge_connector_start_idx,

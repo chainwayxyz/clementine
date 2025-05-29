@@ -1616,7 +1616,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/BitVM?rev=a2c0810429f6b93568b2140e5476d2d70b5db3be#a2c0810429f6b93568b2140e5476d2d70b5db3be"
+source = "git+https://github.com/chainwayxyz/BitVM?rev=0b15c5e7b6b4c16beda365d8c19825867666f712#0b15c5e7b6b4c16beda365d8c19825867666f712"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -2094,6 +2094,7 @@ dependencies = [
  "jsonrpsee",
  "lazy_static",
  "log",
+ "once_cell",
  "pgmq",
  "prost",
  "rand_chacha 0.3.1",

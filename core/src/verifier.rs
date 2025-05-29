@@ -34,14 +34,14 @@ use crate::task::IntoTask;
 use crate::tx_sender::{TxMetadata, TxSender, TxSenderClient};
 use crate::{musig2, UTXO};
 use bitcoin::hashes::Hash;
-use bitcoin::key::{Secp256k1, TapTweak};
+use bitcoin::key::Secp256k1;
 use bitcoin::opcodes::all::OP_RETURN;
-use bitcoin::opcodes::OP_TRUE;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
-use bitcoin::taproot::{LeafVersion, TaprootBuilder};
-use bitcoin::{Address, Amount, Script, ScriptBuf, Witness, XOnlyPublicKey};
+use bitcoin::taproot::TaprootBuilder;
+use bitcoin::{Address, Amount, ScriptBuf, Witness, XOnlyPublicKey};
 use bitcoin::{OutPoint, TxOut};
+use bitcoincore_rpc::RpcApi;
 use bitvm::clementine::additional_disprove::{
     replace_placeholders_in_script, validate_assertions_for_additional_script,
 };
@@ -1692,19 +1692,6 @@ where
                     })
                     .collect::<Vec<_>>();
 
-                tracing::info!("all inputs of the deposit constant");
-
-                tracing::info!("{:?}", kickoff_data.operator_xonly_pk.serialize());
-                tracing::info!("{:?}", watchtower_challenge_start_idx);
-                tracing::info!("{:?}", watchtower_pubkeys);
-                tracing::info!("{:?}", move_txid);
-                tracing::info!("{:?}", round_txid);
-                tracing::info!("{:?}", vout);
-                tracing::info!(
-                    "{:?}",
-                    self.config.protocol_paramset.genesis_chain_state_hash
-                );
-
                 let deposit_constant = deposit_constant(
                     kickoff_data.operator_xonly_pk.serialize(),
                     watchtower_challenge_start_idx,
@@ -1715,7 +1702,7 @@ where
                     self.config.protocol_paramset.genesis_chain_state_hash,
                 );
 
-                tracing::info!("Deposit constant - verifier: {:?}", deposit_constant);
+                tracing::debug!("Deposit constant: {:?}", deposit_constant);
 
                 let kickoff_winternitz_keys = reimburse_db_cache
                     .get_kickoff_winternitz_keys()
@@ -1808,21 +1795,11 @@ where
                     challenge_sending_watchtowers_signature.push(elem);
                 }
 
-                tracing::info!(
-                    "Challenge sending watchtowers signature: {:?}",
-                    challenge_sending_watchtowers_signature
-                );
-
                 let mut g16_public_input_signature = Witness::new();
 
                 for elem in commits[len - 2].iter() {
                     g16_public_input_signature.push(elem);
                 }
-
-                tracing::info!(
-                    "G16 public input signature: {:?}",
-                    g16_public_input_signature
-                );
 
                 let num_of_watchtowers = deposit_data.get_num_watchtowers();
 
@@ -1874,12 +1851,6 @@ where
                     payout_blockhash_new.push(element);
                 }
 
-                // latest blockhash
-                tracing::info!("latest blockhash witbess {:?}", latest_blockhash_new);
-
-                // payout blockhash
-                tracing::info!("payout blockhash witbess {:?}", payout_blockhash_new);
-
                 let additional_disprove_witness = validate_assertions_for_additional_script(
                     additional_disprove_script.clone(),
                     g16_public_input_signature.clone(),
@@ -1889,7 +1860,7 @@ where
                     operator_acks_vec,
                 );
 
-                tracing::info!(
+                tracing::debug!(
                     "Additional disprove witness: {:?}",
                     additional_disprove_witness
                 );
@@ -1944,30 +1915,20 @@ where
 
                     let disprove_tx = disprove_txhandler.get_cached_tx().clone();
 
-                    tracing::info!("Disprove_tx: {:?}", disprove_tx.compute_txid());
+                    tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
 
-                    tracing::debug!(
+                    tracing::info!(
                         "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
                         verifier_xonly_pk, kickoff_data, deposit_data
                     );
-                    let mut dbtx = self.db.begin_transaction().await?;
-                    self.tx_sender
-                        .add_tx_to_queue(
-                            &mut dbtx,
-                            TransactionType::Disprove,
-                            &disprove_tx,
-                            &[],
-                            Some(TxMetadata {
-                                tx_type: TransactionType::Disprove,
-                                operator_xonly_pk: Some(kickoff_data.operator_xonly_pk),
-                                round_idx: Some(kickoff_data.round_idx),
-                                kickoff_idx: Some(kickoff_data.kickoff_idx),
-                                deposit_outpoint: Some(deposit_data.get_deposit_outpoint()),
-                            }),
-                            &self.config,
-                            None,
-                        )
-                        .await?;
+
+                    let raw_tx = bitcoin::consensus::serialize(&disprove_tx);
+
+                    self.rpc
+                        .client
+                        .send_raw_transaction(&raw_tx)
+                        .await
+                        .wrap_err("Error sending disprove tx")?;
                 } else {
                     tracing::warn!(
                         "Verifier {:?} did not find additional disprove witness",
@@ -1975,7 +1936,7 @@ where
                     );
                 }
 
-                tracing::warn!(
+                tracing::info!(
                     "Verifier {:?} called verifier disprove with kickoff_data: {:?}, deposit_data: {:?}, operator_asserts: {:?},
                     operator_acks: {:?}, payout_blockhash: {:?}, latest_blockhash: {:?}",
                     verifier_xonly_pk, kickoff_data, deposit_data, operator_asserts.len(), operator_acks.len(),
