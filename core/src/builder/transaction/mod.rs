@@ -655,18 +655,19 @@ pub fn create_move_to_vault_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount - paramset.default_anchor_amount(),
+            paramset.bridge_amount,
             vec![nofn_script, security_council_script],
             None,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output(
-            paramset.default_anchor_amount(),
-        )))
+        // always use 0 sat anchor for move_tx, this will keep the amount in move to vault tx exactly the bridge amount
+        .add_output(UnspentTxOut::from_partial(anchor_output(Amount::from_sat(
+            0,
+        ))))
         .finalize())
 }
 
-/// Creates a [`TxHandlerBuilder`] for the `emergency_stop_tx`. This transaction will move
+/// Creates a [`TxHandler`] for the `emergency_stop_tx`. This transaction will move
 /// the funds to a the address controlled by the security council from the move to vault txout
 /// This transaction will be used to stop malicious activities if there is a security issue.
 pub fn create_emergency_stop_txhandler(
@@ -686,9 +687,7 @@ pub fn create_emergency_stop_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount
-                - paramset.default_anchor_amount()
-                - EACH_EMERGENCY_STOP_VBYTES * 3,
+            paramset.bridge_amount - paramset.anchor_amount() - EACH_EMERGENCY_STOP_VBYTES * 3,
             vec![Arc::new(Multisig::from_security_council(security_council))],
             None,
             paramset.network,
@@ -712,7 +711,7 @@ pub fn combine_emergency_stop_txhandler(
         .unzip();
 
     if add_anchor {
-        outputs.push(anchor_output(paramset.default_anchor_amount()));
+        outputs.push(anchor_output(paramset.anchor_amount()));
     }
 
     Transaction {
@@ -723,25 +722,31 @@ pub fn combine_emergency_stop_txhandler(
     }
 }
 
-/// Creates a [`TxHandlerBuilder`] for the `move_to_vault_tx`. This transaction will move
+/// Creates a [`TxHandler`] for the `move_to_vault_tx`. This transaction will move
 /// the funds to a NofN address from the deposit intent address, after all the signature
 /// collection operations are done.
+///
+/// # Arguments
+///
+/// * `old_move_txid` - The txid of the old move_to_vault transaction that is being replaced.
+/// * `input_outpoint` - The outpoint of the input to the replacement deposit tx that holds bridge amount.
+/// * `nofn_xonly_pk` - The N-of-N XOnlyPublicKey for the deposit.
+/// * `paramset` - The protocol paramset.
+/// * `security_council` - The security council.
 pub fn create_replacement_deposit_txhandler(
     old_move_txid: Txid,
+    input_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
     paramset: &'static ProtocolParamset,
     security_council: SecurityCouncil,
-) -> Result<TxHandlerBuilder, BridgeError> {
+) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::ReplacementDeposit)
         .with_version(Version::non_standard(3))
         .add_input(
             NormalSignatureKind::NoSignature,
             SpendableTxIn::from_scripts(
-                bitcoin::OutPoint {
-                    txid: old_move_txid,
-                    vout: 0,
-                },
-                paramset.bridge_amount - paramset.default_anchor_amount(),
+                input_outpoint,
+                paramset.bridge_amount,
                 vec![
                     Arc::new(CheckSig::new(nofn_xonly_pk)),
                     Arc::new(Multisig::from_security_council(security_council.clone())),
@@ -761,9 +766,11 @@ pub fn create_replacement_deposit_txhandler(
             None,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output(
-            paramset.default_anchor_amount(),
+        // always use 0 sat anchor for replacement deposit tx, this will keep the amount in replacement deposit tx exactly the bridge amount
+        .add_output(UnspentTxOut::from_partial(anchor_output(Amount::from_sat(
+            0,
         ))))
+        .finalize())
 }
 
 pub fn create_disprove_taproot_output(

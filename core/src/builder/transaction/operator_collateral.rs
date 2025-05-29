@@ -94,7 +94,7 @@ pub fn create_round_txhandler(
         input_amount
             - (paramset.kickoff_amount + paramset.default_utxo_amount())
                 * (paramset.num_kickoffs_per_round as u64)
-            - paramset.default_anchor_amount(),
+            - paramset.anchor_amount(),
         vec![],
         Some(operator_xonly_pk),
         paramset.network,
@@ -125,7 +125,7 @@ pub fn create_round_txhandler(
     }
     Ok(builder
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(paramset.default_anchor_amount()),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -163,7 +163,7 @@ pub fn create_assert_timeout_txhandlers(
                     DEFAULT_SEQUENCE,
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(paramset.default_anchor_amount()),
+                    builder::transaction::anchor_output(paramset.anchor_amount()),
                 ))
                 .finalize(),
         );
@@ -221,13 +221,13 @@ pub fn create_ready_to_reimburse_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            prev_value - paramset.default_anchor_amount(),
+            prev_value - paramset.anchor_amount(),
             vec![],
             Some(operator_xonly_pk),
             paramset.network,
         ))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(paramset.default_anchor_amount()),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -255,7 +255,7 @@ pub fn create_unspent_kickoff_txhandlers(
                     Sequence::from_height(1),
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(paramset.default_anchor_amount()),
+                    builder::transaction::anchor_output(paramset.anchor_amount()),
                 ))
                 .finalize(),
         );
@@ -289,7 +289,7 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
         }));
     }
     tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(
-        builder::transaction::anchor_output(paramset.default_anchor_amount()),
+        builder::transaction::anchor_output(paramset.anchor_amount()),
     ));
     Ok(tx_handler_builder.finalize())
 }

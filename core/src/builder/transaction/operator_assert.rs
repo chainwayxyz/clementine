@@ -29,7 +29,7 @@ pub fn create_disprove_timeout_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(anchor_output(
-            paramset.default_anchor_amount(),
+            paramset.anchor_amount(),
         )))
         .finalize())
 }
@@ -61,7 +61,7 @@ pub fn create_latest_blockhash_timeout_txhandler(
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(anchor_output(
-                paramset.default_anchor_amount(),
+                paramset.anchor_amount(),
             )))
             .finalize(),
     )
@@ -84,7 +84,7 @@ pub fn create_mini_asserts(
                     DEFAULT_SEQUENCE,
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(paramset.default_anchor_amount()),
+                    builder::transaction::anchor_output(paramset.anchor_amount()),
                 ))
                 .add_output(UnspentTxOut::from_partial(op_return_txout(b"")))
                 .finalize(),
@@ -106,7 +106,7 @@ pub fn create_latest_blockhash_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(anchor_output(
-            paramset.default_anchor_amount(),
+            paramset.anchor_amount(),
         )))
         .add_output(UnspentTxOut::from_partial(op_return_txout(b"")))
         .finalize())

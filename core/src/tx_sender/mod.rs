@@ -58,7 +58,7 @@ pub struct TxSender {
     pub rpc: ExtendedRpc,
     pub db: Database,
     pub btc_syncer_consumer_id: String,
-    paramset: ProtocolParamset,
+    paramset: &'static ProtocolParamset,
     cached_spendinfo: TaprootSpendInfo,
 }
 
@@ -152,7 +152,7 @@ impl TxSender {
         rpc: ExtendedRpc,
         db: Database,
         btc_syncer_consumer_id: String,
-        paramset: ProtocolParamset,
+        paramset: &'static ProtocolParamset,
     ) -> Self {
         Self {
             cached_spendinfo: builder::address::create_taproot_address(
@@ -269,11 +269,9 @@ impl TxSender {
     }
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
-        (output.value
-            == builder::transaction::anchor_output(self.paramset.default_anchor_amount()).value
+        (output.value == builder::transaction::anchor_output(self.paramset.anchor_amount()).value
             && output.script_pubkey
-                == builder::transaction::anchor_output(self.paramset.default_anchor_amount())
-                    .script_pubkey)
+                == builder::transaction::anchor_output(self.paramset.anchor_amount()).script_pubkey)
             || (output.value == builder::transaction::non_ephemeral_anchor_output().value
                 && output.script_pubkey
                     == builder::transaction::non_ephemeral_anchor_output().script_pubkey)
@@ -453,7 +451,7 @@ mod tests {
             rpc.clone(),
             db.clone(),
             "tx_sender".into(),
-            config.protocol_paramset().clone(),
+            config.protocol_paramset(),
         );
 
         (
@@ -542,13 +540,11 @@ mod tests {
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {
-                value: amount
-                    - builder::transaction::anchor_output(NON_EPHEMERAL_ANCHOR_AMOUNT).value
-                    - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
+                value: amount - NON_EPHEMERAL_ANCHOR_AMOUNT - MIN_TAPROOT_AMOUNT * 3, // buffer so that rbf works without adding inputs
                 script_pubkey: address.script_pubkey(), // In practice, should be the wallet address, not the signer address
             }))
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(NON_EPHEMERAL_ANCHOR_AMOUNT),
+                builder::transaction::non_ephemeral_anchor_output(),
             ))
             .finalize();
 
@@ -662,7 +658,7 @@ mod tests {
             rpc.clone(),
             db,
             "tx_sender".into(),
-            config.protocol_paramset().clone(),
+            config.protocol_paramset(),
         );
 
         let scripts: Vec<Arc<dyn SpendableScript>> =

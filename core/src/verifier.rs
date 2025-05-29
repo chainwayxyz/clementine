@@ -90,7 +90,7 @@ where
             rpc.clone(),
             verifier.db.clone(),
             "verifier_".to_string(),
-            config.protocol_paramset().clone(),
+            config.protocol_paramset(),
         );
 
         background_tasks.loop_and_monitor(tx_sender.into_task());
@@ -921,19 +921,15 @@ where
             return Err(eyre::eyre!("Deposit not found for id: {}", deposit_id).into());
         }
 
-        // self.config.protocol_paramset().bridge_amount - self.config.protocol_paramset().default_anchor_amount()
-        // is the sat value of output of move_tx
-        // NON_EPHEMERAL_ANCHOR_AMOUNT is the additional anchor that exists in optimistic payout tx
+        // amount in move_tx is exactly the bridge amount
         if output_amount
-            > self.config.protocol_paramset().bridge_amount
-                - self.config.protocol_paramset().default_anchor_amount()
-                - NON_EPHEMERAL_ANCHOR_AMOUNT
+            > self.config.protocol_paramset().bridge_amount - NON_EPHEMERAL_ANCHOR_AMOUNT
         {
             return Err(eyre::eyre!(
                 "Output amount is greater than the bridge amount: {} > {}",
                 output_amount,
                 self.config.protocol_paramset().bridge_amount
-                    - self.config.protocol_paramset().default_anchor_amount()
+                    - self.config.protocol_paramset().anchor_amount()
                     - NON_EPHEMERAL_ANCHOR_AMOUNT
             )
             .into());

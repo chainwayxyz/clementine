@@ -220,7 +220,7 @@ impl ProtocolParamset {
         }
     }
 
-    pub fn default_anchor_amount(&self) -> Amount {
+    pub fn anchor_amount(&self) -> Amount {
         if self.bridge_nonstandard {
             Amount::from_sat(0)
         } else {

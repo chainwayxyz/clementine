@@ -178,7 +178,7 @@ pub fn create_kickoff_txhandler(
         ));
         // UTXO for watchtower challenge or watchtower challenge timeouts
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            paramset.default_utxo_amount() * 2 + paramset.default_anchor_amount(), // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
+            paramset.default_utxo_amount() * 2 + paramset.anchor_amount(), // watchtower challenge has 2 taproot outputs, 1 op_return and 1 anchor
             vec![nofn_2week.clone()],
             Some(*watchtower_xonly_pk), // key path as watchtowers xonly pk
             paramset.network,
@@ -216,7 +216,7 @@ pub fn create_kickoff_txhandler(
     Ok(builder
         .add_output(UnspentTxOut::from_partial(op_return_txout))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(paramset.default_anchor_amount()),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -241,7 +241,7 @@ pub fn create_kickoff_not_finalized_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(paramset.default_anchor_amount()),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
@@ -287,7 +287,7 @@ pub fn create_reimburse_txhandler(
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(paramset.default_anchor_amount()),
+            builder::transaction::anchor_output(paramset.anchor_amount()),
         ))
         .finalize())
 }
