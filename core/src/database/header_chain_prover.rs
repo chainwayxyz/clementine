@@ -52,7 +52,7 @@ impl Database {
             let mut block_infos = Vec::with_capacity((batch_end - batch_start + 1) as usize);
             for height in batch_start..=batch_end {
                 let (block_hash, block_header) =
-                    rpc.get_block_header_by_height(height as u64).await?;
+                    rpc.get_block_info_by_height(height as u64).await?;
                 block_infos.push((block_hash, block_header, height));
             }
 
