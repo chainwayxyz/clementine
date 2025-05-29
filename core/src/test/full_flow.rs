@@ -1,3 +1,7 @@
+//! # Flow Tests
+//!
+//! This module contains tests that simulate typical flows of Clementine.
+
 use super::common::{create_test_config_with_thread_name, tx_utils::*};
 use crate::actor::Actor;
 use crate::bitvm_client::{self};
@@ -21,6 +25,7 @@ use tonic::Request;
 
 const BLOCKS_PER_DAY: u64 = 144;
 
+/// Makes a deposit and returns the necessary clients and parameters for further testing.
 async fn base_setup(
     config: &mut BridgeConfig,
     rpc: &ExtendedRpc,

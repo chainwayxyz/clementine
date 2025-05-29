@@ -244,3 +244,48 @@ pub async fn create_tx_sender(
     let tx_sender = TxSenderClient::new(db.clone(), format!("tx_sender_test_{}", verifier_index));
     Ok((tx_sender, db))
 }
+
+/// Finds fee payer utxos for a transaction and confirms them.
+pub async fn confirm_fee_payer_utxos(rpc: &ExtendedRpc, db: Database, txid: Txid) -> Result<()> {
+    let rpc_clone = rpc.clone();
+    poll_until_condition(
+        async move || {
+            let tx_id = db.get_id_from_txid(None, txid).await?.unwrap();
+            let fee_payer_utxos = db.get_bumpable_fee_payer_txs(None, tx_id).await?;
+            tracing::debug!(
+                "For TXID {:?}, fee payer utxos: {:?}",
+                txid,
+                fee_payer_utxos
+            );
+
+            if fee_payer_utxos.is_empty() {
+                tracing::error!("No fee payer utxos found in db for txid {}", txid);
+                return Ok(false);
+            }
+
+            for fee_payer in fee_payer_utxos.iter() {
+                let entry = rpc_clone.client.get_mempool_entry(&fee_payer.1).await;
+
+                if entry.is_err() {
+                    tracing::error!(
+                        "Fee payer utxo with id of {} and txid of {} is not in mempool: {:?}",
+                        fee_payer.0,
+                        fee_payer.1,
+                        entry
+                    );
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        },
+        None,
+        None,
+    )
+    .await?;
+
+    rpc.mine_blocks(1).await?;
+    tracing::debug!("Fee payer utxos are confirmed!");
+
+    Ok(())
+}

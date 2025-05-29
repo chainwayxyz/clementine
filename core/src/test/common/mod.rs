@@ -17,6 +17,7 @@ use crate::builder::transaction::{
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::CitreaClientT;
 use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
@@ -46,7 +47,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tonic::transport::Channel;
 use tonic::Request;
-use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
+use tx_utils::{confirm_fee_payer_utxos, create_tx_sender, get_txid_where_utxo_is_spent};
 
 pub mod citrea;
 mod setup_utils;
@@ -244,6 +245,11 @@ pub async fn run_single_deposit<C: CitreaClientT>(
     BridgeError,
 > {
     let (verifiers, operators, mut aggregator, cleanup) = create_actors::<C>(config).await;
+    let aggregator_db = Database::new(&BridgeConfig {
+        db_name: config.db_name.clone() + "0",
+        ..config.clone()
+    })
+    .await?;
 
     let user_evm_address = user_evm_address.unwrap_or(EVMAddress([1u8; 20]));
     let actor = Actor::new(
@@ -288,12 +294,7 @@ pub async fn run_single_deposit<C: CitreaClientT>(
         .into_inner()
         .try_into()?;
 
-    // Wait for some time to ensure fee-payer transaction is in mempool. Then,
-    // mine a block to confirm it.
-    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
-    rpc.mine_blocks(1).await?;
-
-    // Confirm move transaction.
+    confirm_fee_payer_utxos(&rpc, aggregator_db.clone(), move_txid).await?;
     mine_once_after_in_mempool(&rpc, move_txid, Some("Move tx"), None).await?;
 
     Ok((
@@ -409,11 +410,6 @@ pub async fn run_replacement_deposit(
     ),
     BridgeError,
 > {
-    let actor = Actor::new(
-        config.secret_key,
-        config.winternitz_secret_key,
-        config.protocol_paramset().network,
-    );
     let (
         verifiers,
         operators,
@@ -424,11 +420,15 @@ pub async fn run_replacement_deposit(
         _,
         verifiers_public_keys,
     ) = run_single_deposit::<MockCitreaClient>(config, rpc.clone(), evm_address).await?;
+    tracing::info!("First deposit move txid: {}", move_txid);
 
+    let actor = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.protocol_paramset().network,
+    );
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_musig2_pks(verifiers_public_keys.clone(), None)?;
-
-    tracing::info!("First deposit move txid: {}", move_txid);
 
     let (addr, _) = create_taproot_address(
         &[
