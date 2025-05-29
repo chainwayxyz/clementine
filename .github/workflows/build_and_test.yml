@@ -14,7 +14,7 @@ env:
 
 jobs:
   # Build ------------------------------------------------------------------------
-  debug_build:
+  debug_build_automation:
     name: Compile code with debug profile (Automation enabled)
     runs-on: ubicloud-standard-30
 
@@ -52,7 +52,7 @@ jobs:
       - name: Compile in release mode
         run: cargo build $CARGOFLAGS_AUTOMATION --verbose --release
 
-  release_build:
+  release_build_non_automation:
     name: Compile code with release profile (No features)
     runs-on: ubicloud-standard-30
 
@@ -112,7 +112,7 @@ jobs:
   release_build_test_automation:
     name: Test code with release build
     runs-on: ubicloud-standard-30
-    needs: release_build
+    needs: release_build_automation
 
     services:
       postgres:
@@ -149,7 +149,7 @@ jobs:
   bridge_circuit_release_build_test:
     name: Test bridge circuit host code with release build
     runs-on: ubicloud-standard-30
-    needs: release_build
+    needs: release_build_automation
 
     env:
       RISC0_DEV_MODE: 0
@@ -171,7 +171,7 @@ jobs:
   coverage:
     name: Coverage checks with Codecov
     runs-on: ubicloud-standard-30
-    needs: debug_build_test
+    needs: debug_build_test_automation
     if: github.event.pull_request.draft == false
 
     services:
