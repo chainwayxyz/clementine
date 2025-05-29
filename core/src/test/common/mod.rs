@@ -44,8 +44,8 @@ use tonic::Request;
 
 pub mod citrea;
 mod setup_utils;
-#[cfg(feature = "automation")]
 pub mod tx_utils;
+
 #[cfg(feature = "automation")]
 use tx_utils::{create_tx_sender, get_txid_where_utxo_is_spent};
 
