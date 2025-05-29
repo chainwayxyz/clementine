@@ -380,8 +380,8 @@ mod tests {
             hex::encode(default_config.bridge_circuit_method_id_constant),
         );
         std::env::set_var(
-            "BRIDGE_NON_STANDARD",
-            default_config.bridge_non_standard.to_string(),
+            "BRIDGE_NONSTANDARD",
+            default_config.bridge_nonstandard.to_string(),
         );
 
         assert_eq!(ProtocolParamset::from_env().unwrap(), default_config);

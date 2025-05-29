@@ -135,7 +135,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         "-maxtxfee=5".to_string(),
     ];
 
-    if config.protocol_paramset().bridge_non_standard {
+    if config.protocol_paramset().bridge_nonstandard {
         args.push("-dustrelayfee=0".to_string());
         args.push("-minrelaytxfee=0".to_string());
         args.push("-mintxfee=0".to_string());
