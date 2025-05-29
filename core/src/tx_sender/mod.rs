@@ -63,7 +63,6 @@ pub struct TxSender {
     cached_spendinfo: TaprootSpendInfo,
 }
 
-
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ActivatedWithTxid {
     pub txid: Txid,
@@ -75,7 +74,6 @@ pub struct ActivatedWithOutpoint {
     pub outpoint: OutPoint,
     pub relative_block_height: u32,
 }
-
 
 #[derive(Debug, thiserror::Error)]
 pub enum SendTxError {

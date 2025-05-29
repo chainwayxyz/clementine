@@ -17,7 +17,8 @@ use crate::rpc::clementine::{
     Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
 };
 use crate::test::common::*;
-use crate::tx_sender::{RbfSigningInfo, TxSenderClient};
+use crate::tx_sender::TxSenderClient;
+use crate::utils::RbfSigningInfo;
 use crate::EVMAddress;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::PublicKey;

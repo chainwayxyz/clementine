@@ -54,7 +54,7 @@ use crate::{
     states::StateManager,
     task::IntoTask,
     tx_sender::{ActivatedWithOutpoint, ActivatedWithTxid, TxSenderClient},
-    utils::{FeePayingType, TxMetadata},
+    utils::FeePayingType,
 };
 #[cfg(feature = "automation")]
 use bitcoin::Witness;
