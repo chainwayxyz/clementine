@@ -10,13 +10,14 @@ use crate::builder::transaction::{
 };
 use crate::citrea::mock::MockCitreaClient;
 use crate::citrea::{CitreaClient, CitreaClientT, SATS_TO_WEI_MULTIPLIER};
+use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::rpc::clementine::{
     FinalizedPayoutParams, KickoffId, NormalSignatureKind, TransactionRequest, WithdrawParams,
 };
 use crate::test::common::citrea::{get_citrea_safe_withdraw_params, SECRET_KEYS};
 use crate::test::common::tx_utils::{
-    create_tx_sender, ensure_outpoint_spent,
+    confirm_fee_payer_utxos, create_tx_sender, ensure_outpoint_spent,
     ensure_outpoint_spent_while_waiting_for_light_client_sync, get_txid_where_utxo_is_spent,
     mine_once_after_outpoint_spent_in_mempool,
 };
@@ -429,12 +430,10 @@ impl TestCase for CitreaDepositAndWithdrawE2E {
             vout: UtxoVout::ReimburseInKickoff.get_vout(),
         };
 
-        // wait 3 seconds so fee payer txs are sent to mempool
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        // mine 1 block to make sure the fee payer txs are in the next block
-        rpc.mine_blocks(1).await.unwrap();
-
         // Wait for the kickoff tx to be onchain
+        confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
+            .await
+            .unwrap();
         let kickoff_block_height =
             mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300)).await?;
 
@@ -820,12 +819,10 @@ async fn mock_citrea_run_truthful() {
         vout: UtxoVout::ReimburseInKickoff.get_vout(),
     };
 
-    // wait 3 seconds so fee payer txs are sent to mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // mine 1 block to make sure the fee payer txs are in the next block
-    rpc.mine_blocks(1).await.unwrap();
-
     // Wait for the kickoff tx to be onchain
+    confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
+        .await
+        .unwrap();
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(300))
             .await
@@ -1073,6 +1070,12 @@ async fn mock_citrea_run_malicious() {
     )
     .await
     .unwrap();
+    let db = Database::new(&BridgeConfig {
+        db_name: config.db_name.clone() + "0",
+        ..config.clone()
+    })
+    .await
+    .expect("failed to create database");
 
     tracing::info!("Running deposit");
 
@@ -1186,12 +1189,10 @@ async fn mock_citrea_run_malicious() {
 
     tracing::info!("Kickoff txid: {:?}", kickoff_txid);
 
-    // wait 3 seconds so fee payer txs are sent to mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // mine 1 block to make sure the fee payer txs are in the next block
-    rpc.mine_blocks(1).await.unwrap();
-
     // Wait for the kickoff tx to be onchain
+    confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
+        .await
+        .unwrap();
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
@@ -1227,11 +1228,10 @@ async fn mock_citrea_run_malicious() {
         .into_inner()
         .try_into()
         .unwrap();
-    // wait 3 seconds so fee payer txs are sent to mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // mine 1 block to make sure the fee payer txs are in the next block
-    rpc.mine_blocks(1).await.unwrap();
 
+    confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid_2)
+        .await
+        .unwrap();
     let _kickoff_block_height2 =
         mine_once_after_in_mempool(&rpc, kickoff_txid_2, Some("Kickoff tx2"), Some(1800))
             .await
@@ -1286,6 +1286,12 @@ async fn mock_citrea_run_malicious_after_exit() {
     )
     .await
     .unwrap();
+    let db = Database::new(&BridgeConfig {
+        db_name: config.db_name.clone() + "0",
+        ..config.clone()
+    })
+    .await
+    .expect("failed to create database");
 
     tracing::info!("Running deposit");
 
@@ -1456,13 +1462,10 @@ async fn mock_citrea_run_malicious_after_exit() {
         .try_into()
         .unwrap();
 
-    // wait 3 seconds so fee payer txs are sent to mempool
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-
-    // mine 1 block to make sure the fee payer txs are in the next block
-    rpc.mine_blocks(1).await.unwrap();
-
     // Wait for the kickoff tx to be onchain
+    confirm_fee_payer_utxos(&rpc, db.clone(), kickoff_txid)
+        .await
+        .unwrap();
     let _kickoff_block_height =
         mine_once_after_in_mempool(&rpc, kickoff_txid, Some("Kickoff tx"), Some(1800))
             .await
