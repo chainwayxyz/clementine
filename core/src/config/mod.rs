@@ -13,8 +13,9 @@
 use crate::bitvm_client::UNSPENDABLE_XONLY_PUBKEY;
 use crate::builder::transaction::SecurityCouncil;
 use crate::errors::BridgeError;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::SecretKey;
-use bitcoin::Amount;
+use bitcoin::{Address, Amount, OutPoint};
 use protocol::ProtocolParamset;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -26,12 +27,42 @@ pub mod protocol;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestParams {
     pub should_run_state_manager: bool,
+    pub all_verifiers_secret_keys: Vec<SecretKey>,
+    pub all_operators_secret_keys: Vec<SecretKey>,
 }
 
 impl Default for TestParams {
     fn default() -> Self {
         Self {
             should_run_state_manager: true,
+            all_verifiers_secret_keys: vec![
+                SecretKey::from_str(
+                    "1111111111111111111111111111111111111111111111111111111111111111",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "2222222222222222222222222222222222222222222222222222222222222222",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "3333333333333333333333333333333333333333333333333333333333333333",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "4444444444444444444444444444444444444444444444444444444444444444",
+                )
+                .expect("known valid input"),
+            ],
+            all_operators_secret_keys: vec![
+                SecretKey::from_str(
+                    "1111111111111111111111111111111111111111111111111111111111111111",
+                )
+                .expect("known valid input"),
+                SecretKey::from_str(
+                    "2222222222222222222222222222222222222222222222222222222222222222",
+                )
+                .expect("known valid input"),
+            ],
         }
     }
 }
@@ -91,6 +122,12 @@ pub struct BridgeConfig {
     /// Operator endpoint. For the aggregator only
     pub operator_endpoints: Option<Vec<String>>,
 
+    /// Own operator's reimbursement address.
+    pub operator_reimbursement_address: Option<Address<NetworkUnchecked>>,
+
+    /// Own operator's collateral funding outpoint.
+    pub operator_collateral_funding_outpoint: Option<OutPoint>,
+
     // TLS certificates
     /// Path to the server certificate file.
     ///
@@ -125,11 +162,6 @@ pub struct BridgeConfig {
     ///
     /// Aggregator's client cert should be equal to the this certificate.
     pub aggregator_cert_path: PathBuf,
-
-    /// All Secret keys. Just for testing purposes.
-    pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
-    /// All Secret keys. Just for testing purposes.
-    pub all_operators_secret_keys: Option<Vec<SecretKey>>,
 
     #[cfg(test)]
     #[serde(skip)]
@@ -206,43 +238,15 @@ impl Default for BridgeConfig {
             citrea_chain_id: 5655,
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
 
-            header_chain_proof_path: Some(
-                PathBuf::from_str("../core/tests/data/first_1.bin").expect("known valid input"),
-            ),
+            header_chain_proof_path: None,
+
+            operator_reimbursement_address: None,
+            operator_collateral_funding_outpoint: None,
 
             security_council: SecurityCouncil {
                 pks: vec![*UNSPENDABLE_XONLY_PUBKEY],
                 threshold: 1,
             },
-
-            all_verifiers_secret_keys: Some(vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "3333333333333333333333333333333333333333333333333333333333333333",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "4444444444444444444444444444444444444444444444444444444444444444",
-                )
-                .expect("known valid input"),
-            ]),
-            all_operators_secret_keys: Some(vec![
-                SecretKey::from_str(
-                    "1111111111111111111111111111111111111111111111111111111111111111",
-                )
-                .expect("known valid input"),
-                SecretKey::from_str(
-                    "2222222222222222222222222222222222222222222222222222222222222222",
-                )
-                .expect("known valid input"),
-            ]),
 
             winternitz_secret_key: Some(
                 SecretKey::from_str(

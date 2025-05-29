@@ -78,6 +78,7 @@ impl Database {
     pub async fn fetch_and_save_missing_blocks(
         &self,
         rpc: &ExtendedRpc,
+        genesis_height: u32,
         until_height: u32,
     ) -> Result<(), BridgeError> {
         if until_height == 0 {
@@ -91,7 +92,7 @@ impl Database {
             }
         } else {
             tracing::debug!("Saving blocks from start until {}", until_height);
-            self.save_block_infos_within_range(rpc, 0, until_height - 1)
+            self.save_block_infos_within_range(rpc, genesis_height, until_height - 1)
                 .await?;
         }
         Ok(())

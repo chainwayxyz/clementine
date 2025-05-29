@@ -548,6 +548,7 @@ pub async fn create_txhandlers(
         move_txid,
         round_txid,
         vout,
+        context.paramset.genesis_chain_state_hash,
     );
 
     let payout_tx_blockhash_pk = kickoff_winternitz_keys.get_keys_for_round(round_idx as usize)
@@ -919,7 +920,7 @@ mod tests {
         txs_operator_can_sign
             .extend((0..verifiers.len()).map(TransactionType::WatchtowerChallengeTimeout));
 
-        let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap();
+        let all_operators_secret_keys = &config.test_params.all_operators_secret_keys;
         let operator_xonly_pks: Vec<XOnlyPublicKey> = all_operators_secret_keys
             .iter()
             .map(|&sk| {
