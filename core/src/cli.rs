@@ -426,6 +426,7 @@ mod tests {
             "BRIDGE_CIRCUIT_METHOD_ID_CONSTANT",
             "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
         );
+        env::set_var("BRIDGE_NON_STANDARD", "false");
     }
 
     // Helper to clean up all environment variables

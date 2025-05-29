@@ -1,4 +1,5 @@
 use crate::config::env::read_string_from_env_then_parse;
+use crate::constants::{MIN_TAPROOT_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
 use crate::errors::BridgeError;
 use bitcoin::{Amount, Network};
 use eyre::Context;
@@ -122,6 +123,8 @@ pub struct ProtocolParamset {
     pub header_chain_proof_batch_size: u32,
     /// Bridge circuit method id
     pub bridge_circuit_method_id_constant: [u8; 32],
+    /// Denotes if the bridge is non-standard, i.e. uses 0 sat outputs
+    pub bridge_non_standard: bool,
 }
 
 impl ProtocolParamset {
@@ -195,9 +198,26 @@ impl ProtocolParamset {
             bridge_circuit_method_id_constant: convert_hex_string_to_bytes(
                 &read_string_from_env_then_parse::<String>("BRIDGE_CIRCUIT_METHOD_ID_CONSTANT")?,
             )?,
+            bridge_non_standard: read_string_from_env_then_parse::<bool>("BRIDGE_NON_STANDARD")?,
         };
 
         Ok(config)
+    }
+
+    pub fn default_utxo_amount(&self) -> Amount {
+        if self.bridge_non_standard {
+            Amount::from_sat(0)
+        } else {
+            MIN_TAPROOT_AMOUNT
+        }
+    }
+
+    pub fn default_anchor_amount(&self) -> Amount {
+        if self.bridge_non_standard {
+            Amount::from_sat(0)
+        } else {
+            NON_EPHEMERAL_ANCHOR_AMOUNT
+        }
     }
 }
 
@@ -247,4 +267,5 @@ pub const REGTEST_PARAMSET: ProtocolParamset = ProtocolParamset {
     start_height: 190,
     header_chain_proof_batch_size: 100,
     bridge_circuit_method_id_constant: [255u8; 32],
+    bridge_non_standard: true,
 };

@@ -900,6 +900,7 @@ where
                 &current_round_txhandler,
                 &unspent_kickoff_connector_indices,
                 &self.signer.address,
+                self.config.protocol_paramset(),
             )?;
 
         // sign burn unused kickoff connectors tx

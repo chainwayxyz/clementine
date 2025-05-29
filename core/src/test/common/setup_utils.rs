@@ -121,7 +121,7 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
     }
     // Bitcoin node configuration
     // Construct args for bitcoind
-    let args = vec![
+    let mut args = vec![
         "-regtest".to_string(),
         format!("-datadir={}", data_dir.display()),
         "-listen=0".to_string(),
@@ -133,11 +133,14 @@ pub async fn create_regtest_rpc(config: &mut BridgeConfig) -> WithProcessCleanup
         "-fallbackfee=0.00001".to_string(),
         "-rpcallowip=0.0.0.0/0".to_string(),
         "-maxtxfee=5".to_string(),
-        "-dustrelayfee=0".to_string(),  // Accept outputs of any size
-        "-minrelaytxfee=0".to_string(), // Relay transactions with zero fees
-        "-mintxfee=0".to_string(),      // Allow wallet to create zero-fee transactions
-        "-blockmintxfee=0".to_string(), // Allow mining of zero-fee transactions
     ];
+
+    if config.protocol_paramset().bridge_non_standard {
+        args.push("-dustrelayfee=0".to_string());
+        args.push("-minrelaytxfee=0".to_string());
+        args.push("-mintxfee=0".to_string());
+        args.push("-blockmintxfee=0".to_string());
+    }
 
     // Create log file in temp directory
     let log_file = data_dir.join("debug.log");

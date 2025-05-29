@@ -12,7 +12,7 @@ use crate::builder::transaction::operator_collateral::*;
 use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::{ANCHOR_AMOUNT, NON_EPHEMERAL_ANCHOR_AMOUNT};
+use crate::constants::NON_EPHEMERAL_ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::rpc::clementine::grpc_transaction_id;
@@ -548,9 +548,9 @@ pub fn anyone_can_spend_txout() -> TxOut {
 }
 
 /// Creates a P2A output for CPFP.
-pub fn anchor_output() -> TxOut {
+pub fn anchor_output(amount: Amount) -> TxOut {
     TxOut {
-        value: ANCHOR_AMOUNT,
+        value: amount,
         script_pubkey: ScriptBuf::from_hex("51024e73").expect("statically valid script"),
     }
 }
@@ -653,12 +653,14 @@ pub fn create_move_to_vault_txhandler(
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount - ANCHOR_AMOUNT,
+            paramset.bridge_amount - paramset.default_anchor_amount(),
             vec![nofn_script, security_council_script],
             None,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        .add_output(UnspentTxOut::from_partial(anchor_output(
+            paramset.default_anchor_amount(),
+        )))
         .finalize())
 }
 
@@ -682,7 +684,9 @@ pub fn create_emergency_stop_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            paramset.bridge_amount - ANCHOR_AMOUNT - EACH_EMERGENCY_STOP_VBYTES * 3,
+            paramset.bridge_amount
+                - paramset.default_anchor_amount()
+                - EACH_EMERGENCY_STOP_VBYTES * 3,
             vec![Arc::new(Multisig::from_security_council(security_council))],
             None,
             paramset.network,
@@ -698,6 +702,7 @@ pub fn create_emergency_stop_txhandler(
 pub fn combine_emergency_stop_txhandler(
     txs: Vec<(Txid, Transaction)>,
     add_anchor: bool,
+    paramset: &'static ProtocolParamset,
 ) -> Transaction {
     let (inputs, mut outputs): (Vec<TxIn>, Vec<TxOut>) = txs
         .into_iter()
@@ -705,7 +710,7 @@ pub fn combine_emergency_stop_txhandler(
         .unzip();
 
     if add_anchor {
-        outputs.push(anchor_output());
+        outputs.push(anchor_output(paramset.default_anchor_amount()));
     }
 
     Transaction {
@@ -734,7 +739,7 @@ pub fn create_replacement_deposit_txhandler(
                     txid: old_move_txid,
                     vout: 0,
                 },
-                paramset.bridge_amount - ANCHOR_AMOUNT,
+                paramset.bridge_amount - paramset.default_anchor_amount(),
                 vec![
                     Arc::new(CheckSig::new(nofn_xonly_pk)),
                     Arc::new(Multisig::from_security_council(security_council.clone())),
@@ -754,7 +759,9 @@ pub fn create_replacement_deposit_txhandler(
             None,
             paramset.network,
         ))
-        .add_output(UnspentTxOut::from_partial(anchor_output())))
+        .add_output(UnspentTxOut::from_partial(anchor_output(
+            paramset.default_anchor_amount(),
+        ))))
 }
 
 pub fn create_disprove_taproot_output(

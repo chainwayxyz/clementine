@@ -28,7 +28,9 @@ pub fn create_disprove_timeout_txhandler(
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        .add_output(UnspentTxOut::from_partial(anchor_output(
+            paramset.default_anchor_amount(),
+        )))
         .finalize())
 }
 
@@ -58,7 +60,9 @@ pub fn create_latest_blockhash_timeout_txhandler(
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
-            .add_output(UnspentTxOut::from_partial(anchor_output()))
+            .add_output(UnspentTxOut::from_partial(anchor_output(
+                paramset.default_anchor_amount(),
+            )))
             .finalize(),
     )
 }
@@ -66,6 +70,7 @@ pub fn create_latest_blockhash_timeout_txhandler(
 pub fn create_mini_asserts(
     kickoff_txhandler: &TxHandler,
     num_asserts: usize,
+    paramset: &'static ProtocolParamset,
 ) -> Result<Vec<TxHandler>, BridgeError> {
     let mut txhandlers = Vec::new();
     for idx in 0..num_asserts {
@@ -79,7 +84,7 @@ pub fn create_mini_asserts(
                     DEFAULT_SEQUENCE,
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(),
+                    builder::transaction::anchor_output(paramset.default_anchor_amount()),
                 ))
                 .add_output(UnspentTxOut::from_partial(op_return_txout(b"")))
                 .finalize(),
@@ -90,6 +95,7 @@ pub fn create_mini_asserts(
 
 pub fn create_latest_blockhash_txhandler(
     kickoff_txhandler: &TxHandler,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::LatestBlockhash)
         .with_version(Version::non_standard(3))
@@ -99,7 +105,9 @@ pub fn create_latest_blockhash_txhandler(
             SpendPath::ScriptSpend(1),
             DEFAULT_SEQUENCE,
         )
-        .add_output(UnspentTxOut::from_partial(anchor_output()))
+        .add_output(UnspentTxOut::from_partial(anchor_output(
+            paramset.default_anchor_amount(),
+        )))
         .add_output(UnspentTxOut::from_partial(op_return_txout(b"")))
         .finalize())
 }

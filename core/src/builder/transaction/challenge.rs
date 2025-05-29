@@ -107,7 +107,7 @@ pub fn create_watchtower_challenge_timeout_txhandler(
                 Sequence::from_height(paramset.watchtower_challenge_timeout_timelock),
             )
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
+                builder::transaction::anchor_output(paramset.default_anchor_amount()),
             ))
             .finalize(),
     )
@@ -155,7 +155,7 @@ pub fn create_operator_challenge_nack_txhandler(
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
+                builder::transaction::anchor_output(paramset.default_anchor_amount()),
             ))
             .finalize(),
     )
@@ -168,7 +168,7 @@ pub fn create_operator_challenge_nack_txhandler(
 pub fn create_operator_challenge_ack_txhandler(
     kickoff_txhandler: &TxHandler,
     watchtower_idx: usize,
-    _paramset: &'static ProtocolParamset,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(
         TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
@@ -181,7 +181,7 @@ pub fn create_operator_challenge_ack_txhandler(
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(
-                builder::transaction::anchor_output(),
+                builder::transaction::anchor_output(paramset.default_anchor_amount()),
             ))
             .add_output(UnspentTxOut::from_partial(op_return_txout(b"PADDING")))
             .finalize(),
@@ -194,6 +194,7 @@ pub fn create_operator_challenge_ack_txhandler(
 pub fn create_disprove_txhandler(
     kickoff_txhandler: &TxHandler,
     round_txhandler: &TxHandler,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new(TransactionType::Disprove)
         .add_input(
@@ -209,7 +210,7 @@ pub fn create_disprove_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.default_anchor_amount()),
         ))
         .finalize())
 }
@@ -259,7 +260,7 @@ pub fn create_challenge_timeout_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.default_anchor_amount()),
         ))
         .finalize())
 }

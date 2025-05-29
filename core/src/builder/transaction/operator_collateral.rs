@@ -21,7 +21,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::config::protocol::ProtocolParamset;
-use crate::constants::{DEFAULT_UTXO_AMOUNT, MIN_TAPROOT_AMOUNT};
+use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NumberedSignatureKind;
 use bitcoin::Sequence;
@@ -92,9 +92,9 @@ pub fn create_round_txhandler(
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
         input_amount
-            - (paramset.kickoff_amount + DEFAULT_UTXO_AMOUNT)
+            - (paramset.kickoff_amount + paramset.default_utxo_amount())
                 * (paramset.num_kickoffs_per_round as u64)
-            - ANCHOR_AMOUNT,
+            - paramset.default_anchor_amount(),
         vec![],
         Some(operator_xonly_pk),
         paramset.network,
@@ -117,7 +117,7 @@ pub fn create_round_txhandler(
     // Create reimburse utxos
     for _ in 0..paramset.num_kickoffs_per_round {
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            DEFAULT_UTXO_AMOUNT,
+            paramset.default_utxo_amount(),
             vec![],
             Some(operator_xonly_pk),
             paramset.network,
@@ -125,7 +125,7 @@ pub fn create_round_txhandler(
     }
     Ok(builder
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.default_anchor_amount()),
         ))
         .finalize())
 }
@@ -163,7 +163,7 @@ pub fn create_assert_timeout_txhandlers(
                     DEFAULT_SEQUENCE,
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(),
+                    builder::transaction::anchor_output(paramset.default_anchor_amount()),
                 ))
                 .finalize(),
         );
@@ -221,13 +221,13 @@ pub fn create_ready_to_reimburse_txhandler(
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_scripts(
-            prev_value - ANCHOR_AMOUNT,
+            prev_value - paramset.default_anchor_amount(),
             vec![],
             Some(operator_xonly_pk),
             paramset.network,
         ))
         .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
+            builder::transaction::anchor_output(paramset.default_anchor_amount()),
         ))
         .finalize())
 }
@@ -255,7 +255,7 @@ pub fn create_unspent_kickoff_txhandlers(
                     Sequence::from_height(1),
                 )
                 .add_output(UnspentTxOut::from_partial(
-                    builder::transaction::anchor_output(),
+                    builder::transaction::anchor_output(paramset.default_anchor_amount()),
                 ))
                 .finalize(),
         );
@@ -267,6 +267,7 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
     round_txhandler: &TxHandler,
     unused_kickoff_connectors_indices: &[usize], // indices of the kickoff connectors that are not used, 0 indexed, 0 => first kickoff connector
     change_address: &Address,
+    paramset: &'static ProtocolParamset,
 ) -> Result<TxHandler, BridgeError> {
     let mut tx_handler_builder =
         TxHandlerBuilder::new(TransactionType::BurnUnusedKickoffConnectors)
@@ -279,7 +280,7 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
             Sequence::from_height(1),
         );
     }
-    if DEFAULT_UTXO_AMOUNT.to_sat() > 0 {
+    if !paramset.bridge_non_standard {
         // if we use standard tx's, kickoff utxo's will hold some sats so we can return the change to the change address
         // but if weuse nonstandard tx's with 0 sat values then the change is 0 anyway, no need to add an output
         tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(TxOut {
@@ -288,7 +289,7 @@ pub fn create_burn_unused_kickoff_connectors_txhandler(
         }));
     }
     tx_handler_builder = tx_handler_builder.add_output(UnspentTxOut::from_partial(
-        builder::transaction::anchor_output(),
+        builder::transaction::anchor_output(paramset.default_anchor_amount()),
     ));
     Ok(tx_handler_builder.finalize())
 }

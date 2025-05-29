@@ -139,7 +139,7 @@ impl TxSender {
             .iter()
             .map(|utxo| utxo.get_prevout().value)
             .sum::<Amount>()
-            + builder::transaction::anchor_output().value; // We add the anchor output value to the total amount.
+            + builder::transaction::anchor_output(self.paramset.default_anchor_amount()).value; // We add the anchor output value to the total amount.
 
         if change_address.script_pubkey().minimal_non_dust() + required_fee > total_fee_payer_amount
         {
@@ -150,7 +150,10 @@ impl TxSender {
             .with_version(Version::non_standard(3))
             .add_input(
                 NormalSignatureKind::OperatorSighashDefault,
-                SpendableTxIn::new_partial(p2a_anchor, builder::transaction::anchor_output()),
+                SpendableTxIn::new_partial(
+                    p2a_anchor,
+                    builder::transaction::anchor_output(self.paramset.default_anchor_amount()),
+                ),
                 SpendPath::Unknown,
                 DEFAULT_SEQUENCE,
             );
