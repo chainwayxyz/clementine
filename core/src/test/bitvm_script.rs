@@ -15,29 +15,29 @@ mod tests {
     pub const BRIDGE_CIRCUIT_BITVM_TEST_INPUTS: BridgeCircuitBitvmInputs =
         BridgeCircuitBitvmInputs {
             payout_tx_block_hash: [
-                203, 228, 88, 12, 216, 97, 185, 239, 128, 152, 124, 141, 167, 201, 168, 8, 0, 0, 0,
-                0,
+                171, 145, 219, 174, 239, 44, 95, 81, 182, 77, 233, 148, 175, 177, 146, 161, 119,
+                61, 44, 98,
             ],
             latest_block_hash: [
-                56, 162, 176, 248, 13, 89, 137, 198, 242, 67, 23, 133, 118, 44, 44, 95, 0, 0, 0, 0,
+                18, 6, 170, 190, 86, 52, 47, 93, 55, 8, 204, 59, 237, 40, 246, 254, 168, 183, 8,
+                111,
             ],
             challenge_sending_watchtowers: [
-                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             ],
             deposit_constant: [
-                37, 47, 185, 136, 126, 150, 172, 40, 151, 42, 128, 95, 138, 252, 123, 223, 207,
-                159, 236, 75, 130, 199, 185, 134, 121, 57, 224, 31, 253, 85, 77, 236,
+                33, 89, 238, 181, 40, 137, 174, 16, 33, 60, 154, 141, 145, 173, 28, 218, 8, 235,
+                65, 88, 190, 165, 233, 68, 142, 1, 26, 31, 141, 101, 180, 40,
             ],
             combined_method_id: [
-                161, 214, 106, 178, 1, 195, 45, 129, 234, 4, 124, 64, 43, 81, 166, 51, 185, 111,
-                172, 129, 211, 127, 207, 223, 13, 108, 142, 45, 246, 110, 108, 230,
+                161, 224, 123, 224, 161, 79, 5, 157, 211, 176, 198, 123, 128, 173, 148, 114, 197,
+                152, 64, 188, 185, 37, 45, 158, 225, 162, 241, 192, 225, 240, 16, 113,
             ],
         };
 
     pub const TEST_GROTH16_PUBLIC_INPUT: [u8; 32] = [
-        45, 127, 183, 188, 75, 116, 238, 55, 241, 232, 147, 13, 135, 30, 226, 96, 10, 48, 9, 91,
-        249, 188, 153, 6, 233, 73, 155, 178, 190, 156, 247,
-        78, // 78 is correct value trimmed in Groth16 public input
+        0, 203, 5, 31, 138, 117, 119, 62, 52, 255, 223, 38, 213, 32, 143, 9, 191, 212, 207, 152,
+        21, 182, 225, 177, 179, 58, 105, 29, 64, 114, 229, 184,
     ];
 
     type BitvmTestEnv = (
@@ -123,10 +123,6 @@ mod tests {
             &groth16_public_input_wsk,
             TEST_GROTH16_PUBLIC_INPUT.as_ref(),
         );
-        println!(
-            "Groth16 public input witness: {:?}",
-            groth16_public_input_witness
-        );
 
         let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
             &payout_tx_block_hash_params,
@@ -208,7 +204,7 @@ mod tests {
         );
 
         let mut dummy_challenge_preimages_final: [Option<[u8; 20]>; 160] = [None; 160];
-        dummy_challenge_preimages_final[1] = [31u8; 20].into();
+        dummy_challenge_preimages_final[5] = [31u8; 20].into();
 
         let resulting_witness = validate_assertions_for_additional_script(
             script,
