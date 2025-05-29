@@ -269,12 +269,8 @@ impl TxSender {
     }
 
     fn is_p2a_anchor(&self, output: &TxOut) -> bool {
-        (output.value == builder::transaction::anchor_output(self.paramset.anchor_amount()).value
-            && output.script_pubkey
-                == builder::transaction::anchor_output(self.paramset.anchor_amount()).script_pubkey)
-            || (output.value == builder::transaction::non_ephemeral_anchor_output().value
-                && output.script_pubkey
-                    == builder::transaction::non_ephemeral_anchor_output().script_pubkey)
+        output.script_pubkey
+            == builder::transaction::anchor_output(self.paramset.anchor_amount()).script_pubkey
     }
 
     fn find_p2a_vout(&self, tx: &Transaction) -> Result<usize> {
