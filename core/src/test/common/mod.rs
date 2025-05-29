@@ -508,6 +508,7 @@ fn sign_nofn_deposit_tx(
     tx
 }
 
+#[cfg(feature = "automation")]
 pub async fn run_replacement_deposit(
     config: &mut BridgeConfig,
     rpc: ExtendedRpc,
