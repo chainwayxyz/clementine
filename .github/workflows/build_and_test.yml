@@ -6,7 +6,7 @@ env:
   CARGO_TERM_COLOR: always
   AUTOMATION_ARGS: --features automation
   CARGOFLAGS: --workspace --all-targets
-  CARGOFLAGS_AUTOMATION: --workspace --all-targets $AUTOMATION_ARGS
+  CARGOFLAGS_AUTOMATION: --workspace --all-targets --features automation
   RUST_LOG: warn,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
   ENABLE_HEADER_CHAIN_PROVER: 1
@@ -34,7 +34,7 @@ jobs:
         run: cargo build $CARGOFLAGS_AUTOMATION --verbose
 
   release_build_automation:
-    name: Compile code with release profile with automation enabled (State Manager & TxSender)
+    name: Compile code with release profile (Automation enabled)
     runs-on: ubicloud-standard-30
 
     steps:
@@ -53,7 +53,7 @@ jobs:
         run: cargo build $CARGOFLAGS_AUTOMATION --verbose --release
 
   release_build_non_automation:
-    name: Compile code with release profile (No features)
+    name: Compile code with release profile (Automation disabled)
     runs-on: ubicloud-standard-30
 
     steps:
@@ -73,7 +73,7 @@ jobs:
 
   # Tests ------------------------------------------------------------------------
   debug_build_test_automation:
-    name: Test code with debug build
+    name: Test code with debug build (Automation enabled)
     runs-on: ubicloud-standard-30
     needs: debug_build_automation
 
@@ -110,7 +110,7 @@ jobs:
         run: cargo test $AUTOMATION_ARGS
 
   release_build_test_automation:
-    name: Test code with release build
+    name: Test code with release build (Automation enabled)
     runs-on: ubicloud-standard-30
     needs: release_build_automation
 
