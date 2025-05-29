@@ -1,7 +1,8 @@
 //! # Address Builder
 //!
-//! Address builder provides useful functions for building typical Bitcoin
-//! addresses.
+//! Contains helper functions to create taproot addresses.
+//! Contains helper functions to create correct deposit addresses. Addresses need to be of a specific format to be
+//! valid deposit addresses.
 
 use super::script::{
     BaseDepositScript, CheckSig, Multisig, ReplacementDepositScript, SpendableScript,
