@@ -13,6 +13,7 @@ use crate::database::Database;
 use crate::extended_rpc::ExtendedRpc;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::rpc::clementine::SendMoveTxRequest;
 use crate::rpc::clementine::{
     Deposit, Empty, FinalizedPayoutParams, SignedTxsWithType, TransactionRequest,
 };
@@ -95,7 +96,7 @@ async fn base_setup(
     tracing::info!("Deposit transaction mined: {}", deposit_outpoint);
 
     let deposit_info = DepositInfo {
-        deposit_outpoint,
+        deposit_outpoint: deposit_outpoint.clone(),
         deposit_type: DepositType::BaseDeposit(BaseDepositData {
             evm_address,
             recovery_taproot_address: recovery_taproot_address.as_unchecked().to_owned(),
@@ -106,9 +107,17 @@ async fn base_setup(
 
     tracing::info!("Creating move transaction");
     let raw_move_tx = aggregator.new_deposit(dep_params).await?.into_inner();
-    let move_tx: Transaction = raw_move_tx.try_into().unwrap();
-    let move_txid: Txid = move_tx.compute_txid();
-    rpc.client.send_raw_transaction(&move_tx).await?;
+
+    let move_txid: Txid = aggregator
+        .send_move_to_vault_tx(Request::new(SendMoveTxRequest {
+            raw_tx: Some(raw_move_tx),
+            deposit_outpoint: Some(deposit_outpoint.into()),
+        }))
+        .await?
+        .into_inner()
+        .try_into()
+        .unwrap();
+
     ensure_tx_onchain(rpc, move_txid).await?;
     tracing::info!("Move transaction sent: {:x?}", move_txid);
     let op0_xonly_pk = Actor::new(
