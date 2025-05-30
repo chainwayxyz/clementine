@@ -279,4 +279,124 @@ mod tests {
             "The script should be spendable by invalid latest block hash"
         );
     }
+
+    #[test]
+    fn spendable_by_invalid_payout_block_hash() {
+        let (
+            script,
+            groth16_public_input_params,
+            payout_tx_block_hash_params,
+            latest_block_hash_params,
+            challenge_sending_watchtowers_params,
+            groth16_public_input_wsk,
+            payout_tx_block_hash_wsk,
+            latest_block_hash_wsk,
+            challenge_sending_watchtowers_wsk,
+        ) = setup_bitvm_test_environment(160);
+
+        // Sign the winternitz messages
+        let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &groth16_public_input_params,
+            &groth16_public_input_wsk,
+            &TEST_GROTH16_PUBLIC_INPUT,
+        );
+
+        let mut payout_tx_block_hash = BRIDGE_CIRCUIT_BITVM_TEST_INPUTS
+            .payout_tx_block_hash
+            .to_vec();
+        payout_tx_block_hash[0] = 0;
+
+        let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &payout_tx_block_hash_params,
+            &payout_tx_block_hash_wsk,
+            &payout_tx_block_hash,
+        );
+
+        let latest_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &latest_block_hash_params,
+            &latest_block_hash_wsk,
+            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.latest_block_hash,
+        );
+
+        let challenge_sending_watchtowers_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &challenge_sending_watchtowers_params,
+            &challenge_sending_watchtowers_wsk,
+            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.challenge_sending_watchtowers,
+        );
+
+        let dummy_challenge_preimages_final: [Option<[u8; 20]>; 160] = [None; 160];
+
+        let resulting_witness = validate_assertions_for_additional_script(
+            script,
+            groth16_public_input_witness,
+            payout_tx_block_hash_witness,
+            latest_block_hash_witness,
+            challenge_sending_watchtowers_witness,
+            dummy_challenge_preimages_final.to_vec(),
+        );
+
+        assert!(
+            resulting_witness.is_some(),
+            "The script should be spendable by invalid payout tx block hash"
+        );
+    }
+
+    #[test]
+    fn spendable_by_invalid_g16_public_input() {
+        let (
+            script,
+            groth16_public_input_params,
+            payout_tx_block_hash_params,
+            latest_block_hash_params,
+            challenge_sending_watchtowers_params,
+            groth16_public_input_wsk,
+            payout_tx_block_hash_wsk,
+            latest_block_hash_wsk,
+            challenge_sending_watchtowers_wsk,
+        ) = setup_bitvm_test_environment(160);
+
+        let mut g16_public_input = BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.latest_block_hash.to_vec();
+        g16_public_input[1] = 0;
+
+        // Sign the winternitz messages
+        let groth16_public_input_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &groth16_public_input_params,
+            &groth16_public_input_wsk,
+            &g16_public_input,
+        );
+
+        let payout_tx_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &payout_tx_block_hash_params,
+            &payout_tx_block_hash_wsk,
+            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.payout_tx_block_hash,
+        );
+
+        let latest_block_hash_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &latest_block_hash_params,
+            &latest_block_hash_wsk,
+            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.latest_block_hash,
+        );
+
+        let challenge_sending_watchtowers_witness = WINTERNITZ_MESSAGE_VERIFIER.sign(
+            &challenge_sending_watchtowers_params,
+            &challenge_sending_watchtowers_wsk,
+            &BRIDGE_CIRCUIT_BITVM_TEST_INPUTS.challenge_sending_watchtowers,
+        );
+
+        let dummy_challenge_preimages_final: [Option<[u8; 20]>; 160] = [None; 160];
+
+        let resulting_witness = validate_assertions_for_additional_script(
+            script,
+            groth16_public_input_witness,
+            payout_tx_block_hash_witness,
+            latest_block_hash_witness,
+            challenge_sending_watchtowers_witness,
+            dummy_challenge_preimages_final.to_vec(),
+        );
+
+        assert!(
+            resulting_witness.is_some(),
+            "The script should be spendable by invalid g16 public input"
+        );
+    }
 }

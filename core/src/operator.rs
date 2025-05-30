@@ -12,7 +12,7 @@ use crate::builder::sighash::{create_operator_sighash_stream, PartialSignatureIn
 use crate::builder::transaction::deposit_signature_owner::EntityType;
 use crate::builder::transaction::sign::{create_and_sign_txs, TransactionRequestData};
 use crate::builder::transaction::{
-    create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
+    challenge, create_burn_unused_kickoff_connectors_txhandler, create_round_nth_txhandler,
     create_round_txhandlers, create_txhandlers, ContractContext, DepositData, KickoffData,
     KickoffWinternitzKeys, OperatorData, ReimburseDbCache, TransactionType, TxHandler,
     TxHandlerCache,
@@ -771,16 +771,27 @@ where
             kickoff_data,
         };
 
+        let payout_tx_blockhash: [u8; 20] = payout_tx_blockhash.as_byte_array()[12..]
+            .try_into()
+            .expect("length statically known");
+
+        #[cfg(test)]
+        let mut payout_tx_blockhash = payout_tx_blockhash;
+
+        #[cfg(test)]
+        {
+            if self.config.test_params.disrupt_payout_tx_block_hash_commit {
+                tracing::info!("Disrupting latest blockhash for testing purposes",);
+                payout_tx_blockhash[19] ^= 0x01;
+            }
+        }
+
         let signed_txs = create_and_sign_txs(
             self.db.clone(),
             &self.signer,
             self.config.clone(),
             transaction_data,
-            Some(
-                payout_tx_blockhash.as_byte_array()[12..] // TODO: Make a helper function for this
-                    .try_into()
-                    .expect("length statically known"),
-            ),
+            Some(payout_tx_blockhash),
         )
         .await?;
 
@@ -1181,7 +1192,7 @@ where
 
         #[cfg(test)]
         {
-            if self.config.test_params.disrupt_block_hash_commit {
+            if self.config.test_params.disrupt_latest_block_hash_commit {
                 tracing::info!("Correcting latest blockhash for testing purposes",);
                 latest_blockhash[19] ^= 0x01;
             }
@@ -1227,6 +1238,14 @@ where
             });
         }
 
+        #[cfg(test)]
+        {
+            if self.config.test_params.operator_forgot_watchtower_challenge {
+                tracing::info!("Disrupting watchtower challenges in send_asserts");
+                wt_contexts.pop();
+            }
+        }
+
         let watchtower_challenge_connector_start_idx =
             (FIRST_FIVE_OUTPUTS + NUMBER_OF_ASSERT_TXS) as u16;
 
@@ -1261,6 +1280,19 @@ where
             prove_bridge_circuit(bridge_circuit_host_params, bridge_circuit_elf);
         tracing::info!("Proved bridge circuit in send_asserts");
         let public_input_scalar = ark_bn254::Fr::from_be_bytes_mod_order(&g16_output);
+
+        #[cfg(test)]
+        {
+            if self
+                .config
+                .test_params
+                .disrupt_challenge_sending_watchtowers_commit
+            {
+                tracing::info!("Disrupting challenge sending watchtowers commit in send_asserts");
+                let mut public_inputs = public_inputs;
+                public_inputs.challenge_sending_watchtowers[0] ^= 0x01;
+            }
+        }
 
         let asserts = if cfg!(test) && is_dev_mode() {
             generate_assertions(

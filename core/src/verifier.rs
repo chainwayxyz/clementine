@@ -1862,7 +1862,7 @@ where
                     operator_acks_vec,
                 );
 
-                tracing::debug!(
+                tracing::warn!(
                     "Additional disprove witness: {:?}",
                     additional_disprove_witness
                 );
@@ -1917,7 +1917,7 @@ where
 
                     let disprove_tx = disprove_txhandler.get_cached_tx().clone();
 
-                    tracing::debug!("Disprove txid: {:?}", disprove_tx.compute_txid());
+                    tracing::warn!("Disprove txid: {:?}", disprove_tx.compute_txid());
 
                     tracing::info!(
                         "Disprove tx created for verifier {:?} with kickoff_data: {:?}, deposit_data: {:?}",
@@ -1992,6 +1992,16 @@ where
                         )
                         .await?;
                     dbtx.commit().await?;
+
+                    #[cfg(test)]
+                    {
+                        if self.config.test_params.disrupt_payout_tx_block_hash_commit {
+                            assert_eq!(
+                                challenged, true,
+                                "Disrupt payout tx block hash commit should result in a challenge"
+                            );
+                        }
+                    }
                 }
                 Ok(DutyResult::CheckIfKickoff { challenged })
             }
