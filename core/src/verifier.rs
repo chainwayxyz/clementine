@@ -84,12 +84,11 @@ where
         )
         .await?;
 
-        // TODO: Removing index causes to remove the index from the tx_sender handle as well
         let tx_sender = TxSender::new(
             verifier.signer.clone(),
             rpc.clone(),
             verifier.db.clone(),
-            "verifier_".to_string(),
+            format!("verifier_{}", verifier.signer.xonly_public_key),
             config.protocol_paramset().network,
         );
 
@@ -178,8 +177,8 @@ where
             sessions: HashMap::new(),
         };
 
-        // TODO: Removing index causes to remove the index from the tx_sender handle as well
-        let tx_sender = TxSenderClient::new(db.clone(), "verifier_".to_string());
+        let tx_sender =
+            TxSenderClient::new(db.clone(), format!("verifier_{}", signer.xonly_public_key));
 
         let header_chain_prover = if std::env::var("ENABLE_HEADER_CHAIN_PROVER").is_ok() {
             Some(HeaderChainProver::new(&config, rpc.clone()).await?)
